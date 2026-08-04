@@ -41,7 +41,15 @@ export function ToolCard({ toolCallId, toolName, args, summary }: ToolCardProps)
 	const status = entryStatus === "pending" ? "running" : entryStatus;
 	const isError = Boolean(entry?.isError);
 	const isPartial = status === "running";
-	const duration = entry ? durationBetween(entry.startTime, entry.endTime) : null;
+	// Live duration tick (VibeRenderer pattern): re-render every second while
+	// running so the badge keeps counting; stops on its own once the tool ends.
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!isPartial) return;
+		const timer = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(timer);
+	}, [isPartial]);
+	const duration = entry ? durationBetween(entry.startTime, isPartial ? now : entry.endTime) : null;
 	const Renderer = getToolRenderer(toolName);
 
 	const railColor =
