@@ -105,6 +105,8 @@ export const en: Record<string, string> = {
 	"sidebar.delete": "Delete session",
 	"sidebar.deleteConfirm": "Delete this session permanently?",
 	"sidebar.openFailed": "Could not open session",
+	"sidebar.openInNewWindow": "Open in new window",
+	"sidebar.parallelCap": "Parallel limit reached (10) — close a window first",
 	"sidebar.newFailed": "Could not start session",
 	"sidebar.deleteFailed": "Could not delete session",
 	"sidebar.abortHint": "Abort the active turn before starting a new session",

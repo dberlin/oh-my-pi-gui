@@ -99,10 +99,19 @@ export function ChatStream() {
 	});
 
 	// Pin to bottom whenever new content arrives and the user hasn't scrolled away.
+	// `rows.length` alone misses the growth the virtualizer renders inside a
+	// constant row count: the streaming row's text/thinking accumulate, and the
+	// final `message_end` swap keeps the count at one while its content lands.
+	// The delta-length selectors re-fire the effect so those also snap back to
+	// the bottom while pinned.
 	useEffect(() => {
 		if (!pinned) return;
+		// Read the delta lengths so biome sees them used; they are the trigger
+		// signal that re-fires this effect as the streaming row grows.
+		void streamingTextLen;
+		void streamingThinkingLen;
 		virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
-	}, [virtualizer, rows.length, pinned]);
+	}, [virtualizer, rows.length, pinned, streamingTextLen, streamingThinkingLen]);
 
 	const handleScroll = useCallback(() => {
 		const el = parentRef.current;

@@ -26,23 +26,53 @@ const DEFAULT_HEIGHT = 900;
 const MIN_WIDTH = 800;
 const MIN_HEIGHT = 600;
 
+export interface WindowRecord {
+	win: BrowserWindow;
+	/** Stable id for routing/logging; equals win.webContents.id. */
+	id: number;
+	cwd: string;
+	/**
+	 * Session to switch to once the renderer is up (set when a window is opened
+	 * for a specific session). The renderer pulls this on boot and performs the
+	 * switch itself (switch_session + hydrate), which avoids the race where the
+	 * main process switches before/after the renderer's boot hydration.
+	 */
+	pendingSessionPath?: string;
+}
+
+/**
+ * Spawn a window with its own sidecar (index.ts's pool-backed helper). Empty
+ * `cwd` falls back to resolveInitialCwd (lastProject → launch cwd), never a
+ * bare process.cwd() which is "/" for Finder-launched apps.
+ */
+export type SpawnWindow = (cwd?: string, pendingSessionPath?: string) => BrowserWindow | null;
+
 export class WindowManager {
-	#windows = new Set<BrowserWindow>();
+	#records = new Map<number, WindowRecord>();
 	#store: Store<StoreSchema>;
+	/** Fired when a window closes; index.ts uses it to release the window's sidecar. */
+	onWindowClosed: ((record: WindowRecord) => void) | null = null;
 
 	constructor() {
 		this.#store = new Store<StoreSchema>({ name: "window-state" });
 	}
 
-	createWindow(_cwd?: string): BrowserWindow {
+	createWindow(opts: { cwd?: string; pendingSessionPath?: string } = {}): BrowserWindow {
+		const cwd = opts.cwd ?? process.cwd();
 		const saved = this.#store.get("windowState", {
 			width: DEFAULT_WIDTH,
 			height: DEFAULT_HEIGHT,
 		});
 
+		// Cascade parallel windows: all windows share one persisted geometry, so
+		// offset each additional window by a fixed step or N windows stack exactly
+		// on top of each other and the user can't tell more than one opened.
+		const cascade = this.getAllWindows().length;
+		const offset = cascade * 28;
+
 		const win = new BrowserWindow({
-			x: saved.x,
-			y: saved.y,
+			x: saved.x !== undefined ? saved.x + offset : undefined,
+			y: saved.y !== undefined ? saved.y + offset : undefined,
 			width: saved.width,
 			height: saved.height,
 			minWidth: MIN_WIDTH,
@@ -77,22 +107,43 @@ export class WindowManager {
 			return { action: "deny" };
 		});
 
+		const record: WindowRecord = { win, id: win.webContents.id, cwd, pendingSessionPath: opts.pendingSessionPath };
+		this.#records.set(record.id, record);
+
 		// Persist state on close
 		win.on("close", () => {
 			this.#persistState(win);
 		});
 
 		win.on("closed", () => {
-			this.#windows.delete(win);
+			this.#records.delete(record.id);
+			this.onWindowClosed?.(record);
 		});
 
-		this.#windows.add(win);
 		return win;
 	}
 
+	recordFor(win: BrowserWindow): WindowRecord | undefined {
+		return this.#records.get(win.webContents.id);
+	}
+
+	/** Update a window's project dir (called when its sidecar switches project). */
+	setRecordCwd(win: BrowserWindow, cwd: string): void {
+		const record = this.#records.get(win.webContents.id);
+		if (record) record.cwd = cwd;
+	}
+
+	/** Read-and-clear the session a fresh window should switch to (one-shot). */
+	consumePendingSession(win: BrowserWindow): string | undefined {
+		const record = this.#records.get(win.webContents.id);
+		const path = record?.pendingSessionPath;
+		if (record) record.pendingSessionPath = undefined;
+		return path;
+	}
+
 	getMainWindow(): BrowserWindow | null {
-		for (const win of this.#windows) {
-			if (!win.isDestroyed()) return win;
+		for (const record of this.#records.values()) {
+			if (!record.win.isDestroyed()) return record.win;
 		}
 		return null;
 	}
@@ -103,12 +154,12 @@ export class WindowManager {
 	 */
 	getTargetWindow(): BrowserWindow | null {
 		const focused = BrowserWindow.getFocusedWindow();
-		if (focused && !focused.isDestroyed() && this.#windows.has(focused)) return focused;
+		if (focused && !focused.isDestroyed() && this.#records.has(focused.webContents.id)) return focused;
 		return this.getMainWindow();
 	}
 
 	getAllWindows(): BrowserWindow[] {
-		return [...this.#windows].filter(w => !w.isDestroyed());
+		return [...this.#records.values()].map(r => r.win).filter(w => !w.isDestroyed());
 	}
 
 	/**

@@ -488,9 +488,21 @@ export function useRpcEvents(): void {
 			if (payload.status === "ready") {
 				startHeartbeat();
 				// One-shot boot health check: verify the command loop is live.
-				void window.omp.rpc
-					.getState()
-					.then(res => {
+				void (async () => {
+					try {
+						// A window opened "in new window" for a specific session
+						// switches to it BEFORE hydrating, so the first transcript
+						// it pulls is the target session, not the fresh empty one.
+						const pending = await window.omp.sessions.consumePendingOpen();
+						if (pending) {
+							const sw = await window.omp.rpc.switchSession(pending);
+							if (!sw.success) {
+								useToastStore
+									.getState()
+									.push({ variant: "error", message: `Could not open session: ${sw.error}` });
+							}
+						}
+						const res = await window.omp.rpc.getState();
 						if (!res.success) {
 							useUiStore.getState().setSidecarError("Sidecar ready but not responding to commands");
 						} else {
@@ -498,10 +510,10 @@ export function useRpcEvents(): void {
 							void hydrateSession();
 							void window.omp.rpc.setSubagentSubscription("events");
 						}
-					})
-					.catch(() => {
+					} catch {
 						useUiStore.getState().setSidecarError("Sidecar health check failed — agent process may be stuck");
-					});
+					}
+				})();
 			} else if (payload.status === "error" || payload.status === "exited") {
 				stopHeartbeat();
 				useUiStore.getState().setSidecarError(payload.message ?? "Sidecar process failed");

@@ -117,6 +117,10 @@ export const IPC_COMMANDS = {
 	FS_READ: "fs:read",
 	/** Read the plan-mode document off the RPC bus (with session-local fallback) */
 	FS_READ_PLAN: "fs:read-plan",
+	/** Open a session (or a fresh window) in a new parallel window with its own sidecar */
+	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
+	/** Fresh window pulls the session it was opened for (one-shot) */
+	SESSION_CONSUME_PENDING: "session:consume-pending",
 } as const;
 
 export type MenuAction =
@@ -346,6 +350,16 @@ export interface IpcFsReadPlanResult {
 // Session Index Types
 // ============================================================================
 
+/**
+ * Open a session (or a fresh project window) in a new parallel window.
+ * `sessionPath` opens that specific session; `cwd` chooses the project for a
+ * fresh window. Both optional — omit both for a fresh window in the caller's cwd.
+ */
+export interface IpcSessionOpenNewWindowPayload {
+	sessionPath?: string;
+	cwd?: string;
+}
+
 export interface SessionInfo {
 	path: string;
 	id: string;
@@ -366,7 +380,7 @@ export interface SessionInfo {
 
 export interface OmpApi {
 	rpc: {
-		command(cmd: RpcCommand): Promise<RpcResponse>;
+		command(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
 		getState(): Promise<RpcResponse>;
 		prompt(message: string, images?: ImageContent[]): Promise<RpcResponse>;
 		steer(message: string, images?: ImageContent[]): Promise<RpcResponse>;
@@ -486,6 +500,10 @@ export interface OmpApi {
 		list(scope: "local" | "global"): Promise<SessionInfo[]>;
 		delete(sessionPath: string): Promise<void>;
 		search(query: string, scope: "local" | "global"): Promise<string[]>;
+		/** Open a session (or a fresh project window) in a new parallel window. False at the cap. */
+		openInNewWindow(payload: IpcSessionOpenNewWindowPayload): Promise<boolean>;
+		/** One-shot: the session this window was opened to display, if any. */
+		consumePendingOpen(): Promise<string | null>;
 	};
 	stats: {
 		fetch(path: string, params?: Record<string, string>): Promise<unknown>;

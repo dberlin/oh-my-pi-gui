@@ -77,21 +77,24 @@ export const useToolsStore = create<ToolsStore>()((set, get) => ({
 				case "message_update": {
 					const ame = event.assistantMessageEvent;
 					if (ame.type === "toolcall_delta") {
+						// The wire shape is `{contentIndex, delta, partial}` (pi-ai):
+						// `partial` is the full streamed message so far and its
+						// content[contentIndex] toolCall block carries the final
+						// tool-call id from the very first delta.
+						const block = Array.isArray(ame.partial?.content) ? ame.partial.content[ame.contentIndex] : null;
+						const id = block && block.type === "toolCall" ? block.id : null;
+						if (!id) break;
 						const map = writable();
-						const existing = map.get(ame.toolCallId);
+						const existing = map.get(id);
 						if (existing) {
-							map.set(ame.toolCallId, {
-								...existing,
-								toolName: ame.name ?? existing.toolName,
-								streamingArgs: existing.streamingArgs + (ame.argsDelta ?? ""),
-							});
+							map.set(id, { ...existing, streamingArgs: existing.streamingArgs + (ame.delta ?? "") });
 						} else {
-							map.set(ame.toolCallId, {
-								toolName: ame.name ?? "unknown",
+							map.set(id, {
+								toolName: block?.type === "toolCall" ? (block.name ?? "unknown") : "unknown",
 								args: {},
 								status: "pending",
 								partialResult: null,
-								streamingArgs: ame.argsDelta ?? "",
+								streamingArgs: ame.delta ?? "",
 								result: null,
 								isError: false,
 								startTime: Date.now(),

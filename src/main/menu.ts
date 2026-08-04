@@ -3,13 +3,23 @@
  */
 import { app, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { IPC_EVENTS, type MenuAction } from "../shared/ipc-types";
-import type { WindowManager } from "./window";
+import type { SpawnWindow, WindowManager } from "./window";
 
-function sendMenuAction(windowManager: WindowManager, action: MenuAction): void {
-	windowManager.getTargetWindow()?.webContents.send(IPC_EVENTS.MENU_ACTION, { action });
+function sendMenuAction(windowManager: WindowManager, spawnWindow: SpawnWindow, action: MenuAction): void {
+	const win = windowManager.getTargetWindow();
+	if (win) {
+		win.webContents.send(IPC_EVENTS.MENU_ACTION, { action });
+		return;
+	}
+	// No windows open (macOS keep-running): spawn one and deliver once its
+	// renderer is up, instead of dropping the action silently.
+	const created = spawnWindow();
+	created?.once("ready-to-show", () => {
+		if (!created.isDestroyed()) created.webContents.send(IPC_EVENTS.MENU_ACTION, { action });
+	});
 }
 
-export function createMenu(windowManager: WindowManager): void {
+export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindow): void {
 	const template: MenuItemConstructorOptions[] = [
 		...(process.platform === "darwin"
 			? [
@@ -20,7 +30,7 @@ export function createMenu(windowManager: WindowManager): void {
 							{
 								label: "Settings…",
 								accelerator: "CmdOrCtrl+,",
-								click: () => sendMenuAction(windowManager, "open-settings"),
+								click: () => sendMenuAction(windowManager, spawnWindow, "open-settings"),
 							},
 							{ type: "separator" as const },
 							{ role: "services" as const },
@@ -39,22 +49,29 @@ export function createMenu(windowManager: WindowManager): void {
 			submenu: [
 				{
 					label: "Open Project…",
-					// Shift-modified so the renderer's ⌃O (expand/collapse all tool
-					// cards) stays reachable on Win/Linux, where the native menu
-					// accelerator shadows the in-app shortcut.
-					accelerator: "CmdOrCtrl+Shift+O",
-					click: () => sendMenuAction(windowManager, "open-project"),
+					// No accelerator: ⌘⇧O is owned by the globalShortcut window
+					// toggle (index.ts). Registering it here too makes macOS fire
+					// both (dialog + hide) and Windows swallow the menu shortcut
+					// entirely. The menu item stays clickable.
+					click: () => sendMenuAction(windowManager, spawnWindow, "open-project"),
 				},
 				{ type: "separator" },
 				{
 					label: "New Session",
 					accelerator: "CmdOrCtrl+N",
-					click: () => sendMenuAction(windowManager, "new-session"),
+					click: () => sendMenuAction(windowManager, spawnWindow, "new-session"),
 				},
 				{
 					label: "New Window",
 					accelerator: "CmdOrCtrl+Shift+N",
-					click: () => windowManager.createWindow(),
+					click: () => {
+						// Open a parallel window in the target window's project (its
+						// sidecar keeps running untouched in the current window).
+						const cwd = windowManager.getTargetWindow()
+							? (windowManager.recordFor(windowManager.getTargetWindow()!)?.cwd ?? process.cwd())
+							: process.cwd();
+						spawnWindow(cwd);
+					},
 				},
 				...(process.platform === "darwin"
 					? []
@@ -63,7 +80,7 @@ export function createMenu(windowManager: WindowManager): void {
 							{
 								label: "Settings…",
 								accelerator: "CmdOrCtrl+,",
-								click: () => sendMenuAction(windowManager, "open-settings"),
+								click: () => sendMenuAction(windowManager, spawnWindow, "open-settings"),
 							},
 						]),
 				{ type: "separator" },
@@ -88,12 +105,12 @@ export function createMenu(windowManager: WindowManager): void {
 				{
 					label: "Toggle Sidebar",
 					accelerator: "CmdOrCtrl+B",
-					click: () => sendMenuAction(windowManager, "toggle-sidebar"),
+					click: () => sendMenuAction(windowManager, spawnWindow, "toggle-sidebar"),
 				},
 				{
 					label: "Toggle Panel",
 					accelerator: "CmdOrCtrl+J",
-					click: () => sendMenuAction(windowManager, "toggle-panel"),
+					click: () => sendMenuAction(windowManager, spawnWindow, "toggle-panel"),
 				},
 				{ type: "separator" },
 				{ role: "reload" },
@@ -113,11 +130,11 @@ export function createMenu(windowManager: WindowManager): void {
 				{
 					label: "Export HTML",
 					accelerator: "CmdOrCtrl+E",
-					click: () => sendMenuAction(windowManager, "export-html"),
+					click: () => sendMenuAction(windowManager, spawnWindow, "export-html"),
 				},
 				{
 					label: "Handoff",
-					click: () => sendMenuAction(windowManager, "handoff"),
+					click: () => sendMenuAction(windowManager, spawnWindow, "handoff"),
 				},
 			],
 		},

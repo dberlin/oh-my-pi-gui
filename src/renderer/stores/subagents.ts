@@ -12,7 +12,7 @@ export interface SubagentNode extends SubagentSnapshot {
 
 /** Structural read of the wire field until shared/rpc-types.ts declares it. */
 function parentSubagentIdFromFrame(frame: SubagentLifecycleFrame): string | undefined {
-	return (frame as SubagentLifecycleFrame & { parentSubagentId?: string }).parentSubagentId;
+	return (frame.payload as SubagentLifecycleFrame["payload"] & { parentSubagentId?: string }).parentSubagentId;
 }
 
 interface SubagentsStore {
@@ -31,41 +31,47 @@ export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
 
 		switch (frame.type) {
 			case "subagent_lifecycle": {
+				const p = frame.payload;
 				subagents = new Map(get().subagents);
-				const existing = subagents.get(frame.id);
-				subagents.set(frame.id, {
-					id: frame.id,
-					index: frame.index,
-					agent: frame.agent,
-					agentSource: frame.agentSource,
-					description: frame.description,
-					status: frame.status,
-					task: frame.task,
-					assignment: frame.assignment,
-					sessionFile: frame.sessionFile,
-					parentToolCallId: frame.parentToolCallId,
+				const existing = subagents.get(p.id);
+				subagents.set(p.id, {
+					id: p.id,
+					index: p.index,
+					agent: p.agent,
+					agentSource: p.agentSource,
+					description: p.description ?? existing?.description,
+					status: p.status,
+					task: p.task ?? existing?.task,
+					assignment: p.assignment ?? existing?.assignment,
+					sessionFile: p.sessionFile ?? existing?.sessionFile,
+					parentToolCallId: p.parentToolCallId ?? existing?.parentToolCallId,
 					// ?? existing: follow-up frames that lack the field keep the spawn-time value.
 					parentSubagentId: parentSubagentIdFromFrame(frame) ?? existing?.parentSubagentId,
 				});
 				break;
 			}
 			case "subagent_progress": {
-				const existing = [...get().subagents.values()].find(s => s.index === frame.index);
+				// Attribute by the subagent id on the wire — `index` is the
+				// per-batch spawn ordinal and repeats across task batches.
+				const id = frame.payload.progress?.id;
+				if (!id) break;
+				const existing = get().subagents.get(id);
 				if (existing) {
 					subagents = new Map(get().subagents);
-					subagents.set(existing.id, {
+					subagents.set(id, {
 						...existing,
-						progress: frame.progress,
-						lastUpdate: frame.progress.description,
+						progress: frame.payload.progress,
+						lastUpdate: frame.payload.progress?.description,
 					});
 				}
 				break;
 			}
 			case "subagent_event": {
-				const existing = get().subagents.get(frame.id);
+				const id = frame.payload.id;
+				const existing = get().subagents.get(id);
 				if (existing) {
 					subagents = new Map(get().subagents);
-					subagents.set(frame.id, { ...existing });
+					subagents.set(id, { ...existing });
 				}
 				break;
 			}

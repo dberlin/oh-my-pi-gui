@@ -483,26 +483,31 @@ export interface HostToolDefinition {
 
 export interface HostToolCallRequest {
 	type: "host_tool_call";
-	callId: string;
-	name: string;
-	args: Record<string, unknown>;
+	/** Snowflake request id the host echoes back in host_tool_result. */
+	id: string;
+	toolCallId: string;
+	toolName: string;
+	arguments: Record<string, unknown>;
 }
 
 export interface HostToolCancelRequest {
 	type: "host_tool_cancel";
-	callId: string;
+	id: string;
+	targetId: string;
 }
 
+/** Sent by the host to complete a pending host tool call. */
 export interface HostToolResult {
 	type: "host_tool_result";
-	callId: string;
+	id: string;
 	result?: string;
 	error?: string;
 }
 
+/** Sent by the host to stream a partial tool update. */
 export interface HostToolUpdate {
 	type: "host_tool_update";
-	callId: string;
+	id: string;
 	update: string;
 }
 
@@ -515,20 +520,23 @@ export interface HostUriSchemeDefinition {
 
 export interface HostUriRequest {
 	type: "host_uri_request";
-	requestId: string;
-	url: string;
+	id: string;
 	operation: "read" | "write";
+	url: string;
+	/** Present for write operations. */
 	content?: string;
 }
 
 export interface HostUriCancelRequest {
 	type: "host_uri_cancel";
-	requestId: string;
+	id: string;
+	targetId: string;
 }
 
+/** Sent by the host to complete a pending URI request. */
 export interface HostUriResult {
 	type: "host_uri_result";
-	requestId: string;
+	id: string;
 	content?: string;
 	error?: string;
 }
@@ -564,43 +572,26 @@ export interface SubagentSnapshot {
 }
 
 export interface AgentProgress {
+	/** Subagent registry id — progress frames are attributed by this, not by index. */
+	id: string;
 	status: string;
 	description?: string;
 }
 
 export interface SubagentLifecycleFrame {
 	type: "subagent_lifecycle";
-	id: string;
-	index: number;
-	agent: string;
-	agentSource: string;
-	description?: string;
-	/** Free-form like SubagentSnapshot.status (includes "aborted", "running"). */
-	status: string;
-	task?: string;
-	assignment?: string;
-	sessionFile?: string;
-	parentToolCallId?: string;
-	parentSubagentId?: string;
+	/** Wire shape is nested under `payload` (see RpcSubagentRegistry). */
+	payload: Omit<SubagentSnapshot, "status"> & { status: "started" | "completed" | "failed" | "aborted" };
 }
 
 export interface SubagentProgressFrame {
 	type: "subagent_progress";
-	progress: AgentProgress;
-	index: number;
-	agent: string;
-	agentSource: string;
-	task?: string;
-	assignment?: string;
-	sessionFile?: string;
-	parentToolCallId?: string;
-	parentSubagentId?: string;
+	payload: Omit<SubagentSnapshot, "status"> & { status: "running" };
 }
 
 export interface SubagentEventFrame {
 	type: "subagent_event";
-	id: string;
-	event: AgentSessionEvent;
+	payload: { id: string; event: AgentSessionEvent };
 }
 
 export type SubagentFrame = SubagentLifecycleFrame | SubagentProgressFrame | SubagentEventFrame;
@@ -619,6 +610,7 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 export const BLOCKING_UI_METHODS: Record<string, true> = {
 	select: true,
 	confirm: true,
+	askDialog: true,
 	input: true,
 	editor: true,
 	open_url: true,
@@ -1057,9 +1049,9 @@ export type AgentSessionEvent =
 	| { type: "loop_mode_update"; state: RpcLoopModeState };
 
 export type AssistantMessageEvent =
-	| { type: "text_delta"; delta: string }
-	| { type: "thinking_delta"; delta: string }
-	| { type: "toolcall_delta"; toolCallId: string; name?: string; argsDelta?: string };
+	| { type: "text_delta"; contentIndex: number; delta: string; partial: AgentMessage }
+	| { type: "thinking_delta"; contentIndex: number; delta: string; partial: AgentMessage }
+	| { type: "toolcall_delta"; contentIndex: number; delta: string; partial: AgentMessage };
 
 // ============================================================================
 // Sidecar Status

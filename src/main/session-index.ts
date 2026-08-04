@@ -48,11 +48,6 @@ export class SessionIndex {
 		return this.#sessionsDir;
 	}
 
-	setCwd(cwd: string): void {
-		this.#cwd = resolve(cwd);
-		this.#notifyChange();
-	}
-
 	start(): void {
 		this.#watcher = watch(this.#sessionsDir, {
 			persistent: true,
@@ -84,17 +79,36 @@ export class SessionIndex {
 		this.#searchCache.clear();
 	}
 
-	async list(scope: "local" | "global"): Promise<SessionInfo[]> {
+	/**
+	 * @param scope "local" filters to sessions whose cwd matches `cwd`.
+	 * @param cwd The calling window's cwd for "local" filtering. Defaults to the
+	 *   index's own cwd (single-window behavior); multi-window callers pass their
+	 *   own so each window sees only its project's sessions.
+	 */
+	async list(scope: "local" | "global", cwd?: string): Promise<SessionInfo[]> {
 		const entries = await this.#scanDir();
 		const parsed = await Promise.all(entries.map(entry => this.#parseSessionFile(entry.path)));
+		const localCwd = cwd !== undefined ? resolve(cwd) : this.#cwd;
 		const infos = parsed.filter((info): info is SessionInfo => {
 			if (!info) return false;
-			return scope === "global" || (info.cwd != null && resolve(info.cwd) === this.#cwd);
+			return scope === "global" || (info.cwd != null && resolve(info.cwd) === localCwd);
 		});
 
 		// Sort by modified descending
 		infos.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
-		return infos;
+
+		// Dedupe by session id: the agent migrates sessions between legacy and
+		// current cwd-directory encodings (e.g. `-AiProject-x` → `home-x-<hash>`),
+		// and during that window the same session id can exist as a file in both
+		// directories. After the modified-desc sort, the first occurrence of each
+		// id is the newest copy — keep it and drop the stale duplicates so one
+		// session never renders as two sidebar rows.
+		const seen = new Set<string>();
+		return infos.filter(info => {
+			if (!info.id || seen.has(info.id)) return false;
+			seen.add(info.id);
+			return true;
+		});
 	}
 
 	async deleteSession(sessionPath: string): Promise<void> {

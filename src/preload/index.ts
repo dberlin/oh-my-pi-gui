@@ -12,6 +12,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcSessionOpenNewWindowPayload,
 	IpcSidecarStatusPayload,
 	MenuAction,
 	MenuActionPayload,
@@ -41,7 +42,31 @@ import type {
 } from "../shared/rpc-types";
 
 function rpcCommand(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
-	return ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, { command: cmd, timeoutMs });
+	return ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, {
+		command: cmd,
+		timeoutMs: timeoutMs ?? timeoutForCommand(cmd),
+	});
+}
+
+/**
+ * The sidecar only answers `bash`/`eval`/`compact`/`export_html` after the
+ * work finishes (rpc-mode awaits each), and big transcripts make the
+ * transcript/message commands slow too. The 8s default would surface a
+ * spurious "RPC timeout" while the command keeps running server-side, so
+ * these get generous windows. Fast commands keep the default.
+ */
+const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
+	bash: 120_000,
+	eval: 120_000,
+	compact: 120_000,
+	export_html: 120_000,
+	get_transcript: 30_000,
+	get_messages: 30_000,
+	get_messages_page: 30_000,
+};
+
+function timeoutForCommand(cmd: RpcCommand): number | undefined {
+	return RPC_COMMAND_TIMEOUTS[cmd.type];
 }
 
 function subscribe<T>(channel: string, callback: (data: T) => void): () => void {
@@ -54,7 +79,7 @@ function subscribe<T>(channel: string, callback: (data: T) => void): () => void 
 
 const api: OmpApi = {
 	rpc: {
-		command: (cmd: RpcCommand) => rpcCommand(cmd),
+		command: (cmd: RpcCommand, timeoutMs?: number) => rpcCommand(cmd, timeoutMs),
 		getState: () => ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, { command: { type: "get_state" } }),
 		prompt: (message: string, images?: ImageContent[]) => rpcCommand({ type: "prompt", message, images }),
 		steer: (message: string, images?: ImageContent[]) => rpcCommand({ type: "steer", message, images }),
@@ -199,6 +224,9 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_DELETE, { sessionPath }) as Promise<void>,
 		search: (query: string, scope: "local" | "global") =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_SEARCH, { query, scope }) as Promise<string[]>,
+		openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
+		consumePendingOpen: () => ipcRenderer.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
 	},
 
 	stats: {

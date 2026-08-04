@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { app, globalShortcut, nativeImage } from "electron";
+import { app, BrowserWindow, globalShortcut, nativeImage } from "electron";
 import Store from "electron-store";
 import { setupDeepLinks } from "./deep-link";
 import { registerIpcHandlers } from "./ipc";
@@ -14,6 +14,7 @@ import { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
 import { SessionIndex } from "./session-index";
 import { SidecarManager } from "./sidecar";
+import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
 import { createTray, destroyTray } from "./tray";
@@ -107,11 +108,25 @@ function resolveInitialCwd(): string {
 
 // Module-level instances (alive for app lifetime)
 let windowManager: WindowManager;
-let sidecar: SidecarManager;
+let sidecarPool: SidecarPool;
 let statsServer: StatsServerManager | null = null;
 let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
+
+/** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
+ *  Empty `cwd` falls back to resolveInitialCwd() (lastProject → launch cwd),
+ *  never a bare process.cwd() which is "/" for Finder-launched apps. */
+function spawnWindow(cwd?: string, pendingSessionPath?: string): BrowserWindow | null {
+	const dir = cwd && cwd.length > 0 ? cwd : resolveInitialCwd();
+	const win = windowManager.createWindow({ cwd: dir, pendingSessionPath });
+	const sidecar = sidecarPool.acquire(dir, win);
+	if (!sidecar) {
+		win.close();
+		return null;
+	}
+	return win;
+}
 
 app.whenReady().then(() => {
 	windowManager = new WindowManager();
@@ -119,11 +134,28 @@ app.whenReady().then(() => {
 	const initialCwd = resolveInitialCwd();
 	const bundledOmp = resolveBundledOmp();
 	const sourceCli = resolveSourceCli();
-	sidecar = new SidecarManager({
-		binaryPath: bundledOmp ?? "",
-		sourceCli: sourceCli ?? undefined,
-		cwd: initialCwd,
-	});
+	sidecarPool = new SidecarPool(cwd => {
+		const sc = new SidecarManager({
+			binaryPath: bundledOmp ?? "",
+			sourceCli: sourceCli ?? undefined,
+			cwd,
+		});
+		// Ready-health-check applies to every pooled sidecar, not just the first.
+		sc.on("status", ({ status }) => {
+			if (status !== "ready") return;
+			const client = sc.rpcClient;
+			if (!client) return;
+			client
+				.command({ type: "get_state" })
+				.then(res => {
+					if (!res.success) sc.markUnhealthy(`Health check failed: ${res.error ?? "unknown"}`);
+				})
+				.catch(err => {
+					sc.markUnhealthy(`Health check timed out: ${err instanceof Error ? err.message : String(err)}`);
+				});
+		});
+		return sc;
+	}, 10);
 	sessionIndex = new SessionIndex(undefined, initialCwd);
 	statsClient = new StatsClient();
 	// Built-in stats dashboard: spawned from the SAME bundled binary. No
@@ -139,99 +171,42 @@ app.whenReady().then(() => {
 
 	// Register all handlers and sidecar listeners before loading the renderer.
 	registerIpcHandlers({
-		sidecar,
+		sidecarPool,
 		sessionIndex,
 		statsClient,
 		logWatcher,
 		windowManager,
+		spawnWindow,
 	});
 
-	// Register GUI host tools and health-check after the sidecar reports ready.
-	sidecar.on("status", ({ status, message }) => {
-		if (status === "ready") {
-			const client = sidecar.rpcClient;
-			if (!client) return;
-
-			// Register host tools (fire-and-forget)
-			void client
-				.command({
-					type: "set_host_tools",
-					tools: [
-						{
-							name: "gui_open_url",
-							description: "Open a URL in the system default browser",
-							parameters: {
-								type: "object",
-								properties: { url: { type: "string", description: "URL to open" } },
-								required: ["url"],
-								additionalProperties: false,
-							},
-						},
-						{
-							name: "gui_notify",
-							description: "Show a native OS notification",
-							parameters: {
-								type: "object",
-								properties: {
-									title: { type: "string" },
-									body: { type: "string" },
-								},
-								required: ["title"],
-								additionalProperties: false,
-							},
-						},
-						{
-							name: "gui_clipboard_read",
-							description: "Read the current clipboard text content",
-							parameters: {
-								type: "object",
-								properties: {},
-								additionalProperties: false,
-							},
-						},
-					],
-				})
-				.catch(() => {});
-
-			// Health check: verify the command loop is actually running.
-			// If extension init hung, the sidecar sent ready but never
-			// entered the stdin reader loop, so get_state will time out.
-			client
-				.command({ type: "get_state" })
-				.then(res => {
-					if (!res.success) {
-						sidecar.markUnhealthy(`Health check failed: ${res.error ?? "unknown"}`);
-					}
-				})
-				.catch(err => {
-					sidecar.markUnhealthy(`Health check timed out: ${err instanceof Error ? err.message : String(err)}`);
-				});
-		}
-	});
-
-	// Global shortcut: Cmd+Shift+O toggle window
+	// Global shortcut: Cmd+Shift+O — toggle focused window, else show the most
+	// recent, else spawn one (multi-window decision tree).
 	globalShortcut.register("CommandOrControl+Shift+O", () => {
-		const win = windowManager.getMainWindow();
-		if (!win) {
-			windowManager.createWindow();
+		const focused = BrowserWindow.getFocusedWindow();
+		if (focused && !focused.isDestroyed() && windowManager.recordFor(focused)) {
+			if (focused.isVisible()) focused.hide();
+			else {
+				focused.show();
+				focused.focus();
+			}
 			return;
 		}
-		if (win.isVisible() && win.isFocused()) {
-			win.hide();
-		} else {
+		const win = windowManager.getMainWindow();
+		if (win) {
 			win.show();
 			win.focus();
+			return;
 		}
+		spawnWindow(initialCwd);
 	});
 	sessionIndex.start();
 	logWatcher.start();
-	windowManager.createWindow(initialCwd);
-	sidecar.start();
+	spawnWindow(initialCwd);
 
 	// Tray, menu, deep links, updater
-	createTray(windowManager);
-	createMenu(windowManager);
-	setupDeepLinks(windowManager);
+	createTray(windowManager, spawnWindow);
+	createMenu(windowManager, spawnWindow);
+	setupDeepLinks(windowManager, spawnWindow);
 	setupUpdater();
 
 	// Probe stats server (non-blocking)
@@ -241,7 +216,7 @@ app.whenReady().then(() => {
 // macOS: re-create window on dock click
 app.on("activate", () => {
 	if (windowManager && windowManager.getAllWindows().length === 0) {
-		windowManager.createWindow();
+		spawnWindow(resolveInitialCwd());
 	}
 });
 
@@ -255,7 +230,7 @@ app.on("window-all-closed", () => {
 // Cleanup on quit
 app.on("before-quit", () => {
 	statsServer?.kill();
-	sidecar?.dispose();
+	sidecarPool?.disposeAll();
 	sessionIndex?.stop();
 	logWatcher?.stop();
 	destroyTray();

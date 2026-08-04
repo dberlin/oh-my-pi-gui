@@ -16,6 +16,7 @@ Source-verified against omp codebase (2026-08-01 audit).
 | 06 | [Compatibility](./06-compatibility.md) | Platforms, binary resolution, CLI coexistence, signing, CI/CD | 5.7KB |
 | 07 | [Sidecar Integration](./07-sidecar-integration.md) | Wire protocol spec: 42 commands, 24 events, 11 UI methods, 15 stats endpoints | 13.1KB |
 | 08 | [Implementation Phases](./08-implementation-phases.md) | 8 phases, 15 weeks, task checklists, verification gates, risks | 10.5KB |
+| 14 | [Parallel Sessions](./14-parallel-sessions.md) | Multi-window multi-sidecar pool (≤10), window↔sidecar 1:1, IPC/event routing, phases, risks | 18.7KB |
 
 ## Key Decisions
 

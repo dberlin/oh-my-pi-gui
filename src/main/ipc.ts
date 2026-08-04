@@ -20,6 +20,7 @@ import type {
 	IpcPrefsGetPayload,
 	IpcPrefsSetPayload,
 	IpcRpcCommandPayload,
+	IpcSessionOpenNewWindowPayload,
 	IpcSessionsDeletePayload,
 	IpcSessionsListPayload,
 	IpcSessionsSearchPayload,
@@ -31,16 +32,40 @@ import type { LogWatcher } from "./log-watcher";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
 import type { SessionIndex } from "./session-index";
 import type { SidecarManager } from "./sidecar";
+import type { SidecarPool } from "./sidecar-pool";
 import type { StatsClient } from "./stats-client";
 import { setTrayState } from "./tray";
-import type { WindowManager } from "./window";
+import type { SpawnWindow, WindowManager } from "./window";
 
 export interface IpcDeps {
-	sidecar: SidecarManager;
+	sidecarPool: SidecarPool;
 	sessionIndex: SessionIndex;
 	statsClient: StatsClient;
 	logWatcher: LogWatcher;
 	windowManager: WindowManager;
+	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
+	spawnWindow: SpawnWindow;
+}
+
+/**
+ * Resolve the sidecar that owns the calling window. Routing derives from
+ * `event.sender` (Electron guarantees it is the caller's webContents), never
+ * from a client-supplied id. Null when the window has no sidecar bound yet.
+ */
+function sidecarFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): SidecarManager | null {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	if (!win) return null;
+	return deps.sidecarPool.sidecarForWindow(win);
+}
+
+/**
+ * The calling window's working directory — the bound sidecar's cwd when one
+ * exists, else the cwd the window was created with (before its sidecar binds).
+ */
+function cwdFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): string | null {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	if (!win) return null;
+	return deps.sidecarPool.sidecarForWindow(win)?.cwd ?? deps.windowManager.recordFor(win)?.cwd ?? null;
 }
 
 interface PrefsSchema {
@@ -270,52 +295,49 @@ async function walkWorkspace(
 let lastNotifyKey = "";
 let lastNotifyAt = 0;
 
+// Per-window tray/progress snapshots, aggregated for the app-global tray/dock.
+const trayStates = new Map<number, TrayState>();
+const progressStates = new Map<number, RunProgressState>();
+
+/** Collapse per-window tray statuses to one: any error > streaming > waiting > idle. */
+function aggregateTrayStatus(states: TrayState[]): TrayState["status"] {
+	if (states.some(s => s.status === "error")) return "error";
+	if (states.some(s => s.status === "streaming")) return "streaming";
+	if (states.some(s => s.status === "waiting")) return "waiting";
+	return "idle";
+}
+
+/** Collapse per-window run-progress to one: any working > waiting > idle. */
+function aggregateProgress(states: RunProgressState[]): RunProgressState {
+	if (states.some(s => s === "working")) return "working";
+	if (states.some(s => s === "waiting")) return "waiting";
+	return "idle";
+}
+
 export function registerIpcHandlers(deps: IpcDeps): void {
-	const { sidecar, sessionIndex, statsClient, logWatcher, windowManager } = deps;
+	const { sidecarPool, sessionIndex, statsClient, logWatcher, windowManager } = deps;
 	const prefsStore = new Store<PrefsSchema>({ name: "prefs" });
 
-	// ========================================================================
-	// Sidecar event forwarding → all windows
-	// ========================================================================
+	// Drop a closed window's tray/progress snapshot so the aggregate reflects
+	// only live windows (and re-render the tray with the new aggregate).
+	windowManager.onWindowClosed = record => {
+		trayStates.delete(record.id);
+		progressStates.delete(record.id);
+	};
 
-	sidecar.on("events", events => {
-		broadcast(windowManager, IPC_EVENTS.EVENTS_BATCH, { events });
-	});
-
-	sidecar.on("status", payload => {
-		broadcast(windowManager, IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
-	});
-
-	sidecar.on("extensionUi", request => {
-		broadcast(windowManager, IPC_EVENTS.EXTENSION_UI, { request });
-	});
-
-	sidecar.on("hostToolCall", (request: { callId: string; name: string; args: Record<string, unknown> }) => {
-		// Execute GUI-registered host tools directly in main process
-		const result = executeGuiHostTool(request.name, request.args);
+	// Sidecar → owning-window event forwarding (events/status/extensionUi/
+	// hostUriRequest/subagentFrame/commandsUpdate/configUpdate) is wired by
+	// SidecarPool at acquire time. hostToolCall needs the main-process executor,
+	// so the pool routes it through this callback (set once at startup).
+	sidecarPool.hostToolExecutor = (sidecar, request, win) => {
+		const result = executeGuiHostTool(request.toolName, request.arguments);
 		if (result !== undefined) {
-			sidecar.sendSideChannel({ type: "host_tool_result", callId: request.callId, result });
+			sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result });
 			return;
 		}
-		// Unknown host tools → forward to renderer
-		broadcast(windowManager, IPC_EVENTS.HOST_TOOL_CALL, { request });
-	});
-
-	sidecar.on("hostUriRequest", request => {
-		broadcast(windowManager, IPC_EVENTS.HOST_URI_REQUEST, { request });
-	});
-
-	sidecar.on("subagentFrame", frame => {
-		broadcast(windowManager, IPC_EVENTS.SUBAGENT_FRAME, { frame });
-	});
-
-	sidecar.on("commandsUpdate", commands => {
-		broadcast(windowManager, IPC_EVENTS.COMMANDS_UPDATE, { commands });
-	});
-
-	sidecar.on("configUpdate", payload => {
-		broadcast(windowManager, IPC_EVENTS.CONFIG_UPDATE, payload);
-	});
+		// Unknown host tools → forward to the owning renderer.
+		if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.HOST_TOOL_CALL, { request });
+	};
 
 	// Session index changes
 	sessionIndex.onChange = () => {
@@ -333,22 +355,33 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// RPC command passthrough — always returns a response, never throws.
 	// Throwing here causes "Error occurred in handler" console spam AND
-	// bypasses the renderer's `if (!res.success)` checks, leaving components
-	// on infinite spinners instead of showing error states.
-	ipcMain.on(IPC_EVENTS.TRAY_STATE_PUSH, (_event, state: TrayState) => {
-		setTrayState(state);
+	// Tray/dock are app-global OS surfaces; with N parallel windows each pushing
+	// its own state, aggregate per-window instead of last-write-wins (which made
+	// the indicator flap with push order) or focus-gating (which let it go
+	// stale). Status aggregates across windows: any error > streaming > waiting
+	// > idle; the displayed blob is the most recently pushed one, with its
+	// status replaced by the aggregate.
+	ipcMain.on(IPC_EVENTS.TRAY_STATE_PUSH, (event, state: TrayState) => {
+		const winId = BrowserWindow.fromWebContents(event.sender)?.webContents.id;
+		if (winId === undefined) return;
+		trayStates.set(winId, state);
+		const aggregate = aggregateTrayStatus([...trayStates.values()]);
+		setTrayState({ ...state, status: aggregate });
 	});
 
-	// Run-progress indicator (terminal.showProgress): the renderer pushes the
-	// coalesced working/waiting/idle state (already gated on the setting, and
-	// pinned to "idle" when off); mirror it to the dock badge + progress bars.
-	ipcMain.on(IPC_EVENTS.PROGRESS_SET, (_event, state: RunProgressState) => {
-		windowManager.setRunProgress(state);
+	// Run-progress (terminal.showProgress): aggregate per-window the same way —
+	// any window working → working, else any waiting → waiting, else idle.
+	ipcMain.on(IPC_EVENTS.PROGRESS_SET, (event, state: RunProgressState) => {
+		const winId = BrowserWindow.fromWebContents(event.sender)?.webContents.id;
+		if (winId === undefined) return;
+		progressStates.set(winId, state);
+		windowManager.setRunProgress(aggregateProgress([...progressStates.values()]));
 	});
 
-	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND, async (_event, payload: IpcRpcCommandPayload) => {
-		const client = sidecar.rpcClient;
-		if (!client) {
+	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND, async (event, payload: IpcRpcCommandPayload) => {
+		const sidecar = sidecarFor(deps, event);
+		const client = sidecar?.rpcClient;
+		if (!client || !sidecar) {
 			return { id: payload.command.id, type: "response", success: false, error: "Sidecar not connected" };
 		}
 		if (sidecar.status !== "ready") {
@@ -368,29 +401,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// Extension UI respond
-	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, (_event, payload: IpcExtensionUiRespondPayload) => {
-		sidecar.sendSideChannel(payload.response);
+	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, (event, payload: IpcExtensionUiRespondPayload) => {
+		sidecarFor(deps, event)?.sendSideChannel(payload.response);
 	});
 
 	// Host tool result
-	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_RESULT, (_event, payload: IpcHostToolResultPayload) => {
-		sidecar.sendSideChannel(payload.result);
+	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_RESULT, (event, payload: IpcHostToolResultPayload) => {
+		sidecarFor(deps, event)?.sendSideChannel(payload.result);
 	});
 
 	// Host tool update
-	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_UPDATE, (_event, payload: IpcHostToolUpdatePayload) => {
-		sidecar.sendSideChannel(payload.update);
+	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_UPDATE, (event, payload: IpcHostToolUpdatePayload) => {
+		sidecarFor(deps, event)?.sendSideChannel(payload.update);
 	});
 
 	// Host URI result
-	ipcMain.handle(IPC_COMMANDS.HOST_URI_RESULT, (_event, payload: IpcHostUriResultPayload) => {
-		sidecar.sendSideChannel(payload.result);
+	ipcMain.handle(IPC_COMMANDS.HOST_URI_RESULT, (event, payload: IpcHostUriResultPayload) => {
+		sidecarFor(deps, event)?.sendSideChannel(payload.result);
 	});
 
 	// Sessions
-	ipcMain.handle(IPC_COMMANDS.SESSIONS_LIST, async (_event, payload: IpcSessionsListPayload) => {
+	ipcMain.handle(IPC_COMMANDS.SESSIONS_LIST, async (event, payload: IpcSessionsListPayload) => {
 		const scope = payload.scope === "local" ? "local" : "global";
-		return sessionIndex.list(scope);
+		return sessionIndex.list(scope, cwdFor(deps, event) ?? undefined);
 	});
 
 	ipcMain.handle(IPC_COMMANDS.SESSIONS_DELETE, async (_event, payload: IpcSessionsDeletePayload) => {
@@ -400,12 +433,34 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return sessionIndex.deleteSession(payload.sessionPath);
 	});
 
+	// Open a session (or a fresh project window) in a NEW parallel window with
+	// its own sidecar. The calling window's sidecar is left running untouched —
+	// this is the explicit parallel action. Returns false at the pool cap.
+	// The session switch is done by the NEW window's renderer on boot (it pulls
+	// pendingSessionPath and runs switch_session + hydrate itself), which avoids
+	// racing the renderer's boot hydration and surfaces failures in that window.
+	ipcMain.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (event, payload: IpcSessionOpenNewWindowPayload) => {
+		if (deps.sidecarPool.atCap) return false;
+		const callerCwd = cwdFor(deps, event) ?? process.cwd();
+		const cwd = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : callerCwd;
+		const sessionPath = typeof payload?.sessionPath === "string" ? payload.sessionPath : undefined;
+		return deps.spawnWindow(cwd, sessionPath) !== null;
+	});
+
+	// Fresh window pulls the session it was opened to display (one-shot). The
+	// renderer performs the actual switch_session + hydrate on boot, which
+	// avoids racing the boot hydration and surfaces failures in that window.
+	ipcMain.handle(IPC_COMMANDS.SESSION_CONSUME_PENDING, event => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		return win ? (deps.windowManager.consumePendingSession(win) ?? null) : null;
+	});
+
 	// Full-content search over session files (raw JSONL grep in main, scoped to
 	// the same candidate set the list view would show).
-	ipcMain.handle(IPC_COMMANDS.SESSIONS_SEARCH, async (_event, payload: IpcSessionsSearchPayload) => {
+	ipcMain.handle(IPC_COMMANDS.SESSIONS_SEARCH, async (event, payload: IpcSessionsSearchPayload) => {
 		const scope = payload.scope === "local" ? "local" : "global";
 		const query = typeof payload.query === "string" ? payload.query : "";
-		const candidates = await sessionIndex.list(scope);
+		const candidates = await sessionIndex.list(scope, cwdFor(deps, event) ?? undefined);
 		return sessionIndex.searchContent(
 			query,
 			candidates.map(info => info.path),
@@ -459,11 +514,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return clipboard.readText();
 	});
 
-	ipcMain.handle(IPC_COMMANDS.SYSTEM_NOTIFY, (_event, payload: IpcNotifyPayload) => {
+	ipcMain.handle(IPC_COMMANDS.SYSTEM_NOTIFY, (event, payload: IpcNotifyPayload) => {
 		if (typeof payload.title === "string") {
-			// Dedupe across windows: with 2+ windows each renderer posts its own copy
-			// of the same turn notification — show it only once per title+body burst.
-			const key = `${payload.title}${payload.body ?? ""}`;
+			// Dedupe within a window (a turn can emit the same notification from
+			// several renderers), but NOT across windows — two parallel sessions
+			// finishing in different windows are distinct events the user wants.
+			const winId = BrowserWindow.fromWebContents(event.sender)?.webContents.id ?? 0;
+			const key = `${winId}${payload.title}${payload.body ?? ""}`;
 			const now = Date.now();
 			if (key === lastNotifyKey && now - lastNotifyAt < 1500) return;
 			lastNotifyKey = key;
@@ -488,13 +545,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// Sidecar control
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_RESTART, () => {
-		sidecar.restart();
+	ipcMain.handle(IPC_COMMANDS.SIDECAR_RESTART, event => {
+		sidecarFor(deps, event)?.restart();
 	});
 
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_SELECT_PROJECT, async event => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return null;
+		const sidecar = sidecarFor(deps, event);
+		if (!sidecar) return null;
 		const result = await dialog.showOpenDialog(win, {
 			title: "Open project",
 			defaultPath: sidecar.cwd,
@@ -504,7 +563,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 		const cwd = result.filePaths[0];
 		prefsStore.set("lastProject", cwd);
-		sessionIndex.setCwd(cwd);
+		// Per-window project switch: restart only this window's sidecar and keep
+		// the window record in sync (menu "New Window" reads cwd from it).
+		windowManager.setRecordCwd(win, cwd);
 		sidecar.restart(cwd);
 		return cwd;
 	});
@@ -512,16 +573,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Switch to a KNOWN workspace directory (no native picker): used by the
 	// workspace manager to jump to a recent project. Validates the directory
 	// exists, then restarts the sidecar there (same tail as select-project).
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_SET_PROJECT, async (_event, payload: { cwd?: string }) => {
+	ipcMain.handle(IPC_COMMANDS.SIDECAR_SET_PROJECT, async (event, payload: { cwd?: string }) => {
 		const cwd = payload?.cwd;
 		if (typeof cwd !== "string" || cwd.length === 0) return false;
+		const sidecar = sidecarFor(deps, event);
+		if (!sidecar) return false;
 		try {
 			if (!(await fsp.stat(cwd)).isDirectory()) return false;
 		} catch {
 			return false;
 		}
 		prefsStore.set("lastProject", cwd);
-		sessionIndex.setCwd(cwd);
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (win) windowManager.setRecordCwd(win, cwd);
 		sidecar.restart(cwd);
 		return true;
 	});
@@ -553,10 +617,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return { path: file, opened: !openError };
 	});
 
-	// Workspace filesystem — node:fs against sidecar.cwd; works without a live
-	// sidecar session and never throws (renderer reads `ok`/`error`).
-	ipcMain.handle(IPC_COMMANDS.FS_LIST, async (_event, payload: IpcFsListPayload) => {
-		const rootAbs = sidecar.cwd;
+	// Workspace filesystem — node:fs against the calling window's cwd; works
+	// without a live sidecar session and never throws (renderer reads ok/error).
+	ipcMain.handle(IPC_COMMANDS.FS_LIST, async (event, payload: IpcFsListPayload) => {
+		const rootAbs = cwdFor(deps, event);
+		if (!rootAbs) return { ok: false, entries: [], truncated: false, error: "No workspace" };
 		const prefix = (typeof payload.path === "string" ? payload.path : "")
 			.replace(/\\/g, "/")
 			.replace(/^\.\//, "")
@@ -589,12 +654,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 	});
 
-	ipcMain.handle(IPC_COMMANDS.FS_READ, async (_event, payload: IpcFsReadPayload) => {
+	ipcMain.handle(IPC_COMMANDS.FS_READ, async (event, payload: IpcFsReadPayload) => {
 		const fail = (error: string) => ({ ok: false, content: "", truncated: false, binary: false, size: 0, error });
 		if (typeof payload.path !== "string" || payload.path.length === 0) {
 			return fail("Invalid path");
 		}
-		const abs = resolveWithin(sidecar.cwd, payload.path);
+		const cwd = cwdFor(deps, event);
+		if (!cwd) return fail("No workspace");
+		const abs = resolveWithin(cwd, payload.path);
 		if (!abs) {
 			return fail("Path escapes the workspace");
 		}
@@ -635,13 +702,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Confined to the workspace and the sessions dir (plan artifacts live there).
 	ipcMain.handle(
 		IPC_COMMANDS.FS_READ_PLAN,
-		async (_event, payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult> => {
+		async (event, payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult> => {
 			const fail = (error: string): IpcFsReadPlanResult => ({ ok: false, path: null, content: null, error });
 			if (typeof payload?.fsPath !== "string" || payload.fsPath.length === 0) {
 				return fail("Invalid path");
 			}
+			const cwd = cwdFor(deps, event);
+			if (!cwd) return fail("No workspace");
 			const withinAllowedRoots = (value: string): string | null =>
-				resolveWithin(sidecar.cwd, value) ?? resolveWithin(sessionIndex.sessionsDir, value);
+				resolveWithin(cwd, value) ?? resolveWithin(sessionIndex.sessionsDir, value);
 			const target = withinAllowedRoots(payload.fsPath);
 			if (!target) return fail("Path escapes allowed roots");
 			let localRoot: string | null = null;
@@ -659,8 +728,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 	);
 
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_STATUS_GET, () => {
-		return { status: sidecar.status, cwd: sidecar.cwd };
+	ipcMain.handle(IPC_COMMANDS.SIDECAR_STATUS_GET, event => {
+		const sidecar = sidecarFor(deps, event);
+		return { status: sidecar?.status ?? "starting", cwd: cwdFor(deps, event) ?? "" };
 	});
 }
 

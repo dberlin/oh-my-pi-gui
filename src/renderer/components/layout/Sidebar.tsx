@@ -1,7 +1,9 @@
 import {
 	BarChart3,
+	Check,
 	ChevronDown,
 	ChevronRight,
+	ExternalLink,
 	FolderTree,
 	MessageSquarePlus,
 	Palette,
@@ -10,8 +12,9 @@ import {
 	Search,
 	Settings,
 	Trash2,
+	X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { hydrateSession } from "../../hooks/use-rpc-events";
@@ -22,7 +25,7 @@ import { mergeContentMatches, rankSessions } from "../../lib/session-search";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Modal, PiLogo } from "../common";
+import { PiLogo } from "../common";
 import { LangSwitcher } from "../common/LangSwitcher";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 
@@ -54,13 +57,36 @@ interface WorkspaceGroup {
 export function Sidebar({ onToggleStats }: SidebarProps) {
 	const [query, setQuery] = useState("");
 	const t = useT();
+	// Resizable left rail (mirrors PanelContainer's right-rail drag, but the
+	// handle sits on the right edge and dragging right grows the sidebar).
+	const SIDEBAR_MIN = 180;
+	const SIDEBAR_MAX = 420;
+	const [sidebarWidth, setSidebarWidth] = useState(236);
+	const sidebarDragging = useRef(false);
+	const startSidebarDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+		sidebarDragging.current = true;
+		e.currentTarget.setPointerCapture(e.pointerId);
+	}, []);
+	const onSidebarDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+		if (!sidebarDragging.current) return;
+		// Sidebar is left-anchored: dragging right grows it.
+		const host = e.currentTarget.parentElement;
+		if (!host) return;
+		const hostRect = host.getBoundingClientRect();
+		setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX - hostRect.left)));
+	}, []);
+	const endSidebarDrag = useCallback(() => {
+		sidebarDragging.current = false;
+	}, []);
 	const [contentPaths, setContentPaths] = useState<ReadonlySet<string>>(new Set());
 	const searchGenerationRef = useRef(0);
-	const [pendingDelete, setPendingDelete] = useState<SessionInfo | null>(null);
 	const [deleting, setDeleting] = useState(false);
-	const [pendingGroupDelete, setPendingGroupDelete] = useState<WorkspaceGroup | null>(null);
-	const [deletingGroup, setDeletingGroup] = useState(false);
 	const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+	// Inline delete confirmation: the first click swaps the trash button for an
+	// in-place ✓/✕ pair (confirm sits exactly where delete was); ✓ deletes,
+	// ✕ or clicking elsewhere cancels. No modal, no mouse travel to center.
+	const [confirmingDeletePath, setConfirmingDeletePath] = useState<string | null>(null);
+	const [confirmingGroupDeleteCwd, setConfirmingGroupDeleteCwd] = useState<string | null>(null);
 	const [renaming, setRenaming] = useState(false);
 	const [workspaceOpen, setWorkspaceOpen] = useState(false);
 	const [renameDraft, setRenameDraft] = useState("");
@@ -134,7 +160,12 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 	};
 
 	const openSession = async (session: SessionInfo) => {
-		if (session.id === sessionId || isStreaming) return;
+		// No isStreaming guard: the server aborts the in-flight turn on switch
+		// (`switchSession` → `abort({goalReason:"internal"})`), matching the TUI,
+		// which never blocks switching mid-run. Locking here only hid that the
+		// switch is allowed — it is not a parallel session, it replaces the
+		// current one after aborting it.
+		if (session.id === sessionId) return;
 		try {
 			const response = await window.omp.rpc.switchSession(session.path);
 			if (!response.success) {
@@ -150,6 +181,15 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 			await hydrateSession(session.title ?? session.firstMessage);
 		} catch (error) {
 			toast({ variant: "error", title: t("sidebar.openFailed"), message: String(error) });
+		}
+	};
+
+	// Explicit parallel action: open this session in a NEW window with its own
+	// sidecar, leaving the current window's running session untouched.
+	const openSessionInNewWindow = async (session: SessionInfo) => {
+		const ok = await window.omp.sessions.openInNewWindow({ sessionPath: session.path, cwd: session.cwd });
+		if (!ok) {
+			toast({ variant: "warning", message: t("sidebar.parallelCap") });
 		}
 	};
 
@@ -171,41 +211,39 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 			.catch(error => toast({ variant: "error", title: t("sidebar.renameFailed"), message: String(error) }));
 	};
 
-	const confirmDelete = async () => {
-		if (!pendingDelete) return;
+	const confirmDeleteSession = async (session: SessionInfo) => {
 		setDeleting(true);
 		try {
-			await deleteSession(pendingDelete.path);
-			setPendingDelete(null);
+			await deleteSession(session.path);
+			setConfirmingDeletePath(null);
 		} finally {
 			setDeleting(false);
 		}
 	};
 
-	const confirmDeleteGroup = async () => {
-		if (!pendingGroupDelete) return;
+	const confirmDeleteGroup = async (group: WorkspaceGroup) => {
 		// Refuse to delete the workspace that owns the active session (or any
 		// workspace mid-turn): its session file is still live on disk.
-		if (pendingGroupDelete.sessions.some(session => session.id === sessionId)) {
+		if (group.sessions.some(session => session.id === sessionId)) {
 			toast({ variant: "warning", message: t("sidebar.deleteGroupActive") });
-			setPendingGroupDelete(null);
+			setConfirmingGroupDeleteCwd(null);
 			return;
 		}
 		if (isStreaming) {
 			toast({ variant: "warning", message: t("sidebar.deleteGroupStreaming") });
-			setPendingGroupDelete(null);
+			setConfirmingGroupDeleteCwd(null);
 			return;
 		}
-		setDeletingGroup(true);
+		setDeleting(true);
 		try {
 			// Delete every session file in this workspace, then dismiss the group.
-			for (const session of pendingGroupDelete.sessions) {
+			for (const session of group.sessions) {
 				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
 				await deleteSession(session.path);
 			}
-			setPendingGroupDelete(null);
+			setConfirmingGroupDeleteCwd(null);
 		} finally {
-			setDeletingGroup(false);
+			setDeleting(false);
 		}
 	};
 
@@ -214,7 +252,10 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 
 	return (
 		<>
-			<aside className="omp-session-sidebar flex h-full w-[236px] shrink-0 flex-col border-r border-[var(--omp-border-muted)] bg-[var(--omp-sidebar-bg)]">
+			<aside
+				className="omp-session-sidebar relative flex h-full shrink-0 flex-col border-r border-[var(--omp-border-muted)] bg-[var(--omp-sidebar-bg)]"
+				style={{ width: sidebarWidth }}
+			>
 				<div className="drag-region flex h-12 shrink-0 items-center gap-2 border-b border-[var(--omp-border-muted)] px-3">
 					<PiLogo tile size={24} />
 					<div className="font-display text-[14px] font-semibold tracking-[-0.01em] text-[var(--omp-text)]">
@@ -239,10 +280,9 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 					<button
 						type="button"
 						onClick={() => setWorkspaceOpen(true)}
-						disabled={isStreaming}
-						title={isStreaming ? t("sidebar.abortHint") : t("sidebar.newSession")}
+						title={t("sidebar.newSession")}
 						aria-label={t("sidebar.newSession")}
-						className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+						className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110"
 					>
 						<Plus size={16} strokeWidth={2.5} />
 					</button>
@@ -289,10 +329,10 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 									type="button"
 									onClick={() => toggleGroup(group.cwd)}
 									className={cx(
-										"omp-pressable group flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-semibold tracking-[-0.005em]",
+										"omp-pressable group flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10px] font-medium uppercase tracking-[0.08em]",
 										isCurrent
-											? "text-[var(--omp-text)]"
-											: "text-[var(--omp-muted)] hover:text-[var(--omp-text)]",
+											? "text-[var(--omp-muted)]"
+											: "text-[var(--omp-dim)] hover:text-[var(--omp-muted)]",
 									)}
 								>
 									{groupCollapsed ? (
@@ -304,39 +344,64 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 									<span className="shrink-0 tabular-nums text-[10px] font-normal text-[var(--omp-dim)]">
 										{group.sessions.length}
 									</span>
-									<span
-										role="button"
-										tabIndex={0}
-										title={groupDeleteTitle}
-										aria-label={groupDeleteTitle}
-										aria-disabled={groupDeleteBlocked}
-										className={cx(
-											"hidden h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] group-hover:flex",
-											groupDeleteBlocked
-												? "cursor-not-allowed opacity-40"
-												: "hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)]",
-										)}
-										onClick={event => {
-											event.stopPropagation();
-											if (groupDeleteBlocked) {
-												toast({ variant: "warning", message: groupDeleteTitle });
-												return;
-											}
-											setPendingGroupDelete(group);
-										}}
-										onKeyDown={event => {
-											if (event.key === "Enter") {
+									{confirmingGroupDeleteCwd === group.cwd ? (
+										<span className="flex shrink-0 items-center gap-0.5" onClick={e => e.stopPropagation()}>
+											<button
+												type="button"
+												disabled={deleting}
+												title={t("common.delete")}
+												aria-label={t("common.delete")}
+												onClick={() => void confirmDeleteGroup(group)}
+												className="flex h-4 w-4 items-center justify-center rounded bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)] hover:brightness-110 disabled:opacity-40"
+											>
+												<Check size={10} strokeWidth={3} />
+											</button>
+											<button
+												type="button"
+												disabled={deleting}
+												title={t("common.cancel")}
+												aria-label={t("common.cancel")}
+												onClick={() => setConfirmingGroupDeleteCwd(null)}
+												className="flex h-4 w-4 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
+											>
+												<X size={10} strokeWidth={3} />
+											</button>
+										</span>
+									) : (
+										<span
+											role="button"
+											tabIndex={0}
+											title={groupDeleteTitle}
+											aria-label={groupDeleteTitle}
+											aria-disabled={groupDeleteBlocked}
+											className={cx(
+												"hidden h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] group-hover:flex",
+												groupDeleteBlocked
+													? "cursor-not-allowed opacity-40"
+													: "hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)]",
+											)}
+											onClick={event => {
 												event.stopPropagation();
 												if (groupDeleteBlocked) {
 													toast({ variant: "warning", message: groupDeleteTitle });
 													return;
 												}
-												setPendingGroupDelete(group);
-											}
-										}}
-									>
-										<Trash2 size={11} />
-									</span>
+												setConfirmingGroupDeleteCwd(group.cwd);
+											}}
+											onKeyDown={event => {
+												if (event.key === "Enter") {
+													event.stopPropagation();
+													if (groupDeleteBlocked) {
+														toast({ variant: "warning", message: groupDeleteTitle });
+														return;
+													}
+													setConfirmingGroupDeleteCwd(group.cwd);
+												}
+											}}
+										>
+											<Trash2 size={11} />
+										</span>
+									)}
 								</button>
 								{!groupCollapsed && (
 									<div className="space-y-0.5">
@@ -364,7 +429,7 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 														if (event.key === "Enter") void openSession(session);
 													}}
 													className={cx(
-														"group cursor-pointer rounded-md border px-2 py-1.5 transition-all",
+														"group cursor-pointer rounded-md border px-2 py-2 transition-all",
 														active
 															? "border-[var(--omp-border-accent)] bg-[var(--omp-selected-bg)]"
 															: "border-transparent hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]",
@@ -406,7 +471,7 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 																className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-[12.5px] font-medium text-[var(--omp-text)] outline-none"
 															/>
 														) : (
-															<span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--omp-text)]">
+															<span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--omp-text)]">
 																{session.title ?? session.firstMessage ?? t("sidebar.untitled")}
 															</span>
 														)}
@@ -419,27 +484,69 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 																	event.stopPropagation();
 																	startRename();
 																}}
-																className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] group-hover:flex"
+																className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
 															>
 																<Pencil size={11} />
+															</button>
+														)}
+														{!active && (
+															<button
+																type="button"
+																title={t("sidebar.openInNewWindow")}
+																aria-label={t("sidebar.openInNewWindow")}
+																onClick={event => {
+																	event.stopPropagation();
+																	void openSessionInNewWindow(session);
+																}}
+																className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] group-hover:flex"
+															>
+																<ExternalLink size={11} />
 															</button>
 														)}
 														<span className="shrink-0 tabular-nums text-[10px] text-[var(--omp-dim)]">
 															{formatTimeAgo(session.modified)}
 														</span>
-														<button
-															className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)] disabled:opacity-30 group-hover:flex"
-															disabled={active || isStreaming}
-															onClick={event => {
-																event.stopPropagation();
-																if (!active && !isStreaming) setPendingDelete(session);
-															}}
-															title={active ? t("sidebar.activeCannotDelete") : t("sidebar.delete")}
-															type="button"
-															aria-label={t("sidebar.delete")}
-														>
-															<Trash2 size={11} />
-														</button>
+														{confirmingDeletePath === session.path ? (
+															<span
+																className="flex shrink-0 items-center gap-0.5"
+																onClick={e => e.stopPropagation()}
+															>
+																<button
+																	type="button"
+																	disabled={deleting}
+																	title={t("common.delete")}
+																	aria-label={t("common.delete")}
+																	onClick={() => void confirmDeleteSession(session)}
+																	className="flex h-5 w-5 items-center justify-center rounded bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)] hover:brightness-110 disabled:opacity-40"
+																>
+																	<Check size={11} strokeWidth={3} />
+																</button>
+																<button
+																	type="button"
+																	disabled={deleting}
+																	title={t("common.cancel")}
+																	aria-label={t("common.cancel")}
+																	onClick={() => setConfirmingDeletePath(null)}
+																	className="flex h-5 w-5 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
+																>
+																	<X size={11} strokeWidth={3} />
+																</button>
+															</span>
+														) : (
+															<button
+																className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)] disabled:opacity-30 group-hover:flex"
+																disabled={active || isStreaming}
+																onClick={event => {
+																	event.stopPropagation();
+																	if (!active && !isStreaming) setConfirmingDeletePath(session.path);
+																}}
+																title={active ? t("sidebar.activeCannotDelete") : t("sidebar.delete")}
+																type="button"
+																aria-label={t("sidebar.delete")}
+															>
+																<Trash2 size={11} />
+															</button>
+														)}
 													</div>
 												</div>
 											);
@@ -492,52 +599,16 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 						<Settings size={15} />
 					</button>
 				</div>
+				<div
+					role="separator"
+					aria-orientation="vertical"
+					onPointerDown={startSidebarDrag}
+					onPointerMove={onSidebarDrag}
+					onPointerUp={endSidebarDrag}
+					className="absolute inset-y-0 right-0 z-10 w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-[var(--omp-accent)]/40 active:bg-[var(--omp-accent)] max-[1000px]:hidden"
+				/>
 			</aside>
 			<WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} intent="new-session" />
-			<Modal
-				onClose={() => setPendingDelete(null)}
-				open={pendingDelete !== null}
-				size="sm"
-				title={t("sidebar.deleteConfirm")}
-			>
-				<p className="text-[13px] leading-relaxed text-[var(--omp-muted)]">
-					{t("sidebar.deleteMessage", {
-						name: pendingDelete?.title ?? pendingDelete?.firstMessage ?? t("sidebar.thisSession"),
-					})}
-				</p>
-				<div className="mt-5 flex justify-end gap-2">
-					<Button disabled={deleting} onClick={() => setPendingDelete(null)} variant="ghost">
-						{t("common.cancel")}
-					</Button>
-					<Button loading={deleting} onClick={() => void confirmDelete()} variant="danger">
-						{t("common.delete")}
-					</Button>
-				</div>
-			</Modal>
-			<Modal
-				onClose={() => setPendingGroupDelete(null)}
-				open={pendingGroupDelete !== null}
-				size="sm"
-				title={t("sidebar.deleteGroupConfirm")}
-			>
-				<p className="text-[13px] leading-relaxed text-[var(--omp-muted)]">
-					{t("sidebar.deleteGroupMessage", {
-						name: pendingGroupDelete?.name ?? "",
-						count: pendingGroupDelete?.sessions.length ?? 0,
-					})}
-				</p>
-				<p className="mt-2 text-[12px] leading-relaxed text-[var(--omp-error)]">
-					{t("sidebar.deleteGroupWarning")}
-				</p>
-				<div className="mt-5 flex justify-end gap-2">
-					<Button disabled={deletingGroup} onClick={() => setPendingGroupDelete(null)} variant="ghost">
-						{t("common.cancel")}
-					</Button>
-					<Button loading={deletingGroup} onClick={() => void confirmDeleteGroup()} variant="danger">
-						{t("common.delete")}
-					</Button>
-				</div>
-			</Modal>
 		</>
 	);
 }

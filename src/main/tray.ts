@@ -9,7 +9,7 @@
 
 import { app, Menu, nativeImage, Tray } from "electron";
 import { IPC_EVENTS, type MenuAction, type MenuActionPayload, type TrayState } from "../shared/ipc-types";
-import type { WindowManager } from "./window";
+import type { SpawnWindow, WindowManager } from "./window";
 
 type TrayStatus = "idle" | "streaming" | "waiting" | "error";
 type TrayLang = "zh" | "en";
@@ -17,6 +17,7 @@ type TrayLang = "zh" | "en";
 let tray: Tray | null = null;
 let currentStatus: TrayStatus = "idle";
 let windowManagerRef: WindowManager | null = null;
+let spawnWindowRef: SpawnWindow | null = null;
 let trayState: TrayState | null = null;
 
 /** Tray-label strings, translated in main (the renderer reports the language). */
@@ -87,7 +88,8 @@ function send(windowManager: WindowManager, action: MenuAction, payload?: MenuAc
 	}
 	// All windows closed (macOS keep-running): create one and deliver the
 	// action once the renderer is up instead of dropping it.
-	const created = windowManager.createWindow();
+	const created = spawnWindowRef?.();
+	if (!created) return;
 	created.once("ready-to-show", () => {
 		if (!created.isDestroyed()) {
 			created.webContents.send(IPC_EVENTS.MENU_ACTION, { action, ...payload });
@@ -204,7 +206,7 @@ function buildContextMenu(windowManager: WindowManager, state: TrayState | null)
 				const win = windowManager.getMainWindow();
 				if (win?.isVisible()) win.hide();
 				else if (win) win.show();
-				else windowManager.createWindow();
+				else spawnWindowRef?.();
 			},
 		},
 		{ type: "separator" },
@@ -219,8 +221,9 @@ function rebuildMenu(): void {
 	tray.setContextMenu(buildContextMenu(windowManagerRef, trayState));
 }
 
-export function createTray(windowManager: WindowManager): Tray {
+export function createTray(windowManager: WindowManager, spawnWindow: SpawnWindow): Tray {
 	windowManagerRef = windowManager;
+	spawnWindowRef = spawnWindow;
 	tray = new Tray(buildIcon("idle"));
 	tray.setToolTip("omp");
 	tray.setContextMenu(buildContextMenu(windowManager, null));
@@ -231,7 +234,7 @@ export function createTray(windowManager: WindowManager): Tray {
 			win.show();
 			win.focus();
 		} else {
-			windowManager.createWindow();
+			spawnWindowRef?.();
 		}
 	});
 

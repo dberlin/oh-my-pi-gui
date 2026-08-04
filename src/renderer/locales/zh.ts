@@ -105,6 +105,8 @@ export const zh: Record<string, string> = {
 	"sidebar.delete": "删除会话",
 	"sidebar.deleteConfirm": "永久删除此会话？",
 	"sidebar.openFailed": "无法打开会话",
+	"sidebar.openInNewWindow": "在新窗口打开",
+	"sidebar.parallelCap": "已达 10 个并行上限,请先关闭一个窗口",
 	"sidebar.newFailed": "无法创建会话",
 	"sidebar.deleteFailed": "无法删除会话",
 	"sidebar.abortHint": "请先中止当前回合再新建会话",

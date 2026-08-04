@@ -62,13 +62,26 @@ export function Modal({
 	const panelRef = useRef<HTMLDivElement>(null);
 	const restoreRef = useRef<HTMLElement | null>(null);
 
+	// Focus capture runs once per open transition. Depending on `onClose` here
+	// would re-focus the panel on every re-render (callers pass non-memoized
+	// closures), yanking focus out of inputs on every keystroke.
 	useEffect(() => {
 		if (!open) return;
 		restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-
+		// Focus only when nothing else is — an already-focused element (e.g. the
+		// caller autofocused an input) must not be yanked back to the first item.
+		const active = document.activeElement;
 		const panel = panelRef.current;
-		const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
-		(first ?? panel)?.focus();
+		if (!active || active === document.body || active === document.documentElement) {
+			const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
+			(first ?? panel)?.focus();
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [open]);
+
+	useEffect(() => {
+		if (!open) return;
+		const panel = panelRef.current;
 
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
@@ -96,7 +109,13 @@ export function Modal({
 		document.addEventListener("keydown", onKeyDown, true);
 		return () => {
 			document.removeEventListener("keydown", onKeyDown, true);
-			restoreRef.current?.focus();
+			// Restore focus only when it is currently outside this panel —
+			// otherwise a freshly-opened dialog would be blurred back to the
+			// element that was focused before this modal opened.
+			const active = document.activeElement;
+			if (!(active instanceof HTMLElement && panel?.contains(active))) {
+				restoreRef.current?.focus();
+			}
 		};
 	}, [open, onClose]);
 

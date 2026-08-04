@@ -4,11 +4,11 @@
  */
 import { app } from "electron";
 import { type DeepLinkPayload, IPC_EVENTS } from "../shared/ipc-types";
-import type { WindowManager } from "./window";
+import type { SpawnWindow, WindowManager } from "./window";
 
 const PROTOCOL = "omp";
 
-export function setupDeepLinks(windowManager: WindowManager): void {
+export function setupDeepLinks(windowManager: WindowManager, spawnWindow: SpawnWindow): void {
 	// Register as default protocol handler (Windows/Linux)
 	if (process.defaultApp && process.argv.length >= 2) {
 		app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [process.argv[1]]);
@@ -19,19 +19,19 @@ export function setupDeepLinks(windowManager: WindowManager): void {
 	// macOS: open-url event
 	app.on("open-url", (event, url) => {
 		event.preventDefault();
-		handleDeepLink(url, windowManager);
+		handleDeepLink(url, windowManager, spawnWindow);
 	});
 
 	// Windows/Linux: second-instance with protocol URL in argv
 	app.on("second-instance", (_event, argv) => {
 		const url = argv.find(arg => arg.startsWith(`${PROTOCOL}://`));
 		if (url) {
-			handleDeepLink(url, windowManager);
+			handleDeepLink(url, windowManager, spawnWindow);
 		}
 	});
 }
 
-function handleDeepLink(url: string, windowManager: WindowManager): void {
+function handleDeepLink(url: string, windowManager: WindowManager, spawnWindow: SpawnWindow): void {
 	let parsed: URL;
 	try {
 		parsed = new URL(url);
@@ -39,7 +39,8 @@ function handleDeepLink(url: string, windowManager: WindowManager): void {
 		return;
 	}
 
-	const win = windowManager.getMainWindow() ?? windowManager.createWindow();
+	const win = windowManager.getMainWindow() ?? spawnWindow();
+	if (!win) return;
 	win.show();
 	win.focus();
 
