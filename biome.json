@@ -1,0 +1,16 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+	"extends": ["../../biome.json"],
+	"vcs": { "useIgnoreFile": false },
+	"files": {
+		"includes": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "*.ts", "!out", "!dist", "!node_modules"]
+	},
+	"linter": {
+		"rules": {
+			"suspicious": {
+				"noExplicitAny": "warn",
+				"noArrayIndexKey": "off"
+			}
+		}
+	}
+}

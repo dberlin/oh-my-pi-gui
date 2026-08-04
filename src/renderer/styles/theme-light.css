@@ -1,0 +1,151 @@
+/* ============================================================================
+   omp GUI — Light Theme (default)
+   Warm paper neutrals · ink text · deep teal accent · near-black primary actions
+   Refined, editorial — deliberately not the generic saturated-blue "AI" look.
+   ============================================================================ */
+
+:root[data-theme="light"] {
+	color-scheme: light;
+
+	--omp-accent: #0f766e;
+	--omp-accent-bright: #0d9488;
+	--omp-accent-dim: rgba(15, 118, 110, 0.08);
+	--omp-accent-glow: rgba(15, 118, 110, 0.15);
+
+	--omp-border: #e5e2dc;
+	--omp-border-accent: rgba(15, 118, 110, 0.4);
+	--omp-border-muted: #edebe6;
+	--omp-border-strong: #d2cec5;
+	--omp-success: #15803d;
+	--omp-success-dim: rgba(21, 128, 61, 0.09);
+	--omp-error: #c2373f;
+	--omp-error-dim: rgba(194, 55, 63, 0.08);
+	--omp-warning: #a16207;
+	--omp-warning-dim: rgba(161, 98, 7, 0.09);
+	--omp-info: #0f766e;
+	--omp-info-dim: rgba(15, 118, 110, 0.08);
+	--omp-text: #1f2328;
+	--omp-text-secondary: #4b5057;
+
+	--omp-bg-primary: #ffffff;
+	--omp-bg-secondary: #faf9f8;
+	--omp-bg-tertiary: #f2f0ed;
+	--omp-bg-elevated: #ffffff;
+	--omp-selected-bg: #eceae6;
+	--omp-user-msg-bg: #f4f2ee;
+	--omp-user-msg-border: #dedad3;
+	--omp-custom-msg-bg: #f1effa;
+	--omp-code-bg: #f6f5f3;
+
+	--omp-tool-pending-bg: #f5f4f2;
+	--omp-tool-success-bg: #edf6ef;
+	--omp-tool-error-bg: #f9efef;
+	--omp-tool-output: #55606b;
+	--omp-tool-rail-running: var(--omp-accent);
+	--omp-tool-rail-done: #5da877;
+	--omp-tool-rail-error: #cd7a82;
+
+	--omp-md-heading: #1a1d21;
+	--omp-md-link: #0f766e;
+	--omp-md-link-url: #7d8590;
+	--omp-md-code: #9d4e15;
+	--omp-md-code-block: #3a3f46;
+	--omp-md-code-block-border: #e5e2dc;
+	--omp-md-quote: #5b636d;
+	--omp-md-quote-border: #cfcabf;
+	--omp-md-hr: #e5e2dc;
+	--omp-md-list-bullet: var(--omp-accent);
+
+	--omp-diff-added: #15803d;
+	--omp-diff-added-bg: rgba(21, 128, 61, 0.08);
+	--omp-diff-removed: #c2373f;
+	--omp-diff-removed-bg: rgba(194, 55, 63, 0.08);
+	--omp-diff-context: #6d7681;
+
+	--omp-syntax-comment: #8a9199;
+	--omp-syntax-keyword: #7c3aed;
+	--omp-syntax-function: #0f766e;
+	--omp-syntax-variable: #1f2328;
+	--omp-syntax-string: #9d4e15;
+	--omp-syntax-number: #0369a1;
+	--omp-syntax-type: #a16207;
+	--omp-syntax-operator: #4b5057;
+	--omp-syntax-punctuation: #6d7681;
+
+	--omp-thinking-off: #aab0b8;
+	--omp-thinking-minimal: #828a94;
+	--omp-thinking-low: #3d8a84;
+	--omp-thinking-medium: #0f766e;
+	--omp-thinking-high: #9d4e15;
+	--omp-thinking-xhigh: #b45309;
+
+	--omp-status-bg: #f0eeeb;
+	--omp-status-model: #6d28d9;
+	--omp-status-path: #0d7377;
+	--omp-status-git-clean: #15803d;
+	--omp-status-git-dirty: #a16207;
+	--omp-status-context: #0f766e;
+	--omp-status-spend: #0d7377;
+	--omp-status-subagents: var(--omp-accent);
+	--omp-status-muted: #828a94;
+	--omp-status-dim: #aab0b8;
+	--omp-status-text: #1f2328;
+	--omp-status-sep: #e0dcd5;
+
+	--omp-muted: #5d646d;
+	--omp-dim: #6d7681;
+	--omp-link: #0f766e;
+	--omp-custom-msg-label: #6d28d9;
+
+	--omp-input-bg: #ffffff;
+	--omp-input-border: #d8d4cc;
+	--omp-input-focus-border: var(--omp-accent);
+	--omp-input-glow: rgba(15, 118, 110, 0.12);
+
+	--omp-btn-primary-bg: #21262c;
+	--omp-btn-primary-text: #ffffff;
+	--omp-btn-secondary-bg: #f0eeeb;
+	--omp-btn-secondary-text: #1f2328;
+	--omp-btn-danger-bg: var(--omp-error);
+	--omp-btn-danger-text: #ffffff;
+
+	--omp-badge-bg: #f0eeeb;
+	--omp-badge-text: #525a63;
+	--omp-badge-accent: var(--omp-accent);
+
+	--omp-overlay-bg: rgba(24, 28, 33, 0.34);
+	--omp-modal-bg: #ffffff;
+	--omp-modal-border: #e5e2dc;
+
+	--omp-toast-bg: #ffffff;
+	--omp-toast-text: #1f2328;
+	--omp-toast-border: #e5e2dc;
+
+	--omp-progress-bg: #e9e6e1;
+	--omp-progress-fill: var(--omp-accent);
+
+	--omp-sidebar-bg: #faf9f8;
+	--omp-sidebar-item-hover: #f1efec;
+	--omp-sidebar-item-active: #eae7e3;
+
+	--omp-selection-bg: rgba(15, 118, 110, 0.15);
+	--omp-selection-text: #1a1d21;
+
+	--omp-scrollbar-thumb: #c9c4bb;
+	--omp-scrollbar-track: transparent;
+
+	--omp-streaming-cursor: var(--omp-accent);
+	--omp-streaming-highlight: rgba(15, 118, 110, 0.05);
+
+	--omp-panel-bg: #faf9f8;
+	--omp-panel-border: #e8e5df;
+	--omp-panel-header: #5d646d;
+
+	--omp-titlebar-bg: #ffffff;
+	--omp-titlebar-text: #1f2328;
+
+	--omp-shadow-sm: 0 1px 2px rgba(24, 28, 33, 0.06);
+	--omp-shadow-md: 0 4px 14px rgba(24, 28, 33, 0.08);
+	--omp-shadow-lg: 0 14px 38px rgba(24, 28, 33, 0.12);
+	--omp-shadow-glow: 0 0 0 1px var(--omp-border-accent), 0 0 14px var(--omp-input-glow);
+}

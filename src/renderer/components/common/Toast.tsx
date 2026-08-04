@@ -1,0 +1,65 @@
+/**
+ * Fixed bottom-right toast stack driven by stores/toast.ts.
+ * Auto-dismisses via a single pruning interval; slide-in per toast.
+ */
+
+import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
+import { useT } from "../../lib/i18n";
+import { type ToastVariant, useToastStore } from "../../stores/toast";
+
+const VARIANT_STYLES: Record<ToastVariant, { border: string; icon: string; Icon: typeof Info }> = {
+	info: { border: "border-l-(--omp-link)", icon: "text-(--omp-link)", Icon: Info },
+	success: { border: "border-l-(--omp-success)", icon: "text-(--omp-success)", Icon: CheckCircle2 },
+	warning: { border: "border-l-(--omp-warning)", icon: "text-(--omp-warning)", Icon: AlertTriangle },
+	error: { border: "border-l-(--omp-error)", icon: "text-(--omp-error)", Icon: XCircle },
+};
+
+export function ToastStack() {
+	const t = useT();
+	const toasts = useToastStore(state => state.toasts);
+	const dismiss = useToastStore(state => state.dismiss);
+	const pruneExpired = useToastStore(state => state.pruneExpired);
+
+	useEffect(() => {
+		if (toasts.length === 0) return;
+		const timer = setInterval(pruneExpired, 500);
+		return () => clearInterval(timer);
+	}, [toasts.length, pruneExpired]);
+
+	if (toasts.length === 0) return null;
+
+	return createPortal(
+		<div aria-live="polite" className="pointer-events-none fixed right-4 bottom-4 z-[70] flex w-80 flex-col gap-2">
+			{toasts.map(entry => {
+				const style = VARIANT_STYLES[entry.variant];
+				const Icon = style.Icon;
+				return (
+					<div
+						className={`omp-toast-in pointer-events-auto flex items-start gap-2.5 rounded-md border border-(--omp-border-muted) border-l-2 bg-(--omp-bg-secondary) px-3 py-2.5 shadow-lg shadow-black/40 ${style.border}`}
+						key={entry.id}
+						role={entry.variant === "error" ? "alert" : "status"}
+					>
+						<Icon className={`mt-px shrink-0 ${style.icon}`} size={14} />
+						<div className="min-w-0 flex-1">
+							{entry.title && (
+								<div className="mb-0.5 text-[11px] font-semibold text-(--omp-text)">{entry.title}</div>
+							)}
+							<div className="text-[11px] leading-snug break-words text-(--omp-muted)">{entry.message}</div>
+						</div>
+						<button
+							aria-label={t("common.close")}
+							className="shrink-0 rounded p-0.5 text-(--omp-dim) transition-colors hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+							onClick={() => dismiss(entry.id)}
+							type="button"
+						>
+							<X size={12} />
+						</button>
+					</div>
+				);
+			})}
+		</div>,
+		document.body,
+	);
+}

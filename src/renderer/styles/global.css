@@ -1,0 +1,303 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   Typography — native desktop type, optimized for long-form conversation
+   ============================================================================ */
+
+@theme {
+	--font-display: "SF Pro Display", "Avenir Next", ui-sans-serif, system-ui, sans-serif;
+	--font-body: "SF Pro Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: "SFMono-Regular", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+	overflow: hidden;
+}
+
+body {
+	font-family: var(--font-body);
+	font-size: 14.5px;
+	line-height: 1.62;
+	letter-spacing: -0.003em;
+	color: var(--omp-text);
+	background: var(--omp-bg-primary);
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+	font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.font-display {
+	font-family: var(--font-display);
+}
+
+code,
+pre,
+kbd,
+.font-mono {
+	font-family: var(--font-mono);
+	font-feature-settings: "liga" 1, "calt" 1;
+}
+
+/* ============================================================================
+   Ambient depth — the app shell sits on layered surfaces, never flat
+   ============================================================================ */
+
+.omp-surface-depth {
+	background:
+		radial-gradient(1100px 460px at 72% -12%, color-mix(in srgb, var(--omp-accent) 7%, transparent), transparent 62%),
+		radial-gradient(800px 360px at 14% 112%, color-mix(in srgb, var(--omp-accent) 4%, transparent), transparent 58%),
+		var(--omp-bg-primary);
+}
+
+/* ============================================================================
+   Scrollbars
+   ============================================================================ */
+
+::-webkit-scrollbar {
+	width: 9px;
+	height: 9px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background-color: var(--omp-scrollbar-thumb);
+	border-radius: 99px;
+	border: 2px solid transparent;
+	background-clip: content-box;
+	transition: background-color 150ms ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background-color: var(--omp-muted);
+}
+
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+/* ============================================================================
+   Selection & focus
+   ============================================================================ */
+
+::selection {
+	background: var(--omp-selection-bg);
+	color: var(--omp-selection-text);
+}
+
+:focus-visible {
+	outline: 2px solid var(--omp-accent);
+	outline-offset: 1px;
+	border-radius: 4px;
+}
+
+/* ============================================================================
+   Window drag regions
+   ============================================================================ */
+
+.drag-region {
+	-webkit-app-region: drag;
+}
+
+.no-drag {
+	-webkit-app-region: no-drag;
+}
+
+/* ============================================================================
+   Motion system
+   ============================================================================ */
+
+@keyframes omp-fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes omp-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes omp-scale-in {
+	from {
+		opacity: 0;
+		transform: scale(0.96) translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
+@keyframes omp-toast-in {
+	from {
+		opacity: 0;
+		transform: translateX(16px) scale(0.97);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0) scale(1);
+	}
+}
+
+@keyframes omp-pulse-dot {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.5;
+		transform: scale(0.8);
+	}
+}
+
+@keyframes omp-glow-ring {
+	0%,
+	100% {
+		box-shadow: 0 0 0 1px var(--omp-border-accent), 0 0 12px var(--omp-input-glow);
+	}
+	50% {
+		box-shadow: 0 0 0 1px var(--omp-border-accent), 0 0 24px var(--omp-accent-glow);
+	}
+}
+
+.omp-fade-up {
+	animation: omp-fade-up 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.omp-fade-in {
+	animation: omp-fade-in 160ms ease-out both;
+}
+
+.omp-scale-in {
+	animation: omp-scale-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.omp-toast-in {
+	animation: omp-toast-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.omp-pulse-dot {
+	animation: omp-pulse-dot 1.4s ease-in-out infinite;
+}
+
+.omp-streaming-glow {
+	animation: omp-glow-ring 2.2s ease-in-out infinite;
+}
+
+/* Staggered reveal for lists (session rows, tool cards) */
+.omp-stagger > * {
+	animation: omp-fade-up 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.omp-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.omp-stagger > *:nth-child(2) { animation-delay: 30ms; }
+.omp-stagger > *:nth-child(3) { animation-delay: 60ms; }
+.omp-stagger > *:nth-child(4) { animation-delay: 90ms; }
+.omp-stagger > *:nth-child(5) { animation-delay: 120ms; }
+.omp-stagger > *:nth-child(6) { animation-delay: 150ms; }
+.omp-stagger > *:nth-child(7) { animation-delay: 180ms; }
+.omp-stagger > *:nth-child(8) { animation-delay: 210ms; }
+.omp-stagger > *:nth-child(n + 9) { animation-delay: 240ms; }
+
+/* ============================================================================
+   Interactive micro-interactions
+   ============================================================================ */
+
+.omp-pressable {
+	transition: transform 120ms cubic-bezier(0.22, 1, 0.36, 1), background-color 150ms ease,
+		border-color 150ms ease, color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+.omp-pressable:active {
+	transform: scale(0.97);
+}
+
+.omp-lift {
+	transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 160ms ease,
+		border-color 160ms ease, background-color 160ms ease;
+}
+
+.omp-lift:hover {
+	transform: translateY(-1px);
+	box-shadow: var(--omp-shadow-md);
+}
+
+@media (min-width: 1120px) {
+	.omp-session-sidebar {
+		width: 248px;
+	}
+}
+
+@media (max-height: 700px) {
+	.omp-empty-canvas {
+		justify-content: flex-start;
+		padding-top: 1rem;
+		padding-bottom: 1rem;
+	}
+
+	.omp-empty-logo {
+		display: none;
+	}
+
+	.omp-starter-grid {
+		margin-top: 1rem;
+	}
+
+	.omp-starter-card {
+		min-height: 0;
+		padding: 0.75rem;
+	}
+
+	.omp-starter-icon {
+		width: 2rem;
+		height: 2rem;
+	}
+}
+
+/* Compact windows: keep the conversation wide and present the inspector as
+   an explicit overlay when the user opens it. */
+@media (max-width: 1000px) {
+	.omp-inspector {
+		position: absolute;
+		inset-block: 0;
+		right: 0;
+		z-index: 30;
+		width: min(360px, calc(100vw - 64px)) !important;
+		box-shadow: var(--omp-shadow-lg);
+	}
+}
+
+/* ============================================================================
+   Reduced motion
+   ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}

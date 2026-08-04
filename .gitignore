@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+
+# Bundled agent sidecar binaries (build with `bun run build:omp`; >100MB, not committed)
+resources/omp
+resources/omp.*
+
+# Logs & OS cruft
+*.log
+.DS_Store
+
+# electron-builder trial/override configs
+electron-builder.trial.yml
+electron-builder.x64.yml

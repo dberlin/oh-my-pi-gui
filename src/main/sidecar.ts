@@ -1,0 +1,371 @@
+/**
+ * Sidecar lifecycle manager: spawns omp --mode rpc-ui, handles restart,
+ * routes frames to RpcClient and EventBatcher.
+ */
+import { type ChildProcess, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import type {
+	AgentSessionEvent,
+	ConfigUpdateFrame,
+	ExtensionUIRequest,
+	HostToolCallRequest,
+	HostUriRequest,
+	OutboundFrame,
+	RpcReadyFrame,
+	RpcResponse,
+	SidecarStatus,
+	SubagentFrame,
+} from "../shared/rpc-types";
+import { EventBatcher } from "./event-batcher";
+import { attachNdjsonParser } from "./rpc-bridge";
+import { RpcClient } from "./rpc-client";
+
+const MAX_RESTART_ATTEMPTS = 3;
+const RESTART_DELAYS = [1000, 2000, 4000];
+
+/** Event types routed to the EventBatcher. Hoisted: one lookup table for the
+ * process, not one allocation per frame. */
+const AGENT_EVENT_TYPES: Record<string, true> = {
+	agent_start: true,
+	agent_end: true,
+	turn_start: true,
+	turn_end: true,
+	message_start: true,
+	message_update: true,
+	message_end: true,
+	tool_execution_start: true,
+	tool_execution_update: true,
+	tool_execution_end: true,
+	auto_compaction_start: true,
+	auto_compaction_end: true,
+	auto_retry_start: true,
+	auto_retry_end: true,
+	retry_fallback_applied: true,
+	retry_fallback_succeeded: true,
+	model_changed: true,
+	ttsr_triggered: true,
+	todo_reminder: true,
+	todo_auto_clear: true,
+	irc_message: true,
+	notice: true,
+	thinking_level_changed: true,
+	goal_updated: true,
+	loop_mode_update: true,
+	plan_proposal: true,
+};
+
+export interface SidecarOptions {
+	binaryPath: string;
+	cwd: string;
+	extraFlags?: string[];
+	/** When set, spawn the workspace source CLI via bun instead of the installed binary. */
+	sourceCli?: string;
+}
+
+/** Resolve the bun executable for source-sidecar spawns (PATH fallback last). */
+function resolveBunExe(): string {
+	if (process.env.OMP_BUN) return process.env.OMP_BUN;
+	for (const candidate of [join(homedir(), ".bun", "bin", "bun"), "/opt/homebrew/bin/bun", "/usr/local/bin/bun"]) {
+		if (existsSync(candidate)) return candidate;
+	}
+	return "bun";
+}
+
+export interface SidecarEvents {
+	status: (payload: { status: SidecarStatus; message?: string; cwd: string }) => void;
+	events: (events: AgentSessionEvent[]) => void;
+	extensionUi: (request: ExtensionUIRequest) => void;
+	hostToolCall: (request: HostToolCallRequest) => void;
+	hostUriRequest: (request: HostUriRequest) => void;
+	subagentFrame: (frame: SubagentFrame) => void;
+	commandsUpdate: (commands: unknown[]) => void;
+	frame: (frame: OutboundFrame) => void;
+}
+
+export class SidecarManager extends EventEmitter {
+	#child: ChildProcess | null = null;
+	#rpcClient: RpcClient | null = null;
+	#batcher: EventBatcher | null = null;
+	#detachParser: (() => void) | null = null;
+	#restartCount = 0;
+	#restartTimer: NodeJS.Timeout | null = null;
+	#status: SidecarStatus = "starting";
+	#options: SidecarOptions;
+	#disposed = false;
+
+	constructor(options: SidecarOptions) {
+		super();
+		this.#options = options;
+	}
+
+	get status(): SidecarStatus {
+		return this.#status;
+	}
+
+	get cwd(): string {
+		return this.#options.cwd;
+	}
+
+	get rpcClient(): RpcClient | null {
+		return this.#rpcClient;
+	}
+
+	start(): void {
+		if (this.#disposed) return;
+		// Closed loop: only the bundled binary (or an explicit source override)
+		// may run. Missing it is an actionable error, never an external fallback.
+		if (!this.#options.binaryPath && !this.#options.sourceCli) {
+			this.#setStatus(
+				"error",
+				"Built-in omp not found. Build it with `bun --cwd=packages/gui run build:omp`, then relaunch.",
+			);
+			return;
+		}
+		this.#setStatus("starting");
+		this.#spawn();
+	}
+
+	#spawn(): void {
+		const { binaryPath, sourceCli, cwd, extraFlags } = this.#options;
+
+		const args = ["--mode", "rpc-ui"];
+		if (extraFlags) args.push(...extraFlags);
+
+		// Source sidecar (monorepo dev): run the workspace coding-agent from
+		// source via bun so in-repo RPC fixes are live in the running GUI.
+		// Falls back to the installed binary when no workspace source exists.
+		const command = sourceCli ? resolveBunExe() : binaryPath;
+		const spawnArgs = sourceCli ? [sourceCli, ...args] : args;
+		console.log(`[sidecar] spawning: ${command} ${spawnArgs.join(" ")} (cwd: ${cwd})`);
+
+		let child: ChildProcess;
+		try {
+			child = spawn(command, spawnArgs, {
+				stdio: ["pipe", "pipe", "pipe"],
+				env: {
+					...process.env,
+					PI_RPC_EMIT_TITLE: "1",
+					PI_NO_PTY: "1",
+					PI_NOTIFICATIONS: "off",
+				},
+				cwd,
+			});
+		} catch (err) {
+			// spawn() throws synchronously (EBADF/ENOENT) — surface it as a
+			// sidecar failure + retry, never an uncaught main-process exception.
+			this.#attemptRestart(err instanceof Error ? err.message : String(err));
+			return;
+		}
+
+		this.#child = child;
+
+		// Set up RPC client with stdin writer
+		const send = (frame: object) => {
+			if (child.stdin?.writable) {
+				child.stdin.write(`${JSON.stringify(frame)}\n`);
+			}
+		};
+		this.#rpcClient = new RpcClient(send);
+
+		// Set up event batcher
+		this.#batcher = new EventBatcher(events => {
+			this.emit("events", events);
+		});
+
+		// Parse stdout NDJSON
+		if (child.stdout) {
+			this.#detachParser = attachNdjsonParser(child.stdout, frame => this.#routeFrame(frame));
+		}
+
+		// Log stderr to main process console for diagnostics
+		child.stderr?.on("data", (chunk: Buffer) => {
+			const text = chunk.toString("utf-8").trim();
+			if (text) {
+				console.error(`[sidecar stderr] ${text}`);
+				this.emit("stderr", text);
+			}
+		});
+
+		child.on("exit", (code, signal) => {
+			if (this.#child !== child) return;
+			this.#cleanup();
+			if (this.#disposed) return;
+
+			if (code === 0) {
+				this.#setStatus("exited", "Normal shutdown");
+			} else {
+				const msg = `Exit code ${code}${signal ? ` (signal: ${signal})` : ""}`;
+				this.#attemptRestart(msg);
+			}
+		});
+
+		child.on("error", err => {
+			if (this.#child !== child) return;
+			this.#cleanup();
+			if (this.#disposed) return;
+			this.#attemptRestart(err.message);
+		});
+	}
+
+	#routeFrame(frame: unknown): void {
+		if (typeof frame !== "object" || frame === null) return;
+		const obj = frame as Record<string, unknown>;
+
+		// Ready frame
+		if (obj.type === "ready") {
+			this.#handleReady(obj as unknown as RpcReadyFrame);
+			return;
+		}
+
+		// Response frame → route to RPC client
+		if (obj.type === "response") {
+			const handled = this.#rpcClient?.onResponse(obj as unknown as RpcResponse);
+			if (handled) return;
+		}
+
+		// Extension UI request
+		if (obj.type === "extension_ui_request") {
+			this.emit("extensionUi", obj as ExtensionUIRequest);
+			this.emit("frame", obj);
+			return;
+		}
+
+		// Host tool/URI requests
+		if (obj.type === "host_tool_call") {
+			this.emit("hostToolCall", obj as unknown as HostToolCallRequest);
+			this.emit("frame", obj);
+			return;
+		}
+		if (obj.type === "host_uri_request") {
+			this.emit("hostUriRequest", obj as unknown as HostUriRequest);
+			this.emit("frame", obj);
+			return;
+		}
+
+		// Subagent frames
+		if (obj.type === "subagent_lifecycle" || obj.type === "subagent_progress" || obj.type === "subagent_event") {
+			this.emit("subagentFrame", obj as unknown as SubagentFrame);
+			this.emit("frame", obj);
+			return;
+		}
+
+		// Available commands update
+		if (obj.type === "available_commands_update") {
+			this.emit("commandsUpdate", (obj as { commands: unknown[] }).commands);
+			this.emit("frame", obj);
+			return;
+		}
+
+		// Config update (set_setting, slash-command config edits)
+		if (obj.type === "config_update") {
+			this.emit("configUpdate", obj as unknown as ConfigUpdateFrame);
+			this.emit("frame", obj);
+			return;
+		}
+
+		// Agent session events → batcher
+		if (AGENT_EVENT_TYPES[obj.type as string] === true) {
+			this.#batcher?.push(obj as AgentSessionEvent);
+			this.emit("frame", obj);
+			return;
+		}
+
+		// Other frames (prompt_result, command_output, etc.)
+		this.emit("frame", obj);
+	}
+
+	#handleReady(ready: RpcReadyFrame): void {
+		// Negotiate protocol v2
+		if (ready.supportedProtocolVersions.includes(2)) {
+			this.#rpcClient
+				?.command({ type: "negotiate_protocol", protocolVersion: 2 })
+				.then(() => {
+					this.#setStatus("ready");
+					this.#restartCount = 0;
+				})
+				.catch(() => {
+					// v2 negotiation failed, stay on v1
+					this.#setStatus("ready");
+					this.#restartCount = 0;
+				});
+		} else {
+			this.#setStatus("ready");
+			this.#restartCount = 0;
+		}
+	}
+
+	#attemptRestart(reason: string): void {
+		if (this.#restartCount >= MAX_RESTART_ATTEMPTS) {
+			this.#setStatus("error", `Failed after ${MAX_RESTART_ATTEMPTS} attempts: ${reason}`);
+			return;
+		}
+
+		const delay = RESTART_DELAYS[this.#restartCount] ?? 4000;
+		this.#restartCount++;
+		this.#setStatus(
+			"restarting",
+			`Restarting in ${delay}ms (attempt ${this.#restartCount}/${MAX_RESTART_ATTEMPTS}): ${reason}`,
+		);
+
+		this.#restartTimer = setTimeout(() => {
+			this.#restartTimer = null;
+			if (!this.#disposed) {
+				this.#spawn();
+			}
+		}, delay);
+	}
+
+	#setStatus(status: SidecarStatus, message?: string): void {
+		this.#status = status;
+		this.emit("status", { status, message, cwd: this.#options.cwd });
+	}
+
+	#cleanup(): void {
+		this.#detachParser?.();
+		this.#detachParser = null;
+		this.#batcher?.flushNow();
+		this.#batcher?.dispose();
+		this.#batcher = null;
+		this.#rpcClient?.rejectAll("Sidecar disconnected");
+		this.#rpcClient = null;
+		this.#child = null;
+	}
+
+	/** Send a side-channel frame (bypasses command queue). */
+	sendSideChannel(frame: object): void {
+		if (this.#child?.stdin?.writable) {
+			this.#child.stdin.write(`${JSON.stringify(frame)}\n`);
+		}
+	}
+
+	/** Mark the sidecar as unhealthy (e.g. health check failed after ready). */
+	markUnhealthy(reason: string): void {
+		this.#setStatus("error", reason);
+	}
+
+	restart(cwd?: string): void {
+		this.kill();
+		if (cwd) this.#options = { ...this.#options, cwd };
+		this.#restartCount = 0;
+		this.start();
+	}
+
+	kill(): void {
+		if (this.#restartTimer) {
+			clearTimeout(this.#restartTimer);
+			this.#restartTimer = null;
+		}
+		const child = this.#child;
+		this.#cleanup();
+		child?.kill("SIGTERM");
+	}
+
+	dispose(): void {
+		this.#disposed = true;
+		this.kill();
+		this.removeAllListeners();
+	}
+}

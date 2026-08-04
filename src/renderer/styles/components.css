@@ -1,0 +1,330 @@
+/**
+ * Component-level styles: streaming caret, pattern highlights, thinking
+ * shimmer, highlight.js token mapping, and markdown body typography.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Streaming caret
+ * ------------------------------------------------------------------------- */
+.omp-caret {
+	display: inline-block;
+	width: 7px;
+	height: 1.05em;
+	margin-left: 2px;
+	vertical-align: text-bottom;
+	border-radius: 2px;
+	background: var(--omp-streaming-cursor);
+	box-shadow: 0 0 8px var(--omp-accent-glow);
+	animation: omp-caret-blink 0.9s steps(2, start) infinite;
+}
+
+@keyframes omp-caret-blink {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.15; }
+}
+
+/* Keep the streaming caret at the end of the last text line: the markdown
+   wrapper and its trailing paragraph flow inline, so the caret (an inline-block
+   sibling) lands right after the final glyph instead of wrapping below the
+   block. Earlier blocks stay block-level; a trailing non-paragraph block (pre,
+   list) simply leaves the caret on the next line until text resumes. */
+.omp-streaming .markdown-body {
+	display: inline;
+}
+
+.omp-streaming .markdown-body > p:last-child {
+	display: inline;
+}
+
+/* ---------------------------------------------------------------------------
+ * Pattern highlight (grep matches, code search hits)
+ * ------------------------------------------------------------------------- */
+.omp-hl {
+	background: var(--omp-accent-dim);
+	color: var(--omp-accent-bright);
+	border-radius: 3px;
+	padding: 0 2px;
+	font-weight: 600;
+}
+
+:root[data-theme="light"] .omp-hl {
+	color: var(--omp-accent-bright);
+}
+
+/* ---------------------------------------------------------------------------
+ * Thinking block shimmer while live
+ * ------------------------------------------------------------------------- */
+.omp-thinking-shimmer {
+	background: linear-gradient(
+		100deg,
+		var(--omp-muted) 20%,
+		var(--omp-thinking-xhigh) 50%,
+		var(--omp-muted) 80%
+	);
+	background-size: 200% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	animation: omp-thinking-sweep 2.4s linear infinite;
+}
+
+@keyframes omp-thinking-sweep {
+	from { background-position: 200% 0; }
+	to { background-position: -200% 0; }
+}
+
+.omp-thinking-pulse {
+	animation: omp-thinking-opacity 1.6s ease-in-out infinite;
+}
+
+@keyframes omp-thinking-opacity {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.55; }
+}
+
+/* ---------------------------------------------------------------------------
+ * highlight.js tokens → design tokens
+ * ------------------------------------------------------------------------- */
+.hljs-comment,
+.hljs-quote {
+	color: var(--omp-syntax-comment);
+	font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta,
+.hljs-name,
+.hljs-tag {
+	color: var(--omp-syntax-keyword);
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+	color: var(--omp-syntax-function);
+}
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attr,
+.hljs-attribute {
+	color: var(--omp-syntax-variable);
+}
+.hljs-string,
+.hljs-regexp {
+	color: var(--omp-syntax-string);
+}
+.hljs-number,
+.hljs-literal {
+	color: var(--omp-syntax-number);
+}
+.hljs-type,
+.hljs-title.class_,
+.hljs-built_in {
+	color: var(--omp-syntax-type);
+}
+.hljs-operator,
+.hljs-punctuation {
+	color: var(--omp-syntax-operator);
+}
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+	color: var(--omp-md-link);
+}
+.hljs-emphasis {
+	font-style: italic;
+}
+.hljs-strong {
+	font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+ * Markdown body typography — strong hierarchy, readable measure
+ * ------------------------------------------------------------------------- */
+.markdown-body {
+	font-size: 14.5px;
+	line-height: 1.7;
+	color: var(--omp-text);
+	word-break: break-word;
+}
+.markdown-body > :first-child {
+	margin-top: 0;
+}
+.markdown-body > :last-child {
+	margin-bottom: 0;
+}
+.markdown-body p {
+	margin: 0.65em 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+	font-family: var(--font-display);
+	font-weight: 650;
+	color: var(--omp-md-heading);
+	margin: 1.25em 0 0.5em;
+	line-height: 1.3;
+	letter-spacing: -0.015em;
+}
+.markdown-body h1 {
+	font-size: 1.32em;
+	letter-spacing: -0.02em;
+	padding-bottom: 0.3em;
+	border-bottom: 1px solid var(--omp-border-muted);
+}
+.markdown-body h2 {
+	font-size: 1.18em;
+}
+.markdown-body h3 {
+	font-size: 1.06em;
+}
+.markdown-body h4 {
+	font-size: 1em;
+	color: var(--omp-text-secondary);
+}
+.markdown-body h5 {
+	font-size: 0.95em;
+	color: var(--omp-text-secondary);
+}
+.markdown-body h6 {
+	font-size: 0.9em;
+	font-weight: 600;
+	color: var(--omp-muted);
+}
+.markdown-body ul {
+	margin: 0.5em 0;
+	padding-left: 1.5em;
+	list-style: disc;
+}
+.markdown-body ol {
+	margin: 0.5em 0;
+	padding-left: 1.5em;
+	list-style: decimal;
+}
+.markdown-body li {
+	margin: 0.25em 0;
+}
+.markdown-body li > ul,
+.markdown-body li > ol {
+	margin: 0.25em 0;
+}
+.markdown-body li::marker {
+	color: var(--omp-md-list-bullet);
+	font-weight: 600;
+}
+.markdown-body blockquote {
+	margin: 0.75em 0;
+	padding: 0.15em 0 0.15em 1em;
+	border-left: 2px solid var(--omp-md-quote-border);
+	color: var(--omp-md-quote);
+}
+.markdown-body hr {
+	margin: 1.5em 0;
+	border: none;
+	height: 1px;
+	background: var(--omp-md-hr);
+}
+.markdown-body pre {
+	margin: 0.75em 0;
+	padding: 12px 14px;
+	background: var(--omp-code-bg);
+	border: 1px solid var(--omp-md-code-block-border);
+	border-radius: 8px;
+	overflow-x: auto;
+	font-size: 12.5px;
+	line-height: 1.5;
+}
+.markdown-body pre code {
+	background: none;
+	border: none;
+	padding: 0;
+	font-size: inherit;
+	color: var(--omp-md-code-block);
+}
+.markdown-body code {
+	font-family: var(--font-mono);
+	font-size: 0.875em;
+	background: var(--omp-code-bg);
+	border: 1px solid var(--omp-border-muted);
+	border-radius: 5px;
+	padding: 0.12em 0.4em;
+	color: var(--omp-md-code);
+}
+.markdown-body table {
+	border-collapse: collapse;
+	margin: 0.9em 0;
+	font-size: 13px;
+	width: auto;
+	max-width: 100%;
+	display: block;
+	overflow-x: auto;
+}
+.markdown-body th,
+.markdown-body td {
+	border: 1px solid var(--omp-border-muted);
+	padding: 0.45em 0.75em;
+	text-align: left;
+}
+.markdown-body th {
+	background: var(--omp-bg-tertiary);
+	font-weight: 600;
+	color: var(--omp-text-secondary);
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+.markdown-body tr:nth-child(even) td {
+	background: color-mix(in srgb, var(--omp-text) 3%, transparent);
+}
+.markdown-body img {
+	max-width: 100%;
+	border-radius: 8px;
+	border: 1px solid var(--omp-border-muted);
+}
+.markdown-body a {
+	color: var(--omp-md-link);
+	text-decoration: none;
+	border-bottom: 1px solid color-mix(in srgb, var(--omp-md-link) 30%, transparent);
+	transition: border-color 120ms ease;
+}
+.markdown-body a:hover {
+	border-bottom-color: var(--omp-md-link);
+}
+.markdown-body strong {
+	font-weight: 650;
+	color: var(--omp-text);
+}
+.markdown-body del {
+	color: var(--omp-dim);
+}
+
+/* ---------------------------------------------------------------------------
+ * Diff lines
+ * ------------------------------------------------------------------------- */
+.omp-diff-add {
+	background: var(--omp-diff-added-bg);
+	color: var(--omp-diff-added);
+}
+.omp-diff-del {
+	background: var(--omp-diff-removed-bg);
+	color: var(--omp-diff-removed);
+}
+.omp-diff-ctx {
+	color: var(--omp-diff-context);
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduced motion
+ * ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+	.omp-thinking-shimmer {
+		-webkit-text-fill-color: var(--omp-muted);
+		background: none;
+		animation: none;
+	}
+	.omp-caret {
+		animation: none;
+	}
+}

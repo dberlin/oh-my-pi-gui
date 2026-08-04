@@ -1,0 +1,145 @@
+/**
+ * Session info panel: native rendering of rpc.getSessionStats() — identity,
+ * message/tool counts, token breakdown, premium requests, cost, and context
+ * window usage. Replaces the forwarded "/session info" text command.
+ */
+
+import { useEffect, useState } from "react";
+import type { SessionStats } from "../../../shared/rpc-types";
+import { basename, formatTokens } from "../../lib/format";
+import { useT } from "../../lib/i18n";
+import { useUiStore } from "../../stores/ui";
+import { Modal, ProgressBar, Spinner } from "../common";
+
+interface Row {
+	label: string;
+	value: string;
+}
+
+function Section({ title, rows }: { title: string; rows: Row[] }) {
+	return (
+		<section>
+			<h3 className="mb-1 text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">{title}</h3>
+			<div className="overflow-hidden rounded-md border border-(--omp-border-muted)">
+				{rows.map((row, index) => (
+					<div
+						className={`flex items-center gap-2 px-2.5 py-1.5 ${index % 2 === 1 ? "bg-(--omp-bg-tertiary)/50" : ""}`}
+						key={row.label}
+					>
+						<span className="flex-1 text-[11.5px] text-(--omp-muted)">{row.label}</span>
+						<span className="font-mono text-[11.5px] font-medium tabular-nums text-(--omp-text)">{row.value}</span>
+					</div>
+				))}
+			</div>
+		</section>
+	);
+}
+
+export function SessionInfoDialog() {
+	const t = useT();
+	const open = useUiStore(state => state.sessionInfoOpen);
+	const close = useUiStore(state => state.closeSessionInfo);
+
+	const [stats, setStats] = useState<SessionStats | null>(null);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!open) return;
+		setLoading(true);
+		setError(null);
+		setStats(null);
+		let cancelled = false;
+		void window.omp.rpc
+			.getSessionStats()
+			.then(response => {
+				if (cancelled) return;
+				if (response.success) setStats(response.data as SessionStats);
+				else setError(response.error);
+			})
+			.catch(cause => {
+				if (!cancelled) setError(String(cause));
+			})
+			.finally(() => {
+				if (!cancelled) setLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [open]);
+
+	return (
+		<Modal open={open} onClose={close} title={t("sessionInfo.title")} size="md">
+			<div className="flex flex-col gap-4">
+				{error ? (
+					<div className="py-8 text-center text-xs text-[var(--omp-error)]">{error}</div>
+				) : loading || !stats ? (
+					<div className="flex items-center justify-center gap-2 py-8">
+						<Spinner size="sm" />
+						<span className="text-xs text-(--omp-dim)">{t("sessionInfo.loading")}</span>
+					</div>
+				) : (
+					<>
+						<Section
+							title={t("sessionInfo.section.session")}
+							rows={[
+								{ label: t("sessionInfo.sessionId"), value: stats.sessionId },
+								...(stats.sessionFile ? [{ label: t("sessionInfo.file"), value: basename(stats.sessionFile) }] : []),
+							]}
+						/>
+						<Section
+							title={t("sessionInfo.section.messages")}
+							rows={[
+								{ label: t("sessionInfo.totalMessages"), value: String(stats.totalMessages) },
+								{ label: t("sessionInfo.userTurns"), value: String(stats.userMessages) },
+								{ label: t("sessionInfo.assistantTurns"), value: String(stats.assistantMessages) },
+							]}
+						/>
+						<Section
+							title={t("sessionInfo.section.tools")}
+							rows={[
+								{ label: t("sessionInfo.toolCalls"), value: String(stats.toolCalls) },
+								{ label: t("sessionInfo.toolResults"), value: String(stats.toolResults) },
+							]}
+						/>
+						<Section
+							title={t("sessionInfo.section.tokens")}
+							rows={[
+								{ label: t("sessionInfo.input"), value: formatTokens(stats.tokens.input) },
+								{ label: t("sessionInfo.output"), value: formatTokens(stats.tokens.output) },
+								{ label: t("sessionInfo.reasoning"), value: formatTokens(stats.tokens.reasoning) },
+								{ label: t("sessionInfo.cacheRead"), value: formatTokens(stats.tokens.cacheRead) },
+								{ label: t("sessionInfo.cacheWrite"), value: formatTokens(stats.tokens.cacheWrite) },
+								{ label: t("sessionInfo.total"), value: formatTokens(stats.tokens.total) },
+							]}
+						/>
+						<Section
+							title={t("sessionInfo.section.usage")}
+							rows={[
+								{ label: t("sessionInfo.premiumRequests"), value: String(stats.premiumRequests) },
+								{ label: t("sessionInfo.cost"), value: `$${stats.cost.toFixed(4)}` },
+							]}
+						/>
+						{stats.contextUsage && (
+							<section>
+								<h3 className="mb-1 text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">
+									{t("sessionInfo.contextWindow")}
+								</h3>
+								<div className="rounded-md border border-(--omp-border-muted) px-2.5 py-2">
+									<ProgressBar value={stats.contextUsage.percent / 100} valueText={`${stats.contextUsage.percent.toFixed(1)}%`} />
+									<div className="mt-1.5 flex items-center justify-between text-[10.5px] text-(--omp-muted)">
+										<span>
+											{formatTokens(stats.contextUsage.tokens)} / {formatTokens(stats.contextUsage.contextWindow)}{" "}
+											{t("sessionInfo.tokens")}
+										</span>
+										<span className="font-mono tabular-nums">{stats.contextUsage.percent.toFixed(1)}%</span>
+									</div>
+								</div>
+							</section>
+						)}
+					</>
+				)}
+			</div>
+		</Modal>
+	);
+}

@@ -1,0 +1,175 @@
+/**
+ * Models: usage bar chart, performance series, and per-model table.
+ */
+
+import { useEffect, useMemo } from "react";
+import { Bar, Line } from "react-chartjs-2";
+import { baseChartOptions, bucketLabels, CHART_COLORS, compact, formatMs, formatUsd } from "../../lib/chart";
+import "../../lib/chart";
+import { useT } from "../../lib/i18n";
+import { useStats } from "../../hooks/use-stats";
+import type { StatsRange } from "./StatsDashboard";
+import { ChartBox, RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
+
+interface ModelRow {
+	model: string;
+	provider: string;
+	totalRequests: number;
+	failedRequests: number;
+	errorRate: number;
+	totalInputTokens: number;
+	totalOutputTokens: number;
+	totalCacheReadTokens: number;
+	totalCacheWriteTokens: number;
+	totalCost: number;
+	avgDuration: number | null;
+	avgTtft: number | null;
+	avgTokensPerSecond: number | null;
+}
+
+interface ModelSeriesPoint {
+	timestamp: number;
+	model: string;
+	provider: string;
+	requests: number;
+}
+
+interface PerformancePoint {
+	timestamp: number;
+	model: string;
+	provider: string;
+	requests: number;
+	avgTtft: number | null;
+	avgTokensPerSecond: number | null;
+}
+
+interface ModelsData {
+	byModel: ModelRow[];
+	modelSeries: ModelSeriesPoint[];
+	modelPerformanceSeries: PerformancePoint[];
+}
+
+export function ModelsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+	const t = useT();
+	const params = useMemo(() => ({ range }), [range]);
+	const { data, isLoading, error, refetch } = useStats("/api/stats/model-dashboard", params);
+
+	useEffect(() => {
+		if (refreshKey > 0) refetch();
+	}, [refreshKey, refetch]);
+
+	const stats = (data ?? null) as ModelsData | null;
+
+	const columns: StatColumn<ModelRow>[] = useMemo(
+		() => [
+			{
+				key: "model",
+				label: t("stats.col.model"),
+				render: row => (
+					<span>
+						<span className="block font-mono font-medium text-(--omp-text)">{row.model}</span>
+						<span className="block text-[10px] text-(--omp-dim)">{row.provider}</span>
+					</span>
+				),
+			},
+			{ key: "requests", label: t("stats.col.requests"), align: "right", render: row => compact(row.totalRequests) },
+			{
+				key: "errors",
+				label: t("stats.col.errors"),
+				align: "right",
+				render: row => (
+					<span className={row.errorRate > 0.05 ? "text-(--omp-error)" : undefined}>
+						{(row.errorRate * 100).toFixed(1)}%
+					</span>
+				),
+			},
+			{
+				key: "tokens",
+				label: t("stats.col.tokens"),
+				align: "right",
+				render: row =>
+					compact(
+						row.totalInputTokens + row.totalOutputTokens + row.totalCacheReadTokens + row.totalCacheWriteTokens,
+					),
+			},
+			{ key: "cost", label: t("stats.col.cost"), align: "right", render: row => formatUsd(row.totalCost) },
+			{ key: "ttft", label: t("stats.col.ttft"), align: "right", render: row => formatMs(row.avgTtft) },
+			{
+				key: "speed",
+				label: t("stats.col.tps"),
+				align: "right",
+				render: row => (row.avgTokensPerSecond !== null ? Math.round(row.avgTokensPerSecond) : "—"),
+			},
+		],
+		[t],
+	);
+
+	const byModel = useMemo(
+		() => [...(stats?.byModel ?? [])].sort((a, b) => b.totalRequests - a.totalRequests),
+		[stats],
+	);
+	const usageChart = useMemo(() => {
+		const top = byModel.slice(0, 10);
+		return {
+			labels: top.map(row => row.model),
+			datasets: [
+				{
+					label: t("stats.col.requests"),
+					data: top.map(row => row.totalRequests),
+					backgroundColor: top.map((_, index) => `${CHART_COLORS[index % CHART_COLORS.length]}99`),
+					borderColor: top.map((_, index) => CHART_COLORS[index % CHART_COLORS.length]),
+					borderWidth: 1,
+				},
+			],
+		};
+	}, [byModel, t]);
+
+	const perfChart = useMemo(() => {
+		const points = stats?.modelPerformanceSeries ?? [];
+		const topModels = byModel.slice(0, 5).map(row => row.model);
+		const timestamps = [...new Set(points.map(point => point.timestamp))].sort((a, b) => a - b);
+		return {
+			labels: bucketLabels(timestamps),
+			datasets: topModels.map((model, index) => ({
+				label: model,
+				data: timestamps.map(ts => {
+					const point = points.find(p => p.timestamp === ts && p.model === model);
+					return point?.avgTokensPerSecond ?? null;
+				}),
+				borderColor: CHART_COLORS[index % CHART_COLORS.length],
+				backgroundColor: "transparent",
+				tension: 0.3,
+				pointRadius: 0,
+				borderWidth: 1.5,
+				spanGaps: true,
+			})),
+		};
+	}, [stats, byModel]);
+
+	return (
+		<RouteFrame empty={byModel.length === 0} error={error} loading={isLoading} onRetry={refetch}>
+			<div className="grid gap-3 xl:grid-cols-2">
+				<div>
+					<SectionTitle>{t("stats.models.requestsByModel")}</SectionTitle>
+					<ChartBox height={230}>
+						<Bar
+							data={usageChart}
+							options={{
+								...baseChartOptions(),
+								plugins: { ...baseChartOptions().plugins, legend: { display: false } },
+							}}
+						/>
+					</ChartBox>
+				</div>
+				<div>
+					<SectionTitle>{t("stats.models.throughput")}</SectionTitle>
+					<ChartBox height={230}>
+						<Line data={perfChart} options={baseChartOptions()} />
+					</ChartBox>
+				</div>
+			</div>
+			<SectionTitle>{t("stats.models.allModels")}</SectionTitle>
+			<StatTable columns={columns} keyFor={row => `${row.provider}/${row.model}`} rows={byModel} />
+		</RouteFrame>
+	);
+}

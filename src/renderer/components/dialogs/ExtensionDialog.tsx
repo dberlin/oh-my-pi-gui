@@ -1,0 +1,668 @@
+/**
+ * Extension UI dispatcher: renders the oldest pending extension_ui_request
+ * as the right surface (select / confirm / input / editor / open_url),
+ * routes tool-approval selects to ApprovalDialog, turns `notify` into a
+ * toast, and enforces request timeouts with a visible countdown.
+ *
+ * `setStatus` / `setWidget` are captured by the extension-ui store and
+ * surfaced here as floating status segments / widget panels.
+ * `setTitle` / `set_editor_text` / `cancel` are consumed by the store /
+ * event router and never render here; if one slips into the queue it is
+ * dropped silently.
+ */
+
+import { json } from "@codemirror/lang-json";
+import { EditorView } from "@codemirror/view";
+import { Check, ExternalLink } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
+import { cx } from "../../lib/format";
+import { useT } from "../../lib/i18n";
+import { useExtensionUiStore } from "../../stores/extension-ui";
+import { toast } from "../../stores/toast";
+import { Button, Input, Modal } from "../common";
+import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
+
+/** Requests handled elsewhere (store/router) — never rendered as dialogs. */
+const NON_DIALOG_METHODS = new Set(["notify", "setStatus", "setWidget", "setTitle", "set_editor_text", "cancel"]);
+
+/**
+ * Floating surfaces for extension-pushed state: `setStatus` renders as a row
+ * of status segments above the composer, `setWidget` as text-line panels just
+ * above those. Both live below modal z-index and clear when the extension
+ * clears them (empty text/lines) or the session resets.
+ */
+function ExtensionSurfaces() {
+	const statusWidgets = useExtensionUiStore(state => state.statusWidgets);
+	const widgetPanels = useExtensionUiStore(state => state.widgetPanels);
+	const statuses = Object.entries(statusWidgets);
+	const widgets = Object.entries(widgetPanels);
+	if (statuses.length === 0 && widgets.length === 0) return null;
+	return (
+		<>
+			{widgets.length > 0 && (
+				<div className="pointer-events-none fixed bottom-9 left-1/2 z-40 flex max-h-[40vh] w-[min(560px,92vw)] -translate-x-1/2 flex-col gap-1.5 overflow-y-auto">
+					{widgets.map(([key, lines]) => (
+						<div
+							aria-label={key}
+							className="pointer-events-auto rounded-md border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-2.5 py-1.5 shadow-lg shadow-black/40"
+							key={key}
+							role="region"
+						>
+							<div className="mb-0.5 text-[9px] font-medium tracking-widest text-(--omp-dim) uppercase">
+								{key}
+							</div>
+							{lines.map((line, index) => (
+								<div
+									className="font-mono text-[10.5px] leading-snug break-words whitespace-pre-wrap text-(--omp-text)"
+									key={index}
+								>
+									{line === "" ? "\u00A0" : line}
+								</div>
+							))}
+						</div>
+					))}
+				</div>
+			)}
+			{statuses.length > 0 && (
+				<div
+					aria-live="polite"
+					className="pointer-events-none fixed bottom-2 left-1/2 z-40 flex max-w-[92vw] -translate-x-1/2 items-center gap-1.5 overflow-x-auto"
+					role="status"
+				>
+					{statuses.map(([key, text]) => (
+						<span
+							className="pointer-events-auto shrink-0 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-2 py-0.5 text-[10px] whitespace-nowrap text-(--omp-muted) shadow-md shadow-black/30"
+							key={key}
+							title={key}
+						>
+							{text}
+						</span>
+					))}
+				</div>
+			)}
+		</>
+	);
+}
+
+function useCountdown(request: ExtensionUIRequest | null): number | null {
+	const timeout =
+		request &&
+		(request.method === "select" ||
+			request.method === "confirm" ||
+			request.method === "input" ||
+			request.method === "askDialog")
+			? request.timeout
+			: undefined;
+	const [remaining, setRemaining] = useState<number | null>(timeout ?? null);
+
+	useEffect(() => {
+		if (timeout === undefined) {
+			setRemaining(null);
+			return;
+		}
+		setRemaining(timeout);
+		const started = Date.now();
+		const timer = setInterval(() => {
+			setRemaining(Math.max(0, timeout - (Date.now() - started)));
+		}, 200);
+		return () => clearInterval(timer);
+	}, [timeout]);
+
+	return remaining;
+}
+
+function TimeoutFooter({ remaining }: { remaining: number | null }) {
+	const t = useT();
+	if (remaining === null) return null;
+	return (
+		<span className="text-[10px] tabular-nums text-(--omp-dim)">
+			{t("extDialog.autoDismiss", { seconds: Math.ceil(remaining / 1000) })}
+		</span>
+	);
+}
+
+function SelectDialog({
+	request,
+	remaining,
+	onValue,
+	onCancel,
+}: {
+	request: Extract<ExtensionUIRequest, { method: "select" }>;
+	remaining: number | null;
+	onValue: (value: string) => void;
+	onCancel: () => void;
+}) {
+	const t = useT();
+	return (
+		<Modal onClose={onCancel} open size="sm" title={request.title}>
+			<div className="space-y-1">
+				{request.options.map((option, index) => (
+					<button
+						autoFocus={index === 0}
+						className="flex w-full items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-3 py-2 text-left text-xs text-(--omp-text) transition-colors hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg) focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)"
+						key={option}
+						onClick={() => onValue(option)}
+						type="button"
+					>
+						<span className="w-4 shrink-0 text-[10px] text-(--omp-dim)">{index + 1}</span>
+						<span className="min-w-0 break-words">{option}</span>
+					</button>
+				))}
+				<div className="flex items-center justify-between pt-2">
+					<TimeoutFooter remaining={remaining} />
+					<Button onClick={onCancel} size="sm" variant="ghost">
+						{t("common.cancel")}
+					</Button>
+				</div>
+			</div>
+		</Modal>
+	);
+}
+
+function ConfirmDialog({
+	request,
+	remaining,
+	onConfirm,
+	onCancel,
+}: {
+	request: Extract<ExtensionUIRequest, { method: "confirm" }>;
+	remaining: number | null;
+	onConfirm: (confirmed: boolean) => void;
+	onCancel: () => void;
+}) {
+	const t = useT();
+	return (
+		<Modal onClose={onCancel} open size="sm" title={request.title}>
+			<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-(--omp-muted)">
+				{request.message}
+			</p>
+			<div className="mt-4 flex items-center justify-between gap-2">
+				<TimeoutFooter remaining={remaining} />
+				<div className="flex gap-2">
+					<Button onClick={() => onConfirm(false)} size="sm" variant="ghost">
+						{t("approval.deny")}
+					</Button>
+					<Button autoFocus onClick={() => onConfirm(true)} size="sm" variant="primary">
+						{t("approval.approve")}
+					</Button>
+				</div>
+			</div>
+		</Modal>
+	);
+}
+
+function InputDialog({
+	request,
+	remaining,
+	onValue,
+	onCancel,
+}: {
+	request: Extract<ExtensionUIRequest, { method: "input" }>;
+	remaining: number | null;
+	onValue: (value: string) => void;
+	onCancel: () => void;
+}) {
+	const t = useT();
+	const [value, setValue] = useState("");
+	return (
+		<Modal onClose={onCancel} open size="sm" title={request.title}>
+			<form
+				className="space-y-3"
+				onSubmit={event => {
+					event.preventDefault();
+					onValue(value);
+				}}
+			>
+				<Input
+					autoFocus
+					onChange={event => setValue(event.target.value)}
+					placeholder={request.placeholder}
+					value={value}
+				/>
+				<div className="flex items-center justify-between gap-2">
+					<TimeoutFooter remaining={remaining} />
+					<div className="flex gap-2">
+						<Button onClick={onCancel} size="sm" type="button" variant="ghost">
+							{t("common.cancel")}
+						</Button>
+						<Button size="sm" type="submit" variant="primary">
+							{t("extDialog.submit")}
+						</Button>
+					</div>
+				</div>
+			</form>
+		</Modal>
+	);
+}
+
+interface AskAnswerState {
+	selected: Set<string>;
+	custom: string;
+	note: string;
+}
+
+/**
+ * Multi-question ask dialog: each question renders its options as checkboxes
+ * (multi) or radio rows (single), plus an optional custom-answer input and an
+ * optional note input. Single-select mirrors the TUI: picking an option
+ * replaces the custom answer, typing one clears the option selection.
+ */
+function AskDialog({
+	request,
+	remaining,
+	onSubmit,
+	onCancel,
+}: {
+	request: Extract<ExtensionUIRequest, { method: "askDialog" }>;
+	remaining: number | null;
+	onSubmit: (result: ExtensionAskDialogResult) => void;
+	onCancel: () => void;
+}) {
+	const t = useT();
+	const [answers, setAnswers] = useState<AskAnswerState[]>(() =>
+		request.questions.map(() => ({ selected: new Set<string>(), custom: "", note: "" })),
+	);
+
+	const toggleOption = (questionIndex: number, label: string) => {
+		setAnswers(prev =>
+			prev.map((answer, index) => {
+				if (index !== questionIndex) return answer;
+				if (request.questions[questionIndex]?.multi) {
+					const selected = new Set(answer.selected);
+					if (selected.has(label)) selected.delete(label);
+					else selected.add(label);
+					return { ...answer, selected };
+				}
+				// Single-select: picking an option replaces any custom answer.
+				return { ...answer, selected: new Set([label]), custom: "" };
+			}),
+		);
+	};
+
+	const setCustom = (questionIndex: number, custom: string) => {
+		setAnswers(prev =>
+			prev.map((answer, index) => {
+				if (index !== questionIndex) return answer;
+				// Single-select: typing a custom answer clears the option selection.
+				if (!request.questions[questionIndex]?.multi && custom.trim() !== "") {
+					return { ...answer, custom, selected: new Set<string>() };
+				}
+				return { ...answer, custom };
+			}),
+		);
+	};
+
+	const setNote = (questionIndex: number, note: string) => {
+		setAnswers(prev => prev.map((answer, index) => (index === questionIndex ? { ...answer, note } : answer)));
+	};
+
+	const unansweredCount = request.questions.reduce((count, _question, index) => {
+		const answer = answers[index];
+		return answer && answer.selected.size === 0 && answer.custom.trim() === "" ? count + 1 : count;
+	}, 0);
+
+	const submit = () => {
+		onSubmit({
+			results: request.questions.map((question, index) => {
+				const answer = answers[index];
+				const custom = answer?.custom.trim() ?? "";
+				const note = answer?.note.trim() ?? "";
+				return {
+					id: question.id,
+					question: question.question,
+					options: question.options.map(option => option.label),
+					multi: question.multi ?? false,
+					selectedOptions: question.options
+						.map(option => option.label)
+						.filter(label => answer?.selected.has(label)),
+					...(custom !== "" ? { customInput: answer?.custom ?? "" } : {}),
+					...(note !== "" ? { note: answer?.note ?? "" } : {}),
+				};
+			}),
+		});
+	};
+
+	return (
+		<Modal onClose={onCancel} open size="lg" title={t("extDialog.ask.title")}>
+			<form
+				className="space-y-5"
+				onSubmit={event => {
+					event.preventDefault();
+					submit();
+				}}
+			>
+				{request.questions.map((question, questionIndex) => {
+					const answer = answers[questionIndex];
+					return (
+						<div className="space-y-2" key={question.id}>
+							{question.header && (
+								<div className="text-[9px] font-medium tracking-widest text-(--omp-dim) uppercase">
+									{question.header}
+								</div>
+							)}
+							<p className="text-xs leading-relaxed font-medium break-words whitespace-pre-wrap text-(--omp-text)">
+								{request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
+								{question.question}
+							</p>
+							<div className="space-y-1">
+								{question.options.map((option, optionIndex) => {
+									const checked = answer?.selected.has(option.label) ?? false;
+									return (
+										<button
+											className={cx(
+												"flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)",
+												checked
+													? "border-(--omp-border-accent) bg-(--omp-selected-bg)"
+													: "border-(--omp-border-muted) bg-(--omp-bg-primary) hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg)",
+											)}
+											key={option.label}
+											onClick={() => toggleOption(questionIndex, option.label)}
+											type="button"
+										>
+											<span
+												className={cx(
+													"mt-px flex h-3.5 w-3.5 shrink-0 items-center justify-center border transition-colors",
+													question.multi ? "rounded-[3px]" : "rounded-full",
+													checked
+														? "border-(--omp-accent) text-(--omp-accent)"
+														: "border-(--omp-border-strong) text-transparent",
+												)}
+											>
+												{question.multi ? (
+													<Check size={10} strokeWidth={3} />
+												) : (
+													<span className="h-1.5 w-1.5 rounded-full bg-current" />
+												)}
+											</span>
+											<span className="min-w-0 flex-1">
+												<span className="flex items-center gap-1.5 text-xs text-(--omp-text)">
+													<span className="min-w-0 break-words">{option.label}</span>
+													{question.recommended === optionIndex && (
+														<span className="shrink-0 rounded border border-(--omp-border-accent) px-1 py-px text-[9px] font-medium text-(--omp-accent)">
+															{t("extDialog.ask.recommended")}
+														</span>
+													)}
+												</span>
+												{option.description && (
+													<span className="mt-0.5 block text-[10.5px] leading-snug break-words text-(--omp-dim)">
+														{option.description}
+													</span>
+												)}
+											</span>
+										</button>
+									);
+								})}
+							</div>
+							<Input
+								onChange={event => setCustom(questionIndex, event.target.value)}
+								placeholder={t("extDialog.ask.customPlaceholder")}
+								value={answer?.custom ?? ""}
+							/>
+							<Input
+								onChange={event => setNote(questionIndex, event.target.value)}
+								placeholder={t("extDialog.ask.notePlaceholder")}
+								value={answer?.note ?? ""}
+							/>
+						</div>
+					);
+				})}
+				<div className="flex items-center justify-between gap-2 border-t border-(--omp-border-muted) pt-3">
+					<div className="flex items-center gap-2">
+						<TimeoutFooter remaining={remaining} />
+						{unansweredCount > 0 && (
+							<span className="text-[10px] text-(--omp-warning)">
+								{t("extDialog.ask.unanswered", { count: unansweredCount })}
+							</span>
+						)}
+					</div>
+					<div className="flex gap-2">
+						<Button onClick={onCancel} size="sm" type="button" variant="ghost">
+							{t("common.cancel")}
+						</Button>
+						<Button size="sm" type="submit" variant="primary">
+							{t("extDialog.submit")}
+						</Button>
+					</div>
+				</div>
+			</form>
+		</Modal>
+	);
+}
+
+function looksLikeJson(text: string): boolean {
+	const trimmed = text.trim();
+	return (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"));
+}
+
+function EditorDialog({
+	request,
+	onValue,
+	onCancel,
+}: {
+	request: Extract<ExtensionUIRequest, { method: "editor" }>;
+	onValue: (value: string) => void;
+	onCancel: () => void;
+}) {
+	const t = useT();
+	const hostRef = useRef<HTMLDivElement>(null);
+	const valueRef = useRef(request.prefill ?? "");
+
+	useEffect(() => {
+		const host = hostRef.current;
+		if (!host) return;
+		// The editor view is rebuilt per request — resync the submit ref so text
+		// left over from a previous request can't leak into this one's value.
+		valueRef.current = request.prefill ?? "";
+		const view = new EditorView({
+			doc: request.prefill ?? "",
+			extensions: [
+				EditorView.lineWrapping,
+				...(looksLikeJson(request.prefill ?? "") ? [json()] : []),
+				EditorView.theme({
+					"&": {
+						backgroundColor: "var(--omp-code-bg)",
+						color: "var(--omp-text)",
+						fontSize: "12px",
+						height: "100%",
+					},
+					"&.cm-focused": { outline: "none" },
+					".cm-content": { fontFamily: "var(--font-mono, monospace)", padding: "8px 0" },
+					".cm-line": { padding: "0 10px" },
+					".cm-cursor": { borderLeftColor: "var(--omp-accent)" },
+					".cm-selectionBackground": { backgroundColor: "var(--omp-selected-bg) !important" },
+					".cm-gutters": {
+						backgroundColor: "transparent",
+						borderRight: "1px solid var(--omp-border-muted)",
+						color: "var(--omp-dim)",
+					},
+				}),
+				EditorView.updateListener.of(update => {
+					if (update.docChanged) valueRef.current = update.state.doc.toString();
+				}),
+			],
+			parent: host,
+		});
+		view.focus();
+		return () => view.destroy();
+	}, [request.prefill]);
+
+	return (
+		<Modal bodyClassName="p-0" onClose={onCancel} open size="lg" title={request.title}>
+			<div className="flex h-[55vh] flex-col">
+				<div className="min-h-0 flex-1 overflow-hidden border-b border-(--omp-border-muted)" ref={hostRef} />
+				<div className="flex items-center justify-end gap-2 p-3">
+					<Button onClick={onCancel} size="sm" variant="ghost">
+						{t("common.cancel")}
+					</Button>
+					<Button onClick={() => onValue(valueRef.current)} size="sm" variant="primary">
+						{t("extDialog.submit")}
+					</Button>
+				</div>
+			</div>
+		</Modal>
+	);
+}
+
+function OpenUrlDialog({
+	request,
+	onDone,
+	onCancel,
+}: {
+	request: Extract<ExtensionUIRequest, { method: "open_url" }>;
+	onDone: () => void;
+	onCancel: () => void;
+}) {
+	const t = useT();
+	const [opened, setOpened] = useState(false);
+	const target = request.launchUrl ?? request.url;
+
+	return (
+		<Modal onClose={onCancel} open size="sm" title={t("extDialog.openUrl.title")}>
+			<div className="space-y-3">
+				{request.instructions && (
+					<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-(--omp-muted)">
+						{request.instructions}
+					</p>
+				)}
+				<div className="rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) px-2.5 py-2 font-mono text-[10.5px] break-all text-(--omp-md-link)">
+					{target}
+				</div>
+				<div className="flex items-center justify-end gap-2">
+					<Button onClick={onCancel} size="sm" variant="ghost">
+						{t("common.cancel")}
+					</Button>
+					<Button
+						icon={<ExternalLink size={12} />}
+						onClick={() => {
+							void window.omp.system.openExternal(target);
+							setOpened(true);
+						}}
+						size="sm"
+						variant="secondary"
+					>
+						{opened ? t("extDialog.openUrl.openAgain") : t("extDialog.openUrl.open")}
+					</Button>
+					<Button autoFocus disabled={!opened} onClick={onDone} size="sm" variant="primary">
+						{t("extDialog.openUrl.done")}
+					</Button>
+				</div>
+				{!opened && <p className="text-right text-[10px] text-(--omp-dim)">{t("extDialog.openUrl.hint")}</p>}
+			</div>
+		</Modal>
+	);
+}
+
+function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; remaining: number | null }) {
+	const removeRequest = useExtensionUiStore(state => state.removeRequest);
+
+	const respond = (
+		response: { value: string } | { confirmed: boolean } | { askDialog: ExtensionAskDialogResult } | { cancelled: true },
+	) => {
+		window.omp.ui.respondExtensionUi({ type: "extension_ui_response", id: request.id, ...response });
+		removeRequest(request.id);
+	};
+	const cancel = () => respond({ cancelled: true });
+
+	switch (request.method) {
+		case "select":
+			return isApprovalRequest(request) ? (
+				<ApprovalDialog onRespond={respond} request={request} />
+			) : (
+				<SelectDialog
+					onCancel={cancel}
+					onValue={value => respond({ value })}
+					remaining={remaining}
+					request={request}
+				/>
+			);
+		case "confirm":
+			return (
+				<ConfirmDialog
+					onCancel={cancel}
+					onConfirm={confirmed => respond({ confirmed })}
+					remaining={remaining}
+					request={request}
+				/>
+			);
+		case "input":
+			return (
+				<InputDialog
+					onCancel={cancel}
+					onValue={value => respond({ value })}
+					remaining={remaining}
+					request={request}
+				/>
+			);
+		case "askDialog":
+			return (
+				<AskDialog
+					key={request.id}
+					onCancel={cancel}
+					onSubmit={result => respond({ askDialog: result })}
+					remaining={remaining}
+					request={request}
+				/>
+			);
+		case "editor":
+			return <EditorDialog key={request.id} onCancel={cancel} onValue={value => respond({ value })} request={request} />;
+		case "open_url":
+			return <OpenUrlDialog onCancel={cancel} onDone={() => respond({ value: "done" })} request={request} />;
+		default:
+			return null;
+	}
+}
+
+export function ExtensionDialog() {
+	const pending = useExtensionUiStore(state => state.pendingRequests);
+	const removeRequest = useExtensionUiStore(state => state.removeRequest);
+
+	const request = useMemo(() => pending.find(req => !NON_DIALOG_METHODS.has(req.method)) ?? null, [pending]);
+	const remaining = useCountdown(request);
+
+	// Drop non-dialog requests that reached the queue, and fire toasts for
+	// `notify` as they arrive.
+	useEffect(() => {
+		for (const req of pending) {
+			if (req.method === "notify") {
+				// Suppress xdev mount notifications — they are startup-time
+				// informational messages that don't need user attention.
+				if (!req.message.startsWith("xd://: mounted")) {
+					toast({
+						variant: req.notifyType ?? "info",
+						message: req.message,
+						durationMs: 6000,
+					});
+				}
+				removeRequest(req.id);
+			} else if (req.method === "set_editor_text") {
+				window.dispatchEvent(new CustomEvent("omp:set-editor-text", { detail: { text: req.text } }));
+				removeRequest(req.id);
+			} else if (req.method === "setTitle") {
+				window.dispatchEvent(new CustomEvent("omp:set-title", { detail: { title: req.title } }));
+				removeRequest(req.id);
+			} else if (NON_DIALOG_METHODS.has(req.method)) {
+				removeRequest(req.id);
+			}
+		}
+	}, [pending, removeRequest]);
+
+	// Timeout: auto-cancel with timedOut marker.
+	useEffect(() => {
+		if (!request || remaining === null || remaining > 0) return;
+		window.omp.ui.respondExtensionUi({
+			type: "extension_ui_response",
+			id: request.id,
+			cancelled: true,
+			timedOut: true,
+		});
+		removeRequest(request.id);
+	}, [request, remaining, removeRequest]);
+
+	return (
+		<>
+			<ExtensionSurfaces />
+			{request && <ActiveDialog remaining={remaining} request={request} />}
+		</>
+	);
+}
