@@ -99,11 +99,7 @@ export function ProviderLimitsEditor({ value, onCommit, disabled }: ProviderLimi
 					<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-(--omp-text)" title={provider}>
 						{provider}
 					</span>
-					<LimitInput
-						disabled={disabled}
-						limit={limit}
-						onCommit={next => setLimit(provider, next)}
-					/>
+					<LimitInput disabled={disabled} limit={limit} onCommit={next => setLimit(provider, next)} />
 					{!disabled && (
 						<button
 							aria-label={t("settings.editors.kvRemove")}

@@ -204,8 +204,18 @@ export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refres
 			},
 			{ key: "duration", label: t("stats.col.duration"), align: "right", render: row => formatMs(row.duration) },
 			{ key: "ttft", label: t("stats.col.ttft"), align: "right", render: row => formatMs(row.ttft) },
-			{ key: "tokens", label: t("stats.col.tokens"), align: "right", render: row => compact(row.usage?.totalTokens ?? 0) },
-			{ key: "cost", label: t("stats.col.cost"), align: "right", render: row => formatUsd(row.usage?.cost?.total ?? 0) },
+			{
+				key: "tokens",
+				label: t("stats.col.tokens"),
+				align: "right",
+				render: row => compact(row.usage?.totalTokens ?? 0),
+			},
+			{
+				key: "cost",
+				label: t("stats.col.cost"),
+				align: "right",
+				render: row => formatUsd(row.usage?.cost?.total ?? 0),
+			},
 			{
 				key: "folder",
 				label: t("stats.col.project"),

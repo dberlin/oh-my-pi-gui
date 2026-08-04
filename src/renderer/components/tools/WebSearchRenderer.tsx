@@ -96,11 +96,8 @@ export function WebSearchRenderer({ args, result, isPartial }: ToolRendererProps
 	const parsed = parseSearch(isPartial ? undefined : result);
 	const query = typeof args.query === "string" && args.query.trim() ? args.query : parsed.query;
 	const answer = parsed.answer || resultText(isPartial ? undefined : result).trim();
-	const authShort =
-		parsed.authMode === "oauth" ? "OAuth" : parsed.authMode === "api_key" ? "API" : parsed.authMode;
-	const providerInfo = parsed.model
-		? `${parsed.model} @ ${parsed.provider ?? "?"}`
-		: parsed.provider;
+	const authShort = parsed.authMode === "oauth" ? "OAuth" : parsed.authMode === "api_key" ? "API" : parsed.authMode;
+	const providerInfo = parsed.model ? `${parsed.model} @ ${parsed.provider ?? "?"}` : parsed.provider;
 	const usageParts: string[] = [];
 	if (parsed.usage) {
 		const u = parsed.usage;
@@ -159,7 +156,9 @@ export function WebSearchRenderer({ args, result, isPartial }: ToolRendererProps
 									<div className="truncate font-mono text-[10px] text-[var(--omp-dim)]">{item.url}</div>
 								)}
 								{item.snippet && (
-									<div className="mt-0.5 line-clamp-2 text-[10.5px] text-[var(--omp-muted)]">{item.snippet}</div>
+									<div className="mt-0.5 line-clamp-2 text-[10.5px] text-[var(--omp-muted)]">
+										{item.snippet}
+									</div>
 								)}
 							</div>
 						);

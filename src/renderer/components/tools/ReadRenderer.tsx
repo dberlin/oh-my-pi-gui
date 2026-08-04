@@ -36,7 +36,9 @@ export function ReadRenderer({ args, result, isPartial, partialResult }: ToolRen
 					)}
 				</>
 			) : (
-				<div className="text-[11px] italic text-[var(--omp-dim)]">{isPartial ? t("tools.read.reading") : t("tools.read.empty")}</div>
+				<div className="text-[11px] italic text-[var(--omp-dim)]">
+					{isPartial ? t("tools.read.reading") : t("tools.read.empty")}
+				</div>
 			)}
 		</div>
 	);

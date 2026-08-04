@@ -12,7 +12,10 @@ import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, Modal, ProgressBar, Spinner } from "../common";
 
-function resetCountdown(resetsAt: number | undefined, t: (k: string, p?: Record<string, string | number>) => string): string | null {
+function resetCountdown(
+	resetsAt: number | undefined,
+	t: (k: string, p?: Record<string, string | number>) => string,
+): string | null {
 	if (!resetsAt) return null;
 	const ms = resetsAt - Date.now();
 	if (ms <= 0) return t("usage.resetting");
@@ -51,7 +54,9 @@ function LimitRow({ limit, t }: { limit: UsageLimit; t: (k: string, p?: Record<s
 			{limit.notes && limit.notes.length > 0 && (
 				<div className="flex flex-col gap-0.5">
 					{limit.notes.map(note => (
-						<span key={note} className="text-[10px] text-[var(--omp-dim)]">{note}</span>
+						<span key={note} className="text-[10px] text-[var(--omp-dim)]">
+							{note}
+						</span>
 					))}
 				</div>
 			)}
@@ -59,7 +64,13 @@ function LimitRow({ limit, t }: { limit: UsageLimit; t: (k: string, p?: Record<s
 	);
 }
 
-function ProviderReportCard({ report, t }: { report: UsageReport; t: (k: string, p?: Record<string, string | number>) => string }) {
+function ProviderReportCard({
+	report,
+	t,
+}: {
+	report: UsageReport;
+	t: (k: string, p?: Record<string, string | number>) => string;
+}) {
 	return (
 		<div className="rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] p-3">
 			<div className="mb-2 flex items-center justify-between">
@@ -74,7 +85,9 @@ function ProviderReportCard({ report, t }: { report: UsageReport; t: (k: string,
 			{report.notes && report.notes.length > 0 && (
 				<div className="mb-2 flex flex-col gap-0.5">
 					{report.notes.map(note => (
-						<span key={note} className="text-[10px] text-[var(--omp-dim)]">{note}</span>
+						<span key={note} className="text-[10px] text-[var(--omp-dim)]">
+							{note}
+						</span>
 					))}
 				</div>
 			)}
@@ -142,14 +155,26 @@ export function UsageWindow() {
 					<span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
 						{t("usage.providerQuotas")}
 					</span>
-					<Button size="sm" variant="ghost" icon={<RefreshCw size={12} />} onClick={() => void load()} loading={loading}>
+					<Button
+						size="sm"
+						variant="ghost"
+						icon={<RefreshCw size={12} />}
+						onClick={() => void load()}
+						loading={loading}
+					>
 						{t("usage.refresh")}
 					</Button>
 				</div>
 
-				{error && <div className="rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-[12px] text-[var(--omp-error)]">{error}</div>}
+				{error && (
+					<div className="rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-[12px] text-[var(--omp-error)]">
+						{error}
+					</div>
+				)}
 				{loading && !result && (
-					<div className="flex items-center justify-center py-8"><Spinner /></div>
+					<div className="flex items-center justify-center py-8">
+						<Spinner />
+					</div>
 				)}
 
 				{result && result.reports.length === 0 && !loading && (
@@ -173,10 +198,15 @@ export function UsageWindow() {
 						</span>
 						<div className="grid grid-cols-2 gap-2">
 							{sessionRows.map(({ icon: Icon, label, value }) => (
-								<div key={label} className="flex items-center gap-2 rounded-md border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2">
+								<div
+									key={label}
+									className="flex items-center gap-2 rounded-md border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2"
+								>
 									<Icon size={13} className="text-[var(--omp-dim)]" />
 									<span className="flex-1 text-[12px] text-[var(--omp-muted)]">{label}</span>
-									<span className="font-mono text-[12px] font-medium tabular-nums text-[var(--omp-text)]">{value}</span>
+									<span className="font-mono text-[12px] font-medium tabular-nums text-[var(--omp-text)]">
+										{value}
+									</span>
 								</div>
 							))}
 						</div>

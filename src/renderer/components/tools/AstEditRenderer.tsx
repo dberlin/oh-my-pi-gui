@@ -83,7 +83,9 @@ function Chip({ children, title, warning }: { children: ReactNode; title?: strin
 			title={title}
 			className={cx(
 				"max-w-64 shrink-0 truncate rounded px-1 py-px font-mono text-[9.5px] tabular-nums",
-				warning ? "bg-[var(--omp-warning)]/15 text-[var(--omp-warning)]" : "bg-[var(--omp-bg-tertiary)] text-[var(--omp-muted)]",
+				warning
+					? "bg-[var(--omp-warning)]/15 text-[var(--omp-warning)]"
+					: "bg-[var(--omp-bg-tertiary)] text-[var(--omp-muted)]",
 			)}
 		>
 			{children}
@@ -111,8 +113,7 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 	const filesSearched = typeof details?.filesSearched === "number" ? details.filesSearched : 0;
 	const limitReached = details?.limitReached === true;
 	const staged = details?.applied === false;
-	const scope =
-		typeof details?.scopePath === "string" && details.scopePath ? details.scopePath : argPaths.join(", ");
+	const scope = typeof details?.scopePath === "string" && details.scopePath ? details.scopePath : argPaths.join(", ");
 	const parseErrors = Array.isArray(details?.parseErrors)
 		? details.parseErrors.filter((e): e is string => typeof e === "string")
 		: [];
@@ -157,7 +158,9 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 						})}
 					</Chip>
 					{totalReplacements > 0 && (
-						<Chip>{t("tools.astedit.files", { count: filesTouched, plural: filesTouched === 1 ? "" : "s" })}</Chip>
+						<Chip>
+							{t("tools.astedit.files", { count: filesTouched, plural: filesTouched === 1 ? "" : "s" })}
+						</Chip>
 					)}
 					{scope && <Chip title={scope}>{t("tools.astedit.scope", { path: scope })}</Chip>}
 					{filesSearched > 0 && <Chip>{t("tools.astedit.searched", { count: filesSearched })}</Chip>}

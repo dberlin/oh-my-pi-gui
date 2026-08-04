@@ -56,11 +56,7 @@ function compareAlpha(a: SessionInfo, b: SessionInfo): number {
  * verbatim) rank purely by the active sort; pure fuzzy/acronym matches follow,
  * ranked by score. An empty query returns the full list in sort order.
  */
-export function rankSessions(
-	sessions: SessionInfo[],
-	query: string,
-	sort: SessionSortMode = "recent",
-): SessionInfo[] {
+export function rankSessions(sessions: SessionInfo[], query: string, sort: SessionSortMode = "recent"): SessionInfo[] {
 	const tiebreak = sort === "alpha" ? compareAlpha : compareRecency;
 	const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 	if (tokens.length === 0) return [...sessions].sort(tiebreak);

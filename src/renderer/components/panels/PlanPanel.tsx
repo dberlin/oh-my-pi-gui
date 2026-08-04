@@ -19,15 +19,7 @@
  * changes here send prompt/steer messages instead, and the footer says so.
  */
 
-import {
-	CheckCircle2,
-	Circle,
-	ClipboardList,
-	FileWarning,
-	MessageSquare,
-	RefreshCw,
-	Send,
-} from "lucide-react";
+import { CheckCircle2, Circle, ClipboardList, FileWarning, MessageSquare, RefreshCw, Send } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanModeState } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
@@ -67,11 +59,7 @@ interface ResolvedPlanPath {
  * else resolves against the session cwd. Returns null when a `local://` path
  * cannot be resolved because the session has no file on disk yet.
  */
-function resolvePlanFsPath(
-	planFilePath: string,
-	sessionFile: string | null,
-	cwd: string,
-): ResolvedPlanPath | null {
+function resolvePlanFsPath(planFilePath: string, sessionFile: string | null, cwd: string): ResolvedPlanPath | null {
 	if (planFilePath.startsWith("local:")) {
 		if (!sessionFile || !sessionFile.endsWith(".jsonl")) return null;
 		const name = planFilePath.replace(/^local:\/+/, "");
@@ -170,56 +158,59 @@ export function PlanPanel() {
 	const [sendingPlan, setSendingPlan] = useState(false);
 	const [stepFeedback, setStepFeedback] = useState<StepFeedbackState | null>(null);
 
-	const load = useCallback(async (options?: { quiet?: boolean }) => {
-		const quiet = options?.quiet === true;
-		if (!quiet) setLoading(true);
-		if (!quiet) setError(null);
-		try {
-			const modeResponse = await window.omp.rpc.getPlanMode();
-			if (!modeResponse.success) {
-				if (!quiet) setError(modeResponse.error);
-				return;
-			}
-			const mode = modeResponse.data as PlanModeState | undefined;
-			const path = mode?.planFilePath ?? null;
-			setPlanFilePath(path);
-			if (!mode?.enabled || !path) {
-				setPlanFile(null);
-				setLocalRoot(null);
-				setContent(null);
-				return;
-			}
-			const { sessionFile, cwd } = useSessionStore.getState();
-			const resolved = resolvePlanFsPath(path, sessionFile, cwd);
-			if (!resolved) {
-				setPlanFile(null);
-				setLocalRoot(null);
-				setContent(null);
-				if (!quiet) {
-					setError(t("planPanel.noFsPath"));
+	const load = useCallback(
+		async (options?: { quiet?: boolean }) => {
+			const quiet = options?.quiet === true;
+			if (!quiet) setLoading(true);
+			if (!quiet) setError(null);
+			try {
+				const modeResponse = await window.omp.rpc.getPlanMode();
+				if (!modeResponse.success) {
+					if (!quiet) setError(modeResponse.error);
+					return;
 				}
-				return;
+				const mode = modeResponse.data as PlanModeState | undefined;
+				const path = mode?.planFilePath ?? null;
+				setPlanFilePath(path);
+				if (!mode?.enabled || !path) {
+					setPlanFile(null);
+					setLocalRoot(null);
+					setContent(null);
+					return;
+				}
+				const { sessionFile, cwd } = useSessionStore.getState();
+				const resolved = resolvePlanFsPath(path, sessionFile, cwd);
+				if (!resolved) {
+					setPlanFile(null);
+					setLocalRoot(null);
+					setContent(null);
+					if (!quiet) {
+						setError(t("planPanel.noFsPath"));
+					}
+					return;
+				}
+				setLocalRoot(resolved.localRoot);
+				const response = await window.omp.fs.readPlan({ fsPath: resolved.fsPath, localRoot: resolved.localRoot });
+				if (!response.ok) {
+					if (!quiet) setError(response.error ?? "Plan read failed");
+					return;
+				}
+				if (response.path == null || response.content == null) {
+					setPlanFile(null);
+					setContent(null);
+					return;
+				}
+				setPlanFile(response.path);
+				setContent(response.content);
+			} catch (cause) {
+				if (!quiet) setError(cause instanceof Error ? cause.message : String(cause));
+			} finally {
+				setLoading(false);
+				setLoaded(true);
 			}
-			setLocalRoot(resolved.localRoot);
-			const response = await window.omp.fs.readPlan({ fsPath: resolved.fsPath, localRoot: resolved.localRoot });
-			if (!response.ok) {
-				if (!quiet) setError(response.error ?? "Plan read failed");
-				return;
-			}
-			if (response.path == null || response.content == null) {
-				setPlanFile(null);
-				setContent(null);
-				return;
-			}
-			setPlanFile(response.path);
-			setContent(response.content);
-		} catch (cause) {
-			if (!quiet) setError(cause instanceof Error ? cause.message : String(cause));
-		} finally {
-			setLoading(false);
-			setLoaded(true);
-		}
-	}, [t]);
+		},
+		[t],
+	);
 
 	// Initial load + reset when plan mode flips.
 	useEffect(() => {
@@ -330,7 +321,11 @@ export function PlanPanel() {
 			{/* Status card: mode badge, toggle, live plan path. */}
 			<div className="mx-2 mt-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-2.5 py-2">
 				<div className="flex items-center gap-2">
-					<Badge dot={planModeEnabled} pulse={planModeEnabled && isStreaming} variant={planModeEnabled ? "success" : "muted"}>
+					<Badge
+						dot={planModeEnabled}
+						pulse={planModeEnabled && isStreaming}
+						variant={planModeEnabled ? "success" : "muted"}
+					>
 						{planModeEnabled ? t("planPanel.badge.on") : t("planPanel.badge.off")}
 					</Badge>
 					{planModeEnabled && (
@@ -460,7 +455,10 @@ export function PlanPanel() {
 													<div className="group flex items-start gap-1.5 rounded-sm py-1 pr-1 hover:bg-(--omp-bg-tertiary)">
 														{step.checkbox ? (
 															step.done ? (
-																<CheckCircle2 className="mt-px shrink-0 text-(--omp-success)" size={13} />
+																<CheckCircle2
+																	className="mt-px shrink-0 text-(--omp-success)"
+																	size={13}
+																/>
 															) : (
 																<Circle className="mt-px shrink-0 text-(--omp-dim)" size={13} />
 															)
@@ -480,9 +478,7 @@ export function PlanPanel() {
 														<button
 															aria-label={t("planPanel.stepFeedbackAria", { index: step.index })}
 															className="mt-px shrink-0 text-(--omp-dim) opacity-0 transition-opacity group-hover:opacity-100 hover:text-(--omp-text)"
-															onClick={() =>
-																setStepFeedback({ step, draft: "", sending: false })
-															}
+															onClick={() => setStepFeedback({ step, draft: "", sending: false })}
 															title={t("planPanel.stepFeedbackHint")}
 															type="button"
 														>
@@ -496,7 +492,9 @@ export function PlanPanel() {
 																onChange={event =>
 																	setStepFeedback({ ...stepFeedback, draft: event.target.value })
 																}
-																placeholder={t("planPanel.stepFeedbackPlaceholder", { index: step.index })}
+																placeholder={t("planPanel.stepFeedbackPlaceholder", {
+																	index: step.index,
+																})}
 																rows={2}
 																value={stepFeedback.draft}
 															/>

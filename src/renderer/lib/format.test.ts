@@ -24,11 +24,23 @@ describe("resultText envelope unwrap", () => {
 	});
 
 	it("skips non-text content blocks (image) instead of JSON-stringifying them", () => {
-		expect(resultText({ content: [{ type: "image", data: "x" }, { type: "text", text: "cap" }] })).toBe("cap");
+		expect(
+			resultText({
+				content: [
+					{ type: "image", data: "x" },
+					{ type: "text", text: "cap" },
+				],
+			}),
+		).toBe("cap");
 	});
 
 	it("handles a bare hydrated content array", () => {
-		expect(resultText([{ type: "text", text: "a" }, { type: "text", text: "b" }])).toBe("a\nb");
+		expect(
+			resultText([
+				{ type: "text", text: "a" },
+				{ type: "text", text: "b" },
+			]),
+		).toBe("a\nb");
 	});
 
 	it("still handles plain strings / stdout envelopes", () => {

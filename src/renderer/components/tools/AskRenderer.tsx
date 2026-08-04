@@ -29,7 +29,9 @@ export function AskRenderer({ args, result, isPartial }: ToolRendererProps) {
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-start gap-1.5 text-[11.5px]">
 				<MessageCircleQuestion size={13} className="mt-0.5 shrink-0 text-[var(--omp-md-link)]" />
-				<span className="min-w-0 flex-1 leading-[1.45] text-[var(--omp-text)]">{question || t("tools.ask.questionFallback")}</span>
+				<span className="min-w-0 flex-1 leading-[1.45] text-[var(--omp-text)]">
+					{question || t("tools.ask.questionFallback")}
+				</span>
 			</div>
 			{options.length > 0 && (
 				<div className="flex flex-col gap-0.5 pl-5">

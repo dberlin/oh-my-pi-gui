@@ -1,8 +1,8 @@
 import { History } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useT } from "../../lib/i18n";
 import { cx, escapeRegExp, formatTimeAgo } from "../../lib/format";
+import { useT } from "../../lib/i18n";
 import type { InputHistoryEntry } from "../../stores/input-history";
 import { filterHistory, useInputHistoryStore } from "../../stores/input-history";
 
@@ -51,9 +51,7 @@ export function HistorySearchOverlay({ onSelect, onClose }: HistorySearchOverlay
 	const selected = Math.min(index, Math.max(0, results.length - 1));
 
 	useEffect(() => {
-		listRef.current
-			?.querySelector(`[data-index="${selected}"]`)
-			?.scrollIntoView({ block: "nearest" });
+		listRef.current?.querySelector(`[data-index="${selected}"]`)?.scrollIntoView({ block: "nearest" });
 	}, [selected]);
 
 	const pick = (entry: InputHistoryEntry | undefined) => {
@@ -99,9 +97,7 @@ export function HistorySearchOverlay({ onSelect, onClose }: HistorySearchOverlay
 					placeholder={t("input.history.placeholder")}
 					className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
 				/>
-				<span className="shrink-0 text-[10px] font-medium text-[var(--omp-dim)]">
-					{t("input.history.title")}
-				</span>
+				<span className="shrink-0 text-[10px] font-medium text-[var(--omp-dim)]">{t("input.history.title")}</span>
 			</div>
 
 			<div ref={listRef} className="max-h-64 overflow-y-auto p-1">

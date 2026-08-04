@@ -233,9 +233,7 @@ export function SessionPickerDialog() {
 						value={query}
 					/>
 					<button
-						aria-label={
-							scope === "local" ? t("sessionPicker.scopeToGlobal") : t("sessionPicker.scopeToLocal")
-						}
+						aria-label={scope === "local" ? t("sessionPicker.scopeToGlobal") : t("sessionPicker.scopeToLocal")}
 						aria-pressed={scope === "global"}
 						className={cx(toggleButton, scope === "global" && "border-(--omp-border-accent) text-(--omp-accent)")}
 						onClick={() => void switchScope(scope === "local" ? "global" : "local")}

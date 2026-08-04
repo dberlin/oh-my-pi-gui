@@ -7,6 +7,7 @@
 import { Check, ChevronRight, CornerDownLeft, History, Search, Slash, X } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvailableCommand } from "../../../shared/rpc-types";
+import { hydrateSession } from "../../hooks/use-rpc-events";
 import {
 	buildCommandMenu,
 	CATEGORY_LABELS,
@@ -17,12 +18,11 @@ import {
 } from "../../lib/command-registry";
 import { useT } from "../../lib/i18n";
 import { retryLastTurn as retryLastTurnShared } from "../../lib/messages";
-import { useModelStore } from "../../stores/model";
 import { openHandoffDialog } from "../../stores/fork-handoff";
+import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
-import { hydrateSession } from "../../hooks/use-rpc-events";
 import { useUiStore } from "../../stores/ui";
 import { Spinner } from "../common";
 
@@ -286,7 +286,10 @@ export function CommandPalette() {
 	);
 
 	// The working set: submenu items when drilled in, else the full menu.
-	const workingItems = useMemo(() => (submenu?.affordance.kind === "submenu" ? submenu.affordance.items : menuItems), [submenu, menuItems]);
+	const workingItems = useMemo(
+		() => (submenu?.affordance.kind === "submenu" ? submenu.affordance.items : menuItems),
+		[submenu, menuItems],
+	);
 
 	const results = useMemo<ScoredItem[]>(() => {
 		const q = query.trim();
@@ -427,7 +430,9 @@ export function CommandPalette() {
 						{toggleOn !== null && (
 							<span
 								className={`rounded px-1 text-[9px] font-semibold uppercase ${
-									toggleOn ? "bg-(--omp-success)/15 text-(--omp-success)" : "bg-(--omp-bg-tertiary) text-(--omp-dim)"
+									toggleOn
+										? "bg-(--omp-success)/15 text-(--omp-success)"
+										: "bg-(--omp-bg-tertiary) text-(--omp-dim)"
 								}`}
 							>
 								{toggleOn ? t("palette.on") : t("palette.off")}
@@ -444,12 +449,16 @@ export function CommandPalette() {
 					</span>
 				</span>
 				{options?.categoryLabel && (
-					<span className="shrink-0 text-[9px] tracking-wide text-(--omp-dim) uppercase">{options.categoryLabel}</span>
+					<span className="shrink-0 text-[9px] tracking-wide text-(--omp-dim) uppercase">
+						{options.categoryLabel}
+					</span>
 				)}
 				{isSubmenu ? (
 					<ChevronRight className="shrink-0 text-(--omp-dim)" size={12} />
 				) : (
-					toggleOn !== null && <Check className={`shrink-0 ${toggleOn ? "text-(--omp-success)" : "text-transparent"}`} size={12} />
+					toggleOn !== null && (
+						<Check className={`shrink-0 ${toggleOn ? "text-(--omp-success)" : "text-transparent"}`} size={12} />
+					)
 				)}
 				{isActive && !isSubmenu && toggleOn === null && (
 					<CornerDownLeft className="shrink-0 text-(--omp-dim)" size={11} />

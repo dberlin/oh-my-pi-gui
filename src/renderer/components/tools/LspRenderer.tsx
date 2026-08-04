@@ -204,7 +204,10 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 			: parsed.kind === "references"
 				? t("tools.lsp.results", { count: parsed.count, plural: parsed.count === 1 ? "" : "s" })
 				: parsed.kind === "symbols"
-					? t("tools.lsp.results", { count: parsed.symbols.length, plural: parsed.symbols.length === 1 ? "" : "s" })
+					? t("tools.lsp.results", {
+							count: parsed.symbols.length,
+							plural: parsed.symbols.length === 1 ? "" : "s",
+						})
 					: "";
 
 	return (

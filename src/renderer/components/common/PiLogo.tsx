@@ -28,18 +28,8 @@ export function PiLogo({ size = 16, color, tile, className }: PiLogoProps) {
 			aria-hidden="true"
 			className="shrink-0"
 		>
-			<path
-				d="M6.5 7.6 H25.5"
-				stroke={color ?? "currentColor"}
-				strokeWidth="3.3"
-				strokeLinecap="round"
-			/>
-			<path
-				d="M11 7.6 V24.4"
-				stroke={color ?? "currentColor"}
-				strokeWidth="3.3"
-				strokeLinecap="round"
-			/>
+			<path d="M6.5 7.6 H25.5" stroke={color ?? "currentColor"} strokeWidth="3.3" strokeLinecap="round" />
+			<path d="M11 7.6 V24.4" stroke={color ?? "currentColor"} strokeWidth="3.3" strokeLinecap="round" />
 			<path
 				d="M21 7.6 V18.2 C21 21.9 18.6 24.4 15.2 24.4"
 				stroke={color ?? "currentColor"}
@@ -53,10 +43,7 @@ export function PiLogo({ size = 16, color, tile, className }: PiLogoProps) {
 
 	return (
 		<span
-			className={cx(
-				"inline-flex items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)]",
-				className,
-			)}
+			className={cx("inline-flex items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)]", className)}
 			style={{ width: size, height: size }}
 		>
 			{/* Tile glyph is ~62% of the tile, drawn in the button-text color. */}
@@ -68,18 +55,8 @@ export function PiLogo({ size = 16, color, tile, className }: PiLogoProps) {
 				xmlns="http://www.w3.org/2000/svg"
 				aria-hidden="true"
 			>
-				<path
-					d="M6.5 7.6 H25.5"
-					stroke="var(--omp-btn-primary-text)"
-					strokeWidth="3.3"
-					strokeLinecap="round"
-				/>
-				<path
-					d="M11 7.6 V24.4"
-					stroke="var(--omp-btn-primary-text)"
-					strokeWidth="3.3"
-					strokeLinecap="round"
-				/>
+				<path d="M6.5 7.6 H25.5" stroke="var(--omp-btn-primary-text)" strokeWidth="3.3" strokeLinecap="round" />
+				<path d="M11 7.6 V24.4" stroke="var(--omp-btn-primary-text)" strokeWidth="3.3" strokeLinecap="round" />
 				<path
 					d="M21 7.6 V18.2 C21 21.9 18.6 24.4 15.2 24.4"
 					stroke="var(--omp-btn-primary-text)"

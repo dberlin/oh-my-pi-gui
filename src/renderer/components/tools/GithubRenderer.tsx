@@ -168,8 +168,16 @@ function extractEntity(
 	details: Record<string, unknown> | undefined,
 ): GhEntity {
 	const checkout = asRecord(asArray(details?.checkouts)[0]);
-	const header = text.match(/^#\s+(?:Created\s+|Checked\s+Out\s+)?(Issue|Pull\s+Request)(?:\s+Worktree)?\s+#(\d+)(?::\s*(.+))?$/m);
-	const kind: GhEntity["kind"] = header ? (/pull\s+request/i.test(header[1]) ? "pr" : "issue") : checkout ? "pr" : "unknown";
+	const header = text.match(
+		/^#\s+(?:Created\s+|Checked\s+Out\s+)?(Issue|Pull\s+Request)(?:\s+Worktree)?\s+#(\d+)(?::\s*(.+))?$/m,
+	);
+	const kind: GhEntity["kind"] = header
+		? /pull\s+request/i.test(header[1])
+			? "pr"
+			: "issue"
+		: checkout
+			? "pr"
+			: "unknown";
 	const number =
 		header != null
 			? Number.parseInt(header[2], 10)
@@ -181,9 +189,7 @@ function extractEntity(
 		text.match(/^State:\s*(.+)$/m)?.[1]?.trim() ??
 		(typeof details?.conclusion === "string" ? details.conclusion : undefined) ??
 		(typeof details?.status === "string" ? details.status : undefined);
-	const url =
-		text.match(/^URL:\s*(\S+)$/m)?.[1] ??
-		(typeof checkout?.url === "string" ? checkout.url : undefined);
+	const url = text.match(/^URL:\s*(\S+)$/m)?.[1] ?? (typeof checkout?.url === "string" ? checkout.url : undefined);
 	const repo =
 		typeof details?.repo === "string"
 			? details.repo
@@ -196,7 +202,8 @@ function extractEntity(
 }
 
 /** Lines consumed by the entity card, hidden from the body to avoid duplication. */
-const ENTITY_LINE_RE = /^#\s+(?:Created\s+|Checked\s+Out\s+)?(?:Issue|Pull\s+Request)(?:\s+Worktree)?\s+#\d+|^(?:State|URL):\s*.*$/;
+const ENTITY_LINE_RE =
+	/^#\s+(?:Created\s+|Checked\s+Out\s+)?(?:Issue|Pull\s+Request)(?:\s+Worktree)?\s+#\d+|^(?:State|URL):\s*.*$/;
 
 /** GitHub: op title + entity card (issue/PR) or run-watch jobs; open-external button. */
 export function GithubRenderer({ args, result, isPartial, partialResult }: ToolRendererProps) {
@@ -284,13 +291,22 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 				<div className="flex flex-col gap-1">
 					{watch.note && <div className="text-[10.5px] text-[var(--omp-dim)]">{watch.note}</div>}
 					{watch.runs.map((run, ri) => (
-						<div key={run.id ?? ri} className="rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.7]">
+						<div
+							key={run.id ?? ri}
+							className="rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.7]"
+						>
 							<div className="flex items-center gap-2">
 								<span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]">{run.label}</span>
-								{run.branch && <span className="shrink-0 text-[10px] text-[var(--omp-text)]">{run.branch}</span>}
-								{run.id != null && <span className="shrink-0 text-[10px] text-[var(--omp-dim)]">#{run.id}</span>}
+								{run.branch && (
+									<span className="shrink-0 text-[10px] text-[var(--omp-text)]">{run.branch}</span>
+								)}
+								{run.id != null && (
+									<span className="shrink-0 text-[10px] text-[var(--omp-dim)]">#{run.id}</span>
+								)}
 							</div>
-							{run.jobs.length === 0 && <div className="text-[10px] text-[var(--omp-dim)]">waiting for workflow jobs…</div>}
+							{run.jobs.length === 0 && (
+								<div className="text-[10px] text-[var(--omp-dim)]">waiting for workflow jobs…</div>
+							)}
 							{run.jobs.map(job => (
 								<div key={job.id ?? job.name} className="flex items-center gap-2">
 									<span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: jobColor(job) }} />

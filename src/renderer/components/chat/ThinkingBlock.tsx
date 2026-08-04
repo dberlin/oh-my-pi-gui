@@ -4,11 +4,11 @@ import type { ThinkingLevel } from "../../../shared/rpc-types";
 import { cx, durationBetween, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import {
+	formatThinkingForDisplay,
+	hasDisplayableThinking,
 	SPEED_MAX,
 	SpeedTracker,
 	THINKING_GLYPH_FRAMES,
-	formatThinkingForDisplay,
-	hasDisplayableThinking,
 	thinkingGlyphFrameDelay,
 } from "../../lib/thinking";
 import { useMessagesStore } from "../../stores/messages";
@@ -144,7 +144,11 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 				className="mb-2 flex items-center gap-1.5 overflow-hidden rounded-md border-l-2 bg-[var(--omp-bg-secondary)] px-2 py-1 text-[11px]"
 				style={{ borderLeftColor: `var(--omp-thinking-${tokenLevel})` }}
 			>
-				<span aria-hidden className="inline-block w-3.5 text-center" style={{ color: `var(--omp-thinking-${tokenLevel})` }}>
+				<span
+					aria-hidden
+					className="inline-block w-3.5 text-center"
+					style={{ color: `var(--omp-thinking-${tokenLevel})` }}
+				>
 					{glyph}
 				</span>
 				<span className="font-medium text-[var(--omp-muted)]">{t("chat.thinking.live")}</span>

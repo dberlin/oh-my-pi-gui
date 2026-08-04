@@ -30,7 +30,10 @@ const LINUX_SIZES = [16, 32, 48, 64, 128, 256, 512, 1024];
 
 async function render(svg: Buffer, size: number): Promise<Buffer> {
 	// High density so the vector mark stays crisp when resized down.
-	return sharp(svg, { density: 384 }).resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
+	return sharp(svg, { density: 384 })
+		.resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+		.png()
+		.toBuffer();
 }
 
 async function main(): Promise<void> {

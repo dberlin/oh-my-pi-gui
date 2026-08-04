@@ -22,7 +22,9 @@ export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRen
 				<FolderOpen size={12} className="shrink-0 text-[var(--omp-dim)]" />
 				<span className="truncate text-[var(--omp-text)]">{pattern}</span>
 				<span className="ml-auto shrink-0 text-[10px] text-[var(--omp-dim)]">
-					{isPartial ? t("tools.glob.matching") : t("tools.glob.paths", { count: paths.length, plural: paths.length === 1 ? "" : "s" })}
+					{isPartial
+						? t("tools.glob.matching")
+						: t("tools.glob.paths", { count: paths.length, plural: paths.length === 1 ? "" : "s" })}
 				</span>
 			</div>
 			{paths.length > 0 && (

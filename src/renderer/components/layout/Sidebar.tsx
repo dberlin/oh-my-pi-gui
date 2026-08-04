@@ -23,8 +23,8 @@ import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Modal, PiLogo } from "../common";
-import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { LangSwitcher } from "../common/LangSwitcher";
+import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 
 export interface SidebarProps {
 	onToggleStats: () => void;
@@ -114,7 +114,11 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 			name: basename(groupCwd) || groupCwd,
 			sessions: groupSessions,
 		}));
-		result.sort((a, b) => Date.parse(b.sessions[0]?.modified ?? 0 as unknown as string) - Date.parse(a.sessions[0]?.modified ?? 0 as unknown as string));
+		result.sort(
+			(a, b) =>
+				Date.parse(b.sessions[0]?.modified ?? (0 as unknown as string)) -
+				Date.parse(a.sessions[0]?.modified ?? (0 as unknown as string)),
+		);
 		return result;
 	}, [sessions, query, contentPaths]);
 
@@ -221,7 +225,10 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 				{/* One row: search + new-session "+" button */}
 				<div className="flex items-center gap-1.5 px-3 pb-2 pt-3">
 					<div className="relative min-w-0 flex-1">
-						<Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--omp-dim)]" />
+						<Search
+							size={13}
+							className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--omp-dim)]"
+						/>
 						<input
 							value={query}
 							onChange={event => setQuery(event.target.value)}
@@ -283,10 +290,16 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 									onClick={() => toggleGroup(group.cwd)}
 									className={cx(
 										"omp-pressable group flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-semibold tracking-[-0.005em]",
-										isCurrent ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)] hover:text-[var(--omp-text)]",
+										isCurrent
+											? "text-[var(--omp-text)]"
+											: "text-[var(--omp-muted)] hover:text-[var(--omp-text)]",
 									)}
 								>
-									{groupCollapsed ? <ChevronRight size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
+									{groupCollapsed ? (
+										<ChevronRight size={12} className="shrink-0" />
+									) : (
+										<ChevronDown size={12} className="shrink-0" />
+									)}
 									<span className="min-w-0 flex-1 truncate">{group.name}</span>
 									<span className="shrink-0 tabular-nums text-[10px] font-normal text-[var(--omp-dim)]">
 										{group.sessions.length}
@@ -366,7 +379,10 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 																		? t("sidebar.signal.running")
 																		: session.status
 															}
-															className={cx("h-1.5 w-1.5 shrink-0 rounded-full", signal != null && "omp-pulse-dot")}
+															className={cx(
+																"h-1.5 w-1.5 shrink-0 rounded-full",
+																signal != null && "omp-pulse-dot",
+															)}
 															style={{
 																background:
 																	signal === "waiting"
@@ -437,24 +453,53 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 
 				{/* Bottom utility row: files, stats, theme, language, settings */}
 				<div className="flex items-center gap-0.5 border-t border-[var(--omp-border-muted)] px-2 py-2">
-					<button type="button" onClick={() => setPanelTab("files")} title={t("sidebar.fileTree")} aria-label={t("sidebar.fileTree")} className={utilityButton}>
+					<button
+						type="button"
+						onClick={() => setPanelTab("files")}
+						title={t("sidebar.fileTree")}
+						aria-label={t("sidebar.fileTree")}
+						className={utilityButton}
+					>
 						<FolderTree size={15} />
 					</button>
-					<button type="button" onClick={onToggleStats} title={t("titlebar.stats")} aria-label={t("titlebar.stats")} className={utilityButton}>
+					<button
+						type="button"
+						onClick={onToggleStats}
+						title={t("titlebar.stats")}
+						aria-label={t("titlebar.stats")}
+						className={utilityButton}
+					>
 						<BarChart3 size={15} />
 					</button>
-					<button type="button" onClick={openThemePicker} title={t("themePicker.aria")} aria-label={t("themePicker.aria")} className={utilityButton}>
+					<button
+						type="button"
+						onClick={openThemePicker}
+						title={t("themePicker.aria")}
+						aria-label={t("themePicker.aria")}
+						className={utilityButton}
+					>
 						<Palette size={15} />
 					</button>
 					<LangSwitcher className="h-8 px-1.5" />
 					<div className="flex-1" />
-					<button type="button" onClick={openSettings} title={t("titlebar.settings")} aria-label={t("titlebar.settings")} className={utilityButton}>
+					<button
+						type="button"
+						onClick={openSettings}
+						title={t("titlebar.settings")}
+						aria-label={t("titlebar.settings")}
+						className={utilityButton}
+					>
 						<Settings size={15} />
 					</button>
 				</div>
 			</aside>
 			<WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} intent="new-session" />
-			<Modal onClose={() => setPendingDelete(null)} open={pendingDelete !== null} size="sm" title={t("sidebar.deleteConfirm")}>
+			<Modal
+				onClose={() => setPendingDelete(null)}
+				open={pendingDelete !== null}
+				size="sm"
+				title={t("sidebar.deleteConfirm")}
+			>
 				<p className="text-[13px] leading-relaxed text-[var(--omp-muted)]">
 					{t("sidebar.deleteMessage", {
 						name: pendingDelete?.title ?? pendingDelete?.firstMessage ?? t("sidebar.thisSession"),
@@ -469,7 +514,12 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 					</Button>
 				</div>
 			</Modal>
-			<Modal onClose={() => setPendingGroupDelete(null)} open={pendingGroupDelete !== null} size="sm" title={t("sidebar.deleteGroupConfirm")}>
+			<Modal
+				onClose={() => setPendingGroupDelete(null)}
+				open={pendingGroupDelete !== null}
+				size="sm"
+				title={t("sidebar.deleteGroupConfirm")}
+			>
 				<p className="text-[13px] leading-relaxed text-[var(--omp-muted)]">
 					{t("sidebar.deleteGroupMessage", {
 						name: pendingGroupDelete?.name ?? "",

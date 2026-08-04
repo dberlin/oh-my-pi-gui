@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { PiLogo } from "../common";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { PiLogo } from "../common";
 import { ToolCard } from "../tools/ToolCard";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
@@ -87,7 +87,13 @@ export function ChatStream() {
 		count: rows.length,
 		getScrollElement: () => parentRef.current,
 		estimateSize: i =>
-			rows[i]?.kind === "streaming" ? 96 : rows[i]?.kind === "pending" ? 56 : rows[i]?.kind === "expander" ? 44 : 128,
+			rows[i]?.kind === "streaming"
+				? 96
+				: rows[i]?.kind === "pending"
+					? 56
+					: rows[i]?.kind === "expander"
+						? 44
+						: 128,
 		overscan: 8,
 		measureElement: el => el.getBoundingClientRect().height,
 	});
@@ -115,11 +121,7 @@ export function ChatStream() {
 
 	return (
 		<div className="relative min-h-0 flex-1 bg-[var(--omp-bg-primary)]">
-			<div
-				ref={parentRef}
-				onScroll={handleScroll}
-				className="h-full overflow-y-auto overscroll-contain"
-			>
+			<div ref={parentRef} onScroll={handleScroll} className="h-full overflow-y-auto overscroll-contain">
 				{status === "starting" && (
 					<div className="flex justify-center py-3">
 						<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />

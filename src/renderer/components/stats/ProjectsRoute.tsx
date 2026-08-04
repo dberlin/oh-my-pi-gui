@@ -60,7 +60,9 @@ export function ProjectsRoute({ range, refreshKey }: { range: StatsRange; refres
 			{
 				key: "folder",
 				label: t("stats.col.project"),
-				render: row => <span className="font-mono text-(--omp-text)">{row.folder || t("stats.projects.unknown")}</span>,
+				render: row => (
+					<span className="font-mono text-(--omp-text)">{row.folder || t("stats.projects.unknown")}</span>
+				),
 			},
 			{ key: "requests", label: t("stats.col.requests"), align: "right", render: row => compact(row.totalRequests) },
 			{
@@ -73,7 +75,11 @@ export function ProjectsRoute({ range, refreshKey }: { range: StatsRange; refres
 					),
 			},
 			{ key: "cost", label: t("stats.col.cost"), align: "right", render: row => formatUsd(row.totalCost) },
-			{ key: "share", label: t("stats.projects.col.share"), render: row => <ShareBar fraction={row.totalCost / maxCost} /> },
+			{
+				key: "share",
+				label: t("stats.projects.col.share"),
+				render: row => <ShareBar fraction={row.totalCost / maxCost} />,
+			},
 			{
 				key: "speed",
 				label: t("stats.col.tps"),

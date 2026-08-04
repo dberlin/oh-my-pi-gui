@@ -221,7 +221,9 @@ function PhaseSection({
 						{phase.tasks.map(task => (
 							<SortableTaskRow key={task.id} onPatch={onPatch} phaseId={phase.id} task={task} />
 						))}
-						{total === 0 && <div className="py-1 text-[11px] text-(--omp-dim) italic">{t("todoPanel.noTasks")}</div>}
+						{total === 0 && (
+							<div className="py-1 text-[11px] text-(--omp-dim) italic">{t("todoPanel.noTasks")}</div>
+						)}
 					</div>
 				</SortableContext>
 			)}
@@ -325,7 +327,9 @@ export function TodoPanel() {
 				<span className="text-[10px] font-medium tracking-widest text-(--omp-dim) uppercase">
 					{t("todoPanel.title")}
 				</span>
-				<span className="text-[10px] tabular-nums text-(--omp-dim)">{t("todoPanel.open", { count: openCount })}</span>
+				<span className="text-[10px] tabular-nums text-(--omp-dim)">
+					{t("todoPanel.open", { count: openCount })}
+				</span>
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
 				{phases.length === 0 ? (

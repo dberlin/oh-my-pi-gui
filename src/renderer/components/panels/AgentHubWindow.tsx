@@ -28,8 +28,8 @@ import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Modal, Spinner, type TabItem, Tabs } from "../common";
-import { formatElapsed, noteFirstSeen, STATUS_LABEL_KEY, STATUS_META } from "./subagent-graph";
 import { SubagentTranscript } from "./SubagentTranscript";
+import { formatElapsed, isLiveSubagentStatus, noteFirstSeen, statusMeta } from "./subagent-graph";
 
 export interface AgentHubWindowProps {
 	open: boolean;
@@ -524,8 +524,8 @@ const HubRow = memo(function HubRow({
 	now: number;
 }) {
 	const t = useT();
-	const meta = STATUS_META[agent.status];
-	const elapsed = agent.status === "started" ? now - noteFirstSeen(agent.id) : null;
+	const meta = statusMeta(agent.status);
+	const elapsed = isLiveSubagentStatus(agent.status) ? now - noteFirstSeen(agent.id) : null;
 	const subtitle = agent.task ?? agent.description ?? agent.assignment;
 	const lastUpdate = agent.progress?.description ?? agent.lastUpdate;
 
@@ -541,7 +541,7 @@ const HubRow = memo(function HubRow({
 					size={12}
 				/>
 				<Badge dot pulse={meta.live} variant={meta.variant}>
-					{t(STATUS_LABEL_KEY[agent.status])}
+					{t(meta.labelKey)}
 				</Badge>
 				<span className="shrink-0 font-mono text-[10.5px] text-(--omp-dim) tabular-nums">#{agent.index}</span>
 				<span className="min-w-0 truncate text-[12px] font-medium text-(--omp-text)">{agent.agent}</span>
@@ -626,8 +626,8 @@ function HubTab() {
 			<div className="flex shrink-0 flex-wrap items-center gap-2">
 				{(["started", "failed", "cancelled", "completed"] as const).map(status =>
 					counts[status] > 0 ? (
-						<Badge dot key={status} pulse={STATUS_META[status].live} variant={STATUS_META[status].variant}>
-							{t(STATUS_LABEL_KEY[status])} {counts[status]}
+						<Badge dot key={status} pulse={statusMeta(status).live} variant={statusMeta(status).variant}>
+							{t(statusMeta(status).labelKey)} {counts[status]}
 						</Badge>
 					) : null,
 				)}
@@ -680,7 +680,7 @@ export function AgentHubWindow({ open, onClose, initialTab = "definitions" }: Ag
 	const settings = useAgentSettings(open, tab === "definitions");
 	const runningCount = useSubagentsStore(s => {
 		let count = 0;
-		for (const agent of s.subagents.values()) if (agent.status === "started") count += 1;
+		for (const agent of s.subagents.values()) if (isLiveSubagentStatus(agent.status)) count += 1;
 		return count;
 	});
 

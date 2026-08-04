@@ -671,11 +671,7 @@ export function SessionTreeDialog() {
 				const delta = event.key === "ArrowDown" ? 1 : -1;
 				const index = entries.findIndex(entry => entry.entryId === context.selectedId);
 				const next =
-					index === -1
-						? delta > 0
-							? 0
-							: entries.length - 1
-						: (index + delta + entries.length) % entries.length;
+					index === -1 ? (delta > 0 ? 0 : entries.length - 1) : (index + delta + entries.length) % entries.length;
 				const entryId = entries[next]!.entryId;
 				setSelectedId(entryId);
 				ensureNodeVisible(entryId);

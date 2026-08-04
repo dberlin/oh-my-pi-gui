@@ -212,7 +212,8 @@ export function TodoRenderer({ args, result, isError, isPartial, partialResult }
 							{phase.tasks.map((task, taskIndex) => {
 								const meta = STATUS_META[task.status] ?? STATUS_META.pending;
 								const Icon = meta.icon;
-								const isNewlyCompleted = task.status === "completed" && (justCompleted?.has(task.content) ?? false);
+								const isNewlyCompleted =
+									task.status === "completed" && (justCompleted?.has(task.content) ?? false);
 								return (
 									<div
 										key={`${taskIndex}:${task.content}`}

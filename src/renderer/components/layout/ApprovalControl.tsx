@@ -84,7 +84,12 @@ export function ApprovalControl() {
 											{active ? <Check size={14} /> : null}
 										</span>
 										<span className="min-w-0 flex-1">
-											<span className={cx("block text-[12px] font-medium", active ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)]")}>
+											<span
+												className={cx(
+													"block text-[12px] font-medium",
+													active ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)]",
+												)}
+											>
 												{t(`input.approval.${option}`)}
 											</span>
 											<span className="block text-[11px] leading-snug text-[var(--omp-dim)]">

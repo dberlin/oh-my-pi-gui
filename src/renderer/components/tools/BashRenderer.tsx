@@ -40,7 +40,8 @@ function stripTrailingNotice(text: string, notice: string): string {
 
 const RAW_ARTIFACT_RE = /\n?\[raw output: artifact:\/\/(\d+)\]\s*$/;
 /** Trailing `[Showing …]` / limits notice line appended by wrappedExecute. */
-const GENERATED_NOTICE_RE = /^\[(?:Showing .+|\d+ (?:matches|results) limit reached\. .+|Some lines truncated to .+)\]$/;
+const GENERATED_NOTICE_RE =
+	/^\[(?:Showing .+|\d+ (?:matches|results) limit reached\. .+|Some lines truncated to .+)\]$/;
 
 function stripGeneratedOutputNotice(text: string): string {
 	const trimmed = text.trimEnd();
@@ -80,7 +81,8 @@ function parseBashResult(result: unknown, isError: boolean | undefined): BashPar
 			? (details.async as { state?: unknown; jobId?: unknown })
 			: undefined;
 	const backgroundJobId = typeof asyncInfo?.jobId === "string" ? asyncInfo.jobId : undefined;
-	const meta = details?.meta != null && typeof details.meta === "object" ? (details.meta as Record<string, unknown>) : undefined;
+	const meta =
+		details?.meta != null && typeof details.meta === "object" ? (details.meta as Record<string, unknown>) : undefined;
 	const truncation =
 		meta?.truncation != null && typeof meta.truncation === "object"
 			? (meta.truncation as Record<string, unknown>)
@@ -88,7 +90,10 @@ function parseBashResult(result: unknown, isError: boolean | undefined): BashPar
 
 	// Strip trailer notices in the same order as the TUI renderer.
 	if (asyncInfo?.state === "running" && backgroundJobId) {
-		text = stripTrailingNotice(text, `Backgrounded as job ${backgroundJobId}; result will be delivered automatically.`);
+		text = stripTrailingNotice(
+			text,
+			`Backgrounded as job ${backgroundJobId}; result will be delivered automatically.`,
+		);
 	}
 	if (meta) text = stripGeneratedOutputNotice(text);
 	if (exitCode != null) text = stripTrailingNotice(text, `Command exited with code ${exitCode}`);

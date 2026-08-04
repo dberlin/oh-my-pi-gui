@@ -228,7 +228,10 @@ function ActivityStrip({ edits }: { edits: DiffCandidate[] }) {
 								className="flex w-full flex-col overflow-hidden rounded-[2px]"
 								style={{ height: `${Math.max(15, (total / activity.peak) * 100)}%` }}
 							>
-								<div className="bg-(--omp-diff-removed)" style={{ height: `${(bin.removes / total) * 100}%` }} />
+								<div
+									className="bg-(--omp-diff-removed)"
+									style={{ height: `${(bin.removes / total) * 100}%` }}
+								/>
 								<div className="bg-(--omp-diff-added)" style={{ height: `${(bin.adds / total) * 100}%` }} />
 							</div>
 						)}
@@ -429,7 +432,9 @@ function DiffTimeline({ candidates }: { candidates: DiffCandidate[] }) {
 									<EditTimelineRow
 										entry={row.entry}
 										expanded={expandedId === row.entry.id}
-										onToggle={() => setExpandedId(previous => (previous === row.entry.id ? null : row.entry.id))}
+										onToggle={() =>
+											setExpandedId(previous => (previous === row.entry.id ? null : row.entry.id))
+										}
 									/>
 								)}
 							</div>
@@ -489,7 +494,9 @@ export function DiffPanel() {
 					<div className="flex items-center gap-0.5 rounded-md border border-(--omp-border-muted) p-0.5">
 						{(["current", "timeline"] as const).map(value => (
 							<button
-								aria-label={value === "current" ? t("diffPanel.mode.currentAria") : t("diffPanel.mode.timelineAria")}
+								aria-label={
+									value === "current" ? t("diffPanel.mode.currentAria") : t("diffPanel.mode.timelineAria")
+								}
 								aria-pressed={mode === value}
 								className={`rounded px-1.5 py-0.5 text-[9px] font-medium tracking-wide uppercase transition-colors ${mode === value ? "bg-(--omp-selected-bg) text-(--omp-text)" : "text-(--omp-dim) hover:text-(--omp-text)"}`}
 								key={value}
@@ -564,7 +571,11 @@ export function DiffPanel() {
 										{selected.toolName}
 									</span>
 								</div>
-								{split ? <SplitDiff diff={selected.diff} /> : <DiffView diff={selected.diff} filePath={selected.file} />}
+								{split ? (
+									<SplitDiff diff={selected.diff} />
+								) : (
+									<DiffView diff={selected.diff} filePath={selected.file} />
+								)}
 							</div>
 						)}
 					</div>

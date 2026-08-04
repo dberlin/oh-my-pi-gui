@@ -6,8 +6,8 @@ import { useEffect, useMemo } from "react";
 import { Line } from "react-chartjs-2";
 import { baseChartOptions, bucketLabels, CHART_COLORS, formatUsd } from "../../lib/chart";
 import "../../lib/chart";
-import { useT } from "../../lib/i18n";
 import { useStats } from "../../hooks/use-stats";
+import { useT } from "../../lib/i18n";
 import type { StatsRange } from "./StatsDashboard";
 import { ChartBox, MetricCard, RouteFrame, SectionTitle } from "./shared";
 

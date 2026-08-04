@@ -25,16 +25,17 @@ import {
 	type DagNode,
 	extractTaskToolCallIds,
 	formatElapsed,
+	isLiveSubagentStatus,
 	noteFirstSeen,
-	STATUS_LABEL_KEY,
-	STATUS_META,
+	statusMeta,
 	useSubagentGraphStore,
 } from "./subagent-graph";
 
 function nodeBorderClass(agent: SubagentSnapshot): string {
+	if (isLiveSubagentStatus(agent.status)) {
+		return "border-[color-mix(in_srgb,var(--omp-link)_35%,transparent)]";
+	}
 	switch (agent.status) {
-		case "started":
-			return "border-[color-mix(in_srgb,var(--omp-link)_35%,transparent)]";
 		case "failed":
 			return "border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)]";
 		default:
@@ -63,10 +64,12 @@ const DagAgentNode = memo(function DagAgentNode({
 	onSelect: () => void;
 }) {
 	const t = useT();
-	const meta = STATUS_META[agent.status];
-	const elapsed = agent.status === "started" ? now - noteFirstSeen(agent.id) : 0;
+	const meta = statusMeta(agent.status);
+	const elapsed = isLiveSubagentStatus(agent.status) ? now - noteFirstSeen(agent.id) : 0;
 	const line =
-		agent.status === "started" && agent.progress?.description ? agent.progress.description : agent.description;
+		isLiveSubagentStatus(agent.status) && agent.progress?.description
+			? agent.progress.description
+			: agent.description;
 
 	return (
 		<button
@@ -88,21 +91,21 @@ const DagAgentNode = memo(function DagAgentNode({
 					{agent.index > 0 && <span className="ml-1 text-[9px] text-(--omp-dim)">#{agent.index + 1}</span>}
 				</span>
 				<Badge dot={meta.live} pulse={meta.live} variant={meta.variant}>
-					{t(STATUS_LABEL_KEY[agent.status])}
+					{t(meta.labelKey)}
 				</Badge>
 			</div>
 			<div className="mt-1 flex items-center gap-1.5 pl-[18px]">
 				<span
 					className={cx(
 						"min-w-0 flex-1 truncate text-[9.5px]",
-						agent.status === "started" && agent.progress?.description
+						isLiveSubagentStatus(agent.status) && agent.progress?.description
 							? "text-(--omp-muted) italic"
 							: "text-(--omp-dim)",
 					)}
 				>
 					{line ?? ""}
 				</span>
-				{agent.status === "started" && (
+				{isLiveSubagentStatus(agent.status) && (
 					<span className="shrink-0 text-[9px] tabular-nums text-(--omp-dim)">{formatElapsed(elapsed)}</span>
 				)}
 			</div>
@@ -135,7 +138,7 @@ export function SubagentDag() {
 	const [now, setNow] = useState(() => Date.now());
 
 	const agents = useMemo(() => [...subagents.values()].sort((a, b) => a.index - b.index), [subagents]);
-	const hasRunning = agents.some(agent => agent.status === "started");
+	const hasRunning = agents.some(agent => isLiveSubagentStatus(agent.status));
 
 	useEffect(() => {
 		if (!hasRunning) return;
@@ -215,11 +218,11 @@ export function SubagentDag() {
 							)}
 						</span>
 						<Badge
-							dot={STATUS_META[selected.status].live}
-							pulse={STATUS_META[selected.status].live}
-							variant={STATUS_META[selected.status].variant}
+							dot={statusMeta(selected.status).live}
+							pulse={statusMeta(selected.status).live}
+							variant={statusMeta(selected.status).variant}
 						>
-							{t(STATUS_LABEL_KEY[selected.status])}
+							{t(statusMeta(selected.status).labelKey)}
 						</Badge>
 						<button
 							aria-label={t("dag.closeTranscript")}

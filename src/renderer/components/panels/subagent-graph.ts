@@ -14,20 +14,42 @@ import { create } from "zustand";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import type { BadgeVariant } from "../common";
 
-export const STATUS_META: Record<SubagentSnapshot["status"], { label: string; variant: BadgeVariant; live: boolean }> =
-	{
-		started: { label: "running", variant: "info", live: true },
-		completed: { label: "completed", variant: "success", live: false },
-		failed: { label: "failed", variant: "error", live: false },
-		cancelled: { label: "cancelled", variant: "muted", live: false },
-	};
+/**
+ * Status presentation for a subagent row. The wire's status is FREE-FORM
+ * (lifecycle statuses plus arbitrary progress payloads: "started", "running",
+ * "pending", "completed", "failed", "aborted", "cancelled", "idle", "parked",
+ * and anything an agent emits). Never index a Record with it unchecked — a
+ * missing key was the white-screen crash on the agents tab (meta.live of
+ * undefined). Always go through statusMeta()/isLiveSubagentStatus().
+ */
+export interface StatusMeta {
+	label: string;
+	variant: BadgeVariant;
+	live: boolean;
+	labelKey: string;
+}
 
-export const STATUS_LABEL_KEY: Record<SubagentSnapshot["status"], string> = {
-	started: "subagent.status.started",
-	completed: "subagent.status.completed",
-	failed: "subagent.status.failed",
-	cancelled: "subagent.status.cancelled",
+const STATUS_META: Record<string, StatusMeta> = {
+	started: { label: "running", variant: "info", live: true, labelKey: "subagent.status.started" },
+	running: { label: "running", variant: "info", live: true, labelKey: "subagent.status.started" },
+	pending: { label: "pending", variant: "muted", live: true, labelKey: "subagent.status.pending" },
+	idle: { label: "idle", variant: "muted", live: true, labelKey: "subagent.status.idle" },
+	parked: { label: "parked", variant: "muted", live: true, labelKey: "subagent.status.parked" },
+	completed: { label: "completed", variant: "success", live: false, labelKey: "subagent.status.completed" },
+	failed: { label: "failed", variant: "error", live: false, labelKey: "subagent.status.failed" },
+	aborted: { label: "cancelled", variant: "muted", live: false, labelKey: "subagent.status.cancelled" },
+	cancelled: { label: "cancelled", variant: "muted", live: false, labelKey: "subagent.status.cancelled" },
 };
+
+/** Total lookup — unknown/future statuses degrade to a muted badge with the raw status text. */
+export function statusMeta(status: string): StatusMeta {
+	return STATUS_META[status] ?? { label: status, variant: "muted", live: false, labelKey: "subagent.status.unknown" };
+}
+
+/** True for non-terminal statuses (drives elapsed timers, pulse dots, running counts). */
+export function isLiveSubagentStatus(status: string): boolean {
+	return statusMeta(status).live;
+}
 
 /** First time each agent id was observed, for elapsed-time display. */
 const firstSeen = new Map<string, number>();

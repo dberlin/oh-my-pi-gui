@@ -40,7 +40,9 @@ interface TestElement {
 let setThinkingLevelMock: Mock<(level: string) => Promise<RpcResponse>>;
 
 function installMockOmp(): void {
-	setThinkingLevelMock = vi.fn(async () => ({ type: "response", command: "set_thinking_level", success: true }) as RpcResponse);
+	setThinkingLevelMock = vi.fn(
+		async () => ({ type: "response", command: "set_thinking_level", success: true }) as RpcResponse,
+	);
 	const ompWindow = window as unknown as { omp: { rpc: { setThinkingLevel: typeof setThinkingLevelMock } } };
 	ompWindow.omp = { rpc: { setThinkingLevel: setThinkingLevelMock } };
 }

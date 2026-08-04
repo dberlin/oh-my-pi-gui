@@ -54,12 +54,7 @@ function extractFrames(details: Record<string, unknown> | undefined): StackFrame
 		}
 		const source = asRecord(fr.source);
 		out.push({
-			name:
-				typeof fr.name === "string"
-					? fr.name
-					: typeof fr.function === "string"
-						? fr.function
-						: "??",
+			name: typeof fr.name === "string" ? fr.name : typeof fr.function === "string" ? fr.function : "??",
 			file:
 				typeof source?.path === "string"
 					? source.path
@@ -131,11 +126,7 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 	const effective = isPartial ? partialResult : result;
 	const details = resultDetails(effective);
 	const action = (
-		typeof args.action === "string"
-			? args.action
-			: typeof details?.action === "string"
-				? details.action
-				: "debug"
+		typeof args.action === "string" ? args.action : typeof details?.action === "string" ? details.action : "debug"
 	).replaceAll("_", " ");
 	const snapshot = asRecord(details?.snapshot);
 	const frames = extractFrames(details);
@@ -145,7 +136,8 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 	const output = typeof details?.output === "string" ? details.output : "";
 	const text = resultText(effective);
 	const [varsOpen, setVarsOpen] = useState(true);
-	const hasStructured = snapshot != null || frames.length > 0 || variables.length > 0 || breakpoints.length > 0 || evaluation != null;
+	const hasStructured =
+		snapshot != null || frames.length > 0 || variables.length > 0 || breakpoints.length > 0 || evaluation != null;
 
 	return (
 		<div className="flex flex-col gap-1.5">

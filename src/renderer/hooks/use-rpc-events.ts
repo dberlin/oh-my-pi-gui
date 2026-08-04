@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 import type { IpcSidecarStatusPayload } from "../../shared/ipc-types";
 import {
-	BLOCKING_UI_METHODS,
-	isThinkingLevel,
 	type AgentMessage,
 	type AgentSessionEvent,
+	BLOCKING_UI_METHODS,
+	isThinkingLevel,
 	type RpcGoalState,
 	type RpcSessionState,
 	type SubagentSnapshot,
@@ -292,7 +292,10 @@ export function useRpcEvents(): void {
 						// TUI parity: swap the status row to the maintenance loader
 						// ("Context overflow detected, Auto context-full maintenance…")
 						// for the whole compaction window, not just a flag.
-						useSessionStore.setState({ isCompacting: true, compactionInfo: { reason: event.reason, action: event.action } });
+						useSessionStore.setState({
+							isCompacting: true,
+							compactionInfo: { reason: event.reason, action: event.action },
+						});
 						break;
 					}
 					case "auto_compaction_end": {
@@ -370,9 +373,13 @@ export function useRpcEvents(): void {
 						break;
 					}
 					case "thinking_level_changed": {
-						const patch: Partial<{ thinkingLevel: ThinkingLevel; thinkingConfigured: ThinkingLevel | "auto" }> = {};
+						const patch: Partial<{ thinkingLevel: ThinkingLevel; thinkingConfigured: ThinkingLevel | "auto" }> =
+							{};
 						if (event.thinkingLevel !== undefined) patch.thinkingLevel = event.thinkingLevel;
-						if (typeof event.configured === "string" && (event.configured === "auto" || isThinkingLevel(event.configured))) {
+						if (
+							typeof event.configured === "string" &&
+							(event.configured === "auto" || isThinkingLevel(event.configured))
+						) {
 							patch.thinkingConfigured = event.configured;
 						}
 						if (Object.keys(patch).length > 0) useModelStore.setState(patch);

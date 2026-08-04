@@ -7,8 +7,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Bar } from "react-chartjs-2";
 import { baseChartOptions, chartTheme, compact } from "../../lib/chart";
 import "../../lib/chart";
-import { useT } from "../../lib/i18n";
 import { useStats } from "../../hooks/use-stats";
+import { useT } from "../../lib/i18n";
 import type { StatsRange } from "./StatsDashboard";
 import { ChartBox, MetricCard, RouteFrame, SectionTitle } from "./shared";
 
@@ -122,7 +122,9 @@ export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey
 					<ChartBox height={260}>
 						<Bar data={chart} options={barOptions} />
 					</ChartBox>
-					{stats && Object.keys(stats.bySource).length > 1 && <SectionTitle>{t("stats.gain.bySource")}</SectionTitle>}
+					{stats && Object.keys(stats.bySource).length > 1 && (
+						<SectionTitle>{t("stats.gain.bySource")}</SectionTitle>
+					)}
 					{stats &&
 						Object.entries(stats.bySource)
 							.filter(([, totals]) => totals.hits > 0)
@@ -132,7 +134,9 @@ export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey
 									key={source}
 								>
 									<span className="font-mono font-medium text-(--omp-text)">{source}</span>
-									<span className="text-(--omp-muted)">{t("stats.gain.tokens", { count: compact(totals.savedTokens) })}</span>
+									<span className="text-(--omp-muted)">
+										{t("stats.gain.tokens", { count: compact(totals.savedTokens) })}
+									</span>
 									<span className="text-(--omp-dim)">{t("stats.gain.hits", { count: totals.hits })}</span>
 									{totals.reductionPercent !== null && (
 										<span className="ml-auto text-(--omp-success)">

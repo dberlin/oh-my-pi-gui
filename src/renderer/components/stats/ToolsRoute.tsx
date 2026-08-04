@@ -7,8 +7,8 @@ import { useEffect, useMemo } from "react";
 import { Bar } from "react-chartjs-2";
 import { baseChartOptions, CHART_COLORS, compact, formatUsd } from "../../lib/chart";
 import "../../lib/chart";
-import { useT } from "../../lib/i18n";
 import { useStats } from "../../hooks/use-stats";
+import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
 import type { StatsRange } from "./StatsDashboard";
 import { ChartBox, RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
@@ -69,7 +69,12 @@ export function ToolsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 				align: "right",
 				render: row => compact(row.totalTokensShare),
 			},
-			{ key: "cost", label: t("stats.tools.col.costShare"), align: "right", render: row => formatUsd(row.costShare) },
+			{
+				key: "cost",
+				label: t("stats.tools.col.costShare"),
+				align: "right",
+				render: row => formatUsd(row.costShare),
+			},
 			{
 				key: "last",
 				label: t("stats.tools.col.last"),

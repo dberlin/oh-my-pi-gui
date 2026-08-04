@@ -153,43 +153,45 @@ app.whenReady().then(() => {
 			if (!client) return;
 
 			// Register host tools (fire-and-forget)
-			void client.command({
-				type: "set_host_tools",
-				tools: [
-					{
-						name: "gui_open_url",
-						description: "Open a URL in the system default browser",
-						parameters: {
-							type: "object",
-							properties: { url: { type: "string", description: "URL to open" } },
-							required: ["url"],
-							additionalProperties: false,
-						},
-					},
-					{
-						name: "gui_notify",
-						description: "Show a native OS notification",
-						parameters: {
-							type: "object",
-							properties: {
-								title: { type: "string" },
-								body: { type: "string" },
+			void client
+				.command({
+					type: "set_host_tools",
+					tools: [
+						{
+							name: "gui_open_url",
+							description: "Open a URL in the system default browser",
+							parameters: {
+								type: "object",
+								properties: { url: { type: "string", description: "URL to open" } },
+								required: ["url"],
+								additionalProperties: false,
 							},
-							required: ["title"],
-							additionalProperties: false,
 						},
-					},
-					{
-						name: "gui_clipboard_read",
-						description: "Read the current clipboard text content",
-						parameters: {
-							type: "object",
-							properties: {},
-							additionalProperties: false,
+						{
+							name: "gui_notify",
+							description: "Show a native OS notification",
+							parameters: {
+								type: "object",
+								properties: {
+									title: { type: "string" },
+									body: { type: "string" },
+								},
+								required: ["title"],
+								additionalProperties: false,
+							},
 						},
-					},
-				],
-			}).catch(() => {});
+						{
+							name: "gui_clipboard_read",
+							description: "Read the current clipboard text content",
+							parameters: {
+								type: "object",
+								properties: {},
+								additionalProperties: false,
+							},
+						},
+					],
+				})
+				.catch(() => {});
 
 			// Health check: verify the command loop is actually running.
 			// If extension init hung, the sidecar sent ready but never

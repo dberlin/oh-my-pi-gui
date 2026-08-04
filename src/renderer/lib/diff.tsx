@@ -76,9 +76,7 @@ function parseDiffRows(text: string): DiffRow[] {
 				// Context rows are numbered in old-file coordinates; shift by the
 				// net change so far to recover the new-file number.
 				const newLine =
-					oldCursor !== undefined && newCursor !== undefined
-						? lineNumber + (newCursor - oldCursor)
-						: undefined;
+					oldCursor !== undefined && newCursor !== undefined ? lineNumber + (newCursor - oldCursor) : undefined;
 				rows.push({ type: "context", content, oldLine: lineNumber, newLine });
 				oldCursor = lineNumber + 1;
 				if (newLine !== undefined) newCursor = newLine + 1;
@@ -424,11 +422,21 @@ export function DiffView({ diff, filePath, className }: DiffViewProps) {
 						<div key={i} className="whitespace-pre px-2 text-[var(--omp-diff-context)]">
 							{gutterWidth > 0 && (
 								<>
-									<span aria-hidden className="mr-1 inline-block select-none" style={{ width: `${gutterWidth}ch` }} />
-									<span aria-hidden className="mr-2 inline-block select-none" style={{ width: `${gutterWidth}ch` }} />
+									<span
+										aria-hidden
+										className="mr-1 inline-block select-none"
+										style={{ width: `${gutterWidth}ch` }}
+									/>
+									<span
+										aria-hidden
+										className="mr-2 inline-block select-none"
+										style={{ width: `${gutterWidth}ch` }}
+									/>
 								</>
 							)}
-							<span aria-hidden className="mr-2 select-none opacity-50"> </span>
+							<span aria-hidden className="mr-2 select-none opacity-50">
+								{" "}
+							</span>
 							<span className="opacity-50">…</span>
 						</div>
 					);

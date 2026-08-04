@@ -51,9 +51,7 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 	const effective = isPartial ? partialResult : result;
 	const details = resultDetails(effective);
 	const goal =
-		details?.goal != null && typeof details.goal === "object"
-			? (details.goal as Record<string, unknown>)
-			: null;
+		details?.goal != null && typeof details.goal === "object" ? (details.goal as Record<string, unknown>) : null;
 	const op = details?.op ?? args.op;
 	const status = typeof goal?.status === "string" ? goal.status : "";
 	const tone: GoalStatusTone = STATUS_TONE[status] ?? "accent";
@@ -128,7 +126,8 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 							: tokenBudget != null
 								? t("tools.goal.budgetOnly", { count: formatTokens(tokenBudget) })
 								: ""}
-					{timeUsedSeconds > 0 && t("tools.goal.elapsedSuffix", { duration: formatDuration(timeUsedSeconds * 1000) })}
+					{timeUsedSeconds > 0 &&
+						t("tools.goal.elapsedSuffix", { duration: formatDuration(timeUsedSeconds * 1000) })}
 				</div>
 			)}
 			{report && (

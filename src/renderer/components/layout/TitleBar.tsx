@@ -15,8 +15,8 @@ import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
-import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { useUiStore } from "../../stores/ui";
+import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 
 export interface TitleBarProps {
 	onToggleStats: () => void;

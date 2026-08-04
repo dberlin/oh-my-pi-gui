@@ -51,7 +51,9 @@ describe("settings store display sync", () => {
 
 	it("ignores absent and non-boolean values instead of clobbering state", async () => {
 		useSettingsStore.setState({ showTokenUsage: true, titleState: false });
-		getSettings.mockResolvedValueOnce(await success({ "display.showTokenUsage": "yes", "goal.statusInFooter": true }));
+		getSettings.mockResolvedValueOnce(
+			await success({ "display.showTokenUsage": "yes", "goal.statusInFooter": true }),
+		);
 		await useSettingsStore.getState().syncDisplaySettings();
 		const state = useSettingsStore.getState();
 		expect(state.showTokenUsage).toBe(true);

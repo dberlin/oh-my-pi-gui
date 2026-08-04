@@ -69,11 +69,17 @@ export function UsageRow({ message }: { message: AgentMessage }) {
 	return (
 		<div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10.5px] tabular-nums text-[var(--omp-dim)]">
 			{model && <span className="font-mono">{model}</span>}
-			<span className="flex items-center gap-1" title={t("chat.usage.inputTokens", { count: totalInput.toLocaleString() })}>
+			<span
+				className="flex items-center gap-1"
+				title={t("chat.usage.inputTokens", { count: totalInput.toLocaleString() })}
+			>
 				<ArrowUp size={10} />
 				{formatTokens(totalInput)}
 			</span>
-			<span className="flex items-center gap-1" title={t("chat.usage.outputTokens", { count: usage.output.toLocaleString() })}>
+			<span
+				className="flex items-center gap-1"
+				title={t("chat.usage.outputTokens", { count: usage.output.toLocaleString() })}
+			>
 				<ArrowDown size={10} />
 				{formatTokens(usage.output)}
 			</span>

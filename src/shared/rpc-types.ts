@@ -545,7 +545,14 @@ export interface SubagentSnapshot {
 	agent: string;
 	agentSource: string;
 	description?: string;
-	status: "started" | "completed" | "failed" | "cancelled";
+	/**
+	 * Free-form on the wire: lifecycle statuses ("started"→"running",
+	 * "completed", "failed", "aborted") AND arbitrary progress payloads
+	 * ("pending", "idle", "parked", agent-emitted values). Consumers must go
+	 * through statusMeta()/isLiveSubagentStatus() — never index a lookup with
+	 * this raw value (that was the agents-tab white screen).
+	 */
+	status: string;
 	task?: string;
 	assignment?: string;
 	sessionFile?: string;
@@ -568,7 +575,8 @@ export interface SubagentLifecycleFrame {
 	agent: string;
 	agentSource: string;
 	description?: string;
-	status: "started" | "completed" | "failed" | "cancelled";
+	/** Free-form like SubagentSnapshot.status (includes "aborted", "running"). */
+	status: string;
 	task?: string;
 	assignment?: string;
 	sessionFile?: string;

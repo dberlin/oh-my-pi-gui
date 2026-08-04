@@ -35,7 +35,15 @@ function toPrimitive(input: string): Primitive {
 const INPUT_CLASS =
 	"rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2 py-1 font-mono text-[11px] text-(--omp-text) outline-none transition-colors focus:border-(--omp-input-focus-border)";
 
-export function RecordKvEditor({ value, onCommit, disabled, valueOptions, valueKind, keyPlaceholder, valuePlaceholder }: RecordKvEditorProps) {
+export function RecordKvEditor({
+	value,
+	onCommit,
+	disabled,
+	valueOptions,
+	valueKind,
+	keyPlaceholder,
+	valuePlaceholder,
+}: RecordKvEditorProps) {
 	const t = useT();
 	const entries = Object.entries(value);
 

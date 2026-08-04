@@ -149,15 +149,7 @@ function CliBadge({ cli, live }: { cli: string; live?: boolean }) {
 }
 
 /** Composer card for spawn/send: the typed message + ack footer. */
-function ComposerCard({
-	message,
-	ack,
-	ackColor,
-}: {
-	message: string;
-	ack: string;
-	ackColor: string;
-}) {
+function ComposerCard({ message, ack, ackColor }: { message: string; ack: string; ackColor: string }) {
 	const lines = composerLines(message);
 	return (
 		<div className="overflow-hidden rounded-md border border-[var(--omp-border-muted)]">
@@ -183,15 +175,7 @@ const TRACE_CAP = 3;
 const OUTPUT_CAP = 2;
 
 /** One worker "TV": header + live tool trace + streamed text tail. */
-function ScreenCard({
-	screen,
-	now,
-	settledStatus,
-}: {
-	screen: VibeScreen;
-	now: number;
-	settledStatus?: string;
-}) {
+function ScreenCard({ screen, now, settledStatus }: { screen: VibeScreen; now: number; settledStatus?: string }) {
 	const t = useT();
 	const live = isLive(screen);
 	const stateColor = STATE_COLOR[screen.state ?? ""] ?? "var(--omp-dim)";
@@ -247,7 +231,10 @@ function ScreenCard({
 						{screen.currentTool ? (
 							<div className="flex gap-1.5">
 								<span className="shrink-0 text-[var(--omp-accent)]">└</span>
-								<span className="truncate text-[var(--omp-muted)]" title={detail ? `${screen.currentTool}: ${detail}` : screen.currentTool}>
+								<span
+									className="truncate text-[var(--omp-muted)]"
+									title={detail ? `${screen.currentTool}: ${detail}` : screen.currentTool}
+								>
 									{screen.currentTool}
 									{detail && <span className="text-[var(--omp-dim)]">: {detail}</span>}
 								</span>
@@ -284,7 +271,9 @@ function ScreenCard({
 					className="border-t border-[var(--omp-border-muted)] px-2 py-1 font-mono text-[10.5px] font-medium"
 					style={{ color: settledColor }}
 				>
-					{t("tools.vibe.turnSettled", { status: t(SETTLED_LABEL_KEY[settledStatus] ?? "subagent.status.cancelled") })}
+					{t("tools.vibe.turnSettled", {
+						status: t(SETTLED_LABEL_KEY[settledStatus] ?? "subagent.status.cancelled"),
+					})}
 				</div>
 			)}
 		</div>
@@ -308,11 +297,12 @@ function SessionTable({ screens }: { screens: VibeScreen[] }) {
 							{t(STATE_LABEL_KEY[screen.state ?? ""] ?? "tools.vibe.state.starting")}
 						</span>
 						<span className="shrink-0 text-[10px] text-[var(--omp-dim)] tabular-nums">{turnsLabel}</span>
-						{screen.model && (
-							<span className="shrink-0 text-[10px] text-[var(--omp-dim)]">{screen.model}</span>
-						)}
+						{screen.model && <span className="shrink-0 text-[10px] text-[var(--omp-dim)]">{screen.model}</span>}
 						{screen.lastActivity && (
-							<span className="min-w-0 flex-1 truncate text-right text-[10px] text-[var(--omp-muted)]" title={screen.lastActivity}>
+							<span
+								className="min-w-0 flex-1 truncate text-right text-[10px] text-[var(--omp-muted)]"
+								title={screen.lastActivity}
+							>
 								{screen.lastActivity}
 							</span>
 						)}
@@ -329,12 +319,16 @@ function VibeView({ op, args, result, isError, isPartial, partialResult }: ToolR
 	const details = resultDetails(effective);
 	const text = resultText(effective);
 
-	const screens = asArray(details?.screens).map(asScreen).filter((s): s is VibeScreen => s != null);
+	const screens = asArray(details?.screens)
+		.map(asScreen)
+		.filter((s): s is VibeScreen => s != null);
 	const spawned = asRecord(details?.spawned);
 	const send = asRecord(details?.send);
 	const wait = asRecord(details?.wait);
 	const killed = asRecord(details?.killed);
-	const settled = asArray(wait?.settled).map(asSettled).filter((s): s is VibeSettled => s != null);
+	const settled = asArray(wait?.settled)
+		.map(asSettled)
+		.filter((s): s is VibeSettled => s != null);
 	const settledById = new Map(settled.map(entry => [entry.id, entry.status] as const));
 	const waiting = wait?.waiting === true;
 	const timedOut = wait?.timedOut === true;
@@ -418,13 +412,13 @@ function VibeView({ op, args, result, isError, isPartial, partialResult }: ToolR
 					{describe}
 				</span>
 				{op === "wait" && waiting && !isError && (
-					<span className="ml-auto shrink-0 text-[10px] text-[var(--omp-accent)]">
-						{t("tools.vibe.watching")}
-					</span>
+					<span className="ml-auto shrink-0 text-[10px] text-[var(--omp-accent)]">{t("tools.vibe.watching")}</span>
 				)}
 			</div>
 
-			{composerOp && message != null && ack && <ComposerCard message={message} ack={ack.text} ackColor={ack.color} />}
+			{composerOp && message != null && ack && (
+				<ComposerCard message={message} ack={ack.text} ackColor={ack.color} />
+			)}
 			{composerOp && message == null && ack && (
 				<div className="font-mono text-[10.5px] font-medium" style={{ color: ack.color }}>
 					{ack.text}
@@ -433,9 +427,13 @@ function VibeView({ op, args, result, isError, isPartial, partialResult }: ToolR
 
 			{op === "wait" && (runningCount > 0 || settled.length > 0 || timedOut) && (
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px]">
-					{runningCount > 0 && <span className="text-[var(--omp-accent)]">{t("tools.vibe.onAir", { count: runningCount })}</span>}
+					{runningCount > 0 && (
+						<span className="text-[var(--omp-accent)]">{t("tools.vibe.onAir", { count: runningCount })}</span>
+					)}
 					{settled.length > 0 && (
-						<span className="text-[var(--omp-success)]">{t("tools.vibe.settled", { count: settled.length })}</span>
+						<span className="text-[var(--omp-success)]">
+							{t("tools.vibe.settled", { count: settled.length })}
+						</span>
 					)}
 					{timedOut && <span className="text-[var(--omp-warning)]">{t("tools.vibe.timedOut")}</span>}
 				</div>
@@ -460,7 +458,9 @@ function VibeView({ op, args, result, isError, isPartial, partialResult }: ToolR
 			{op === "kill" && killed != null && (
 				<div className="flex flex-col gap-0.5">
 					<div className="flex items-center gap-2 font-mono text-[11px]">
-						<span className="font-semibold text-[var(--omp-text)]">{t("tools.vibe.killed", { id: killedId || "?" })}</span>
+						<span className="font-semibold text-[var(--omp-text)]">
+							{t("tools.vibe.killed", { id: killedId || "?" })}
+						</span>
 						{cancelledTurn && (
 							<span className="rounded bg-[var(--omp-warning)]/15 px-1 py-px text-[9.5px] font-semibold text-[var(--omp-warning)]">
 								{t("tools.vibe.cancelledTurn")}

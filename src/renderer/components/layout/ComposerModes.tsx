@@ -68,11 +68,7 @@ export function ComposerModes() {
 		});
 	};
 
-	const toggle = (
-		get: boolean,
-		set: (enabled: boolean) => Promise<unknown>,
-		apply: (enabled: boolean) => void,
-	) => {
+	const toggle = (get: boolean, set: (enabled: boolean) => Promise<unknown>, apply: (enabled: boolean) => void) => {
 		const next = !get;
 		apply(next);
 		void set(next);
@@ -108,7 +104,10 @@ export function ComposerModes() {
 					// Highlight only when a non-default is active — auto-compaction
 					// and auto-retry default ON, so OR-ing raw values highlights always.
 					className={chip(
-						autoCompaction === false || autoRetry === false || steeringMode !== "all" || interruptMode !== "immediate",
+						autoCompaction === false ||
+							autoRetry === false ||
+							steeringMode !== "all" ||
+							interruptMode !== "immediate",
 					)}
 				>
 					<Repeat size={14} />
@@ -122,41 +121,49 @@ export function ComposerModes() {
 								style={{ left: pos.left, bottom: pos.bottom }}
 								className="fixed z-[100] w-56 overflow-hidden rounded-xl border border-[var(--omp-border)] bg-[var(--omp-panel-bg)] p-1 shadow-[var(--omp-shadow-md)]"
 							>
-						<MoreRow
-							label={t("input.more.autoCompact")}
-							checked={autoCompaction}
-							onToggle={() =>
-								toggle(autoCompaction, e => window.omp.rpc.setAutoCompaction(e), e => useSettingsStore.setState({ autoCompaction: e }))
-							}
-						/>
-						<MoreRow
-							label={t("input.more.autoRetry")}
-							checked={autoRetry}
-							onToggle={() =>
-								toggle(autoRetry, e => window.omp.rpc.setAutoRetry(e), e => useSettingsStore.setState({ autoRetry: e }))
-							}
-						/>
-						<MoreRow
-							label={t("input.more.steeringAll")}
-							checked={steeringMode === "all"}
-							onToggle={() => {
-								const next = steeringMode === "all" ? "one-at-a-time" : "all";
-								useSettingsStore.setState({ steeringMode: next });
-								void window.omp.rpc.setSteeringMode(next);
-							}}
-						/>
-						<MoreRow
-							label={t("input.more.interruptImmediate")}
-							checked={interruptMode === "immediate"}
-							onToggle={() => {
-								const next = interruptMode === "immediate" ? "wait" : "immediate";
-								useSettingsStore.setState({ interruptMode: next });
-								void window.omp.rpc.setInterruptMode(next);
-							}}
-						/>
-						</div>,
-						document.body,
-					)
+								<MoreRow
+									label={t("input.more.autoCompact")}
+									checked={autoCompaction}
+									onToggle={() =>
+										toggle(
+											autoCompaction,
+											e => window.omp.rpc.setAutoCompaction(e),
+											e => useSettingsStore.setState({ autoCompaction: e }),
+										)
+									}
+								/>
+								<MoreRow
+									label={t("input.more.autoRetry")}
+									checked={autoRetry}
+									onToggle={() =>
+										toggle(
+											autoRetry,
+											e => window.omp.rpc.setAutoRetry(e),
+											e => useSettingsStore.setState({ autoRetry: e }),
+										)
+									}
+								/>
+								<MoreRow
+									label={t("input.more.steeringAll")}
+									checked={steeringMode === "all"}
+									onToggle={() => {
+										const next = steeringMode === "all" ? "one-at-a-time" : "all";
+										useSettingsStore.setState({ steeringMode: next });
+										void window.omp.rpc.setSteeringMode(next);
+									}}
+								/>
+								<MoreRow
+									label={t("input.more.interruptImmediate")}
+									checked={interruptMode === "immediate"}
+									onToggle={() => {
+										const next = interruptMode === "immediate" ? "wait" : "immediate";
+										useSettingsStore.setState({ interruptMode: next });
+										void window.omp.rpc.setInterruptMode(next);
+									}}
+								/>
+							</div>,
+							document.body,
+						)
 					: null}
 			</div>
 		</>

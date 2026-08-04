@@ -83,7 +83,11 @@ export function ResolveRenderer({ args, result, isError, isPartial, partialResul
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-center gap-1.5 text-[11.5px]">
-				<Icon size={12} className={cx("shrink-0", pending && "animate-pulse")} style={{ color: `var(--omp-${tone})` }} />
+				<Icon
+					size={12}
+					className={cx("shrink-0", pending && "animate-pulse")}
+					style={{ color: `var(--omp-${tone})` }}
+				/>
 				<span className="font-semibold" style={{ color: `var(--omp-${tone})` }}>
 					{verb}
 				</span>
@@ -109,7 +113,9 @@ export function ResolveRenderer({ args, result, isError, isPartial, partialResul
 						</div>
 					))}
 					{files.length > MAX_LISTED_FILES && (
-						<div className="text-[var(--omp-dim)]">{t("tools.resolve.more", { count: files.length - MAX_LISTED_FILES })}</div>
+						<div className="text-[var(--omp-dim)]">
+							{t("tools.resolve.more", { count: files.length - MAX_LISTED_FILES })}
+						</div>
 					)}
 				</div>
 			)}

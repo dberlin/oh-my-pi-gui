@@ -1,6 +1,6 @@
 import { Bot, Check, Wrench, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import { cx, basename, formatDuration, formatTokens, headLines, resultText } from "../../lib/format";
+import { type ReactNode, useEffect, useState } from "react";
+import { basename, cx, formatDuration, formatTokens, headLines, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
@@ -65,7 +65,9 @@ function orderProgressForDisplay(list: Record<string, unknown>[]): Record<string
 		(status === "pending" || status === "running" ? unfinished : finished).push(row);
 	}
 	finished.sort(
-		(a, b) => (asNumber(a.durationMs) ?? 0) - (asNumber(b.durationMs) ?? 0) || (asNumber(a.index) ?? 0) - (asNumber(b.index) ?? 0),
+		(a, b) =>
+			(asNumber(a.durationMs) ?? 0) - (asNumber(b.durationMs) ?? 0) ||
+			(asNumber(a.index) ?? 0) - (asNumber(b.index) ?? 0),
 	);
 	return finished.concat(unfinished);
 }
@@ -73,7 +75,9 @@ function orderProgressForDisplay(list: Record<string, unknown>[]): Record<string
 /** Finalized rows: runtime ascending, tie-break dispatch index. */
 function orderResultsForDisplay(list: Record<string, unknown>[]): Record<string, unknown>[] {
 	return [...list].sort(
-		(a, b) => (asNumber(a.durationMs) ?? 0) - (asNumber(b.durationMs) ?? 0) || (asNumber(a.index) ?? 0) - (asNumber(b.index) ?? 0),
+		(a, b) =>
+			(asNumber(a.durationMs) ?? 0) - (asNumber(b.durationMs) ?? 0) ||
+			(asNumber(a.index) ?? 0) - (asNumber(b.index) ?? 0),
 	);
 }
 
@@ -200,7 +204,9 @@ function extractReviewResult(items: RenderYieldItem[]): ReviewResult | undefined
 		correctness,
 		explanation,
 		confidence,
-		findings: asArray(record.findings).map(parseFinding).filter((f): f is ReviewFinding => f != null),
+		findings: asArray(record.findings)
+			.map(parseFinding)
+			.filter((f): f is ReviewFinding => f != null),
 	};
 }
 
@@ -242,7 +248,11 @@ function AgentStats({ stats }: { stats: StatOpts }) {
 				? `${((stats.contextTokens / stats.contextWindow) * 100).toFixed(1)}%/${formatTokens(stats.contextWindow)}`
 				: formatTokens(stats.contextTokens)
 			: null;
-	const model = stats.resolvedModel ? (stats.resolvedModel.length > 30 ? `${stats.resolvedModel.slice(0, 29)}…` : stats.resolvedModel) : null;
+	const model = stats.resolvedModel
+		? stats.resolvedModel.length > 30
+			? `${stats.resolvedModel.slice(0, 29)}…`
+			: stats.resolvedModel
+		: null;
 	return (
 		<span className="flex min-w-0 items-center gap-1.5 truncate font-mono text-[9.5px] tabular-nums text-[var(--omp-dim)]">
 			{stats.toolCount != null && stats.toolCount > 0 && (
@@ -310,7 +320,10 @@ function YieldLines({ value }: { value: unknown }) {
 			))}
 			{typed.length > visible.length && (
 				<div className="pl-3.5 font-mono text-[10px] text-[var(--omp-dim)]">
-					{t("tools.task.moreYields", { count: typed.length - visible.length, plural: typed.length - visible.length === 1 ? "" : "s" })}
+					{t("tools.task.moreYields", {
+						count: typed.length - visible.length,
+						plural: typed.length - visible.length === 1 ? "" : "s",
+					})}
 				</div>
 			)}
 		</>
@@ -322,7 +335,9 @@ function ReviewBlock({ review }: { review: ReviewResult }) {
 	const t = useT();
 	const correct = review.correctness === "correct";
 	const verdictColor = correct ? "var(--omp-success)" : "var(--omp-error)";
-	const sorted = [...review.findings].sort((a, b) => (PRIORITY_ORD[a.priority] ?? 3) - (PRIORITY_ORD[b.priority] ?? 3));
+	const sorted = [...review.findings].sort(
+		(a, b) => (PRIORITY_ORD[a.priority] ?? 3) - (PRIORITY_ORD[b.priority] ?? 3),
+	);
 	const visible = sorted.slice(0, FINDING_CAP);
 	const counts: Record<string, number> = {};
 	for (const finding of review.findings) {
@@ -339,7 +354,9 @@ function ReviewBlock({ review }: { review: ReviewResult }) {
 					<X size={11} className="shrink-0 text-[var(--omp-error)]" />
 				)}
 				<span className="font-medium" style={{ color: verdictColor }}>
-					{t("tools.task.patchVerdict", { verdict: t(correct ? "tools.task.verdict.correct" : "tools.task.verdict.incorrect") })}
+					{t("tools.task.patchVerdict", {
+						verdict: t(correct ? "tools.task.verdict.correct" : "tools.task.verdict.incorrect"),
+					})}
 				</span>
 				<span className="font-mono text-[10px] text-[var(--omp-dim)]">
 					({t("tools.task.confidence", { pct: (review.confidence * 100).toFixed(0) })})
@@ -376,7 +393,10 @@ function ReviewBlock({ review }: { review: ReviewResult }) {
 			))}
 			{sorted.length > visible.length && (
 				<div className="pl-4 font-mono text-[10px] text-[var(--omp-dim)]">
-					{t("tools.task.moreFindings", { count: sorted.length - visible.length, plural: sorted.length - visible.length === 1 ? "" : "s" })}
+					{t("tools.task.moreFindings", {
+						count: sorted.length - visible.length,
+						plural: sorted.length - visible.length === 1 ? "" : "s",
+					})}
 				</div>
 			)}
 		</div>
@@ -422,13 +442,22 @@ function NestedTaskTree({ list, depth, ctx }: { list: Record<string, unknown>[];
 				}
 				ctx.seen.add(details);
 				try {
-					const results = asArray(details.results).map(asRecord).filter((r): r is Record<string, unknown> => r != null);
-					const progress = asArray(details.progress).map(asRecord).filter((r): r is Record<string, unknown> => r != null);
+					const results = asArray(details.results)
+						.map(asRecord)
+						.filter((r): r is Record<string, unknown> => r != null);
+					const progress = asArray(details.progress)
+						.map(asRecord)
+						.filter((r): r is Record<string, unknown> => r != null);
 					if (results.length > 0) {
 						return (
 							<div key={i} className="flex flex-col gap-1.5">
 								{orderResultsForDisplay(results).map((row, j) => (
-									<ResultAgentRow key={`${asString(row.id) ?? j}-${j}`} ctx={ctx} depth={depth + 1} row={row} />
+									<ResultAgentRow
+										key={`${asString(row.id) ?? j}-${j}`}
+										ctx={ctx}
+										depth={depth + 1}
+										row={row}
+									/>
 								))}
 							</div>
 						);
@@ -437,7 +466,12 @@ function NestedTaskTree({ list, depth, ctx }: { list: Record<string, unknown>[];
 						return (
 							<div key={i} className="flex flex-col gap-1.5">
 								{orderProgressForDisplay(progress).map((row, j) => (
-									<ProgressAgentRow key={`${asString(row.id) ?? j}-${j}`} ctx={ctx} depth={depth + 1} row={row} />
+									<ProgressAgentRow
+										key={`${asString(row.id) ?? j}-${j}`}
+										ctx={ctx}
+										depth={depth + 1}
+										row={row}
+									/>
 								))}
 							</div>
 						);
@@ -454,7 +488,9 @@ function NestedTaskTree({ list, depth, ctx }: { list: Record<string, unknown>[];
 /** Nested snapshots = completed `task` extractions plus the in-flight call. */
 function nestedSnapshots(row: Record<string, unknown>): Record<string, unknown>[] {
 	const extracted = asRecord(row.extractedToolData);
-	const completed = asArray(extracted?.task).map(asTaskDetails).filter((r): r is Record<string, unknown> => r != null);
+	const completed = asArray(extracted?.task)
+		.map(asTaskDetails)
+		.filter((r): r is Record<string, unknown> => r != null);
 	const inflight = asTaskDetails(row.inflightTaskDetails);
 	return inflight ? [...completed, inflight] : completed;
 }
@@ -494,9 +530,7 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 		<div className="flex flex-col gap-0.5">
 			<div className="flex min-w-0 items-center gap-1.5 text-[11px]">
 				<span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dotColor }} />
-				<span className={cx("shrink-0 font-mono font-semibold", nameColor)}>
-					{id}
-				</span>
+				<span className={cx("shrink-0 font-mono font-semibold", nameColor)}>{id}</span>
 				{description && (
 					<span className="min-w-0 truncate text-[var(--omp-muted)]" title={description}>
 						: {description}
@@ -541,12 +575,17 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 				(currentTool ? (
 					<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-[10.5px] leading-[1.5]">
 						<span className="shrink-0 text-[var(--omp-accent)]">└</span>
-						<span className="min-w-0 truncate text-[var(--omp-muted)]" title={toolDetail ? `${currentTool}: ${toolDetail}` : currentTool}>
+						<span
+							className="min-w-0 truncate text-[var(--omp-muted)]"
+							title={toolDetail ? `${currentTool}: ${toolDetail}` : currentTool}
+						>
 							{currentTool}
 							{toolDetail && <span className="text-[var(--omp-dim)]">: {toolDetail}</span>}
 						</span>
 						{elapsed > 5000 && (
-							<span className="shrink-0 text-[var(--omp-warning)] tabular-nums">· {formatDuration(elapsed)}</span>
+							<span className="shrink-0 text-[var(--omp-warning)] tabular-nums">
+								· {formatDuration(elapsed)}
+							</span>
 						)}
 					</div>
 				) : (
@@ -566,10 +605,7 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 			{retryState && status === "running" && (
 				<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-[10.5px] leading-[1.5]">
 					<span className="shrink-0 text-[var(--omp-warning)]">└</span>
-					<span
-						className="min-w-0 truncate text-[var(--omp-warning)]"
-						title={asString(retryState.errorMessage)}
-					>
+					<span className="min-w-0 truncate text-[var(--omp-warning)]" title={asString(retryState.errorMessage)}>
 						{t(retryRemainingMs > 0 ? "tools.task.retryWait" : "tools.task.retryNow", {
 							attempt: asNumber(retryState.attempt) ?? 0,
 							max: asNumber(retryState.maxAttempts) ?? 0,
@@ -592,7 +628,13 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 				</div>
 			)}
 
-			{review ? <div className="pl-1"><ReviewBlock review={review} /></div> : <YieldLines value={yieldValue} />}
+			{review ? (
+				<div className="pl-1">
+					<ReviewBlock review={review} />
+				</div>
+			) : (
+				<YieldLines value={yieldValue} />
+			)}
 
 			{nested.length > 0 && <NestedTaskTree ctx={ctx} depth={depth} list={nested} />}
 		</div>
@@ -653,7 +695,12 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 		<div className="flex flex-col gap-0.5">
 			<div className="flex min-w-0 items-center gap-1.5 text-[11px]">
 				<span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: statusColor }} />
-				<span className={cx("shrink-0 font-mono font-semibold", success && !needsWarning ? "text-[var(--omp-text)]" : "text-[var(--omp-accent)]")}>
+				<span
+					className={cx(
+						"shrink-0 font-mono font-semibold",
+						success && !needsWarning ? "text-[var(--omp-text)]" : "text-[var(--omp-accent)]",
+					)}
+				>
 					{id}
 				</span>
 				{description && (
@@ -731,7 +778,13 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 			)}
 
 			{error && (!success || mergeFailed) && (!aborted || error !== asString(row.abortReason)) && (
-				<div className={cx("truncate pl-3 text-[10.5px]", mergeFailed ? "text-[var(--omp-warning)]" : "text-[var(--omp-error)]")} title={error}>
+				<div
+					className={cx(
+						"truncate pl-3 text-[10.5px]",
+						mergeFailed ? "text-[var(--omp-warning)]" : "text-[var(--omp-error)]",
+					)}
+					title={error}
+				>
 					{error}
 				</div>
 			)}
@@ -770,20 +823,30 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 		typeof args.i === "string" ? args.i : typeof args.description === "string" ? args.description : "";
 	const taskText = typeof args.task === "string" ? args.task : "";
 
-	const statusLabel = isError ? t("subagent.status.failed") : isPartial ? t("subagent.status.started") : t("subagent.status.completed");
+	const statusLabel = isError
+		? t("subagent.status.failed")
+		: isPartial
+			? t("subagent.status.started")
+			: t("subagent.status.completed");
 	const statusColor = isError ? "var(--omp-error)" : isPartial ? "var(--omp-accent)" : "var(--omp-success)";
 
 	const effective = isPartial && partialResult != null ? partialResult : result;
 	const details = resultDetails(result) ?? resultDetails(partialResult);
 	const text = resultText(effective);
 
-	const results = asArray(details?.results).map(asRecord).filter((r): r is Record<string, unknown> => r != null);
-	const progress = asArray(details?.progress).map(asRecord).filter((r): r is Record<string, unknown> => r != null);
+	const results = asArray(details?.results)
+		.map(asRecord)
+		.filter((r): r is Record<string, unknown> => r != null);
+	const progress = asArray(details?.progress)
+		.map(asRecord)
+		.filter((r): r is Record<string, unknown> => r != null);
 	const totalDurationMs = asNumber(details?.totalDurationMs) ?? 0;
 	const hasResults = results.length > 0;
 	// Result rows win once any exist; progress rows for spawns without a result
 	// (a mixed call's async subset) render as a supplement below.
-	const supplemental = hasResults ? progress.filter(row => !results.some(res => asString(res.id) === asString(row.id))) : [];
+	const supplemental = hasResults
+		? progress.filter(row => !results.some(res => asString(res.id) === asString(row.id)))
+		: [];
 
 	// Live rows carry elapsed times and retry countdowns — tick once a second
 	// while the call runs so they stay fresh between partial emissions.
@@ -832,7 +895,8 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 				{t("tools.task.footer.failed", { count: failCount })}
 			</span>,
 		);
-	if (requestTotal > 0) summaryParts.push(<span key="req">{t("tools.task.footer.requests", { count: requestTotal })}</span>);
+	if (requestTotal > 0)
+		summaryParts.push(<span key="req">{t("tools.task.footer.requests", { count: requestTotal })}</span>);
 	summaryParts.push(<span key="duration">{formatDuration(totalDurationMs)}</span>);
 
 	// Cycle guard for nested task trees: one set per render pass, threaded down.
@@ -841,10 +905,19 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 	const markerIndex = (() => {
 		const lines = text.split("\n");
 		return lines.findIndex(
-			line => line.includes("<system-notification>") || line.startsWith("Applied patches:") || line.startsWith("No changes to apply."),
+			line =>
+				line.includes("<system-notification>") ||
+				line.startsWith("Applied patches:") ||
+				line.startsWith("No changes to apply."),
 		);
 	})();
-	const trailingLines = markerIndex >= 0 ? text.split("\n").slice(markerIndex).filter(line => line.trim()) : [];
+	const trailingLines =
+		markerIndex >= 0
+			? text
+					.split("\n")
+					.slice(markerIndex)
+					.filter(line => line.trim())
+			: [];
 
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -854,7 +927,10 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 				<span className="rounded bg-[var(--omp-status-subagents)]/15 px-1 py-px font-mono text-[9.5px] font-medium text-[var(--omp-status-subagents)]">
 					{agent}
 				</span>
-				<span className={cx("ml-auto flex items-center gap-1 text-[10px] font-medium")} style={{ color: statusColor }}>
+				<span
+					className={cx("ml-auto flex items-center gap-1 text-[10px] font-medium")}
+					style={{ color: statusColor }}
+				>
 					<span className="h-1.5 w-1.5 rounded-full" style={{ background: statusColor }} />
 					{statusLabel}
 				</span>

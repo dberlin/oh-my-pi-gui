@@ -7,11 +7,13 @@ import { useSubagentsStore } from "../../stores/subagents";
 import { useTodoStore } from "../../stores/todo";
 import type { PanelTab } from "../../stores/ui";
 import { useUiStore } from "../../stores/ui";
+import { PanelErrorBoundary } from "../common";
 import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
 import { LogPanel } from "../panels/LogPanel";
 import { PlanPanel } from "../panels/PlanPanel";
 import { SubagentPanel } from "../panels/SubagentPanel";
+import { isLiveSubagentStatus } from "../panels/subagent-graph";
 import { TodoPanel } from "../panels/TodoPanel";
 
 const MIN_WIDTH = 320;
@@ -61,7 +63,7 @@ export function PanelContainer() {
 		dragging.current = false;
 	}, []);
 
-	const runningAgents = [...subagents.values()].filter(s => s.status === "started").length;
+	const runningAgents = [...subagents.values()].filter(s => isLiveSubagentStatus(s.status)).length;
 	const todoTaskCount = (phases ?? []).reduce((n, p) => n + (p.tasks?.length ?? 0), 0);
 
 	return (
@@ -126,12 +128,14 @@ export function PanelContainer() {
 				})}
 			</div>
 			<div className="min-h-0 flex-1 overflow-hidden">
-				{panelTab === "todo" && <TodoPanel />}
-				{panelTab === "plan" && <PlanPanel />}
-				{panelTab === "agents" && <SubagentPanel />}
-				{panelTab === "diff" && <DiffPanel />}
-				{panelTab === "files" && <FilesPanel />}
-				{panelTab === "logs" && <LogPanel />}
+				<PanelErrorBoundary key={panelTab}>
+					{panelTab === "todo" && <TodoPanel />}
+					{panelTab === "plan" && <PlanPanel />}
+					{panelTab === "agents" && <SubagentPanel />}
+					{panelTab === "diff" && <DiffPanel />}
+					{panelTab === "files" && <FilesPanel />}
+					{panelTab === "logs" && <LogPanel />}
+				</PanelErrorBoundary>
 			</div>
 			<div
 				role="separator"

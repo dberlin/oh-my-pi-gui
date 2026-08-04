@@ -13,7 +13,7 @@ import { useSubagentsStore } from "../../stores/subagents";
 import { Badge } from "../common";
 import { SubagentDag } from "./SubagentDag";
 import { SubagentTranscript } from "./SubagentTranscript";
-import { formatElapsed, noteFirstSeen, STATUS_LABEL_KEY, STATUS_META } from "./subagent-graph";
+import { formatElapsed, isLiveSubagentStatus, noteFirstSeen, statusMeta } from "./subagent-graph";
 
 type PanelView = "list" | "graph";
 
@@ -29,13 +29,13 @@ const SubagentRow = memo(function SubagentRow({
 	now: number;
 }) {
 	const t = useT();
-	const meta = STATUS_META[agent.status];
-	const elapsed = agent.status === "started" ? now - noteFirstSeen(agent.id) : 0;
+	const meta = statusMeta(agent.status);
+	const elapsed = isLiveSubagentStatus(agent.status) ? now - noteFirstSeen(agent.id) : 0;
 
 	return (
 		<div
 			className={`rounded-md border transition-colors duration-150 ${
-				agent.status === "started"
+				isLiveSubagentStatus(agent.status)
 					? "border-[color-mix(in_srgb,var(--omp-link)_35%,transparent)]"
 					: agent.status === "failed"
 						? "border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)]"
@@ -59,13 +59,13 @@ const SubagentRow = memo(function SubagentRow({
 					{agent.index > 0 && <span className="ml-1 text-[10px] text-(--omp-dim)">#{agent.index + 1}</span>}
 				</span>
 				<Badge dot={meta.live} pulse={meta.live} variant={meta.variant}>
-					{t(STATUS_LABEL_KEY[agent.status])}
+					{t(meta.labelKey)}
 				</Badge>
-				{agent.status === "started" && (
+				{isLiveSubagentStatus(agent.status) && (
 					<span className="shrink-0 text-[10px] tabular-nums text-(--omp-dim)">{formatElapsed(elapsed)}</span>
 				)}
 			</button>
-			{agent.progress?.description && agent.status === "started" && (
+			{agent.progress?.description && isLiveSubagentStatus(agent.status) && (
 				<div className="truncate border-t border-(--omp-border-muted) px-7 py-1 text-[10px] text-(--omp-muted) italic">
 					{agent.progress.description}
 				</div>
@@ -119,7 +119,7 @@ export function SubagentPanel() {
 	const [view, setView] = useState<PanelView>("list");
 	const [now, setNow] = useState(() => Date.now());
 
-	const hasRunning = [...subagents.values()].some(agent => agent.status === "started");
+	const hasRunning = [...subagents.values()].some(agent => isLiveSubagentStatus(agent.status));
 
 	useEffect(() => {
 		if (!hasRunning) return;

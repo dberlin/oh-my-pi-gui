@@ -15,16 +15,16 @@ import { Check, Eye, EyeOff, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SettingEntry, SettingsSchemaResult, ThinkingLevel } from "../../../shared/rpc-types";
+import { useLang, useT } from "../../lib/i18n";
+import { applyThemeByName, getPersistedThemeSelection, THEMES, type ThemeName } from "../../lib/themes";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { useLang, useT } from "../../lib/i18n";
-import { applyThemeByName, getPersistedThemeSelection, THEMES, type ThemeName } from "../../lib/themes";
 import { Button, Input, LangSwitcher, Modal, Spinner, type TabItem, Tabs, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
-import { EnumerableSelect, type EnumerableOption } from "./editors/EnumerableSelect";
+import { type EnumerableOption, EnumerableSelect } from "./editors/EnumerableSelect";
 import { ProviderLimitsEditor } from "./editors/ProviderLimitsEditor";
 import { RecordKvEditor } from "./editors/RecordKvEditor";
 import { ModelValueSelect, settingRefKind } from "./ModelValueSelect";
@@ -747,7 +747,10 @@ function AdvancedTab({
 }) {
 	const [query, setQuery] = useState("");
 	const advanced = useMemo(
-		() => entries.filter(entry => (entry.advanced === true || entry.tab === undefined) && isSettingVisible(entry, values)),
+		() =>
+			entries.filter(
+				entry => (entry.advanced === true || entry.tab === undefined) && isSettingVisible(entry, values),
+			),
 		[entries, values],
 	);
 	const filtered = useMemo(() => {
@@ -1033,9 +1036,11 @@ export function SettingsWindow() {
 		if (!open) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key !== "Tab" || !dialogRef.current) return;
-			const focusables = [...dialogRef.current.querySelectorAll<HTMLElement>(
-				'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-			)].filter(el => el.offsetParent !== null);
+			const focusables = [
+				...dialogRef.current.querySelectorAll<HTMLElement>(
+					'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+				),
+			].filter(el => el.offsetParent !== null);
 			if (focusables.length === 0) return;
 			const first = focusables[0];
 			const last = focusables[focusables.length - 1];
@@ -1127,283 +1132,296 @@ export function SettingsWindow() {
 				</nav>
 				<main className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
 					<div className="mx-auto max-w-3xl">
-					{searchGroups === null ? (
-						<>
-					{tab === RUNTIME_TAB_ID && (
-						<>
-							<Section title={t("settings.runtime.activeModel")}>
-								<div className="flex items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-3 py-2.5">
-									<span className="min-w-0 flex-1 truncate font-mono text-xs text-(--omp-status-model)">
-										{model ? `${model.provider}/${model.id}` : t("settings.runtime.noModel")}
-									</span>
-									<Button
-										onClick={() => {
-											close();
-											useUiStore.getState().openModelPicker();
-										}}
-										size="sm"
-										type="button"
-										variant="secondary"
-									>
-										{t("settings.runtime.change")}
-									</Button>
-								</div>
-							</Section>
-							<Section title={t("settings.runtime.thinkingLevel")}>
-								<div className="flex flex-wrap gap-1">
-									{THINKING_LEVELS.map(level => {
-										const active = thinkingLevel === level;
-										return (
-											<button
-												className={`rounded-md border px-2.5 py-1 font-mono text-[11px] transition-colors ${
-													active
-														? "border-(--omp-accent) bg-[color-mix(in_srgb,var(--omp-accent)_12%,transparent)] text-(--omp-accent)"
-														: "border-(--omp-border-muted) text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
-												}`}
-												key={level}
-												onClick={() => void applyThinkingLevel(level)}
-												type="button"
-											>
-												{level}
-											</button>
-										);
-									})}
-								</div>
-								<p className="mt-2 text-[11px] text-(--omp-muted)">
-									{t("settings.runtime.thinkingDesc")}
-								</p>
-							</Section>
-							<Section title={t("settings.runtime.runtime")}>
-								<Toggle
-									checked={fastModeEnabled}
-									description={t("settings.runtime.fastModeDesc")}
-									label={t("settings.runtime.fastMode")}
-									onChange={enabled => void applyFastMode(enabled)}
-								/>
-								<Toggle
-									checked={planModeEnabled}
-									description={t("settings.runtime.planModeDesc")}
-									label={t("settings.runtime.planMode")}
-									onChange={enabled => void applyPlanMode(enabled)}
-								/>
-								<Toggle
-									checked={settings.autoCompaction}
-									description={t("settings.runtime.autoCompactionDesc")}
-									label={t("settings.runtime.autoCompaction")}
-									onChange={enabled => void applyAutoCompaction(enabled)}
-								/>
-								<Toggle
-									checked={settings.autoRetry}
-									description={t("settings.runtime.autoRetryDesc")}
-									label={t("settings.runtime.autoRetry")}
-									onChange={enabled => void applyAutoRetry(enabled)}
-								/>
-							</Section>
-							<Section title={t("settings.runtime.messageHandling")}>
-								<RadioGroup
-									name="steeringMode"
-									onChange={value => void applySteeringMode(value)}
-									options={[
-										{
-											value: "all",
-											label: t("settings.runtime.steerAll"),
-											description: t("settings.runtime.steerAllDesc"),
-										},
-										{
-											value: "one-at-a-time",
-											label: t("settings.runtime.steerOne"),
-											description: t("settings.runtime.steerOneDesc"),
-										},
-									]}
-									value={settings.steeringMode}
-								/>
-								<div className="h-2" />
-								<RadioGroup
-									name="followUpMode"
-									onChange={value => void applyFollowUpMode(value)}
-									options={[
-										{
-											value: "all",
-											label: t("settings.runtime.followUpAll"),
-											description: t("settings.runtime.followUpAllDesc"),
-										},
-										{
-											value: "one-at-a-time",
-											label: t("settings.runtime.followUpOne"),
-											description: t("settings.runtime.followUpOneDesc"),
-										},
-									]}
-									value={settings.followUpMode}
-								/>
-								<div className="h-2" />
-								<RadioGroup
-									name="interruptMode"
-									onChange={value => void applyInterruptMode(value)}
-									options={[
-										{
-											value: "immediate",
-											label: t("settings.runtime.interruptImmediate"),
-											description: t("settings.runtime.interruptImmediateDesc"),
-										},
-										{
-											value: "wait",
-											label: t("settings.runtime.interruptWait"),
-											description: t("settings.runtime.interruptWaitDesc"),
-										},
-									]}
-									value={settings.interruptMode}
-								/>
-							</Section>
-						</>
-					)}
+						{searchGroups === null ? (
+							<>
+								{tab === RUNTIME_TAB_ID && (
+									<>
+										<Section title={t("settings.runtime.activeModel")}>
+											<div className="flex items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-3 py-2.5">
+												<span className="min-w-0 flex-1 truncate font-mono text-xs text-(--omp-status-model)">
+													{model ? `${model.provider}/${model.id}` : t("settings.runtime.noModel")}
+												</span>
+												<Button
+													onClick={() => {
+														close();
+														useUiStore.getState().openModelPicker();
+													}}
+													size="sm"
+													type="button"
+													variant="secondary"
+												>
+													{t("settings.runtime.change")}
+												</Button>
+											</div>
+										</Section>
+										<Section title={t("settings.runtime.thinkingLevel")}>
+											<div className="flex flex-wrap gap-1">
+												{THINKING_LEVELS.map(level => {
+													const active = thinkingLevel === level;
+													return (
+														<button
+															className={`rounded-md border px-2.5 py-1 font-mono text-[11px] transition-colors ${
+																active
+																	? "border-(--omp-accent) bg-[color-mix(in_srgb,var(--omp-accent)_12%,transparent)] text-(--omp-accent)"
+																	: "border-(--omp-border-muted) text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+															}`}
+															key={level}
+															onClick={() => void applyThinkingLevel(level)}
+															type="button"
+														>
+															{level}
+														</button>
+													);
+												})}
+											</div>
+											<p className="mt-2 text-[11px] text-(--omp-muted)">
+												{t("settings.runtime.thinkingDesc")}
+											</p>
+										</Section>
+										<Section title={t("settings.runtime.runtime")}>
+											<Toggle
+												checked={fastModeEnabled}
+												description={t("settings.runtime.fastModeDesc")}
+												label={t("settings.runtime.fastMode")}
+												onChange={enabled => void applyFastMode(enabled)}
+											/>
+											<Toggle
+												checked={planModeEnabled}
+												description={t("settings.runtime.planModeDesc")}
+												label={t("settings.runtime.planMode")}
+												onChange={enabled => void applyPlanMode(enabled)}
+											/>
+											<Toggle
+												checked={settings.autoCompaction}
+												description={t("settings.runtime.autoCompactionDesc")}
+												label={t("settings.runtime.autoCompaction")}
+												onChange={enabled => void applyAutoCompaction(enabled)}
+											/>
+											<Toggle
+												checked={settings.autoRetry}
+												description={t("settings.runtime.autoRetryDesc")}
+												label={t("settings.runtime.autoRetry")}
+												onChange={enabled => void applyAutoRetry(enabled)}
+											/>
+										</Section>
+										<Section title={t("settings.runtime.messageHandling")}>
+											<RadioGroup
+												name="steeringMode"
+												onChange={value => void applySteeringMode(value)}
+												options={[
+													{
+														value: "all",
+														label: t("settings.runtime.steerAll"),
+														description: t("settings.runtime.steerAllDesc"),
+													},
+													{
+														value: "one-at-a-time",
+														label: t("settings.runtime.steerOne"),
+														description: t("settings.runtime.steerOneDesc"),
+													},
+												]}
+												value={settings.steeringMode}
+											/>
+											<div className="h-2" />
+											<RadioGroup
+												name="followUpMode"
+												onChange={value => void applyFollowUpMode(value)}
+												options={[
+													{
+														value: "all",
+														label: t("settings.runtime.followUpAll"),
+														description: t("settings.runtime.followUpAllDesc"),
+													},
+													{
+														value: "one-at-a-time",
+														label: t("settings.runtime.followUpOne"),
+														description: t("settings.runtime.followUpOneDesc"),
+													},
+												]}
+												value={settings.followUpMode}
+											/>
+											<div className="h-2" />
+											<RadioGroup
+												name="interruptMode"
+												onChange={value => void applyInterruptMode(value)}
+												options={[
+													{
+														value: "immediate",
+														label: t("settings.runtime.interruptImmediate"),
+														description: t("settings.runtime.interruptImmediateDesc"),
+													},
+													{
+														value: "wait",
+														label: t("settings.runtime.interruptWait"),
+														description: t("settings.runtime.interruptWaitDesc"),
+													},
+												]}
+												value={settings.interruptMode}
+											/>
+										</Section>
+									</>
+								)}
 
-					{tab === GUI_TAB_ID && (
-						<>
-							<Section title={t("settings.gui.theme")}>
-								<RadioGroup
-									name="theme"
-									onChange={applyTheme}
-									options={[
-										{ value: "dark", label: t("settings.gui.dark") },
-										{ value: "light", label: t("settings.gui.light") },
-										{ value: "system", label: t("settings.gui.system"), description: t("settings.gui.systemDesc") },
-									]}
-									value={theme}
-								/>
-							</Section>
-							<Section title={t("lang.switch")}>
-								<div className="flex items-center gap-2">
-									<LangSwitcher />
-								</div>
-							</Section>
-							<Section title={t("settings.gui.fontSize")}>
-								<div className="w-40">
-									<Input
-										max={20}
-										min={10}
-										onBlur={commitFontSize}
-										onChange={event => setFontSizeDraft(event.target.value)}
-										onKeyDown={event => {
-											if (event.key === "Enter") event.currentTarget.blur();
-										}}
-										type="number"
-										value={fontSizeDraft ?? String(fontSize)}
+								{tab === GUI_TAB_ID && (
+									<>
+										<Section title={t("settings.gui.theme")}>
+											<RadioGroup
+												name="theme"
+												onChange={applyTheme}
+												options={[
+													{ value: "dark", label: t("settings.gui.dark") },
+													{ value: "light", label: t("settings.gui.light") },
+													{
+														value: "system",
+														label: t("settings.gui.system"),
+														description: t("settings.gui.systemDesc"),
+													},
+												]}
+												value={theme}
+											/>
+										</Section>
+										<Section title={t("lang.switch")}>
+											<div className="flex items-center gap-2">
+												<LangSwitcher />
+											</div>
+										</Section>
+										<Section title={t("settings.gui.fontSize")}>
+											<div className="w-40">
+												<Input
+													max={20}
+													min={10}
+													onBlur={commitFontSize}
+													onChange={event => setFontSizeDraft(event.target.value)}
+													onKeyDown={event => {
+														if (event.key === "Enter") event.currentTarget.blur();
+													}}
+													type="number"
+													value={fontSizeDraft ?? String(fontSize)}
+												/>
+											</div>
+											<p className="mt-1.5 text-[11px] text-(--omp-muted)">
+												{t("settings.gui.fontSizeDesc")}
+											</p>
+										</Section>
+										<Section title={t("settings.gui.panelDefault")}>
+											<RadioGroup
+												name="defaultPanelTab"
+												onChange={applyPanelTab}
+												options={[
+													{ value: "todo", label: t("settings.gui.panel.todo") },
+													{ value: "agents", label: t("settings.gui.panel.agents") },
+													{ value: "diff", label: t("settings.gui.panel.diff") },
+													{ value: "files", label: t("settings.gui.panel.files") },
+													{ value: "logs", label: t("settings.gui.panel.logs") },
+												]}
+												value={panelTab}
+											/>
+										</Section>
+										<Section title={t("settings.gui.notifications")}>
+											<Toggle
+												checked={notifications}
+												description={t("settings.gui.notificationsDesc")}
+												label={t("settings.gui.notifications")}
+												onChange={applyNotifications}
+											/>
+										</Section>
+										<Section title={t("settings.gui.thinkingExpanded")}>
+											<Toggle
+												checked={thinkingExpanded}
+												description={t("settings.gui.thinkingExpandedDesc")}
+												label={t("settings.gui.thinkingExpanded")}
+												onChange={applyThinkingExpanded}
+											/>
+										</Section>
+										<Section title={t("settings.gui.approvalMode")}>
+											<RadioGroup
+												name="approvalMode"
+												onChange={applyApprovalMode}
+												options={[
+													{
+														value: "always-ask",
+														label: t("settings.gui.approval.alwaysAsk"),
+														description: t("settings.gui.approval.alwaysAskDesc"),
+													},
+													{
+														value: "write",
+														label: t("settings.gui.approval.write"),
+														description: t("settings.gui.approval.writeDesc"),
+													},
+													{
+														value: "yolo",
+														label: t("settings.gui.approval.yolo"),
+														description: t("settings.gui.approval.yoloDesc"),
+													},
+												]}
+												value={approvalMode}
+											/>
+											<p className="mt-2 text-[11px] text-(--omp-muted)">
+												{t("settings.gui.approval.note")}
+											</p>
+										</Section>
+									</>
+								)}
+
+								{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "loading" && (
+									<div className="flex items-center justify-center gap-2 py-10">
+										<Spinner size="sm" />
+										<span className="text-xs text-(--omp-muted)">Loading settings schema…</span>
+									</div>
+								)}
+								{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "error" && (
+									<div className="flex flex-col items-center gap-3 py-10">
+										<span className="text-xs text-(--omp-error)">
+											{loadError ?? "Failed to load settings"}
+										</span>
+										<span className="text-[10px] text-(--omp-dim)">
+											The agent process may not be responding. Runtime and GUI tabs remain available.
+										</span>
+										<Button
+											onClick={() => setReloadToken(token => token + 1)}
+											size="sm"
+											type="button"
+											variant="secondary"
+										>
+											Retry
+										</Button>
+									</div>
+								)}
+								{loadState === "ready" && schema && isSchemaTab && (
+									<SchemaTabContent
+										entries={schema.entries}
+										groups={schema.tabs.find(schemaTab => schemaTab.id === tab)?.groups ?? []}
+										onCommitted={handleCommitted}
+										tabId={tab}
+										values={values}
 									/>
-								</div>
-								<p className="mt-1.5 text-[11px] text-(--omp-muted)">{t("settings.gui.fontSizeDesc")}</p>
-							</Section>
-							<Section title={t("settings.gui.panelDefault")}>
-								<RadioGroup
-									name="defaultPanelTab"
-									onChange={applyPanelTab}
-									options={[
-										{ value: "todo", label: t("settings.gui.panel.todo") },
-										{ value: "agents", label: t("settings.gui.panel.agents") },
-										{ value: "diff", label: t("settings.gui.panel.diff") },
-										{ value: "files", label: t("settings.gui.panel.files") },
-										{ value: "logs", label: t("settings.gui.panel.logs") },
-									]}
-									value={panelTab}
-								/>
-							</Section>
-							<Section title={t("settings.gui.notifications")}>
-								<Toggle
-									checked={notifications}
-									description={t("settings.gui.notificationsDesc")}
-									label={t("settings.gui.notifications")}
-									onChange={applyNotifications}
-								/>
-							</Section>
-							<Section title={t("settings.gui.thinkingExpanded")}>
-								<Toggle
-									checked={thinkingExpanded}
-									description={t("settings.gui.thinkingExpandedDesc")}
-									label={t("settings.gui.thinkingExpanded")}
-									onChange={applyThinkingExpanded}
-								/>
-							</Section>
-							<Section title={t("settings.gui.approvalMode")}>
-								<RadioGroup
-									name="approvalMode"
-									onChange={applyApprovalMode}
-									options={[
-										{
-											value: "always-ask",
-											label: t("settings.gui.approval.alwaysAsk"),
-											description: t("settings.gui.approval.alwaysAskDesc"),
-										},
-										{
-											value: "write",
-											label: t("settings.gui.approval.write"),
-											description: t("settings.gui.approval.writeDesc"),
-										},
-										{
-											value: "yolo",
-											label: t("settings.gui.approval.yolo"),
-											description: t("settings.gui.approval.yoloDesc"),
-										},
-									]}
-									value={approvalMode}
-								/>
-								<p className="mt-2 text-[11px] text-(--omp-muted)">
-									{t("settings.gui.approval.note")}
-								</p>
-							</Section>
-						</>
-					)}
-
-					{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "loading" && (
-						<div className="flex items-center justify-center gap-2 py-10">
-							<Spinner size="sm" />
-							<span className="text-xs text-(--omp-muted)">Loading settings schema…</span>
-						</div>
-					)}
-					{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "error" && (
-						<div className="flex flex-col items-center gap-3 py-10">
-							<span className="text-xs text-(--omp-error)">{loadError ?? "Failed to load settings"}</span>
-							<span className="text-[10px] text-(--omp-dim)">
-								The agent process may not be responding. Runtime and GUI tabs remain available.
-							</span>
-							<Button
-								onClick={() => setReloadToken(token => token + 1)}
-								size="sm"
-								type="button"
-								variant="secondary"
-							>
-								Retry
+								)}
+								{loadState === "ready" && schema && tab === ADVANCED_TAB_ID && (
+									<AdvancedTab entries={schema.entries} onCommitted={handleCommitted} values={values} />
+								)}
+							</>
+						) : searchGroups.size === 0 ? (
+							<div className="py-10 text-center text-xs text-(--omp-dim)">{t("settings.noMatches")}</div>
+						) : (
+							[...searchGroups.entries()].map(([tabId, entries]) => (
+								<Section key={tabId} title={tabTitle({ id: tabId, label: tabId })}>
+									{entries.map(entry => (
+										<SchemaSettingRow
+											key={entry.path}
+											entry={entry}
+											onCommitted={handleCommitted}
+											value={values[entry.path]}
+										/>
+									))}
+								</Section>
+							))
+						)}
+						<div className="mt-8 flex items-center justify-between gap-2 border-t border-(--omp-border-muted) pt-4">
+							<span className="text-[11px] text-(--omp-dim)">{t("settings.applyImmediately")}</span>
+							<Button onClick={close} type="button" variant="primary">
+								{t("settings.close")}
 							</Button>
 						</div>
-					)}
-					{loadState === "ready" && schema && isSchemaTab && (
-						<SchemaTabContent
-							entries={schema.entries}
-							groups={schema.tabs.find(schemaTab => schemaTab.id === tab)?.groups ?? []}
-							onCommitted={handleCommitted}
-							tabId={tab}
-							values={values}
-						/>
-					)}
-					{loadState === "ready" && schema && tab === ADVANCED_TAB_ID && (
-						<AdvancedTab entries={schema.entries} onCommitted={handleCommitted} values={values} />
-					)}
-						</>
-					) : searchGroups.size === 0 ? (
-						<div className="py-10 text-center text-xs text-(--omp-dim)">{t("settings.noMatches")}</div>
-					) : (
-						[...searchGroups.entries()].map(([tabId, entries]) => (
-							<Section key={tabId} title={tabTitle({ id: tabId, label: tabId })}>
-								{entries.map(entry => (
-									<SchemaSettingRow key={entry.path} entry={entry} onCommitted={handleCommitted} value={values[entry.path]} />
-								))}
-							</Section>
-						))
-					)}
-					<div className="mt-8 flex items-center justify-between gap-2 border-t border-(--omp-border-muted) pt-4">
-						<span className="text-[11px] text-(--omp-dim)">{t("settings.applyImmediately")}</span>
-						<Button onClick={close} type="button" variant="primary">
-							{t("settings.close")}
-						</Button>
-					</div>
 					</div>
 				</main>
 			</div>

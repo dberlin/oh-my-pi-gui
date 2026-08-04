@@ -208,7 +208,11 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 	const terminalRows = launch ? asArray(details?.terminalRows).filter((r): r is string => typeof r === "string") : [];
 	const matched = launch && typeof details?.matched === "string" ? details.matched : undefined;
 	const waited = launch ? undefined : asMessage(details?.waited);
-	const inbox = launch ? [] : asArray(details?.inbox).map(asMessage).filter((m): m is HubMessage => m != null);
+	const inbox = launch
+		? []
+		: asArray(details?.inbox)
+				.map(asMessage)
+				.filter((m): m is HubMessage => m != null);
 	const cancelled = launch ? [] : extractCancelled(details);
 	const text = resultText(effective);
 	const hasStructured =

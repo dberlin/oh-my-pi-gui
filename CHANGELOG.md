@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-04
+
+### Fixed
+
+- Fixed a renderer crash (white screen) when opening the Agents or Diff workspace tab while the agent was running. Live subagent frames carry runtime statuses the panels' status table never mapped (`running`, `pending`, `aborted`, `parked`, `idle`), so `STATUS_META[status]` was `undefined` and reading `.live`/`.variant` off it tore down the whole React tree; progress payloads also arrived without the assumed shape, spraying `reading 'description'` errors mid-run. Status metadata now covers every runtime status with a safe fallback, "is this agent live" is a single shared predicate instead of scattered `status === "started"` checks, and each workspace panel is wrapped in an error boundary so a future panel-local failure degrades to an inline retry card instead of blanking the window.
+
 ## [0.2.0] - 2026-08-04
 
 ### Added

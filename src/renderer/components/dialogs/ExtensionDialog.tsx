@@ -174,9 +174,7 @@ function ConfirmDialog({
 	const t = useT();
 	return (
 		<Modal onClose={onCancel} open size="sm" title={request.title}>
-			<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-(--omp-muted)">
-				{request.message}
-			</p>
+			<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-(--omp-muted)">{request.message}</p>
 			<div className="mt-4 flex items-center justify-between gap-2">
 				<TimeoutFooter remaining={remaining} />
 				<div className="flex gap-2">
@@ -557,7 +555,11 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 
 	const respond = (
-		response: { value: string } | { confirmed: boolean } | { askDialog: ExtensionAskDialogResult } | { cancelled: true },
+		response:
+			| { value: string }
+			| { confirmed: boolean }
+			| { askDialog: ExtensionAskDialogResult }
+			| { cancelled: true },
 	) => {
 		window.omp.ui.respondExtensionUi({ type: "extension_ui_response", id: request.id, ...response });
 		removeRequest(request.id);
@@ -605,7 +607,9 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 				/>
 			);
 		case "editor":
-			return <EditorDialog key={request.id} onCancel={cancel} onValue={value => respond({ value })} request={request} />;
+			return (
+				<EditorDialog key={request.id} onCancel={cancel} onValue={value => respond({ value })} request={request} />
+			);
 		case "open_url":
 			return <OpenUrlDialog onCancel={cancel} onDone={() => respond({ value: "done" })} request={request} />;
 		default:

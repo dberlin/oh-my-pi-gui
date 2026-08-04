@@ -20,7 +20,7 @@ import {
 	XCircle,
 	Zap,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { cx, formatDuration, formatTimeAgo, headLines, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -296,9 +296,7 @@ function AsyncResultCard({ message }: { message: AgentMessage }) {
 								<span className="text-[12.5px] font-semibold text-[var(--omp-text)]">
 									{t("chat.custom.asyncDone")}
 								</span>
-								<span className="font-mono text-[11px] text-[var(--omp-dim)]">
-									[{job.type ?? "job"}]
-								</span>
+								<span className="font-mono text-[11px] text-[var(--omp-dim)]">[{job.type ?? "job"}]</span>
 								<span className="font-mono text-[11.5px] text-[var(--omp-accent)]">
 									{job.jobId ?? "unknown"}
 								</span>
@@ -488,12 +486,8 @@ function LateDiagnosticsCard({ message }: { message: AgentMessage }) {
 									</span>
 									<span className="min-w-0 break-words text-[var(--omp-text)]">
 										{item.diag.text}
-										{item.diag.code && (
-											<span className="text-[var(--omp-dim)]"> ({item.diag.code})</span>
-										)}
-										{item.diag.source && (
-											<span className="text-[var(--omp-dim)]"> [{item.diag.source}]</span>
-										)}
+										{item.diag.code && <span className="text-[var(--omp-dim)]"> ({item.diag.code})</span>}
+										{item.diag.source && <span className="text-[var(--omp-dim)]"> [{item.diag.source}]</span>}
 									</span>
 								</div>
 							),
@@ -541,7 +535,9 @@ function SkillCard({ message }: { message: AgentMessage }) {
 					{t("chat.custom.skill")}
 				</span>
 				<span className="shrink-0 text-[12.5px] font-semibold text-[var(--omp-text)]">{name}</span>
-				{args && <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--omp-dim)]">{args}</span>}
+				{args && (
+					<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--omp-dim)]">{args}</span>
+				)}
 				{text &&
 					(open ? (
 						<ChevronDown size={13} className="ml-auto shrink-0 text-[var(--omp-dim)]" />
@@ -597,7 +593,11 @@ function IrcCard({ message }: { message: AgentMessage }) {
 	const t = useT();
 	const details = resultDetails(message);
 	const kind =
-		message.customType === "irc:incoming" ? "incoming" : message.customType === "irc:autoreply" ? "autoreply" : "relay";
+		message.customType === "irc:incoming"
+			? "incoming"
+			: message.customType === "irc:autoreply"
+				? "autoreply"
+				: "relay";
 	const from = str(details?.from) ?? "?";
 	const to = str(details?.to) ?? "?";
 	const body = str(kind === "incoming" ? details?.message : details?.body) ?? "";
@@ -617,7 +617,9 @@ function IrcCard({ message }: { message: AgentMessage }) {
 				<span className="min-w-0 truncate">{title}</span>
 				{kind === "autoreply" && <Badge variant="muted">{t("chat.custom.ircAuto")}</Badge>}
 				{str(details?.replyTo) && <Badge variant="muted">{t("chat.custom.ircReply")}</Badge>}
-				{age && <span className="ml-auto shrink-0 font-mono text-[10px] font-normal text-[var(--omp-dim)]">{age}</span>}
+				{age && (
+					<span className="ml-auto shrink-0 font-mono text-[10px] font-normal text-[var(--omp-dim)]">{age}</span>
+				)}
 			</div>
 			{body && <CollapsibleText text={body} lines={3} />}
 		</CardFrame>

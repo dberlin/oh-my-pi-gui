@@ -8,11 +8,11 @@ import { RefreshCw, Tag } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ModelInfo, ModelRoleEntry, ModelRoleMetadata, ModelRolesResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
+import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
+import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Modal, Spinner } from "../common";
-import { toast } from "../../stores/toast";
-import { useModelStore } from "../../stores/model";
 
 const COLOR_MAP: Record<string, string> = {
 	success: "var(--omp-success)",
@@ -144,9 +144,7 @@ export function ModelRolesWindow() {
 			if (res.success) {
 				toast({
 					variant: "success",
-					message: modelId
-						? t("modelRoles.set", { role, model: modelId })
-						: t("modelRoles.cleared", { role }),
+					message: modelId ? t("modelRoles.set", { role, model: modelId }) : t("modelRoles.cleared", { role }),
 				});
 				await load();
 			} else {
@@ -166,13 +164,21 @@ export function ModelRolesWindow() {
 					<span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
 						{t("modelRoles.header")}
 					</span>
-					<Button size="sm" variant="ghost" icon={<RefreshCw size={12} />} onClick={() => void load()} loading={loading}>
+					<Button
+						size="sm"
+						variant="ghost"
+						icon={<RefreshCw size={12} />}
+						onClick={() => void load()}
+						loading={loading}
+					>
 						{t("modelRoles.refresh")}
 					</Button>
 				</div>
 
 				{loading && roles.length === 0 && (
-					<div className="flex items-center justify-center py-8"><Spinner /></div>
+					<div className="flex items-center justify-center py-8">
+						<Spinner />
+					</div>
 				)}
 
 				{roles.length > 0 && (

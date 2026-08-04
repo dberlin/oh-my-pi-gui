@@ -163,9 +163,7 @@ export function CodeBlock({
 						</pre>
 					</div>
 				) : (
-					<pre className="overflow-x-auto px-3 py-3 font-mono text-[12.5px] leading-[1.5]">
-						{codeElement}
-					</pre>
+					<pre className="overflow-x-auto px-3 py-3 font-mono text-[12.5px] leading-[1.5]">{codeElement}</pre>
 				)}
 			</div>
 		</div>

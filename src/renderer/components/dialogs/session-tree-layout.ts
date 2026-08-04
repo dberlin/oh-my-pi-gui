@@ -81,7 +81,10 @@ export function buildSessionTreeLayout(entries: SessionTreeEntry[]): SessionTree
 	const parentOf = new Map<string, string>();
 	for (const entry of entries) {
 		const parent = entry.parentId;
-		parentOf.set(entry.entryId, parent !== null && parent !== entry.entryId && byId.has(parent) ? parent : SESSION_ROOT_ID);
+		parentOf.set(
+			entry.entryId,
+			parent !== null && parent !== entry.entryId && byId.has(parent) ? parent : SESSION_ROOT_ID,
+		);
 	}
 
 	// Depth via walk-up with cycle protection; a cycle re-attaches the node to the root.

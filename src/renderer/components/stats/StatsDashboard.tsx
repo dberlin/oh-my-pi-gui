@@ -87,7 +87,13 @@ export function StatsDashboard({ open, onClose }: { open: boolean; onClose: () =
 	const active = ROUTES.find(item => item.id === route);
 
 	return (
-		<Modal bodyClassName="p-0" onClose={onClose} open={open} size="full" title={t("stats.titleWith", { section: active ? t(active.labelKey) : "" })}>
+		<Modal
+			bodyClassName="p-0"
+			onClose={onClose}
+			open={open}
+			size="full"
+			title={t("stats.titleWith", { section: active ? t(active.labelKey) : "" })}
+		>
 			<div className="flex h-full flex-col">
 				<div className="flex flex-wrap items-center gap-2 border-b border-(--omp-border-muted) px-4 py-2">
 					<nav aria-label={t("stats.sectionsAria")} className="flex flex-wrap items-center gap-0.5">

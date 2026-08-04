@@ -7,10 +7,10 @@
 
 import { Check, Folder, FolderPlus } from "lucide-react";
 import { useMemo } from "react";
-import { basename, cx } from "../../lib/format";
 import { hydrateSession } from "../../hooks/use-rpc-events";
-import { useT } from "../../lib/i18n";
 import { useSessionList } from "../../hooks/use-session-list";
+import { basename, cx } from "../../lib/format";
+import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { Modal } from "../common";
@@ -106,7 +106,12 @@ export function WorkspaceDialog({
 	};
 
 	return (
-		<Modal open={open} title={intent === "new-session" ? t("workspaces.newSessionTitle") : t("workspaces.title")} onClose={onClose} size="md">
+		<Modal
+			open={open}
+			title={intent === "new-session" ? t("workspaces.newSessionTitle") : t("workspaces.title")}
+			onClose={onClose}
+			size="md"
+		>
 			<div className="flex flex-col gap-2">
 				<button
 					type="button"
@@ -119,7 +124,9 @@ export function WorkspaceDialog({
 
 				<div className="max-h-[46vh] overflow-y-auto">
 					{workspaces.length === 0 ? (
-						<div className="px-2 py-8 text-center text-[12.5px] text-[var(--omp-muted)]">{t("workspaces.empty")}</div>
+						<div className="px-2 py-8 text-center text-[12.5px] text-[var(--omp-muted)]">
+							{t("workspaces.empty")}
+						</div>
 					) : (
 						workspaces.map(ws => {
 							const isCurrent = ws.cwd === cwd;
@@ -133,10 +140,21 @@ export function WorkspaceDialog({
 										isCurrent ? "bg-[var(--omp-selected-bg)]" : "hover:bg-[var(--omp-selected-bg)]",
 									)}
 								>
-									<Folder size={16} className={cx("shrink-0", isCurrent ? "text-[var(--omp-accent)]" : "text-[var(--omp-dim)]")} />
+									<Folder
+										size={16}
+										className={cx(
+											"shrink-0",
+											isCurrent ? "text-[var(--omp-accent)]" : "text-[var(--omp-dim)]",
+										)}
+									/>
 									<span className="min-w-0 flex-1">
 										<span className="flex items-baseline gap-2">
-											<span className={cx("truncate text-[13px] font-medium", isCurrent ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)]")}>
+											<span
+												className={cx(
+													"truncate text-[13px] font-medium",
+													isCurrent ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)]",
+												)}
+											>
 												{ws.name}
 											</span>
 											{ws.sessionCount > 0 && (

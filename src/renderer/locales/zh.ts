@@ -113,7 +113,7 @@ export const zh: Record<string, string> = {
 	"sidebar.renameFailed": "重命名失败",
 	"sidebar.deleteGroup": "删除此工作区下的全部 {count} 个会话",
 	"sidebar.deleteGroupConfirm": "删除工作区会话？",
-	"sidebar.deleteGroupMessage": "将从列表中删除工作区 \"{name}\" 及其全部 {count} 个会话。",
+	"sidebar.deleteGroupMessage": '将从列表中删除工作区 "{name}" 及其全部 {count} 个会话。',
 	"sidebar.deleteGroupWarning": "这将永久删除这些会话文件，无法撤销。",
 	"sidebar.loading": "正在加载会话…",
 	"sidebar.noMatch": "没有匹配的会话",
@@ -130,6 +130,8 @@ export const zh: Record<string, string> = {
 	"sidebar.deleteGroupStreaming": "请先中止当前回合再删除工作区会话",
 	"sidebar.signal.running": "运行中",
 	"sidebar.signal.waiting": "等待确认或权限",
+	"errorBoundary.title": "面板渲染出错",
+	"errorBoundary.retry": "重试",
 
 	// 深链接（omp:// 协议）
 	"deepLink.notFound": "没有与此链接匹配的已保存会话。",
@@ -859,7 +861,7 @@ export const zh: Record<string, string> = {
 	"settings.editors.options": "选项",
 	"settings.editors.retry": "重试",
 	"settings.editors.clear": "清除（用默认值）",
-	"settings.editors.useCustom": "使用 \"{value}\"",
+	"settings.editors.useCustom": '使用 "{value}"',
 	"settings.editors.noMatch": "无匹配项",
 	"settings.editors.themes": "主题",
 	"settings.editors.shells": "shell",
@@ -1402,7 +1404,8 @@ export const zh: Record<string, string> = {
 	"planPanel.approve": "批准计划",
 	"planPanel.requestChanges": "请求修改",
 	"planPanel.approvalSent": "批准已发送给代理",
-	"planPanel.footerNote": "批准会以聊天消息的形式发送 — 结构化的“批准并执行”尚未通过 RPC 提供。关闭计划模式即可让代理开始实现。",
+	"planPanel.footerNote":
+		"批准会以聊天消息的形式发送 — 结构化的“批准并执行”尚未通过 RPC 提供。关闭计划模式即可让代理开始实现。",
 	"planPanel.noFsPath": "会话保存到磁盘后才能确定计划文件的位置。",
 
 	// Subagent shared (panel + DAG + transcript)
@@ -1410,6 +1413,10 @@ export const zh: Record<string, string> = {
 	"subagent.status.completed": "已完成",
 	"subagent.status.failed": "失败",
 	"subagent.status.cancelled": "已取消",
+	"subagent.status.pending": "排队中",
+	"subagent.status.idle": "空闲",
+	"subagent.status.parked": "已暂停",
+	"subagent.status.unknown": "未知状态",
 	"subagent.empty": "还没有派生子代理。",
 	"subagent.emptyHint": "通过 task 工具创建的代理会显示在这里。",
 	"subagent.transcriptFailed": "加载记录失败",

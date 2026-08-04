@@ -87,23 +87,20 @@ interface EditHeaderProps {
 
 function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }: EditHeaderProps) {
 	const t = useT();
-	const Icon =
-		op === "delete" ? Trash2 : op === "create" ? FilePlus2 : title != null ? ArrowRightLeft : Pencil;
+	const Icon = op === "delete" ? Trash2 : op === "create" ? FilePlus2 : title != null ? ArrowRightLeft : Pencil;
 	const label =
 		title ??
-		(op === "create" ? t("tools.edit.op.create") : op === "delete" ? t("tools.edit.op.delete") : t("tools.edit.op.edit"));
+		(op === "create"
+			? t("tools.edit.op.create")
+			: op === "delete"
+				? t("tools.edit.op.delete")
+				: t("tools.edit.op.edit"));
 	const stats = diff ? diffStats(diff) : null;
 	return (
 		<div className="flex items-center gap-1.5 font-mono text-[11px]">
-			<Icon
-				size={12}
-				className={cx("shrink-0", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")}
-			/>
+			<Icon size={12} className={cx("shrink-0", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")} />
 			<span
-				className={cx(
-					"shrink-0 font-semibold",
-					isError ? "text-[var(--omp-error)]" : "text-[var(--omp-muted)]",
-				)}
+				className={cx("shrink-0 font-semibold", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-muted)]")}
 			>
 				{label}
 			</span>
@@ -326,10 +323,8 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 				{argEdits.map((entry, index) => {
 					const entryPath = asString(entry.path);
 					const entryDiff = asString(entry.diff);
-					const entryOld =
-						asString(entry.old_text) ?? asString(entry.old_string) ?? asString(entry.oldText);
-					const entryNew =
-						asString(entry.new_text) ?? asString(entry.new_string) ?? asString(entry.newText);
+					const entryOld = asString(entry.old_text) ?? asString(entry.old_string) ?? asString(entry.oldText);
+					const entryNew = asString(entry.new_text) ?? asString(entry.new_string) ?? asString(entry.newText);
 					const entryOp = asOp(entry.op);
 					const entryRename = asString(entry.rename) ?? asString(entry.move);
 					const key = `${index}:${entryPath ?? ""}`;
@@ -341,7 +336,11 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 						return (
 							<div key={key} className="flex flex-col gap-1">
 								{pathLabel}
-								<DiffView diff={entryDiff} filePath={entryPath ?? rawPath} className="max-h-72 overflow-auto rounded" />
+								<DiffView
+									diff={entryDiff}
+									filePath={entryPath ?? rawPath}
+									className="max-h-72 overflow-auto rounded"
+								/>
 							</div>
 						);
 					}
@@ -380,7 +379,13 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={op} path={rawPath} moveTo={rename} />
-				<CodeBlock code={patchInput} language="diff" showLanguage={false} showCopy={false} maxHeightClass="max-h-72" />
+				<CodeBlock
+					code={patchInput}
+					language="diff"
+					showLanguage={false}
+					showCopy={false}
+					maxHeightClass="max-h-72"
+				/>
 			</div>
 		);
 	}

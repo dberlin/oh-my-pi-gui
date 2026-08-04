@@ -193,8 +193,14 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 				<Search size={12} className="shrink-0 text-[var(--omp-dim)]" />
 				<span className="truncate text-[var(--omp-accent)]">/{pattern}/</span>
 				<span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] text-[var(--omp-dim)]">
-					{scope && <span className="max-w-40 truncate" title={scope}>in {scope}</span>}
-					{truncated && !isPartial && <span className="text-[var(--omp-warning)]">{t("tools.grep.truncated")}</span>}
+					{scope && (
+						<span className="max-w-40 truncate" title={scope}>
+							in {scope}
+						</span>
+					)}
+					{truncated && !isPartial && (
+						<span className="text-[var(--omp-warning)]">{t("tools.grep.truncated")}</span>
+					)}
 					<span>
 						{isPartial
 							? t("tools.grep.searching")
@@ -248,15 +254,15 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 					)}
 				</div>
 			)}
-			{renderedGroups.length === 0 && !isPartial && (
-				text ? (
+			{renderedGroups.length === 0 &&
+				!isPartial &&
+				(text ? (
 					<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] text-[var(--omp-tool-output)]">
 						{text}
 					</pre>
 				) : (
 					<div className="text-[11px] italic text-[var(--omp-dim)]">{t("tools.grep.noMatches")}</div>
-				)
-			)}
+				))}
 		</div>
 	);
 }

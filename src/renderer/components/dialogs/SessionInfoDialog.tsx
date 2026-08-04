@@ -27,7 +27,9 @@ function Section({ title, rows }: { title: string; rows: Row[] }) {
 						key={row.label}
 					>
 						<span className="flex-1 text-[11.5px] text-(--omp-muted)">{row.label}</span>
-						<span className="font-mono text-[11.5px] font-medium tabular-nums text-(--omp-text)">{row.value}</span>
+						<span className="font-mono text-[11.5px] font-medium tabular-nums text-(--omp-text)">
+							{row.value}
+						</span>
 					</div>
 				))}
 			</div>
@@ -84,7 +86,9 @@ export function SessionInfoDialog() {
 							title={t("sessionInfo.section.session")}
 							rows={[
 								{ label: t("sessionInfo.sessionId"), value: stats.sessionId },
-								...(stats.sessionFile ? [{ label: t("sessionInfo.file"), value: basename(stats.sessionFile) }] : []),
+								...(stats.sessionFile
+									? [{ label: t("sessionInfo.file"), value: basename(stats.sessionFile) }]
+									: []),
 							]}
 						/>
 						<Section
@@ -126,11 +130,14 @@ export function SessionInfoDialog() {
 									{t("sessionInfo.contextWindow")}
 								</h3>
 								<div className="rounded-md border border-(--omp-border-muted) px-2.5 py-2">
-									<ProgressBar value={stats.contextUsage.percent / 100} valueText={`${stats.contextUsage.percent.toFixed(1)}%`} />
+									<ProgressBar
+										value={stats.contextUsage.percent / 100}
+										valueText={`${stats.contextUsage.percent.toFixed(1)}%`}
+									/>
 									<div className="mt-1.5 flex items-center justify-between text-[10.5px] text-(--omp-muted)">
 										<span>
-											{formatTokens(stats.contextUsage.tokens)} / {formatTokens(stats.contextUsage.contextWindow)}{" "}
-											{t("sessionInfo.tokens")}
+											{formatTokens(stats.contextUsage.tokens)} /{" "}
+											{formatTokens(stats.contextUsage.contextWindow)} {t("sessionInfo.tokens")}
 										</span>
 										<span className="font-mono tabular-nums">{stats.contextUsage.percent.toFixed(1)}%</span>
 									</div>

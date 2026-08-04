@@ -73,7 +73,8 @@ interface ModeRpc<T> {
 const fetchVibeMode = (): Promise<RpcResponse> => window.omp.rpc.getVibeMode();
 const pickVibeMode = (data: unknown): RpcVibeModeState => (data as RpcVibeModeState | undefined) ?? { enabled: false };
 const fetchGoal = (): Promise<RpcResponse> => window.omp.rpc.getGoal();
-const pickGoal = (data: unknown): RpcGoalState => (data as RpcGoalState | undefined) ?? { enabled: false, status: "none" };
+const pickGoal = (data: unknown): RpcGoalState =>
+	(data as RpcGoalState | undefined) ?? { enabled: false, status: "none" };
 const fetchLoopMode = (): Promise<RpcResponse> => window.omp.rpc.getLoopMode();
 const pickLoopMode = (data: unknown): RpcLoopModeState =>
 	(data as RpcLoopModeState | undefined) ?? { enabled: false, state: "off" };
@@ -233,7 +234,11 @@ export function parseLoopLimit(limit: unknown): LoopLimitInfo | null {
 		if (record.kind === "iterations" && typeof record.initial === "number" && typeof record.remaining === "number") {
 			return { kind: "iterations", initial: record.initial, remaining: record.remaining };
 		}
-		if (record.kind === "duration" && typeof record.durationMs === "number" && typeof record.deadlineMs === "number") {
+		if (
+			record.kind === "duration" &&
+			typeof record.durationMs === "number" &&
+			typeof record.deadlineMs === "number"
+		) {
 			return { kind: "duration", durationMs: record.durationMs, deadlineMs: record.deadlineMs };
 		}
 	}
@@ -251,7 +256,9 @@ type LoopModeUpdateEvent = Extract<AgentSessionEvent, { type: "loop_mode_update"
 export function normalizeLoopUpdate(event: LoopModeUpdateEvent): RpcLoopModeState | null {
 	const raw = event as unknown as {
 		enabled?: boolean;
-		state?: RpcLoopModeState["state"] | { enabled?: boolean; state?: string; prompt?: string; limit?: number | RpcLoopLimit };
+		state?:
+			| RpcLoopModeState["state"]
+			| { enabled?: boolean; state?: string; prompt?: string; limit?: number | RpcLoopLimit };
 		prompt?: string;
 		limit?: number | RpcLoopLimit;
 	};
@@ -268,7 +275,12 @@ export function normalizeLoopUpdate(event: LoopModeUpdateEvent): RpcLoopModeStat
 		};
 	}
 	if (typeof raw.enabled !== "boolean" || typeof raw.state !== "string") return null;
-	return { enabled: raw.enabled, state: raw.state as RpcLoopModeState["state"], prompt: raw.prompt, limit: toLimit(raw.limit) };
+	return {
+		enabled: raw.enabled,
+		state: raw.state as RpcLoopModeState["state"],
+		prompt: raw.prompt,
+		limit: toLimit(raw.limit),
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -515,13 +527,15 @@ function GoalStartForm({ rpc }: { rpc: ModeRpc<RpcGoalState> }) {
 
 	const trimmed = objective.trim();
 	const parsedBudget = Number(budget);
-	const tokenBudget = budget.trim() !== "" && Number.isFinite(parsedBudget) && parsedBudget > 0 ? Math.floor(parsedBudget) : null;
+	const tokenBudget =
+		budget.trim() !== "" && Number.isFinite(parsedBudget) && parsedBudget > 0 ? Math.floor(parsedBudget) : null;
 
 	const start = () => {
 		if (!trimmed) return;
 		void rpc.mutate(
 			{ enabled: true, status: "active", objective: trimmed, tokenBudget, tokensUsed: 0, timeUsedSeconds: 0 },
-			() => window.omp.rpc.setGoal(tokenBudget === null ? { objective: trimmed } : { objective: trimmed, tokenBudget }),
+			() =>
+				window.omp.rpc.setGoal(tokenBudget === null ? { objective: trimmed } : { objective: trimmed, tokenBudget }),
 		);
 	};
 
@@ -574,7 +588,10 @@ function GoalTab({ rpc }: { rpc: ModeRpc<RpcGoalState> }) {
 // Loop tab
 // ---------------------------------------------------------------------------
 
-function loopLimitText(t: (key: string, params?: Record<string, string | number>) => string, limit: LoopLimitInfo): string {
+function loopLimitText(
+	t: (key: string, params?: Record<string, string | number>) => string,
+	limit: LoopLimitInfo,
+): string {
 	switch (limit.kind) {
 		case "count":
 			return t("modesPanel.loop.limitValue.count", { count: limit.count });
@@ -703,7 +720,8 @@ export function ModesPanel({ open, onClose, initialTab = "vibe" }: ModesPanelPro
 			{
 				id: "loop",
 				label: t("modesPanel.tabs.loop"),
-				badge: loop.state && loop.state.state !== "off" ? t(`modesPanel.loop.state.${loop.state.state}`) : undefined,
+				badge:
+					loop.state && loop.state.state !== "off" ? t(`modesPanel.loop.state.${loop.state.state}`) : undefined,
 			},
 		],
 		[t, vibe.state, goal.state, loop.state],
