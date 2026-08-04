@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>omp GUI — Desktop GUI for the omp coding agent</title>
+<meta name="description" content="A fast Electron desktop GUI for the omp coding agent. Every slash command as a menu, full-fidelity rendering, multi-window parallel sessions, providers & usage in one place." />
+<style>
+	:root {
+		--bg: #0b0e11;
+		--panel: #12161b;
+		--border: #232a32;
+		--text: #e7edf3;
+		--muted: #93a1b0;
+		--accent: #0d9488;
+		--accent-strong: #14b8a6;
+	}
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+		background: var(--bg);
+		color: var(--text);
+		line-height: 1.6;
+		-webkit-font-smoothing: antialiased;
+	}
+	a { color: var(--accent-strong); text-decoration: none; }
+	a:hover { text-decoration: underline; }
+	.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+	header.hero {
+		padding: 96px 0 64px;
+		text-align: center;
+	}
+	.logo {
+		display: inline-flex; align-items: center; justify-content: center;
+		width: 72px; height: 72px; border-radius: 18px;
+		background: var(--panel); border: 1px solid var(--border);
+		margin-bottom: 28px;
+	}
+	.logo svg { display: block; }
+	h1 {
+		font-size: clamp(34px, 5vw, 54px);
+		font-weight: 700; letter-spacing: -0.03em; line-height: 1.1;
+	}
+	h1 .accent { color: var(--accent-strong); }
+	.tagline {
+		margin-top: 18px; font-size: clamp(16px, 2.2vw, 20px);
+		color: var(--muted); max-width: 640px; margin-left: auto; margin-right: auto;
+	}
+	.cta { margin-top: 36px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+	.btn {
+		display: inline-flex; align-items: center; gap: 8px;
+		padding: 13px 26px; border-radius: 12px; font-weight: 600; font-size: 15px;
+		border: 1px solid var(--border); transition: transform .12s ease, background .12s ease;
+	}
+	.btn:hover { text-decoration: none; transform: translateY(-1px); }
+	.btn-primary { background: var(--accent); color: #fff; border-color: transparent; }
+	.btn-primary:hover { background: var(--accent-strong); }
+	.btn-ghost { background: var(--panel); color: var(--text); }
+	.btn-ghost:hover { background: #1a2027; }
+
+	.shot {
+		margin: 56px auto 0; max-width: 980px;
+		border-radius: 16px; border: 1px solid var(--border);
+		box-shadow: 0 24px 64px rgba(0,0,0,.5);
+		overflow: hidden;
+	}
+	.shot img { display: block; width: 100%; height: auto; }
+
+	section { padding: 72px 0; }
+	h2 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; text-align: center; }
+	.sub { text-align: center; color: var(--muted); margin-top: 10px; }
+
+	.grid { margin-top: 44px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+	.card {
+		background: var(--panel); border: 1px solid var(--border);
+		border-radius: 14px; padding: 24px;
+	}
+	.card h3 { font-size: 16px; font-weight: 650; margin-bottom: 8px; }
+	.card h3 .dot { color: var(--accent-strong); margin-right: 8px; }
+	.card p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+	.gallery { margin-top: 44px; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+	.gallery figure { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--panel); }
+	.gallery img { display: block; width: 100%; height: auto; }
+	.gallery figcaption { padding: 12px 16px; font-size: 13px; color: var(--muted); }
+
+	.dl { margin-top: 40px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+	table.kb { margin: 32px auto 0; border-collapse: collapse; font-size: 14px; }
+	table.kb td { padding: 8px 18px; border-bottom: 1px solid var(--border); }
+	table.kb td:first-child { color: var(--muted); font-family: ui-monospace, monospace; }
+
+	footer { padding: 48px 0 64px; text-align: center; color: var(--muted); font-size: 14px; border-top: 1px solid var(--border); margin-top: 48px; }
+	footer a { color: var(--muted); text-decoration: underline; }
+</style>
+</head>
+<body>
+	<header class="hero wrap">
+		<div class="logo">
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="40" height="40">
+				<rect width="512" height="512" rx="104" fill="#21262c"/>
+				<g stroke="#0d9488" stroke-width="52" stroke-linecap="round" fill="none">
+					<path d="M118 156 H394"/><path d="M190 156 V392"/><path d="M322 156 V326 C322 366 286 392 246 392"/>
+				</g>
+			</svg>
+		</div>
+		<h1>omp <span class="accent">GUI</span></h1>
+		<p class="tagline">A desktop GUI for the <a href="https://github.com/can1357/oh-my-pi">omp</a> coding agent. Every slash command as a menu, full-fidelity rendering, and true multi-window parallel sessions — no separate install required.</p>
+		<div class="cta">
+			<a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/latest">Download for macOS</a>
+			<a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui">View on GitHub</a>
+		</div>
+		<div class="shot">
+			<img src="docs/screenshots/01-chat-main.webp" alt="omp GUI chat" loading="lazy" />
+		</div>
+	</header>
+
+	<section class="wrap">
+		<h2>Built for how you actually work</h2>
+		<p class="sub">The agent runs as a bundled sidecar over a typed NDJSON RPC bridge — fast, isolated, self-contained.</p>
+		<div class="grid">
+			<div class="card"><h3><span class="dot">◆</span>Parallel sessions</h3><p>Up to 10 windows, each with its own independent agent sidecar. Switch or create sessions in one window without ever disturbing a session running in another.</p></div>
+			<div class="card"><h3><span class="dot">◆</span>Every command, as a menu</h3><p>Slash commands become grouped, searchable menus. Open the Command Palette (⌘K) for fuzzy access to everything — sub-menus, argument prompts, and toggles all run the real RPC.</p></div>
+			<div class="card"><h3><span class="dot">◆</span>Full-fidelity rendering</h3><p>Streaming text, collapsible thinking blocks, live tool cards with real diffs, markdown, KaTeX math, mermaid diagrams, and syntax-highlighted code — token by token.</p></div>
+			<div class="card"><h3><span class="dot">◆</span>Providers &amp; login</h3><p>Sign in with OAuth or API keys, add third-party providers, edit models.json, and see auth status at a glance.</p></div>
+			<div class="card"><h3><span class="dot">◆</span>Usage &amp; quotas</h3><p>A full stats dashboard — requests, tokens, cost, cache-hit, speed, errors, per-agent breakdown — with time ranges and charts.</p></div>
+			<div class="card"><h3><span class="dot">◆</span>Workspace panels</h3><p>Todo, Plan, Subagents, Diff, Files, and Logs in a collapsible side panel, kept in sync with the agent in real time.</p></div>
+		</div>
+	</section>
+
+	<section class="wrap">
+		<h2>See it in action</h2>
+		<div class="gallery">
+			<figure><img src="docs/screenshots/02-command-palette.webp" alt="Command palette" loading="lazy" /><figcaption>Command Palette (⌘K) — every slash command as a grouped, searchable menu</figcaption></figure>
+			<figure><img src="docs/screenshots/03-workspace-files.webp" alt="Workspace panel" loading="lazy" /><figcaption>Workspace panel — Todo / Plan / Agents / Diff / Files / Logs beside the chat</figcaption></figure>
+			<figure><img src="docs/screenshots/05-settings.webp" alt="Settings" loading="lazy" /><figcaption>Settings — runtime, model, context, tools, providers, GUI in one window</figcaption></figure>
+			<figure><img src="docs/screenshots/06-model-picker.webp" alt="Model picker" loading="lazy" /><figcaption>Model picker — grouped by provider with auth status</figcaption></figure>
+			<figure><img src="docs/screenshots/07-session-stats.webp" alt="Usage stats" loading="lazy" /><figcaption>Usage &amp; stats — requests, tokens, cost, cache-hit, speed over time</figcaption></figure>
+			<figure><img src="docs/screenshots/08-providers-login.webp" alt="Providers" loading="lazy" /><figcaption>Providers &amp; login — OAuth / API-key sign-in, third-party providers</figcaption></figure>
+		</div>
+	</section>
+
+	<section class="wrap">
+		<h2>Download</h2>
+		<p class="sub">Free and open source. The bundled agent sidecar means no separate omp / bun / Node install.</p>
+		<div class="dl">
+			<a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/latest">Apple Silicon (M1/M2/M3/M4)</a>
+			<a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/latest">Intel Mac</a>
+		</div>
+		<table class="kb">
+			<tr><td>⌘K</td><td>Command palette</td><td>⌘P</td><td>Session search</td></tr>
+			<tr><td>⌘N</td><td>New session</td><td>⌘⇧N</td><td>New parallel window</td></tr>
+			<tr><td>⌘,</td><td>Settings</td><td>⌘B / ⌘J</td><td>Toggle sidebars</td></tr>
+			<tr><td>Esc</td><td>Abort turn</td><td></td><td></td></tr>
+		</table>
+	</section>
+
+	<footer class="wrap">
+		<p>Built on the <a href="https://github.com/can1357/oh-my-pi">oh-my-pi</a> agent. The TUI and GUI coexist and share <code>~/.omp</code>.</p>
+		<p style="margin-top:8px"><a href="https://github.com/nornzach/oh-my-pi-gui">GitHub</a> · <a href="https://github.com/nornzach/oh-my-pi-gui/releases">Releases</a> · <a href="https://github.com/nornzach/oh-my-pi-gui/issues">Issues</a></p>
+	</footer>
+</body>
+</html>
