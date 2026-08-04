@@ -4,8 +4,9 @@
  */
 
 import { join } from "node:path";
-import { BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, shell } from "electron";
 import Store from "electron-store";
+import type { RunProgressState } from "../shared/ipc-types";
 
 interface WindowState {
 	x?: number;
@@ -108,6 +109,20 @@ export class WindowManager {
 
 	getAllWindows(): BrowserWindow[] {
 		return [...this.#windows].filter(w => !w.isDestroyed());
+	}
+
+	/**
+	 * Run-progress indicator (agent `terminal.showProgress` setting): dock
+	 * badge (● working, ! waiting — macOS only) plus a progress bar on every
+	 * window. macOS has no true indeterminate progress mode, so fixed
+	 * fractions act as state markers; "idle" clears both (-1 / empty badge).
+	 */
+	setRunProgress(state: RunProgressState): void {
+		app.dock?.setBadge(state === "working" ? "●" : state === "waiting" ? "!" : "");
+		const progress = state === "working" ? 0.5 : state === "waiting" ? 0.75 : -1;
+		for (const win of this.getAllWindows()) {
+			win.setProgressBar(progress);
+		}
 	}
 
 	#persistState(win: BrowserWindow): void {

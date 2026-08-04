@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
+import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { hydrateSession } from "../../hooks/use-rpc-events";
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, cx, formatTimeAgo } from "../../lib/format";
@@ -69,6 +70,10 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 	const sessionName = useSessionStore(s => s.sessionName);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
+	// Sidebar signal-light state for the ATTACHED session: a blocking
+	// confirmation (plan approval / ask / permission) overrides the running
+	// signal — it needs the user, not just time.
+	const awaitingConfirmation = useAwaitingConfirmation();
 	const openSettings = useUiStore(s => s.openSettings);
 	const openThemePicker = useUiStore(s => s.openThemePicker);
 	const setPanelTab = useUiStore(s => s.setPanelTab);
@@ -324,6 +329,18 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 									<div className="space-y-0.5">
 										{group.sessions.map(session => {
 											const active = session.id === sessionId;
+											// Signal light: attached session uses live store state; other
+											// rows fall back to the session file's tail status ("pending"
+											// means mid-run). Waiting-for-confirmation wins over running.
+											const signal: "waiting" | "running" | null = active
+												? awaitingConfirmation
+													? "waiting"
+													: isStreaming
+														? "running"
+														: null
+												: session.status === "pending"
+													? "running"
+													: null;
 											return (
 												<div
 													key={session.path}
@@ -342,9 +359,22 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 												>
 													<div className="flex items-center gap-1.5">
 														<span
-															title={session.status}
-															className="h-1.5 w-1.5 shrink-0 rounded-full"
-															style={{ background: STATUS_COLOR[session.status] }}
+															title={
+																signal === "waiting"
+																	? t("sidebar.signal.waiting")
+																	: signal === "running"
+																		? t("sidebar.signal.running")
+																		: session.status
+															}
+															className={cx("h-1.5 w-1.5 shrink-0 rounded-full", signal != null && "omp-pulse-dot")}
+															style={{
+																background:
+																	signal === "waiting"
+																		? "var(--omp-warning)"
+																		: signal === "running"
+																			? "var(--omp-success)"
+																			: STATUS_COLOR[session.status],
+															}}
 														/>
 														{active && renaming ? (
 															<input

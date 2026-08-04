@@ -7,6 +7,7 @@ import { useT } from "../../lib/i18n";
 import { PiLogo } from "../common";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
+import { useSettingsStore } from "../../stores/settings";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { ToolCard } from "../tools/ToolCard";
 import { MessageBubble } from "./MessageBubble";
@@ -14,7 +15,11 @@ import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
 
 /** Virtualized row: a finalized message, or one of the live streaming rows. */
-type Row = { kind: "message"; message: AgentMessage } | { kind: "streaming" };
+type Row =
+	| { kind: "message"; message: AgentMessage }
+	| { kind: "streaming" }
+	| { kind: "pending" }
+	| { kind: "expander"; count: number };
 
 /**
  * Virtual-scroll message list. Stays pinned to the bottom while streaming
@@ -26,14 +31,47 @@ export function ChatStream() {
 	const t = useT();
 	const messages = useMessagesStore(s => s.messages);
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
+	const streamingTextLen = useMessagesStore(s => s.streamingText.length);
+	const streamingThinkingLen = useMessagesStore(s => s.streamingThinking.length);
 	const isStreaming = useSessionStore(s => s.isStreaming);
+	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
+	const retryInfo = useSessionStore(s => s.retryInfo);
+	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const status = useSessionStore(s => s.status);
+	const sessionId = useSessionStore(s => s.sessionId);
+	// Shared `display.collapseCompacted` setting: fold history before the latest
+	// compaction summary behind an expander (TUI transcript parity).
+	const collapseCompacted = useSettingsStore(s => s.collapseCompacted);
+	const [preCompactionOpen, setPreCompactionOpen] = useState(false);
+	useEffect(() => setPreCompactionOpen(false), [sessionId]);
 
-	const hasStreaming = streamingMessage != null;
+	const lastCompactionIndex = messages.findLastIndex(message => message.role === "compactionSummary");
+	const hiddenCount = collapseCompacted && !preCompactionOpen && lastCompactionIndex > 0 ? lastCompactionIndex : 0;
+	const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+
+	// The assistant message exists as an empty shell from message_start until
+	// the first delta — only real content swaps the status row for the
+	// streaming rows, so the shell window never reads as dead air.
+	const streamingContent = streamingMessage?.content;
+	const hasStreamedContent =
+		streamingMessage != null &&
+		(streamingTextLen > 0 ||
+			streamingThinkingLen > 0 ||
+			(Array.isArray(streamingContent) && streamingContent.length > 0));
+
+	// One status row for every "agent busy but nothing visible" window,
+	// mirroring the TUI's loader line: auto-retry delay/attempt (warning),
+	// auto-compaction maintenance, or waiting on the model's first event.
+	// Priority matches the TUI, whose transient loaders replace the working
+	// loader; tool-execution windows show running tool cards instead.
+	const showStatusRow =
+		retryInfo != null || compactionInfo != null || (isStreaming && awaitingModelSince != null && !hasStreamedContent);
 
 	const rows: Row[] = [];
-	for (const message of messages) rows.push({ kind: "message", message });
-	if (hasStreaming) rows.push({ kind: "streaming" });
+	if (hiddenCount > 0) rows.push({ kind: "expander", count: hiddenCount });
+	for (const message of visibleMessages) rows.push({ kind: "message", message });
+	if (hasStreamedContent) rows.push({ kind: "streaming" });
+	if (showStatusRow) rows.push({ kind: "pending" });
 
 	const parentRef = useRef<HTMLDivElement>(null);
 	const [pinned, setPinned] = useState(true);
@@ -48,7 +86,8 @@ export function ChatStream() {
 	const virtualizer = useVirtualizer({
 		count: rows.length,
 		getScrollElement: () => parentRef.current,
-		estimateSize: i => (rows[i]?.kind === "streaming" ? 96 : 128),
+		estimateSize: i =>
+			rows[i]?.kind === "streaming" ? 96 : rows[i]?.kind === "pending" ? 56 : rows[i]?.kind === "expander" ? 44 : 128,
 		overscan: 8,
 		measureElement: el => el.getBoundingClientRect().height,
 	});
@@ -127,7 +166,7 @@ export function ChatStream() {
 						if (!row) return null;
 						return (
 							<div
-								key={row.kind === "message" ? `msg-${item.index}` : "streaming"}
+								key={row.kind === "message" ? `msg-${item.index}` : row.kind}
 								data-index={item.index}
 								ref={virtualizer.measureElement}
 								style={{
@@ -139,7 +178,21 @@ export function ChatStream() {
 								}}
 							>
 								<div className="mx-auto w-full max-w-[900px]">
-									{row.kind === "message" ? <MessageBubble message={row.message} /> : <StreamingRows />}
+									{row.kind === "message" ? (
+										<MessageBubble message={row.message} />
+									) : row.kind === "streaming" ? (
+										<StreamingRows />
+									) : row.kind === "expander" ? (
+										<button
+											type="button"
+											onClick={() => setPreCompactionOpen(true)}
+											className="omp-pressable mx-6 my-2 flex items-center gap-2 rounded-lg border border-[var(--omp-border)] bg-[var(--omp-bg-secondary)] px-3 py-1.5 text-[11.5px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+										>
+											{t("chat.compaction.showEarlier", { count: row.count })}
+										</button>
+									) : (
+										<TurnStatusRow />
+									)}
 								</div>
 							</div>
 						);
@@ -210,6 +263,92 @@ function StreamingRows() {
 				))}
 				<StreamingText />
 			</div>
+		</div>
+	);
+}
+
+/** Seconds past which the waiting row escalates to the slow-response hint. */
+const SLOW_RESPONSE_HINT_SECONDS = 30;
+
+/**
+ * Live status row for the windows where the agent is busy but the transcript
+ * has nothing to show yet — the GUI counterpart of the TUI's loader line:
+ *
+ * - retry: `Retrying (a/b) in Ns…` warning spinner for the auto-retry
+ *   delay/attempt window, plus the failure detail. Enhancement over the TUI:
+ *   N counts down live instead of freezing at the initial delay.
+ * - compaction: `{reason}{action}…` accent spinner for auto-maintenance,
+ *   same reason/action vocabulary as the TUI loader.
+ * - waiting: between turn_start and the first streamed event, with live
+ *   elapsed seconds; past 30s a slow-response hint appears so a stalled
+ *   provider reads as "slow but alive" rather than dead air.
+ *
+ * All variants carry the Esc interrupt hint (App routes Esc → rpc.abort),
+ * matching the TUI's `[esc]` / `(esc to cancel)` suffixes.
+ */
+export function TurnStatusRow() {
+	const t = useT();
+	const retryInfo = useSessionStore(s => s.retryInfo);
+	const compactionInfo = useSessionStore(s => s.compactionInfo);
+	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
+	const now = Date.now();
+	// 1s ticking clock shared by the countdown/elapsed variants.
+	const [, setNowTick] = useState(0);
+	useEffect(() => {
+		const interval = setInterval(() => setNowTick(tick => tick + 1), 1000);
+		return () => clearInterval(interval);
+	}, []);
+
+	let iconClass = "";
+	let text: string;
+	let detail: string | null = null;
+	let slow = false;
+
+	if (retryInfo) {
+		const remainingSeconds = Math.max(0, Math.ceil((retryInfo.startedAt + retryInfo.delayMs - now) / 1000));
+		iconClass = "text-[var(--omp-warning)]";
+		text =
+			remainingSeconds > 0
+				? t("chat.retry.pending", {
+						attempt: retryInfo.attempt,
+						maxAttempts: retryInfo.maxAttempts,
+						seconds: remainingSeconds,
+					})
+				: t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
+		detail = retryInfo.errorMessage || null;
+	} else if (compactionInfo) {
+		const reason = compactionInfo.reason === "threshold" ? "" : t(`chat.compaction.reason.${compactionInfo.reason}`);
+		const actionKey =
+			compactionInfo.action === "handoff"
+				? "chat.compaction.action.handoff"
+				: compactionInfo.action === "shake"
+					? "chat.compaction.action.shake"
+					: compactionInfo.action === "snapcompact"
+						? "chat.compaction.action.snapcompact"
+						: "chat.compaction.action.default";
+		iconClass = "text-[var(--omp-accent)]";
+		text = `${reason}${t(actionKey)}…`;
+	} else if (awaitingModelSince != null) {
+		const elapsedSeconds = Math.max(0, Math.floor((now - awaitingModelSince) / 1000));
+		slow = elapsedSeconds >= SLOW_RESPONSE_HINT_SECONDS;
+		text = t("chat.awaitingModel", { seconds: elapsedSeconds });
+	} else {
+		return null;
+	}
+
+	return (
+		<div className="omp-fade-in flex flex-col gap-1 px-6 py-4 text-[13px] text-[var(--omp-muted)]">
+			<div className="flex items-center gap-2.5">
+				<Loader2 size={14} className={cx("animate-spin shrink-0", iconClass)} />
+				<span>{text}</span>
+				<span className="text-[var(--omp-dim)]">{t("chat.interruptHint")}</span>
+				{slow ? <span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.slow")}</span> : null}
+			</div>
+			{detail ? (
+				<div className="max-w-full truncate pl-[26px] text-[11.5px] text-[var(--omp-dim)]" title={detail}>
+					{detail}
+				</div>
+			) : null}
 		</div>
 	);
 }

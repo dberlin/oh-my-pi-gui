@@ -21,10 +21,28 @@ interface SettingsStore {
 	 * thinking visibility on hideThinkingBlock alone.
 	 */
 	omitThinking: boolean;
+	/** Agent `display.showTokenUsage` setting: per-turn usage row on assistant messages. */
+	showTokenUsage: boolean;
+	/** Agent `display.collapseCompacted` setting: fold pre-compaction history behind an expander. */
+	collapseCompacted: boolean;
+	/** Agent `tui.titleState` setting: run-state marker in the window title. */
+	titleState: boolean;
+	/** Agent `goal.statusInFooter` setting: goal status chip in the composer. */
+	goalStatusInFooter: boolean;
+	/** Agent `terminal.showProgress` setting: run progress in dock/tray. */
+	showProgress: boolean;
+	/** Agent `speech.enabled` setting: speak assistant output. */
+	speechEnabled: boolean;
+	/** Agent `stt.enabled` setting: microphone input in the composer. */
+	sttEnabled: boolean;
+	/** Agent `tui.tight` setting: compact UI density. */
+	tuiTight: boolean;
+	/** Agent `colorBlindMode` setting: color-blind-safe palette. */
+	colorBlindMode: boolean;
 	setFromState: (state: RpcSessionState) => void;
 	setApprovalMode: (mode: ApprovalMode) => void;
-	/** Re-read the live thinking-display settings via get_settings. */
-	syncThinkingDisplay: () => Promise<void>;
+	/** Re-read the live display settings via get_settings. */
+	syncDisplaySettings: () => Promise<void>;
 	/** Re-read the live tools.approvalMode into the store (config_update / TUI edits). */
 	syncApproval: () => Promise<void>;
 	update: (
@@ -49,6 +67,17 @@ const initialState = {
 	hideThinkingBlock: false,
 	proseOnlyThinking: true,
 	omitThinking: false,
+	// Schema defaults: usage row off, compaction folded, title/goal chrome on.
+	showTokenUsage: false,
+	collapseCompacted: true,
+	titleState: true,
+	goalStatusInFooter: true,
+	// Schema defaults: progress/speech/stt/tight/colorblind all off.
+	showProgress: false,
+	speechEnabled: false,
+	sttEnabled: false,
+	tuiTight: false,
+	colorBlindMode: false,
 };
 
 /** Read the live tools.approvalMode config setting into the store. */
@@ -70,22 +99,52 @@ async function syncApprovalMode(set: (partial: Partial<SettingsStore>) => void):
 	}
 }
 
-const THINKING_DISPLAY_KEYS = ["hideThinkingBlock", "proseOnlyThinking", "omitThinking"] as const;
+/** Setting path → store field for the boolean display keys synced below. */
+const DISPLAY_BOOL_MAP: Record<
+	string,
+	| "hideThinkingBlock"
+	| "proseOnlyThinking"
+	| "omitThinking"
+	| "showTokenUsage"
+	| "collapseCompacted"
+	| "titleState"
+	| "goalStatusInFooter"
+	| "showProgress"
+	| "speechEnabled"
+	| "sttEnabled"
+	| "tuiTight"
+	| "colorBlindMode"
+> = {
+	hideThinkingBlock: "hideThinkingBlock",
+	proseOnlyThinking: "proseOnlyThinking",
+	omitThinking: "omitThinking",
+	"display.showTokenUsage": "showTokenUsage",
+	"display.collapseCompacted": "collapseCompacted",
+	"tui.titleState": "titleState",
+	"goal.statusInFooter": "goalStatusInFooter",
+	"terminal.showProgress": "showProgress",
+	"speech.enabled": "speechEnabled",
+	"stt.enabled": "sttEnabled",
+	"tui.tight": "tuiTight",
+	colorBlindMode: "colorBlindMode",
+};
+const DISPLAY_SYNC_KEYS = Object.keys(DISPLAY_BOOL_MAP);
 
 /**
- * Read the live thinking-display config settings into the store. Re-run on
- * session hydration and on every config_update push so edits from either the
- * TUI or the GUI settings window apply to chat rendering immediately.
+ * Read the live display config settings into the store. Re-run on session
+ * hydration and on every config_update push so edits from either the
+ * TUI or the GUI settings window apply to rendering immediately.
  */
-async function syncThinkingDisplay(set: (partial: Partial<SettingsStore>) => void): Promise<void> {
+async function syncDisplaySettings(set: (partial: Partial<SettingsStore>) => void): Promise<void> {
 	try {
-		const res = await window.omp.rpc.getSettings([...THINKING_DISPLAY_KEYS]);
+		const res = await window.omp.rpc.getSettings(DISPLAY_SYNC_KEYS);
 		if (res.success) {
 			const values = (res.data as { values?: Record<string, unknown> } | undefined)?.values;
 			const partial: Partial<SettingsStore> = {};
-			if (typeof values?.hideThinkingBlock === "boolean") partial.hideThinkingBlock = values.hideThinkingBlock;
-			if (typeof values?.proseOnlyThinking === "boolean") partial.proseOnlyThinking = values.proseOnlyThinking;
-			if (typeof values?.omitThinking === "boolean") partial.omitThinking = values.omitThinking;
+			for (const [path, field] of Object.entries(DISPLAY_BOOL_MAP)) {
+				const value = values?.[path];
+				if (typeof value === "boolean") partial[field] = value;
+			}
 			if (Object.keys(partial).length > 0) set(partial);
 		}
 	} catch {
@@ -107,13 +166,13 @@ export const useSettingsStore = create<SettingsStore>()(set => ({
 		// applies at runtime), not on the wire - re-sync from the live setting so
 		// neither field goes stale across session switches.
 		void syncApprovalMode(set);
-		void syncThinkingDisplay(set);
+		void syncDisplaySettings(set);
 	},
 	setApprovalMode: mode => {
 		set({ approvalMode: mode });
 		void window.omp.rpc.setSetting("tools.approvalMode", mode);
 	},
-	syncThinkingDisplay: () => syncThinkingDisplay(set),
+	syncDisplaySettings: () => syncDisplaySettings(set),
 	/** Re-read the live tools.approvalMode into the store (config_update / TUI edits). */
 	syncApproval: () => syncApprovalMode(set),
 	update: partial => set(partial),

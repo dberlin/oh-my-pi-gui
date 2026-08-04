@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, Clock, DollarSign, Zap } from "lucide-react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useSettingsStore } from "../../stores/settings";
 
 /** Below this the rate is nonsense (cached/instant responses yield absurd tok/s). */
 const MIN_DURATION_MS = 100;
@@ -52,6 +53,10 @@ function formatCost(total: number): string {
  */
 export function UsageRow({ message }: { message: AgentMessage }) {
 	const t = useT();
+	// Honors the shared `display.showTokenUsage` setting (schema default off) —
+	// previously the GUI ignored it and always rendered usage.
+	const showTokenUsage = useSettingsStore(s => s.showTokenUsage);
+	if (!showTokenUsage) return null;
 	if (message.role !== "assistant") return null;
 	const usage = readUsage(message);
 	if (!usage) return null;

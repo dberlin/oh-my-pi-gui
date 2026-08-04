@@ -1,4 +1,4 @@
-import { ArrowUp, Brain, ChevronDown, Paperclip, Square, X, Zap } from "lucide-react";
+import { ArrowUp, ChevronDown, Mic, Paperclip, Square, X, Zap } from "lucide-react";
 import type { ClipboardEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FsTreeEntry } from "../../../shared/ipc-types";
@@ -7,6 +7,13 @@ import { hydrateSession } from "../../hooks/use-rpc-events";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { parseComposerMode } from "../../lib/input-modes";
+import {
+	cancelVoiceRecording,
+	evaluateSttSubmitTrigger,
+	readSttSubmitTrigger,
+	recordAndTranscribe,
+	stopVoiceRecording,
+} from "../../lib/voice";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
@@ -14,9 +21,10 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { ApprovalControl } from "./ApprovalControl";
 import { ComposerModes } from "./ComposerModes";
+import { HistorySearchOverlay } from "./HistorySearchOverlay";
+import { ThinkingControl } from "./ThinkingControl";
 
 type SendMode = "prompt" | "steer" | "followUp";
 
@@ -129,10 +137,11 @@ export function InputArea() {
 	const cwd = useSessionStore(s => s.cwd);
 	const steeringMode = useSettingsStore(s => s.steeringMode);
 	const model = useModelStore(s => s.model);
-	const thinkingLevel = useModelStore(s => s.thinkingLevel);
 	const fastModeEnabled = useModelStore(s => s.fastModeEnabled);
 	const fastModeActive = useModelStore(s => s.fastModeActive);
 	const openModelPicker = useUiStore(s => s.openModelPicker);
+	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
+	const sttEnabled = useSettingsStore(s => s.sttEnabled);
 
 	const [text, setText] = useState("");
 	const [images, setImages] = useState<PastedImage[]>([]);
@@ -143,9 +152,20 @@ export function InputArea() {
 	const [mentions, setMentions] = useState<MentionEntry[]>([]);
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
+	const [recording, setRecording] = useState(false);
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const mountedRef = useRef(true);
+
+	// An in-flight dictation is cancelled (never transcribed) if the composer unmounts.
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+			cancelVoiceRecording();
+		};
+	}, []);
 
 	// Load persisted prompt history once (prefs IPC).
 	useEffect(() => {
@@ -221,7 +241,8 @@ export function InputArea() {
 			// Internal URL schemes below the file results.
 			const lowerQuery = q.toLowerCase();
 			for (const scheme of MENTION_SCHEMES) {
-				if (scheme.toLowerCase().includes(lowerQuery)) entries.push({ path: scheme, label: scheme, insert: scheme });
+				if (scheme.toLowerCase().includes(lowerQuery))
+					entries.push({ path: scheme, label: scheme, insert: scheme });
 			}
 			setMentions(entries);
 			setMenu(entries.length > 0 ? { kind: "mention", index: 0 } : null);
@@ -331,99 +352,156 @@ export function InputArea() {
 		[text],
 	);
 
-	const send = useCallback(() => {
-		const message = text.trim();
-		if ((!message && images.length === 0) || sending) return;
-		if (status !== "ready") {
-			toast({ variant: "warning", message: t("input.agentConnecting") });
-			return;
-		}
+	const send = useCallback(
+		// `overrideText` sends a freshly computed value (voice dictation submit
+		// trigger) instead of the rendered `text` state, which lags a setText.
+		(overrideText?: string) => {
+			const message = (overrideText ?? text).trim();
+			if ((!message && images.length === 0) || sending) return;
+			if (status !== "ready") {
+				toast({ variant: "warning", message: t("input.agentConnecting") });
+				return;
+			}
 
-		const parsed = parseComposerMode(message);
-		if (parsed?.mode === "bash" && parsed.body) {
+			const parsed = parseComposerMode(message);
+			if (parsed?.mode === "bash" && parsed.body) {
+				useInputHistoryStore.getState().record(message);
+				setSending(true);
+				void window.omp.rpc
+					.bash(parsed.body)
+					.then(async response => {
+						if (!response.success) {
+							toast({ variant: "error", title: t("input.bashFailed"), message: response.error });
+							return;
+						}
+						setText("");
+						setImages([]);
+						setMenu(null);
+						await hydrateSession();
+					})
+					.catch(error => {
+						toast({ variant: "error", title: t("input.bashFailed"), message: String(error) });
+					})
+					.finally(() => setSending(false));
+				return;
+			}
+
+			// `$ code` → python mode (TUI parity): run through the eval RPC, showing a
+			// running ExecutionBubble (cancel → abortEval) until the transcript record
+			// lands. Language is left to the sidecar — interactive eval is python-only
+			// today and the GUI tracks no kernel state to source it from.
+			if (parsed?.mode === "python" && parsed.body) {
+				useInputHistoryStore.getState().record(message);
+				setSending(true);
+				const pending: AgentMessage = {
+					role: "pythonExecution",
+					code: parsed.body,
+					timestamp: Date.now(),
+					running: true,
+				};
+				useMessagesStore.getState().appendMessage(pending);
+				void window.omp.rpc
+					.eval(parsed.body, undefined, parsed.excluded)
+					.then(async response => {
+						useMessagesStore.getState().removeMessage(pending);
+						if (!response.success) {
+							toast({ variant: "error", title: t("input.evalFailed"), message: response.error });
+							return;
+						}
+						setText("");
+						setImages([]);
+						setMenu(null);
+						await hydrateSession();
+					})
+					.catch(error => {
+						useMessagesStore.getState().removeMessage(pending);
+						toast({ variant: "error", title: t("input.evalFailed"), message: String(error) });
+					})
+					.finally(() => setSending(false));
+				return;
+			}
+
 			useInputHistoryStore.getState().record(message);
-			setSending(true);
-			void window.omp.rpc
-				.bash(parsed.body)
-				.then(async response => {
-					if (!response.success) {
-						toast({ variant: "error", title: t("input.bashFailed"), message: response.error });
-						return;
-					}
-					setText("");
-					setImages([]);
-					setMenu(null);
-					await hydrateSession();
+
+			const payload = images.map(image => image.content);
+			const request = isStreaming
+				? mode === "followUp"
+					? window.omp.rpc.followUp(message, payload)
+					: window.omp.rpc.steer(message, payload)
+				: window.omp.rpc.prompt(message, payload);
+			const previousImages = images;
+			setText("");
+			setImages([]);
+			setMenu(null);
+			void request
+				.then(response => {
+					if (response.success) return;
+					setText(current => (current ? `${message}\n${current}` : message));
+					setImages(current => [...previousImages, ...current]);
+					toast({ variant: "error", title: t("input.sendFailed"), message: response.error });
 				})
 				.catch(error => {
-					toast({ variant: "error", title: t("input.bashFailed"), message: String(error) });
-				})
-				.finally(() => setSending(false));
+					setText(current => (current ? `${message}\n${current}` : message));
+					setImages(current => [...previousImages, ...current]);
+					toast({ variant: "error", title: t("input.sendFailed"), message: String(error) });
+				});
+		},
+		[text, images, sending, status, isStreaming, mode, t],
+	);
+
+	// Mic dictation (stt.enabled): click starts capture, click again stops and
+	// transcribes; the transcript inserts at the textarea caret. The
+	// stt.submitTrigger setting can auto-submit the utterance (TUI parity).
+	const handleMicClick = useCallback(() => {
+		if (recording) {
+			stopVoiceRecording();
 			return;
 		}
-
-		// `$ code` → python mode (TUI parity): run through the eval RPC, showing a
-		// running ExecutionBubble (cancel → abortEval) until the transcript record
-		// lands. Language is left to the sidecar — interactive eval is python-only
-		// today and the GUI tracks no kernel state to source it from.
-		if (parsed?.mode === "python" && parsed.body) {
-			useInputHistoryStore.getState().record(message);
-			setSending(true);
-			const pending: AgentMessage = {
-				role: "pythonExecution",
-				code: parsed.body,
-				timestamp: Date.now(),
-				running: true,
-			};
-			useMessagesStore.getState().appendMessage(pending);
-			void window.omp.rpc
-				.eval(parsed.body, undefined, parsed.excluded)
-				.then(async response => {
-					useMessagesStore.getState().removeMessage(pending);
-					if (!response.success) {
-						toast({ variant: "error", title: t("input.evalFailed"), message: response.error });
-						return;
-					}
-					setText("");
-					setImages([]);
-					setMenu(null);
-					await hydrateSession();
-				})
-				.catch(error => {
-					useMessagesStore.getState().removeMessage(pending);
-					toast({ variant: "error", title: t("input.evalFailed"), message: String(error) });
-				})
-				.finally(() => setSending(false));
-			return;
-		}
-
-		useInputHistoryStore.getState().record(message);
-
-		const payload = images.map(image => image.content);
-		const request = isStreaming
-			? mode === "followUp"
-				? window.omp.rpc.followUp(message, payload)
-				: window.omp.rpc.steer(message, payload)
-			: window.omp.rpc.prompt(message, payload);
-		const previousImages = images;
-		setText("");
-		setImages([]);
-		setMenu(null);
-		void request
-			.then(response => {
-				if (response.success) return;
-				setText(current => (current ? `${message}\n${current}` : message));
-				setImages(current => [...previousImages, ...current]);
-				toast({ variant: "error", title: t("input.sendFailed"), message: response.error });
-			})
-			.catch(error => {
-				setText(current => (current ? `${message}\n${current}` : message));
-				setImages(current => [...previousImages, ...current]);
-				toast({ variant: "error", title: t("input.sendFailed"), message: String(error) });
+		setRecording(true);
+		void recordAndTranscribe().then(async result => {
+			if (!mountedRef.current) return;
+			setRecording(false);
+			if ("error" in result) {
+				if (result.error) toast({ variant: "error", title: t("voice.mic.failed"), message: result.error });
+				return;
+			}
+			const utterance = result.text.trim();
+			if (!utterance) return;
+			const trigger = await readSttSubmitTrigger();
+			const evaluation = evaluateSttSubmitTrigger(utterance, trigger);
+			const insert = (
+				evaluation.trimTrailing > 0 ? utterance.slice(0, utterance.length - evaluation.trimTrailing) : utterance
+			).trimEnd();
+			if (!insert || !mountedRef.current) return;
+			// Read the live DOM value/caret: the user may have typed mid-recording.
+			const el = textareaRef.current;
+			const current = el?.value ?? "";
+			const start = el?.selectionStart ?? current.length;
+			const end = el?.selectionEnd ?? start;
+			const before = current.slice(0, start);
+			const after = current.slice(end);
+			const prefix = before.length > 0 && !before.endsWith(" ") ? " " : "";
+			const suffix = after.length === 0 ? " " : "";
+			const insertedText = `${prefix}${insert}${suffix}`;
+			const next = `${before}${insertedText}${after}`;
+			setText(next);
+			requestAnimationFrame(() => {
+				const target = textareaRef.current;
+				if (!target) return;
+				target.focus();
+				const caret = start + insertedText.length;
+				target.setSelectionRange(caret, caret);
 			});
-	}, [text, images, sending, status, isStreaming, mode, t]);
+			if (evaluation.submit) send(next);
+		});
+	}, [recording, send, t]);
 
 	const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+		// IME composition (Chinese/Japanese/Korean input): while the candidate
+		// window is open, Enter and friends belong to the IME — committing the
+		// composition must never send the message. `isComposing` covers modern
+		// browsers; keyCode 229 is the legacy fallback.
+		if (e.nativeEvent.isComposing || e.keyCode === 229) return;
 		if (menu) {
 			const count = menu.kind === "command" ? filteredCommands.length : mentions.length;
 			if (e.key === "ArrowDown") {
@@ -665,6 +743,26 @@ export function InputArea() {
 							}}
 						/>
 
+						{sttEnabled && (
+							<button
+								type="button"
+								onClick={handleMicClick}
+								title={recording ? t("voice.mic.stop") : t("voice.mic.start")}
+								className={cx(
+									"omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+									recording
+										? "bg-[var(--omp-error-dim)] text-[var(--omp-error)]"
+										: "text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
+								)}
+							>
+								{recording ? (
+									<Square size={12} fill="currentColor" className="omp-pulse-dot" />
+								) : (
+									<Mic size={16} />
+								)}
+							</button>
+						)}
+
 						<button
 							type="button"
 							onClick={openModelPicker}
@@ -676,16 +774,7 @@ export function InputArea() {
 							<ChevronDown size={13} className="shrink-0 text-[var(--omp-dim)]" />
 						</button>
 
-						<button
-							type="button"
-							onClick={() => void window.omp.rpc.cycleThinkingLevel()}
-							title={t("input.thinking", { level: thinkingLevel ?? "off" })}
-							className="omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-medium hover:bg-[var(--omp-selected-bg)]"
-							style={{ color: `var(--omp-thinking-${thinkingLevel ?? "off"})` }}
-						>
-							<Brain size={14} />
-							<span className="hidden sm:inline">{thinkingLevel ?? "off"}</span>
-						</button>
+						<ThinkingControl />
 
 						<button
 							type="button"
@@ -743,7 +832,7 @@ export function InputArea() {
 						) : (
 							<button
 								type="button"
-								onClick={send}
+								onClick={() => send()}
 								disabled={status !== "ready" || sending || (!text.trim() && images.length === 0)}
 								title={t("input.send")}
 								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] transition-[box-shadow,filter,transform,opacity] duration-150 hover:brightness-110 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:brightness-100 disabled:active:translate-y-0"

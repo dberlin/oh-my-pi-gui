@@ -1,0 +1,379 @@
+/**
+ * Contract tests for the pending-model indicator: the chat must show a live
+ * "waiting for model response" row between turn_start and the first streamed
+ * message, because a stalled provider request (slow first event, transport
+ * retry) is otherwise indistinguishable from a dead UI. Covers the
+ * useRpcEvents event wiring (which events arm/clear `awaitingModelSince`) and
+ * the PendingModelRow elapsed-time rendering. Rendered with react-dom/client
+ * into a linkedom document (same harness as ForkHandoffDialogs.test.tsx).
+ */
+
+import { parseHTML } from "linkedom";
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { AgentMessage, AgentSessionEvent, RpcResponse } from "../../shared/rpc-types";
+import { TurnStatusRow } from "../components/chat/ChatStream";
+import { I18nProvider } from "../lib/i18n";
+import { useMessagesStore } from "../stores/messages";
+import { useSessionStore } from "../stores/session";
+import { useToolsStore } from "../stores/tools";
+import { useRpcEvents } from "./use-rpc-events";
+
+const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+
+const globals = globalThis as Record<string, unknown>;
+globals.document = document;
+globals.window = window;
+globals.Event = Event;
+globals.HTMLElement = HTMLElement;
+globals.Node = Node;
+globals.IS_REACT_ACT_ENVIRONMENT = true;
+globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+
+const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
+if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
+
+interface TestElement {
+	textContent: string | null;
+	remove: () => void;
+	appendChild: (child: TestElement) => void;
+}
+
+function success(data: unknown): RpcResponse {
+	return { type: "response", command: "test", success: true, data };
+}
+
+type BatchHandler = (events: AgentSessionEvent[]) => void;
+
+interface MockOmp {
+	rpc: {
+		getState: Mock<() => Promise<RpcResponse>>;
+		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getSubagents: Mock<() => Promise<RpcResponse>>;
+		getGoal: Mock<() => Promise<RpcResponse>>;
+		getSettings: Mock<(keys: string[]) => Promise<RpcResponse>>;
+		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
+	};
+	events: {
+		onBatch: Mock<(callback: BatchHandler) => () => void>;
+		onSidecarStatus: Mock<() => () => void>;
+		onSubagentFrame: Mock<() => () => void>;
+		onConfigUpdate: Mock<() => () => void>;
+		onExtensionUi: Mock<() => () => void>;
+	};
+	sidecar: { getStatus: Mock<() => Promise<unknown>> };
+	system: { notify: Mock<(title: string, body: string) => void> };
+}
+
+function installMockOmp(): { omp: MockOmp; emitBatch: BatchHandler } {
+	let batchHandler: BatchHandler = () => {};
+	// Mirror the real server: get_state reports isStreaming=true mid-run, and
+	// agent_start triggers refreshSessionState — a static mock would overwrite
+	// the event-set flag with stale state and test a race production never has.
+	let mockStreaming = false;
+	const omp: MockOmp = {
+		rpc: {
+			getState: vi.fn(async () =>
+				success({
+					sessionId: "s1",
+					sessionName: null,
+					sessionFile: null,
+					cwd: "/tmp",
+					isStreaming: mockStreaming,
+					isCompacting: false,
+					contextUsage: null,
+					messageCount: 0,
+					queuedMessageCount: 0,
+					planModeEnabled: false,
+					todoPhases: [],
+				}),
+			),
+			getTranscript: vi.fn(async () => success({ messages: [] })),
+			getSubagents: vi.fn(async () => success({ subagents: [] })),
+			getGoal: vi.fn(async () => success({ enabled: false })),
+			getSettings: vi.fn(async () => success({ values: {} })),
+			setSubagentSubscription: vi.fn(async () => success({})),
+		},
+		events: {
+			onBatch: vi.fn((callback: BatchHandler) => {
+				batchHandler = callback;
+				return () => {};
+			}),
+			onSidecarStatus: vi.fn(() => () => {}),
+			onSubagentFrame: vi.fn(() => () => {}),
+			onConfigUpdate: vi.fn(() => () => {}),
+			onExtensionUi: vi.fn(() => () => {}),
+		},
+		sidecar: { getStatus: vi.fn(async () => ({ status: "ready", cwd: "/tmp" })) },
+		system: { notify: vi.fn() },
+	};
+	const ompWindow = window as unknown as { omp: MockOmp };
+	ompWindow.omp = omp;
+	const emitBatch: BatchHandler = events => {
+		for (const event of events) {
+			if (event.type === "agent_start") mockStreaming = true;
+			if (event.type === "agent_end") mockStreaming = false;
+		}
+		batchHandler(events);
+	};
+	return { omp, emitBatch };
+}
+
+let container: TestElement;
+let root: Root;
+
+async function flush(): Promise<void> {
+	await act(async () => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, 0);
+		await promise;
+	});
+}
+
+async function mount(element: ReactElement): Promise<void> {
+	container = document.createElement("div") as unknown as TestElement;
+	document.body.appendChild(container as never);
+	root = createRoot(container as unknown as Element);
+	await act(async () => {
+		root.render(<I18nProvider>{element}</I18nProvider>);
+	});
+	await flush();
+}
+
+/** Renders the hook under test with no visible chrome of its own. */
+function RpcEventsProbe() {
+	useRpcEvents();
+	return null;
+}
+
+const assistantMessage: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
+
+afterEach(async () => {
+	if (root) {
+		await act(async () => {
+			root.unmount();
+		});
+	}
+	container?.remove();
+	useSessionStore.getState().reset();
+	useMessagesStore.getState().reset();
+	useToolsStore.getState().reset();
+});
+
+describe("useRpcEvents awaiting-model marker", () => {
+	it("arms on agent/turn start and clears when the assistant message finalizes", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+
+		expect(useSessionStore.getState().awaitingModelSince).toBeNull();
+
+		await act(async () => {
+			emitBatch([{ type: "agent_start", sessionId: "s1" }]);
+		});
+		expect(useSessionStore.getState().isStreaming).toBe(true);
+		const armedAt = useSessionStore.getState().awaitingModelSince;
+		expect(typeof armedAt).toBe("number");
+
+		// The empty-shell phase keeps the marker: message_start fires before
+		// the first token, and the status row must survive it.
+		await act(async () => {
+			emitBatch([{ type: "message_start", message: assistantMessage }]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+
+		await act(async () => {
+			emitBatch([{ type: "message_end", message: assistantMessage }]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).toBeNull();
+	});
+
+	it("re-arms per turn and clears on turn_end and agent_end", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+
+		await act(async () => {
+			emitBatch([{ type: "agent_start", sessionId: "s1" }, { type: "turn_start" }]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+
+		// Tool execution window: running tool cards carry the activity signal.
+		await act(async () => {
+			emitBatch([{ type: "turn_end" }]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).toBeNull();
+		expect(useSessionStore.getState().isStreaming).toBe(true);
+
+		await act(async () => {
+			emitBatch([{ type: "turn_start" }]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+
+		await act(async () => {
+			emitBatch([{ type: "agent_end", messages: [], isTerminal: false }]);
+		});
+		expect(useSessionStore.getState().isStreaming).toBe(false);
+		expect(useSessionStore.getState().awaitingModelSince).toBeNull();
+	});
+
+	it("drives the retry row state and re-arms the model wait on success", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+
+		await act(async () => {
+			emitBatch([{ type: "agent_start", sessionId: "s1" }]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+
+		// Retry delay window: not a model wait — the inline retry row owns the chat.
+		await act(async () => {
+			emitBatch([
+				{ type: "auto_retry_start", attempt: 2, maxAttempts: 5, delayMs: 9000, errorMessage: "stream stalled" },
+			]);
+		});
+		const retryInfo = useSessionStore.getState().retryInfo;
+		expect(retryInfo?.attempt).toBe(2);
+		expect(retryInfo?.maxAttempts).toBe(5);
+		expect(retryInfo?.delayMs).toBe(9000);
+		expect(useSessionStore.getState().awaitingModelSince).toBeNull();
+
+		// Mirror of the TUI's #ensureWorkingLoaderWhileStreaming: a succeeded
+		// retry re-arms the wait for the re-dispatched turn's first content.
+		await act(async () => {
+			emitBatch([{ type: "auto_retry_end", success: true, attempt: 2 }]);
+		});
+		expect(useSessionStore.getState().retryInfo).toBeNull();
+		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+
+		await act(async () => {
+			emitBatch([{ type: "agent_end", messages: [], isTerminal: false }]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).toBeNull();
+	});
+
+	it("drives the compaction row state across the maintenance window", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+
+		await act(async () => {
+			emitBatch([{ type: "auto_compaction_start", reason: "overflow", action: "compact" }]);
+		});
+		expect(useSessionStore.getState().isCompacting).toBe(true);
+		expect(useSessionStore.getState().compactionInfo).toEqual({ reason: "overflow", action: "compact" });
+
+		await act(async () => {
+			emitBatch([
+				{ type: "auto_compaction_end", action: "compact", result: null, aborted: false, willRetry: false },
+			]);
+		});
+		expect(useSessionStore.getState().isCompacting).toBe(false);
+		expect(useSessionStore.getState().compactionInfo).toBeNull();
+	});
+
+	it("keeps the marker through the user-prompt echo, clearing only on assistant message_end", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+
+		// Wire order per agent-loop: turn_start → user echo (message_start/end)
+		// → model wait → assistant stream → assistant message_end. Neither the
+		// echo nor the assistant's empty-shell message_start may clear the row.
+		await act(async () => {
+			emitBatch([
+				{ type: "agent_start", sessionId: "s1" },
+				{ type: "turn_start" },
+				{ type: "message_start", message: { role: "user", content: [], timestamp: Date.now() } },
+				{ type: "message_end", message: { role: "user", content: [], timestamp: Date.now() } },
+			]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+
+		await act(async () => {
+			emitBatch([{ type: "message_start", message: assistantMessage }]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+
+		await act(async () => {
+			emitBatch([{ type: "message_end", message: assistantMessage }]);
+		});
+		expect(useSessionStore.getState().awaitingModelSince).toBeNull();
+	});
+
+	it("arms the marker when attaching to an already-streaming session", async () => {
+		const { omp } = installMockOmp();
+		// Server reports a run already in flight at attach time — agent_start
+		// was missed, so hydration must re-arm the status row (TUI guest-attach
+		// parity).
+		omp.rpc.getState.mockImplementation(async () =>
+			success({
+				sessionId: "s1",
+				sessionName: null,
+				sessionFile: null,
+				cwd: "/tmp",
+				isStreaming: true,
+				isCompacting: false,
+				contextUsage: null,
+				messageCount: 3,
+				queuedMessageCount: 0,
+				planModeEnabled: false,
+				todoPhases: [],
+			}),
+		);
+		await mount(<RpcEventsProbe />);
+		expect(useSessionStore.getState().isStreaming).toBe(true);
+		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+	});
+});
+
+describe("TurnStatusRow", () => {
+	it("renders the waiting label with elapsed seconds and the interrupt hint", async () => {
+		useSessionStore.setState({ awaitingModelSince: Date.now() - 5000 });
+		await mount(<TurnStatusRow />);
+		expect(document.body.textContent).toContain("Waiting for model response");
+		expect(document.body.textContent).toContain("5s");
+		expect(document.body.textContent).toContain("(press Esc to interrupt)");
+		expect(document.body.textContent).not.toContain("Slow response");
+	});
+
+	it("escalates to the slow-response hint after 30s", async () => {
+		useSessionStore.setState({ awaitingModelSince: Date.now() - 35_000 });
+		await mount(<TurnStatusRow />);
+		expect(document.body.textContent).toContain("35s");
+		expect(document.body.textContent).toContain("Slow response");
+	});
+
+	it("renders the retry countdown with the failure detail", async () => {
+		useSessionStore.setState({
+			retryInfo: {
+				attempt: 2,
+				maxAttempts: 5,
+				delayMs: 9000,
+				errorMessage: "stream stalled",
+				startedAt: Date.now(),
+			},
+		});
+		await mount(<TurnStatusRow />);
+		expect(document.body.textContent).toContain("Retrying (2/5) in 9s…");
+		expect(document.body.textContent).toContain("stream stalled");
+	});
+
+	it("renders the in-flight retry once the delay elapses", async () => {
+		useSessionStore.setState({
+			retryInfo: {
+				attempt: 2,
+				maxAttempts: 5,
+				delayMs: 9000,
+				errorMessage: "stream stalled",
+				startedAt: Date.now() - 10_000,
+			},
+		});
+		await mount(<TurnStatusRow />);
+		expect(document.body.textContent).toContain("Retrying (2/5)…");
+		expect(document.body.textContent).not.toContain("in 9s");
+	});
+
+	it("renders the compaction loader with TUI reason/action text", async () => {
+		useSessionStore.setState({ compactionInfo: { reason: "overflow", action: "handoff" } });
+		await mount(<TurnStatusRow />);
+		expect(document.body.textContent).toContain("Context overflow detected, Auto-handoff…");
+	});
+});

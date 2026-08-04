@@ -9,6 +9,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AvailableCommand, RpcHookInfo, RpcSkillInfo } from "../../../shared/rpc-types";
+import { shortenPath } from "../../lib/format";
 import { I18nProvider } from "../../lib/i18n";
 import {
 	ExtensionsPanel,
@@ -19,7 +20,6 @@ import {
 	hookTool,
 	isCustomCommand,
 	MCP_STATUS_VARIANT,
-	shortenPath,
 } from "./ExtensionsPanel";
 
 function skill(partial: Partial<RpcSkillInfo> & { name: string }): RpcSkillInfo {

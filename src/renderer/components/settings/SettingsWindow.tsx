@@ -346,6 +346,27 @@ function SchemaSettingRow({
 	};
 
 	const status = <SettingStatus dirty={dirty} saving={saving} saved={saved} />;
+	// Honest labeling: settings that only drive TUI chrome get a badge so a GUI
+	// user doesn't expect an effect this client can't deliver; settings cached
+	// at session construction get a restart badge (applies in EVERY client).
+	const tuiBadge =
+		entry.tuiOnly === true ? (
+			<span
+				title={t("settings.tuiOnly.hint")}
+				className="shrink-0 rounded border border-(--omp-border-muted) px-1 py-px text-[9.5px] font-medium uppercase tracking-wide text-(--omp-dim)"
+			>
+				{t("settings.tuiOnly.badge")}
+			</span>
+		) : null;
+	const restartBadge =
+		entry.restartRequired === true ? (
+			<span
+				title={t("settings.restartRequired.hint")}
+				className="shrink-0 rounded border border-[var(--omp-warning)]/40 px-1 py-px text-[9.5px] font-medium uppercase tracking-wide text-[var(--omp-warning)]"
+			>
+				{t("settings.restartRequired.badge")}
+			</span>
+		) : null;
 
 	// Boolean settings render as a full-row toggle and write immediately.
 	if (entry.type === "boolean") {
@@ -358,7 +379,11 @@ function SchemaSettingRow({
 					label={label}
 					onChange={next => void commit(next)}
 				/>
-				<div className="pointer-events-none absolute top-2 right-10">{status}</div>
+				<div className="absolute top-2 right-10 flex items-center gap-1.5">
+					{tuiBadge}
+					{restartBadge}
+					<div className="pointer-events-none">{status}</div>
+				</div>
 			</div>
 		);
 	}
@@ -399,6 +424,8 @@ function SchemaSettingRow({
 					<span className="text-xs font-medium text-(--omp-text)" title={entry.path}>
 						{label}
 					</span>
+					{tuiBadge}
+					{restartBadge}
 					{status}
 				</div>
 				{description && (
@@ -615,6 +642,8 @@ function SchemaSettingRow({
 					<span className="text-xs font-medium text-(--omp-text)" title={entry.path}>
 						{label}
 					</span>
+					{tuiBadge}
+					{restartBadge}
 					{status}
 				</div>
 				{description && (
@@ -767,6 +796,7 @@ export function SettingsWindow() {
 	const fontSize = useUiStore(state => state.fontSize);
 	const panelTab = useUiStore(state => state.panelTab);
 	const notifications = useUiStore(state => state.notifications);
+	const thinkingExpanded = useUiStore(state => state.thinkingExpanded);
 	const settings = useSettingsStore();
 	const model = useModelStore(state => state.model);
 	const thinkingLevel = useModelStore(state => state.thinkingLevel);
@@ -839,6 +869,31 @@ export function SettingsWindow() {
 	const handleCommitted = useCallback((path: string, value: unknown) => {
 		setValues(prev => ({ ...prev, [path]: value }));
 	}, []);
+
+	// External edits (TUI selector, composer controls, another window) push
+	// config_update — refresh the displayed values or this window goes stale
+	// while sitting open. Values-only refetch: schema/labels don't change, and
+	// per-row drafts win over `values` so an in-progress edit is never clobbered.
+	useEffect(() => {
+		if (!open) return;
+		let cancelled = false;
+		const unsubscribe = window.omp.events.onConfigUpdate(() => {
+			void window.omp.rpc.getSettings().then(res => {
+				if (cancelled || !res.success) return;
+				const data = res.data as { values?: Record<string, unknown> } | undefined;
+				if (!data?.values) return;
+				setValues(prev => ({ ...prev, ...data.values }));
+				const configured = data.values["tools.approvalMode"];
+				if (configured === "always-ask" || configured === "write" || configured === "yolo") {
+					setApprovalMode(configured);
+				}
+			});
+		});
+		return () => {
+			cancelled = true;
+			unsubscribe();
+		};
+	}, [open]);
 
 	const tabs = useMemo<TabItem[]>(() => {
 		const list: TabItem[] = [{ id: RUNTIME_TAB_ID, label: "Runtime" }];
@@ -918,6 +973,10 @@ export function SettingsWindow() {
 	const applyNotifications = (next: boolean) => {
 		setNotifications(next);
 		void window.omp.prefs.set("notifications", next);
+	};
+	const applyThinkingExpanded = (next: boolean) => {
+		useUiStore.getState().setThinkingExpanded(next);
+		void window.omp.prefs.set("thinkingExpanded", next);
 	};
 	const applyApprovalMode = (next: ApprovalMode) => {
 		setApprovalMode(next);
@@ -1253,6 +1312,14 @@ export function SettingsWindow() {
 									description={t("settings.gui.notificationsDesc")}
 									label={t("settings.gui.notifications")}
 									onChange={applyNotifications}
+								/>
+							</Section>
+							<Section title={t("settings.gui.thinkingExpanded")}>
+								<Toggle
+									checked={thinkingExpanded}
+									description={t("settings.gui.thinkingExpandedDesc")}
+									label={t("settings.gui.thinkingExpanded")}
+									onChange={applyThinkingExpanded}
 								/>
 							</Section>
 							<Section title={t("settings.gui.approvalMode")}>

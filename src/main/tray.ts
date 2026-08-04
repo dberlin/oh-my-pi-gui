@@ -11,7 +11,7 @@ import { app, Menu, nativeImage, Tray } from "electron";
 import { IPC_EVENTS, type MenuAction, type MenuActionPayload, type TrayState } from "../shared/ipc-types";
 import type { WindowManager } from "./window";
 
-type TrayStatus = "idle" | "streaming" | "error";
+type TrayStatus = "idle" | "streaming" | "waiting" | "error";
 type TrayLang = "zh" | "en";
 
 let tray: Tray | null = null;
@@ -50,7 +50,14 @@ function t(lang: TrayLang, key: keyof typeof L): string {
 function buildIcon(status: TrayStatus): Electron.NativeImage {
 	const size = 16;
 	const canvas = Buffer.alloc(size * size * 4, 0);
-	const [r, g, b] = status === "streaming" ? [74, 222, 128] : status === "error" ? [248, 113, 113] : [148, 163, 184];
+	const [r, g, b] =
+		status === "streaming"
+			? [74, 222, 128]
+			: status === "waiting"
+				? [251, 191, 36]
+				: status === "error"
+					? [248, 113, 113]
+					: [148, 163, 184];
 	const cx = size / 2;
 	const cy = size / 2;
 	const radius = 6;
@@ -116,14 +123,21 @@ function buildContextMenu(windowManager: WindowManager, state: TrayState | null)
 		template.push({ label: `${fastLabel} · ${t(lang, "approval")}: ${approvalLabel}`, enabled: false });
 		// Usage / token consumption (read-only).
 		if (state.contextPercent !== null) {
-			const tokens = state.contextTokens !== null ? ` · ${formatTokens(state.contextTokens)} ${t(lang, "tokens")}` : "";
-			template.push({ label: `${t(lang, "context")}: ${Math.round(state.contextPercent)}%${tokens}`, enabled: false });
+			const tokens =
+				state.contextTokens !== null ? ` · ${formatTokens(state.contextTokens)} ${t(lang, "tokens")}` : "";
+			template.push({
+				label: `${t(lang, "context")}: ${Math.round(state.contextPercent)}%${tokens}`,
+				enabled: false,
+			});
 		}
 		template.push({ type: "separator" });
 	}
 
 	// Usage stats window.
-	template.push({ label: t(lang, "usageStats"), click: () => send(windowManager, "open-usage") }, { type: "separator" });
+	template.push(
+		{ label: t(lang, "usageStats"), click: () => send(windowManager, "open-usage") },
+		{ type: "separator" },
+	);
 
 	// Workspace jumping.
 	const workspaceItems: Electron.MenuItemConstructorOptions[] = (state?.workspaces ?? []).map(ws => ({
@@ -155,11 +169,19 @@ function buildContextMenu(windowManager: WindowManager, state: TrayState | null)
 				checked: state?.fastMode ?? false,
 				click: () => send(windowManager, "toggle-fast"),
 			},
-			{ label: `${t(lang, "thinking")}: ${state?.thinkingLevel ?? "off"}`, click: () => send(windowManager, "cycle-thinking") },
+			{
+				label: `${t(lang, "thinking")}: ${state?.thinkingLevel ?? "off"}`,
+				click: () => send(windowManager, "cycle-thinking"),
+			},
 			{
 				label: t(lang, "approval"),
 				submenu: (["yolo", "write", "always-ask"] as const).map(mode => ({
-					label: mode === "yolo" ? t(lang, "approvalYolo") : mode === "write" ? t(lang, "approvalWrite") : t(lang, "approvalAsk"),
+					label:
+						mode === "yolo"
+							? t(lang, "approvalYolo")
+							: mode === "write"
+								? t(lang, "approvalWrite")
+								: t(lang, "approvalAsk"),
 					type: "radio" as const,
 					checked: state?.approvalMode === mode,
 					click: () => send(windowManager, "set-approval", { approvalMode: mode }),

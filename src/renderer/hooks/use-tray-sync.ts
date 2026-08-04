@@ -10,10 +10,11 @@ import { useEffect } from "react";
 import type { TrayState } from "../../shared/ipc-types";
 import { basename } from "../lib/format";
 import { useLang } from "../lib/i18n";
-import { useSessionList } from "./use-session-list";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
+import { useAwaitingConfirmation } from "./use-awaiting-confirmation";
+import { useSessionList } from "./use-session-list";
 
 export function useTraySync(): void {
 	const { lang } = useLang();
@@ -23,6 +24,7 @@ export function useTraySync(): void {
 	const approvalMode = useSettingsStore(s => s.approvalMode);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
+	const awaitingConfirmation = useAwaitingConfirmation();
 	const status = useSessionStore(s => s.status);
 	const contextUsage = useSessionStore(s => s.contextUsage);
 	const { sessions } = useSessionList("global");
@@ -40,7 +42,8 @@ export function useTraySync(): void {
 			.slice(0, 9)
 			.map(wsCwd => ({ cwd: wsCwd, name: basename(wsCwd) || wsCwd, current: wsCwd === cwd }));
 
-		const trayStatus: TrayState["status"] = status === "error" ? "error" : isStreaming ? "streaming" : "idle";
+		const trayStatus: TrayState["status"] =
+			status === "error" ? "error" : awaitingConfirmation ? "waiting" : isStreaming ? "streaming" : "idle";
 
 		window.omp.tray.pushState({
 			status: trayStatus,
@@ -55,5 +58,17 @@ export function useTraySync(): void {
 			contextTokens: contextUsage?.tokens ?? null,
 			workspaces,
 		});
-	}, [lang, model, thinkingLevel, fastMode, approvalMode, cwd, isStreaming, status, contextUsage, sessions]);
+	}, [
+		lang,
+		model,
+		thinkingLevel,
+		fastMode,
+		approvalMode,
+		cwd,
+		isStreaming,
+		awaitingConfirmation,
+		status,
+		contextUsage,
+		sessions,
+	]);
 }

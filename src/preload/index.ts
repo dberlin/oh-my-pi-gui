@@ -16,6 +16,7 @@ import type {
 	MenuAction,
 	MenuActionPayload,
 	OmpApi,
+	RunProgressState,
 	SessionInfo,
 	TrayState,
 } from "../shared/ipc-types";
@@ -39,8 +40,8 @@ import type {
 	TodoPhase,
 } from "../shared/rpc-types";
 
-function rpcCommand(cmd: RpcCommand): Promise<RpcResponse> {
-	return ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, { command: cmd });
+function rpcCommand(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
+	return ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, { command: cmd, timeoutMs });
 }
 
 function subscribe<T>(channel: string, callback: (data: T) => void): () => void {
@@ -71,7 +72,7 @@ const api: OmpApi = {
 		setModel: (provider: string, modelId: string) => rpcCommand({ type: "set_model", provider, modelId }),
 		cycleModel: () => rpcCommand({ type: "cycle_model" }),
 		getAvailableModels: () => rpcCommand({ type: "get_available_models" }),
-		setThinkingLevel: (level: ThinkingLevel) => rpcCommand({ type: "set_thinking_level", level }),
+		setThinkingLevel: (level: ThinkingLevel | "auto") => rpcCommand({ type: "set_thinking_level", level }),
 		cycleThinkingLevel: () => rpcCommand({ type: "cycle_thinking_level" }),
 		setFastMode: (enabled: boolean) => rpcCommand({ type: "set_fast_mode", enabled }),
 		setSteeringMode: (mode: "all" | "one-at-a-time") => rpcCommand({ type: "set_steering_mode", mode }),
@@ -115,6 +116,7 @@ const api: OmpApi = {
 		getMemoryReport: () => rpcCommand({ type: "get_memory_report" }),
 		getSessionTree: () => rpcCommand({ type: "get_session_tree" }),
 		getThemes: () => rpcCommand({ type: "get_themes" }),
+		getThemeColors: (name: string) => rpcCommand({ type: "get_theme_colors", name }),
 		getTranscript: () => rpcCommand({ type: "get_transcript" }),
 		planApproval: (approved: boolean, option?: "execute" | "compact" | "keep_context", feedback?: string) =>
 			rpcCommand({ type: "plan_approval", approved, option, feedback }),
@@ -140,6 +142,12 @@ const api: OmpApi = {
 		setHostTools: (tools: unknown[]) => rpcCommand({ type: "set_host_tools", tools: tools as never }),
 		setHostUriSchemes: (schemes: unknown[]) =>
 			rpcCommand({ type: "set_host_uri_schemes", schemes: schemes as never }),
+		// Voice (speech in/out) — AgentVoice region; keep at the end of the rpc object.
+		// Generous timeouts: the first call on a fresh sidecar loads the STT/TTS
+		// model into the worker, far beyond the default 8s RPC timeout.
+		transcribeAudio: (audioBase64: string, mimeType: string) =>
+			rpcCommand({ type: "transcribe_audio", audioBase64, mimeType }, 120_000),
+		synthesizeSpeech: (text: string) => rpcCommand({ type: "synthesize_speech", text }, 60_000),
 	},
 
 	events: {
@@ -162,7 +170,9 @@ const api: OmpApi = {
 		onSessionsChanged: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.SESSIONS_CHANGED, () => callback()),
 		onLogLines: (callback: (lines: string[]) => void) => subscribe<string[]>(IPC_EVENTS.LOG_LINE, callback),
 		onMenuAction: (callback: (action: MenuAction, payload?: MenuActionPayload) => void) =>
-			subscribe<{ action: MenuAction } & MenuActionPayload>(IPC_EVENTS.MENU_ACTION, data => callback(data.action, data)),
+			subscribe<{ action: MenuAction } & MenuActionPayload>(IPC_EVENTS.MENU_ACTION, data =>
+				callback(data.action, data),
+			),
 		onDeepLink: (callback: (link: DeepLinkPayload) => void) =>
 			subscribe<DeepLinkPayload>(IPC_EVENTS.DEEP_LINK, callback),
 	},
@@ -223,12 +233,17 @@ const api: OmpApi = {
 		pushState: (state: TrayState) => ipcRenderer.send(IPC_EVENTS.TRAY_STATE_PUSH, state),
 	},
 
+	progress: {
+		set: (state: RunProgressState) => ipcRenderer.send(IPC_EVENTS.PROGRESS_SET, state),
+	},
+
 	models: {
 		listProviders: () => ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDERS_LIST) as Promise<CustomProviderView[]>,
 		upsertProvider: (input: CustomProviderInput) =>
 			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, input) as Promise<void>,
 		deleteProvider: (id: string) => ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_DELETE, id) as Promise<void>,
-		openConfig: () => ipcRenderer.invoke(IPC_COMMANDS.MODELS_CONFIG_OPEN) as Promise<{ path: string; opened: boolean }>,
+		openConfig: () =>
+			ipcRenderer.invoke(IPC_COMMANDS.MODELS_CONFIG_OPEN) as Promise<{ path: string; opened: boolean }>,
 	},
 
 	fs: {

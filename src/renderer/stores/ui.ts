@@ -39,6 +39,8 @@ interface UiStore {
 	fontSize: number;
 	/** Master switch for desktop notifications (Settings → GUI, default on). */
 	notifications: boolean;
+	/** Expand reasoning (thinking) blocks by default (Settings → GUI, default off). */
+	thinkingExpanded: boolean;
 	/** Expand/collapse-all signal for tool cards (⌃O); `seq` bumps per toggle so cards re-sync their local state. */
 	toolsExpandAll: { expanded: boolean; seq: number };
 	toggleSidebar: () => void;
@@ -88,6 +90,7 @@ interface UiStore {
 	setTheme: (theme: ThemeMode) => void;
 	setFontSize: (size: number) => void;
 	setNotifications: (enabled: boolean) => void;
+	setThinkingExpanded: (enabled: boolean) => void;
 }
 
 export const useUiStore = create<UiStore>()((set, get) => ({
@@ -100,6 +103,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	theme: "light",
 	fontSize: 15,
 	notifications: true,
+	thinkingExpanded: false,
 	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),
 	togglePanel: () => set({ panelVisible: !get().panelVisible }),
 	toolsExpandAll: { expanded: false, seq: 0 },
@@ -171,4 +175,5 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setTheme: theme => set({ theme }),
 	setFontSize: size => set({ fontSize: size }),
 	setNotifications: enabled => set({ notifications: enabled }),
+	setThinkingExpanded: enabled => set({ thinkingExpanded: enabled }),
 }));

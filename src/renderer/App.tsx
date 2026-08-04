@@ -1,13 +1,13 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import type { MenuAction, MenuActionPayload } from "../shared/ipc-types";
+import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
 import { ChatStream } from "./components/chat/ChatStream";
 import { ToastStack } from "./components/common";
-import { CommandPalette } from "./components/dialogs/CommandPalette";
 import { BranchPickerDialog } from "./components/dialogs/BranchPickerDialog";
+import { CommandPalette } from "./components/dialogs/CommandPalette";
 import { ExtensionDialog } from "./components/dialogs/ExtensionDialog";
 import { HandoffDialog } from "./components/dialogs/HandoffDialog";
-import { PlanApprovalDialog } from "./components/dialogs/PlanApprovalDialog";
 import { ModelPicker } from "./components/dialogs/ModelPicker";
+import { PlanApprovalDialog } from "./components/dialogs/PlanApprovalDialog";
 import { RenameSessionDialog } from "./components/dialogs/RenameSessionDialog";
 import { SessionInfoDialog } from "./components/dialogs/SessionInfoDialog";
 import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
@@ -16,35 +16,54 @@ import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
 import { InputArea } from "./components/layout/InputArea";
 import { PanelContainer } from "./components/layout/PanelContainer";
 import { Sidebar } from "./components/layout/Sidebar";
-import { TitleBar } from "./components/layout/TitleBar";
 import { SidecarBanner } from "./components/layout/SidecarBanner";
+import { StatusFooter } from "./components/layout/StatusFooter";
+import { TitleBar } from "./components/layout/TitleBar";
+import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { hydrateSession, useRpcEvents } from "./hooks/use-rpc-events";
 import { useTraySync } from "./hooks/use-tray-sync";
-import { useLang, useT } from "./lib/i18n";
 import { exportSessionHtml } from "./lib/export-session";
+import { useLang, useT } from "./lib/i18n";
 import { restoreQueuedMessages, retryLastTurn } from "./lib/messages";
 import { applyFontSize, applyTheme, watchSystemTheme } from "./lib/theme";
-import { applyThemeByName, getPersistedThemeSelection } from "./lib/themes";
-import { useSessionStore } from "./stores/session";
+import { applyThemeByName, getPersistedThemeSelection, initAgentThemeSync } from "./lib/themes";
+import { startVoiceAutoSpeak } from "./lib/voice";
 import { useModelStore } from "./stores/model";
+import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
 import { toast } from "./stores/toast";
-import { useUiStore, type PanelTab } from "./stores/ui";
+import { type PanelTab, useUiStore } from "./stores/ui";
 
 // Heavy overlays code-split: they render null while closed, so they download
 // only on first open instead of bloating the eager bundle.
-const SettingsWindow = lazy(() => import("./components/settings/SettingsWindow").then(m => ({ default: m.SettingsWindow })));
-const StatsDashboard = lazy(() => import("./components/stats/StatsDashboard").then(m => ({ default: m.StatsDashboard })));
+const SettingsWindow = lazy(() =>
+	import("./components/settings/SettingsWindow").then(m => ({ default: m.SettingsWindow })),
+);
+const StatsDashboard = lazy(() =>
+	import("./components/stats/StatsDashboard").then(m => ({ default: m.StatsDashboard })),
+);
 const ModelCompare = lazy(() => import("./components/settings/ModelCompare").then(m => ({ default: m.ModelCompare })));
-const ExtensionsPanel = lazy(() => import("./components/panels/ExtensionsPanel").then(m => ({ default: m.ExtensionsPanel })));
-const InventoryPanel = lazy(() => import("./components/panels/InventoryPanel").then(m => ({ default: m.InventoryPanel })));
+const ExtensionsPanel = lazy(() =>
+	import("./components/panels/ExtensionsPanel").then(m => ({ default: m.ExtensionsPanel })),
+);
+const InventoryPanel = lazy(() =>
+	import("./components/panels/InventoryPanel").then(m => ({ default: m.InventoryPanel })),
+);
 const ModesPanel = lazy(() => import("./components/panels/ModesPanel").then(m => ({ default: m.ModesPanel })));
-const AgentHubWindow = lazy(() => import("./components/panels/AgentHubWindow").then(m => ({ default: m.AgentHubWindow })));
-const ProviderConfigDialog = lazy(() => import("./components/settings/ProviderConfigDialog").then(m => ({ default: m.ProviderConfigDialog })));
+const AgentHubWindow = lazy(() =>
+	import("./components/panels/AgentHubWindow").then(m => ({ default: m.AgentHubWindow })),
+);
+const ProviderConfigDialog = lazy(() =>
+	import("./components/settings/ProviderConfigDialog").then(m => ({ default: m.ProviderConfigDialog })),
+);
 const UsageWindow = lazy(() => import("./components/settings/UsageWindow").then(m => ({ default: m.UsageWindow })));
-const ModelRolesWindow = lazy(() => import("./components/settings/ModelRolesWindow").then(m => ({ default: m.ModelRolesWindow })));
-const ProvidersWindow = lazy(() => import("./components/settings/ProvidersWindow").then(m => ({ default: m.ProvidersWindow })));
+const ModelRolesWindow = lazy(() =>
+	import("./components/settings/ModelRolesWindow").then(m => ({ default: m.ModelRolesWindow })),
+);
+const ProvidersWindow = lazy(() =>
+	import("./components/settings/ProvidersWindow").then(m => ({ default: m.ProvidersWindow })),
+);
 
 /**
  * Shell: Sidebar | (TitleBar / ChatStream / InputArea) | PanelContainer,
@@ -83,6 +102,50 @@ export function App() {
 	// Keep the system-tray menu synced with live app state.
 	useTraySync();
 
+	// Shared `tui.titleState` setting: run-state marker in the window title —
+	// ● working, ! waiting on you, › your turn (TUI terminal-title parity).
+	const titleRunState = useSettingsStore(s => s.titleState);
+	const titleStreaming = useSessionStore(s => s.isStreaming);
+	const titleSessionName = useSessionStore(s => s.sessionName);
+	const titleAwaiting = useAwaitingConfirmation();
+	useEffect(() => {
+		const name = titleSessionName ?? "omp";
+		document.title = !titleRunState ? name : titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
+	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName]);
+
+	// Shared `speech.enabled` setting: auto-speak finalized assistant output per
+	// `speech.mode` (TUI vocalizer parity). The watcher reads `speech.mode` at
+	// decision time, so mode changes apply to the next message.
+	useEffect(() => startVoiceAutoSpeak(), []);
+
+	// Shared `terminal.showProgress` setting: run-state indicator in the dock
+	// badge + window progress bar — ● working, ! waiting on you (TUI terminal
+	// progress parity). Setting off pins "idle" so nothing lingers.
+	const progressEnabled = useSettingsStore(s => s.showProgress);
+	const progressStreaming = useSessionStore(s => s.isStreaming);
+	const progressAwaiting = useAwaitingConfirmation();
+	useEffect(() => {
+		const state: RunProgressState = !progressEnabled
+			? "idle"
+			: progressAwaiting
+				? "waiting"
+				: progressStreaming
+					? "working"
+					: "idle";
+		// Coalesce flapping (stream end ↔ approval prompt ↔ retry) into one push.
+		const timer = setTimeout(() => window.omp.progress.set(state), 200);
+		return () => clearTimeout(timer);
+	}, [progressEnabled, progressAwaiting, progressStreaming]);
+
+	// Shared `tui.tight` (compact density) and `colorBlindMode` settings: both
+	// are data-attrs on <html>; the stylesheets do the rest (zoom + Okabe-Ito).
+	const tuiTight = useSettingsStore(s => s.tuiTight);
+	const colorBlindMode = useSettingsStore(s => s.colorBlindMode);
+	useEffect(() => {
+		document.documentElement.dataset.density = tuiTight ? "tight" : "comfortable";
+		document.documentElement.dataset.colorblind = colorBlindMode ? "true" : "false";
+	}, [tuiTight, colorBlindMode]);
+
 	// Seed theme/fontSize from persisted prefs once at boot.
 	useEffect(() => {
 		let cancelled = false;
@@ -99,6 +162,9 @@ export function App() {
 				}
 				if (typeof prefs.notifications === "boolean") {
 					useUiStore.setState({ notifications: prefs.notifications });
+				}
+				if (typeof prefs.thinkingExpanded === "boolean") {
+					useUiStore.setState({ thinkingExpanded: prefs.thinkingExpanded });
 				}
 				// Restore the default workspace panel tab (written by Settings → GUI).
 				if (
@@ -119,6 +185,10 @@ export function App() {
 			cancelled = true;
 		};
 	}, []);
+
+	// Layer the agent's theme.dark/theme.light TUI themes over the active GUI
+	// theme; re-syncs live on config_update frames and GUI theme switches.
+	useEffect(() => initAgentThemeSync(), []);
 
 	// Apply theme + font size to the DOM whenever they change.
 	useEffect(() => {
@@ -162,8 +232,14 @@ export function App() {
 				}
 				const res = await window.omp.rpc.switchSession(target.path);
 				if (!res.success) throw new Error(res.error);
-				if (!(res.data as { cancelled?: boolean } | undefined)?.cancelled) await hydrateSession(target.title ?? target.firstMessage);
-				else toast({ variant: "info", title: t("sidebar.openCancelled"), message: target.title ?? target.firstMessage ?? "" });
+				if (!(res.data as { cancelled?: boolean } | undefined)?.cancelled)
+					await hydrateSession(target.title ?? target.firstMessage);
+				else
+					toast({
+						variant: "info",
+						title: t("sidebar.openCancelled"),
+						message: target.title ?? target.firstMessage ?? "",
+					});
 			} catch (error) {
 				toast({ variant: "error", title: t("sidebar.openFailed"), message: String(error) });
 			}
@@ -183,7 +259,8 @@ export function App() {
 			if (event.key === "Escape") {
 				// Don't abort when an overlay/dropdown already consumed this Escape to
 				// dismiss itself (its handler ran first + preventDefault).
-				if (!event.defaultPrevented && !overlayOpen && !document.querySelector('[role="dialog"]')) void window.omp.rpc.abort();
+				if (!event.defaultPrevented && !overlayOpen && !document.querySelector('[role="dialog"]'))
+					void window.omp.rpc.abort();
 				return;
 			}
 
@@ -214,7 +291,11 @@ export function App() {
 				if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.code === "KeyR") {
 					event.preventDefault();
 					void retryLastTurn(() =>
-						toast({ variant: "warning", title: t("palette.retryNothing"), message: t("palette.retryNothingDesc") }),
+						toast({
+							variant: "warning",
+							title: t("palette.retryNothing"),
+							message: t("palette.retryNothingDesc"),
+						}),
 					).catch(error => toast({ variant: "error", title: t("palette.failed"), message: String(error) }));
 					return;
 				}
@@ -222,9 +303,9 @@ export function App() {
 				// newest queued steer/follow-up back into the composer, rest re-queued.
 				if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.code === "ArrowUp") {
 					event.preventDefault();
-					void restoreQueuedMessages(() =>
-						toast({ variant: "info", message: t("input.dequeueEmpty") }),
-					).catch(error => toast({ variant: "error", title: t("palette.failed"), message: String(error) }));
+					void restoreQueuedMessages(() => toast({ variant: "info", message: t("input.dequeueEmpty") })).catch(
+						error => toast({ variant: "error", title: t("palette.failed"), message: String(error) }),
+					);
 					return;
 				}
 				// ⌥⇧P — toggle plan mode (TUI app.plan.toggle).
@@ -311,7 +392,10 @@ export function App() {
 			}
 			if (
 				useSessionStore.getState().isStreaming &&
-				(action === "new-session" || action === "open-project" || action === "handoff" || action === "switch-project")
+				(action === "new-session" ||
+					action === "open-project" ||
+					action === "handoff" ||
+					action === "switch-project")
 			) {
 				toast({ variant: "warning", message: "Abort the active turn before changing sessions or projects." });
 				return;
@@ -350,6 +434,7 @@ export function App() {
 				<SidecarBanner />
 				<ChatStream />
 				<InputArea />
+				<StatusFooter />
 			</main>
 
 			{panelVisible && <PanelContainer />}
@@ -373,7 +458,11 @@ export function App() {
 				<InventoryPanel open={inventoryOpen} onClose={closeInventory} initialTab={inventoryTab} />
 				<ModesPanel open={modesOpen} onClose={closeModes} initialTab={modesTab} />
 				<AgentHubWindow open={agentHubOpen} onClose={closeAgentHub} initialTab={agentHubTab} />
-				<ProviderConfigDialog open={providerConfigOpen} editProvider={providerConfigEdit} onClose={closeProviderConfig} />
+				<ProviderConfigDialog
+					open={providerConfigOpen}
+					editProvider={providerConfigEdit}
+					onClose={closeProviderConfig}
+				/>
 			</Suspense>
 			<ThemePickerDialog />
 			<PlanApprovalDialog />

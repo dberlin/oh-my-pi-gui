@@ -25,6 +25,9 @@ export function ComposerModes() {
 	const t = useT();
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const goalActive = useSessionStore(s => s.goalState?.status === "active" || !!s.goal);
+	// Shared `goal.statusInFooter` setting: off hides the composer's goal chip
+	// (the goal panel stays reachable via Modes/command palette).
+	const goalStatusInFooter = useSettingsStore(s => s.goalStatusInFooter);
 	const autoCompaction = useSettingsStore(s => s.autoCompaction);
 	const autoRetry = useSettingsStore(s => s.autoRetry);
 	const steeringMode = useSettingsStore(s => s.steeringMode);
@@ -81,14 +84,16 @@ export function ComposerModes() {
 				<ListChecks size={14} />
 			</button>
 
-			<button
-				type="button"
-				onClick={() => openModes("goal")}
-				title={t("input.goal.title")}
-				className={chip(goalActive)}
-			>
-				<Flag size={14} />
-			</button>
+			{goalStatusInFooter && (
+				<button
+					type="button"
+					onClick={() => openModes("goal")}
+					title={t("input.goal.title")}
+					className={chip(goalActive)}
+				>
+					<Flag size={14} />
+				</button>
+			)}
 
 			<button type="button" onClick={openModelRoles} title={t("input.roles.title")} className={chip(false)}>
 				<Users size={14} />

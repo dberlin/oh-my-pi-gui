@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { en } from "../locales/en";
 import { zh } from "../locales/zh";
 
@@ -17,6 +17,26 @@ function getInitialLang(): Lang {
 	}
 	const nav = typeof navigator !== "undefined" ? navigator.language : "en";
 	return nav.startsWith("zh") ? "zh" : "en";
+}
+
+function translateForLang(lang: Lang, key: string, params?: Record<string, string | number>): string {
+	const locale = LOCALES[lang];
+	let str = locale[key] ?? en[key] ?? key;
+	if (params) {
+		for (const [k, v] of Object.entries(params)) {
+			str = str.replace(`{${k}}`, String(v));
+		}
+	}
+	return str;
+}
+
+/**
+ * Non-React translation for services/watchers (voice, notifications) that
+ * cannot call the `useT` hook. Re-reads the persisted lang on every call so
+ * runtime language switches apply without a subscription.
+ */
+export function translate(key: string, params?: Record<string, string | number>): string {
+	return translateForLang(getInitialLang(), key, params);
 }
 
 interface I18nContextValue {
@@ -40,16 +60,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	const t = useCallback(
-		(key: string, params?: Record<string, string | number>): string => {
-			const locale = LOCALES[lang];
-			let str = locale[key] ?? en[key] ?? key;
-			if (params) {
-				for (const [k, v] of Object.entries(params)) {
-					str = str.replace(`{${k}}`, String(v));
-				}
-			}
-			return str;
-		},
+		(key: string, params?: Record<string, string | number>): string => translateForLang(lang, key, params),
 		[lang],
 	);
 

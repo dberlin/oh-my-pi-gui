@@ -55,6 +55,8 @@ export const IPC_EVENTS = {
 	DEEP_LINK: "deep-link",
 	/** Renderer → main fire-and-forget tray-state snapshot */
 	TRAY_STATE_PUSH: "tray:state-push",
+	/** Renderer → main fire-and-forget run-progress state (dock badge + progress bar) */
+	PROGRESS_SET: "progress:set",
 } as const;
 
 // ============================================================================
@@ -141,9 +143,12 @@ export interface MenuActionPayload {
 	cwd?: string;
 }
 
+/** Run-progress state pushed by the renderer (terminal.showProgress): dock badge + window progress bar. */
+export type RunProgressState = "working" | "waiting" | "idle";
+
 /** Compact snapshot the renderer pushes to main to build the tray menu. */
 export interface TrayState {
-	status: "idle" | "streaming" | "error";
+	status: "idle" | "streaming" | "waiting" | "error";
 	language: "zh" | "en";
 	cwd: string | null;
 	projectName: string;
@@ -162,6 +167,8 @@ export interface TrayState {
 
 export interface IpcRpcCommandPayload {
 	command: RpcCommand;
+	/** Per-call timeout override (ms) for slow commands (voice STT/TTS model load). */
+	timeoutMs?: number;
 }
 
 export interface IpcEventsBatchPayload {
@@ -376,7 +383,7 @@ export interface OmpApi {
 		setModel(provider: string, modelId: string): Promise<RpcResponse>;
 		cycleModel(): Promise<RpcResponse>;
 		getAvailableModels(): Promise<RpcResponse>;
-		setThinkingLevel(level: ThinkingLevel): Promise<RpcResponse>;
+		setThinkingLevel(level: ThinkingLevel | "auto"): Promise<RpcResponse>;
 		cycleThinkingLevel(): Promise<RpcResponse>;
 		setFastMode(enabled: boolean): Promise<RpcResponse>;
 		setSteeringMode(mode: "all" | "one-at-a-time"): Promise<RpcResponse>;
@@ -420,6 +427,7 @@ export interface OmpApi {
 		getMemoryReport(): Promise<RpcResponse>;
 		getSessionTree(): Promise<RpcResponse>;
 		getThemes(): Promise<RpcResponse>;
+		getThemeColors(name: string): Promise<RpcResponse>;
 		getTranscript(): Promise<RpcResponse>;
 		planApproval(
 			approved: boolean,
@@ -450,6 +458,9 @@ export interface OmpApi {
 		getSubagentMessages(subagentId?: string, sessionFile?: string, fromByte?: number): Promise<RpcResponse>;
 		setHostTools(tools: unknown[]): Promise<RpcResponse>;
 		setHostUriSchemes(schemes: unknown[]): Promise<RpcResponse>;
+		// Voice (speech in/out): audio is canonical PCM16 mono 16 kHz WAV, base64.
+		transcribeAudio(audioBase64: string, mimeType: string): Promise<RpcResponse>;
+		synthesizeSpeech(text: string): Promise<RpcResponse>;
 	};
 	events: {
 		onBatch(callback: (events: AgentSessionEvent[]) => void): () => void;
@@ -498,6 +509,9 @@ export interface OmpApi {
 	};
 	tray: {
 		pushState(state: TrayState): void;
+	};
+	progress: {
+		set(state: RunProgressState): void;
 	};
 	models: {
 		listProviders(): Promise<CustomProviderView[]>;

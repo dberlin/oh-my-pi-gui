@@ -1,6 +1,15 @@
 import { useEffect } from "react";
 import type { IpcSidecarStatusPayload } from "../../shared/ipc-types";
-import type { AgentMessage, AgentSessionEvent, RpcGoalState, RpcSessionState, SubagentSnapshot } from "../../shared/rpc-types";
+import {
+	BLOCKING_UI_METHODS,
+	isThinkingLevel,
+	type AgentMessage,
+	type AgentSessionEvent,
+	type RpcGoalState,
+	type RpcSessionState,
+	type SubagentSnapshot,
+	type ThinkingLevel,
+} from "../../shared/rpc-types";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { messageIdentityKey, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
@@ -20,13 +29,6 @@ import { useUiStore } from "../stores/ui";
  * notices from any other source still surface as toasts.
  */
 const QUIET_NOTICE_SOURCES = new Set(["vision", "xdev"]);
-
-/**
- * Extension-UI methods that block until the user responds — the "waiting for
- * input" surfaces worth a desktop notification. notify/setStatus/setWidget/
- * setTitle/set_editor_text/cancel requests resolve without user input.
- */
-const BLOCKING_UI_METHODS: Record<string, true> = { select: true, confirm: true, input: true, editor: true, open_url: true };
 
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
 const NOTIFY_DEFAULTS = { completion: "on", error: "off", ask: "on" } as const;
@@ -187,7 +189,16 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 	]);
 
 	if (stateResult.status === "fulfilled" && stateResult.value.success && stateResult.value.data != null) {
-		applySessionState(stateResult.value.data as RpcSessionState, fallbackName);
+		const wire = stateResult.value.data as RpcSessionState;
+		applySessionState(wire, fallbackName);
+		// Mid-run attach (launch/reconnect/session switch while the agent is
+		// streaming) missed the agent_start that arms the status row — re-arm
+		// it like the TUI's ensureLoadingAnimation on guest attach, unless a
+		// live marker already carries a more accurate start time. When content
+		// is actively streaming the row stays hidden behind StreamingRows.
+		if (wire.isStreaming && useSessionStore.getState().awaitingModelSince === null) {
+			useSessionStore.setState({ awaitingModelSince: Date.now() });
+		}
 	}
 
 	if (messagesResult.status === "fulfilled" && messagesResult.value.success) {
@@ -237,7 +248,7 @@ export function useRpcEvents(): void {
 			for (const event of events) {
 				switch (event.type) {
 					case "agent_start": {
-						useSessionStore.setState({ isStreaming: true });
+						useSessionStore.setState({ isStreaming: true, awaitingModelSince: Date.now() });
 						// Server-side mode changes (plan_approval accept exits plan
 						// mode, then dispatches the execution turn) carry no event —
 						// re-sync state-derived stores at turn start so the composer
@@ -245,19 +256,47 @@ export function useRpcEvents(): void {
 						void refreshSessionState();
 						break;
 					}
+					case "turn_start": {
+						// Model request dispatched; the chat renders a pending-model
+						// indicator from this timestamp until message_start (or a
+						// running tool card) takes over. Without it a stalled provider
+						// (slow first event, transport retry) looks like dead air.
+						useSessionStore.setState({ awaitingModelSince: Date.now() });
+						break;
+					}
+					case "message_end": {
+						// The finalized assistant message replaces the pending
+						// indicator — tools run next and their cards carry the
+						// activity signal. message_start is NOT the clear point: it
+						// fires with an empty shell before the first token streams,
+						// and clearing there would reopen the dead-air window.
+						if (event.message.role === "assistant") {
+							useSessionStore.setState({ awaitingModelSince: null });
+						}
+						break;
+					}
+					case "turn_end": {
+						// Tool execution follows; running tool cards carry the
+						// activity signal until the next turn_start.
+						useSessionStore.setState({ awaitingModelSince: null });
+						break;
+					}
 					case "agent_end": {
-						useSessionStore.setState({ isStreaming: false });
+						useSessionStore.setState({ isStreaming: false, awaitingModelSince: null });
 						notifyOnAgentEnd(event);
 						// Re-fetch state so agent-side todo updates mid-turn reach the panel.
 						void refreshSessionState();
 						break;
 					}
 					case "auto_compaction_start": {
-						useSessionStore.setState({ isCompacting: true });
+						// TUI parity: swap the status row to the maintenance loader
+						// ("Context overflow detected, Auto context-full maintenance…")
+						// for the whole compaction window, not just a flag.
+						useSessionStore.setState({ isCompacting: true, compactionInfo: { reason: event.reason, action: event.action } });
 						break;
 					}
 					case "auto_compaction_end": {
-						useSessionStore.setState({ isCompacting: false });
+						useSessionStore.setState({ isCompacting: false, compactionInfo: null });
 						if (event.aborted) {
 							useToastStore.getState().push({ variant: "warning", message: "Compaction aborted" });
 						}
@@ -265,6 +304,19 @@ export function useRpcEvents(): void {
 					}
 					case "auto_retry_start": {
 						retryPending = true;
+						// TUI parity: inline retry loader for the delay+attempt window.
+						// Not a model wait, so the pending-model marker stays clear until
+						// auto_retry_end re-arms it.
+						useSessionStore.setState({
+							retryInfo: {
+								attempt: event.attempt,
+								maxAttempts: event.maxAttempts,
+								delayMs: event.delayMs,
+								errorMessage: event.errorMessage,
+								startedAt: Date.now(),
+							},
+							awaitingModelSince: null,
+						});
 						useToastStore.getState().push({
 							variant: "warning",
 							message: `Retry ${event.attempt}/${event.maxAttempts} in ${Math.round(event.delayMs / 1000)}s: ${event.errorMessage}`,
@@ -274,6 +326,15 @@ export function useRpcEvents(): void {
 					}
 					case "auto_retry_end": {
 						retryPending = false;
+						// Mirror the TUI's #ensureWorkingLoaderWhileStreaming: a succeeded
+						// retry re-dispatches the turn, so the wait for first content is
+						// visible again even if no fresh turn_start arrives.
+						useSessionStore.setState({
+							retryInfo: null,
+							...(event.success && useSessionStore.getState().isStreaming
+								? { awaitingModelSince: Date.now() }
+								: {}),
+						});
 						if (event.success) {
 							useToastStore.getState().push({ variant: "success", message: "Retry succeeded" });
 						} else {
@@ -309,9 +370,12 @@ export function useRpcEvents(): void {
 						break;
 					}
 					case "thinking_level_changed": {
-						if (event.thinkingLevel !== undefined) {
-							useModelStore.setState({ thinkingLevel: event.thinkingLevel });
+						const patch: Partial<{ thinkingLevel: ThinkingLevel; thinkingConfigured: ThinkingLevel | "auto" }> = {};
+						if (event.thinkingLevel !== undefined) patch.thinkingLevel = event.thinkingLevel;
+						if (typeof event.configured === "string" && (event.configured === "auto" || isThinkingLevel(event.configured))) {
+							patch.thinkingConfigured = event.configured;
 						}
+						if (Object.keys(patch).length > 0) useModelStore.setState(patch);
 						break;
 					}
 					case "model_changed": {
@@ -448,7 +512,7 @@ export function useRpcEvents(): void {
 		// changes) push config_update — re-read the thinking-display settings so
 		// ThinkingBlock re-renders with the live hide/prose-only policy.
 		const unsubConfig = window.omp.events.onConfigUpdate(() => {
-			void useSettingsStore.getState().syncThinkingDisplay();
+			void useSettingsStore.getState().syncDisplaySettings();
 			void useSettingsStore.getState().syncApproval();
 		});
 

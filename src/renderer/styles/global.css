@@ -301,3 +301,23 @@ kbd,
 		transition-duration: 0.01ms !important;
 	}
 }
+
+/* Agent `tui.tight` setting — compact density. Chromium-only app: a root zoom
+   scales every chrome surface proportionally (virtualizer rects included),
+   which beats overriding dozens of baked-in utility paddings. */
+[data-density="tight"] body {
+	zoom: 0.92;
+}
+
+/* Agent `colorBlindMode` setting — Okabe-Ito color-blind-safe palette for the
+   semantic tokens. !important is required: named themes also set these vars
+   inline on <html>, and a stylesheet rule only wins with !important. */
+:root[data-colorblind="true"] {
+	--omp-accent: #0072b2 !important;
+	--omp-success: #009e73 !important;
+	--omp-warning: #e69f00 !important;
+	--omp-error: #d55e00 !important;
+	--omp-accent-dim: color-mix(in srgb, #0072b2 12%, transparent) !important;
+	--omp-success-dim: color-mix(in srgb, #009e73 12%, transparent) !important;
+	--omp-error-dim: color-mix(in srgb, #d55e00 10%, transparent) !important;
+}

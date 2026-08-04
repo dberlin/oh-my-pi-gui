@@ -11,8 +11,15 @@
  * `themeName` pref (plus the legacy `theme` pref for backwards compat).
  * "system" is a special selection that resolves to dark or light via the OS
  * media query and stays stylesheet-driven.
+ *
+ * On top of the named themes sits the agent theme overlay (bottom of this
+ * file): the coding-agent's `theme.dark` / `theme.light` settings name TUI
+ * themes whose resolved colors are translated onto a subset of the same
+ * tokens (see TUI_TOKEN_TO_CSS_VAR) and layered inline over the active GUI
+ * theme, re-synced on config_update frames and data-theme flips.
  */
 
+import type { RpcThemeColorsResult } from "../../shared/rpc-types";
 import { applyTheme, markCustomThemeTokens, resolveTheme } from "./theme";
 
 /** Canonical token keys, in stylesheet order. Every theme defines all of them. */
@@ -809,6 +816,13 @@ export function resolveThemeSelection(selection: ThemeSelection): ThemeDefinitio
 }
 
 /**
+ * Inline tokens most recently written by applyThemeByName for a named theme;
+ * null while the "system" selection is stylesheet-driven. The agent theme
+ * overlay (bottom of this file) restores these when an override goes away.
+ */
+let baseThemeTokens: ThemeTokens | null = null;
+
+/**
  * Applies a theme selection live: flips `data-theme` + the color-scheme meta
  * to the theme's base scheme, then writes every token inline on <html>.
  * "system" stays purely stylesheet-driven (dark/light resolve per the OS
@@ -826,8 +840,10 @@ export function applyThemeByName(selection: ThemeSelection, opts: { persist?: bo
 		applyTheme(theme.scheme);
 		const style = document.documentElement.style;
 		for (const key of THEME_TOKEN_KEYS) style.setProperty(key, theme.tokens[key]);
+		baseThemeTokens = theme.tokens;
 		markCustomThemeTokens(theme.scheme);
 	} else {
+		baseThemeTokens = null;
 		applyTheme("system");
 	}
 	if (persist) {
@@ -862,4 +878,227 @@ export function resolveTokenColor(theme: ThemeDefinition, key: ThemeTokenKey): s
 	const match = /^var\((--omp-[a-z-]+)\)$/.exec(value);
 	if (!match) return value;
 	return theme.tokens[match[1] as ThemeTokenKey] ?? value;
+}
+
+// ============================================================================
+// Agent theme overlay (theme.dark / theme.light)
+// ============================================================================
+
+/**
+ * TUI theme token → GUI `--omp-*` custom property. Only tokens with an exact
+ * counterpart on both sides are mapped; everything else stays owned by the
+ * active GUI named theme. TUI tokens deliberately left unmapped (no verified
+ * GUI semantic — do not approximate):
+ * - thinkingText, toolTitle, userMessageText, customMessageText: the GUI has
+ *   no dedicated foreground tokens for these surfaces.
+ * - thinkingMax: the GUI thinking ramp ends at --omp-thinking-xhigh.
+ * - bashMode, pythonMode: TUI REPL prompt-mode accents with no GUI counterpart.
+ * - statusLineStaged / statusLineDirty / statusLineUntracked /
+ *   statusLineOutput / statusLineCost: TUI status-line counters the GUI
+ *   footer does not tokenize.
+ * - "link": an undeclared colors key some theme files carry; it is not part
+ *   of the TUI theme schema (ThemeColor), so its role is unverifiable.
+ *   mdLink already covers --omp-md-link.
+ */
+const TUI_TOKEN_TO_CSS_VAR: Record<string, ThemeTokenKey> = {
+	accent: "--omp-accent",
+	border: "--omp-border",
+	borderAccent: "--omp-border-accent",
+	borderMuted: "--omp-border-muted",
+	success: "--omp-success",
+	error: "--omp-error",
+	warning: "--omp-warning",
+	muted: "--omp-muted",
+	dim: "--omp-dim",
+	text: "--omp-text",
+	selectedBg: "--omp-selected-bg",
+	userMessageBg: "--omp-user-msg-bg",
+	customMessageBg: "--omp-custom-msg-bg",
+	customMessageLabel: "--omp-custom-msg-label",
+	toolPendingBg: "--omp-tool-pending-bg",
+	toolSuccessBg: "--omp-tool-success-bg",
+	toolErrorBg: "--omp-tool-error-bg",
+	toolOutput: "--omp-tool-output",
+	mdHeading: "--omp-md-heading",
+	mdLink: "--omp-md-link",
+	mdLinkUrl: "--omp-md-link-url",
+	mdCode: "--omp-md-code",
+	mdCodeBlock: "--omp-md-code-block",
+	mdCodeBlockBorder: "--omp-md-code-block-border",
+	mdQuote: "--omp-md-quote",
+	mdQuoteBorder: "--omp-md-quote-border",
+	mdHr: "--omp-md-hr",
+	mdListBullet: "--omp-md-list-bullet",
+	toolDiffAdded: "--omp-diff-added",
+	toolDiffRemoved: "--omp-diff-removed",
+	toolDiffContext: "--omp-diff-context",
+	syntaxComment: "--omp-syntax-comment",
+	syntaxKeyword: "--omp-syntax-keyword",
+	syntaxFunction: "--omp-syntax-function",
+	syntaxVariable: "--omp-syntax-variable",
+	syntaxString: "--omp-syntax-string",
+	syntaxNumber: "--omp-syntax-number",
+	syntaxType: "--omp-syntax-type",
+	syntaxOperator: "--omp-syntax-operator",
+	syntaxPunctuation: "--omp-syntax-punctuation",
+	thinkingOff: "--omp-thinking-off",
+	thinkingMinimal: "--omp-thinking-minimal",
+	thinkingLow: "--omp-thinking-low",
+	thinkingMedium: "--omp-thinking-medium",
+	thinkingHigh: "--omp-thinking-high",
+	thinkingXhigh: "--omp-thinking-xhigh",
+	statusLineBg: "--omp-status-bg",
+	statusLineSep: "--omp-status-sep",
+	statusLineModel: "--omp-status-model",
+	statusLinePath: "--omp-status-path",
+	statusLineGitClean: "--omp-status-git-clean",
+	statusLineGitDirty: "--omp-status-git-dirty",
+	statusLineContext: "--omp-status-context",
+	statusLineSpend: "--omp-status-spend",
+	statusLineSubagents: "--omp-status-subagents",
+};
+
+const AGENT_THEME_SETTING_PATHS = ["theme.dark", "theme.light"] as const;
+
+/** Agent theme names keyed by GUI base scheme; null until the first settings sync lands. */
+let agentThemeNames: { dark: string; light: string } | null = null;
+/** CSS vars currently driven by the overlay (null = overlay inactive). */
+let agentOverrides: Partial<Record<ThemeTokenKey, string>> | null = null;
+/**
+ * scheme:name of the last applied overlay. Combined with an intactness probe
+ * so same-value data-theme refires (font-size changes, boot) skip re-fetching.
+ */
+let lastOverlaySignature: string | null = null;
+/** Monotonic id — a slow get_theme_colors response must never clobber a newer overlay. */
+let agentThemeRequestId = 0;
+
+/**
+ * Fetches one agent theme's resolved colors from the sidecar and maps them
+ * onto GUI tokens. Returns null when the theme can't be resolved (unknown
+ * name, sidecar down) so callers fall back to the plain named theme.
+ */
+async function fetchAgentThemeOverrides(name: string): Promise<Partial<Record<ThemeTokenKey, string>> | null> {
+	let colors: Record<string, string> | undefined;
+	try {
+		const res = await window.omp.rpc.getThemeColors(name);
+		if (!res.success) return null;
+		colors = (res.data as RpcThemeColorsResult | undefined)?.colors;
+	} catch {
+		return null;
+	}
+	if (!colors || typeof colors !== "object") return null;
+	const overrides: Partial<Record<ThemeTokenKey, string>> = {};
+	for (const [token, cssVar] of Object.entries(TUI_TOKEN_TO_CSS_VAR)) {
+		const value = colors[token];
+		if (typeof value === "string" && value !== "") overrides[cssVar] = value;
+	}
+	return overrides;
+}
+
+/**
+ * Writes the overlay on top of whatever base is active: each override becomes
+ * an inline custom property, and vars the previous overlay no longer covers
+ * are restored to the named theme's inline tokens (or dropped back to the
+ * stylesheet while the "system" selection is stylesheet-driven).
+ */
+function applyAgentOverrides(next: Partial<Record<ThemeTokenKey, string>> | null): void {
+	const style = document.documentElement.style;
+	if (agentOverrides) {
+		for (const key of Object.keys(agentOverrides) as ThemeTokenKey[]) {
+			if (next && key in next) continue;
+			const base = baseThemeTokens?.[key];
+			if (base !== undefined) style.setProperty(key, base);
+			else style.removeProperty(key);
+		}
+	}
+	if (next) {
+		for (const [key, value] of Object.entries(next)) {
+			if (typeof value === "string") style.setProperty(key, value);
+		}
+	}
+	agentOverrides = next;
+}
+
+/**
+ * True while every var of the active overlay is still present inline.
+ * applyTheme() clears inline tokens on base-scheme switches; this detects
+ * that wipe so the overlay gets re-applied on top.
+ */
+function agentOverridesIntact(): boolean {
+	if (!agentOverrides) return true;
+	const style = document.documentElement.style;
+	for (const key of Object.keys(agentOverrides) as ThemeTokenKey[]) {
+		if (style.getPropertyValue(key) === "") return false;
+	}
+	return true;
+}
+
+/**
+ * Resolves which agent theme (if any) applies to the current GUI base scheme
+ * and re-layers it. No-ops until data-theme exists — the App boot effects set
+ * it synchronously and the MutationObserver re-fires once they do.
+ */
+async function refreshAgentThemeOverrides(): Promise<void> {
+	const attr = document.documentElement.getAttribute("data-theme");
+	if (attr !== "dark" && attr !== "light") return;
+	const name = agentThemeNames?.[attr] ?? "";
+	if (name === "") {
+		agentThemeRequestId++;
+		lastOverlaySignature = null;
+		applyAgentOverrides(null);
+		return;
+	}
+	const signature = `${attr}:${name}`;
+	if (signature === lastOverlaySignature && agentOverridesIntact()) return;
+	const requestId = ++agentThemeRequestId;
+	const overrides = await fetchAgentThemeOverrides(name);
+	if (requestId !== agentThemeRequestId) return;
+	lastOverlaySignature = overrides ? signature : null;
+	applyAgentOverrides(overrides);
+}
+
+/** Reads theme.dark / theme.light from the agent and forces a re-layer. */
+async function syncAgentThemeSettings(): Promise<void> {
+	try {
+		const res = await window.omp.rpc.getSettings([...AGENT_THEME_SETTING_PATHS]);
+		const values = res.success ? (res.data as { values?: Record<string, unknown> } | undefined)?.values : undefined;
+		const dark = values?.["theme.dark"];
+		const light = values?.["theme.light"];
+		agentThemeNames = {
+			dark: typeof dark === "string" ? dark : "",
+			light: typeof light === "string" ? light : "",
+		};
+	} catch {
+		agentThemeNames = null;
+	}
+	lastOverlaySignature = null;
+	await refreshAgentThemeOverrides();
+}
+
+/**
+ * Starts layering the agent's theme.dark / theme.light TUI themes on top of
+ * the active GUI theme: the theme matching the GUI's current base scheme
+ * (theme.dark while data-theme is dark, theme.light while light) is resolved
+ * into inline CSS var overrides over the GUI named theme, re-applied on every
+ * config_update frame and on every GUI theme/scheme change (observed via
+ * data-theme). Unset or unresolvable agent themes leave the GUI named theme
+ * untouched. Call once at App boot; the returned teardown restores the base.
+ */
+export function initAgentThemeSync(): () => void {
+	void syncAgentThemeSettings();
+	const unsubscribe = window.omp.events.onConfigUpdate(() => {
+		void syncAgentThemeSettings();
+	});
+	const observer = new MutationObserver(() => {
+		void refreshAgentThemeOverrides();
+	});
+	observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+	return () => {
+		unsubscribe();
+		observer.disconnect();
+		agentThemeRequestId++;
+		agentThemeNames = null;
+		lastOverlaySignature = null;
+		applyAgentOverrides(null);
+	};
 }

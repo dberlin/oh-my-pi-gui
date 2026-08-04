@@ -5,6 +5,10 @@ import { toast } from "./toast";
 interface ModelStore {
 	model: ModelInfo | null;
 	thinkingLevel: ThinkingLevel | undefined;
+	/** Configured selector ("auto" or a level) — what the composer picker checks, vs the effective `thinkingLevel`. */
+	thinkingConfigured: ThinkingLevel | "auto" | undefined;
+	/** Levels the active model supports; empty = model does not reason. */
+	availableThinkingLevels: ThinkingLevel[];
 	fastModeEnabled: boolean;
 	fastModeActive: boolean;
 	tokensPerSecond: number | null;
@@ -20,6 +24,8 @@ interface ModelStore {
 const initialState = {
 	model: null as ModelInfo | null,
 	thinkingLevel: undefined as ThinkingLevel | undefined,
+	thinkingConfigured: undefined as ThinkingLevel | "auto" | undefined,
+	availableThinkingLevels: [] as ThinkingLevel[],
 	fastModeEnabled: false,
 	fastModeActive: false,
 	tokensPerSecond: null as number | null,
@@ -32,6 +38,8 @@ export const useModelStore = create<ModelStore>()(set => ({
 		set({
 			model: state.model,
 			thinkingLevel: state.thinkingLevel,
+			thinkingConfigured: state.thinkingConfigured,
+			availableThinkingLevels: state.availableThinkingLevels ?? [],
 			fastModeEnabled: state.fastModeEnabled,
 			fastModeActive: state.fastModeActive,
 			tokensPerSecond: state.tokensPerSecond,

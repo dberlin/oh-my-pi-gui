@@ -31,7 +31,7 @@ import type {
 	RpcSkillInfo,
 	RpcSkillsResult,
 } from "../../../shared/rpc-types";
-import { cx } from "../../lib/format";
+import { cx, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
@@ -126,18 +126,6 @@ export function filterList<T>(items: T[] | null, query: string, fields: (item: T
 	const q = query.trim().toLowerCase();
 	if (!q) return items;
 	return items.filter(item => fields(item).some(field => field.toLowerCase().includes(q)));
-}
-
-/** Collapse a home-dir prefix to "~" and middle-truncate long paths. */
-export function shortenPath(path: string): string {
-	const home = /^\/(Users|home)\/[^/]+/.exec(path);
-	let display = home ? `~${path.slice(home[0].length)}` : path;
-	const MAX = 56;
-	if (display.length > MAX) {
-		const keep = Math.floor((MAX - 1) / 2);
-		display = `${display.slice(0, keep)}…${display.slice(-keep)}`;
-	}
-	return display;
 }
 
 export function hookPhase(event: string): string {

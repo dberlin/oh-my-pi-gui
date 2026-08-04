@@ -28,7 +28,7 @@ export type RpcCommand =
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
 	| { id?: string; type: "cycle_model" }
 	| { id?: string; type: "get_available_models" }
-	| { id?: string; type: "set_thinking_level"; level: ThinkingLevel }
+	| { id?: string; type: "set_thinking_level"; level: ThinkingLevel | "auto" }
 	| { id?: string; type: "cycle_thinking_level" }
 	| { id?: string; type: "set_steering_mode"; mode: "all" | "one-at-a-time" }
 	| { id?: string; type: "set_follow_up_mode"; mode: "all" | "one-at-a-time" }
@@ -78,16 +78,29 @@ export type RpcCommand =
 	| { id?: string; type: "get_memory_report" }
 	| { id?: string; type: "get_session_tree" }
 	| { id?: string; type: "get_themes" }
+	| { id?: string; type: "get_theme_colors"; name: string }
 	| { id?: string; type: "get_transcript" }
 
 	// Plan approval (structured)
-	| { id?: string; type: "plan_approval"; approved: boolean; option?: "execute" | "compact" | "keep_context"; feedback?: string }
+	| {
+			id?: string;
+			type: "plan_approval";
+			approved: boolean;
+			option?: "execute" | "compact" | "keep_context";
+			feedback?: string;
+	  }
 
 	// Modes
 	| { id?: string; type: "get_vibe_mode" }
 	| { id?: string; type: "set_vibe_mode"; enabled: boolean }
 	| { id?: string; type: "get_goal" }
-	| { id?: string; type: "set_goal"; objective?: string; tokenBudget?: number | null; action?: "pause" | "resume" | "drop" }
+	| {
+			id?: string;
+			type: "set_goal";
+			objective?: string;
+			tokenBudget?: number | null;
+			action?: "pause" | "resume" | "drop";
+	  }
 	| { id?: string; type: "get_loop_mode" }
 	| { id?: string; type: "set_loop_mode"; enabled: boolean; args?: string }
 
@@ -95,7 +108,19 @@ export type RpcCommand =
 	| { id?: string; type: "set_skill_enabled"; name: string; enabled: boolean }
 	| { id?: string; type: "set_hook_enabled"; hookId: string; enabled: boolean }
 	| { id?: string; type: "set_plugin_enabled"; pluginId: string; enabled: boolean; scope?: "user" | "project" }
-	| { id?: string; type: "mcp_action"; name: string; action: "enable" | "disable" | "reconnect" | "remove"; scope?: "user" | "project" };
+	| {
+			id?: string;
+			type: "mcp_action";
+			name: string;
+			action: "enable" | "disable" | "reconnect" | "remove";
+			scope?: "user" | "project";
+	  }
+
+	// Voice (speech in/out). `transcribe_audio.audioBase64` carries a canonical
+	// RIFF/WAVE buffer — PCM16, mono, 16 kHz (the STT pipeline's native rate);
+	// `mimeType` is informational ("audio/wav").
+	| { id?: string; type: "transcribe_audio"; audioBase64: string; mimeType: string }
+	| { id?: string; type: "synthesize_speech"; text: string };
 
 // ============================================================================
 // RPC Responses (omp stdout → GUI)
@@ -250,6 +275,12 @@ export interface RpcThemesResult {
 	themes: RpcThemeInfo[];
 }
 
+/** A UI theme's resolved colors as CSS hex strings, keyed by theme token (accent, statusLineBg, …). */
+export interface RpcThemeColorsResult {
+	name: string;
+	colors: Record<string, string>;
+}
+
 export interface RpcVibeModeState {
 	enabled: boolean;
 	killedWorkers?: number;
@@ -316,6 +347,10 @@ export interface ModelInfo {
 export interface RpcSessionState {
 	model: ModelInfo | null;
 	thinkingLevel: ThinkingLevel | undefined;
+	/** Configured selector: "auto" while auto mode is active, else the effective level. */
+	thinkingConfigured?: ThinkingLevel | "auto";
+	/** Levels the active model supports (empty = no reasoning); the picker must not offer unsupported values. */
+	availableThinkingLevels?: ThinkingLevel[];
 	isStreaming: boolean;
 	isCompacting: boolean;
 	steeringMode: "all" | "one-at-a-time";
@@ -568,6 +603,35 @@ export type SubagentFrame = SubagentLifecycleFrame | SubagentProgressFrame | Sub
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
+/**
+ * Extension-UI methods that block until the user responds — the "waiting for
+ * input" surfaces (approval/ask flows). Used by the notification gate and the
+ * sidebar's waiting-for-confirmation signal.
+ */
+export const BLOCKING_UI_METHODS: Record<string, true> = {
+	select: true,
+	confirm: true,
+	input: true,
+	editor: true,
+	open_url: true,
+};
+
+/** All levels in ascending effort order (picker menus, cycle parity). */
+export const THINKING_LEVEL_VALUES: readonly ThinkingLevel[] = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+];
+
+/** Runtime narrowing for wire values (thinking_level_changed.configured, get_state). */
+export function isThinkingLevel(value: unknown): value is ThinkingLevel {
+	return typeof value === "string" && (THINKING_LEVEL_VALUES as readonly string[]).includes(value);
+}
+
 export interface ImageContent {
 	type: "image";
 	data: string;
@@ -756,6 +820,10 @@ export interface SettingEntry {
 	condition?: string;
 	/** True when array order is meaningful and the editor supports reordering. */
 	ordered?: boolean;
+	/** True when the setting only affects TUI chrome — badge it, it has no GUI effect. */
+	tuiOnly?: boolean;
+	/** True when the value is cached at session construction — edits need a sidecar restart. */
+	restartRequired?: boolean;
 }
 
 export interface SettingsSchemaResult {
@@ -844,6 +912,21 @@ export interface SessionStats {
 	premiumRequests: number;
 	cost: number;
 	contextUsage?: ContextUsage;
+}
+
+// ============================================================================
+// Voice (speech in/out)
+// ============================================================================
+
+/** Result of `transcribe_audio`: the recognized utterance. */
+export interface TranscribeAudioResult {
+	text: string;
+}
+
+/** Result of `synthesize_speech`: local TTS output as base64 WAV (PCM16). */
+export interface SynthesizeSpeechResult {
+	audioBase64: string;
+	mimeType: string;
 }
 
 // ============================================================================

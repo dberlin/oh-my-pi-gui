@@ -14,6 +14,7 @@ import {
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useSettingsStore } from "../../stores/settings";
+import { useUiStore } from "../../stores/ui";
 
 export interface ThinkingBlockProps {
 	/** Finalized thinking text (from a completed message). */
@@ -63,7 +64,11 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 	const tokensPerSecond = useModelStore(s => s.tokensPerSecond);
 	const hideThinkingBlock = useSettingsStore(s => s.hideThinkingBlock);
 	const proseOnly = useSettingsStore(s => s.proseOnlyThinking);
-	const [open, setOpen] = useState(false);
+	const thinkingExpanded = useUiStore(s => s.thinkingExpanded);
+	const [open, setOpen] = useState(thinkingExpanded);
+	// The Settings → GUI toggle applies to already-mounted blocks too; a manual
+	// chevron click then overrides until the pref changes again.
+	useEffect(() => setOpen(thinkingExpanded), [thinkingExpanded]);
 
 	const content = live ? streamingThinking : (text ?? "");
 	const isLive = live && content.length > 0;

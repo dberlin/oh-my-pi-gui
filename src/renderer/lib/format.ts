@@ -154,6 +154,18 @@ export function dirname(path: string | null | undefined): string {
 	return parts.join("/") || "/";
 }
 
+/** Collapse a home-dir prefix to "~" and middle-truncate long paths. */
+export function shortenPath(path: string): string {
+	const home = /^\/(Users|home)\/[^/]+/.exec(path);
+	let display = home ? `~${path.slice(home[0].length)}` : path;
+	const MAX = 56;
+	if (display.length > MAX) {
+		const keep = Math.floor((MAX - 1) / 2);
+		display = `${display.slice(0, keep)}…${display.slice(-keep)}`;
+	}
+	return display;
+}
+
 /** First N lines of a text block, plus the count of omitted lines. */
 export function headLines(text: string, max: number): { head: string; omitted: number } {
 	const lines = text.split("\n");

@@ -25,14 +25,14 @@ import type {
 	IpcSessionsSearchPayload,
 	IpcStatsFetchPayload,
 } from "../shared/ipc-types";
-import { IPC_COMMANDS, IPC_EVENTS, type TrayState } from "../shared/ipc-types";
-import { setTrayState } from "./tray";
+import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
 import type { RpcCommand } from "../shared/rpc-types";
 import type { LogWatcher } from "./log-watcher";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
 import type { SessionIndex } from "./session-index";
 import type { SidecarManager } from "./sidecar";
 import type { StatsClient } from "./stats-client";
+import { setTrayState } from "./tray";
 import type { WindowManager } from "./window";
 
 export interface IpcDeps {
@@ -339,6 +339,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		setTrayState(state);
 	});
 
+	// Run-progress indicator (terminal.showProgress): the renderer pushes the
+	// coalesced working/waiting/idle state (already gated on the setting, and
+	// pinned to "idle" when off); mirror it to the dock badge + progress bars.
+	ipcMain.on(IPC_EVENTS.PROGRESS_SET, (_event, state: RunProgressState) => {
+		windowManager.setRunProgress(state);
+	});
+
 	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND, async (_event, payload: IpcRpcCommandPayload) => {
 		const client = sidecar.rpcClient;
 		if (!client) {
@@ -354,7 +361,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		const { id: _id, ...cmd } = payload.command;
 		try {
-			return await client.command({ ...cmd, id: _id } as RpcCommand);
+			return await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
 		} catch (err) {
 			return { id: _id, type: "response", success: false, error: err instanceof Error ? err.message : String(err) };
 		}
@@ -399,7 +406,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const scope = payload.scope === "local" ? "local" : "global";
 		const query = typeof payload.query === "string" ? payload.query : "";
 		const candidates = await sessionIndex.list(scope);
-		return sessionIndex.searchContent(query, candidates.map(info => info.path));
+		return sessionIndex.searchContent(
+			query,
+			candidates.map(info => info.path),
+		);
 	});
 
 	// Stats
@@ -623,28 +633,31 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// bashExecution entries to the transcript on every poll. Reads the
 	// configured path, else the newest `*plan.md` in the session-local root.
 	// Confined to the workspace and the sessions dir (plan artifacts live there).
-	ipcMain.handle(IPC_COMMANDS.FS_READ_PLAN, async (_event, payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult> => {
-		const fail = (error: string): IpcFsReadPlanResult => ({ ok: false, path: null, content: null, error });
-		if (typeof payload?.fsPath !== "string" || payload.fsPath.length === 0) {
-			return fail("Invalid path");
-		}
-		const withinAllowedRoots = (value: string): string | null =>
-			resolveWithin(sidecar.cwd, value) ?? resolveWithin(sessionIndex.sessionsDir, value);
-		const target = withinAllowedRoots(payload.fsPath);
-		if (!target) return fail("Path escapes allowed roots");
-		let localRoot: string | null = null;
-		if (typeof payload.localRoot === "string" && payload.localRoot.length > 0) {
-			localRoot = withinAllowedRoots(payload.localRoot);
-			if (!localRoot) return fail("Path escapes allowed roots");
-		}
-		try {
-			const picked = (await statFile(target)) ?? (localRoot ? await newestPlanFile(localRoot) : null);
-			if (!picked) return { ok: true, path: null, content: null };
-			return { ok: true, path: picked, content: await fsp.readFile(picked, "utf8") };
-		} catch (err) {
-			return fail(err instanceof Error ? err.message : String(err));
-		}
-	});
+	ipcMain.handle(
+		IPC_COMMANDS.FS_READ_PLAN,
+		async (_event, payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult> => {
+			const fail = (error: string): IpcFsReadPlanResult => ({ ok: false, path: null, content: null, error });
+			if (typeof payload?.fsPath !== "string" || payload.fsPath.length === 0) {
+				return fail("Invalid path");
+			}
+			const withinAllowedRoots = (value: string): string | null =>
+				resolveWithin(sidecar.cwd, value) ?? resolveWithin(sessionIndex.sessionsDir, value);
+			const target = withinAllowedRoots(payload.fsPath);
+			if (!target) return fail("Path escapes allowed roots");
+			let localRoot: string | null = null;
+			if (typeof payload.localRoot === "string" && payload.localRoot.length > 0) {
+				localRoot = withinAllowedRoots(payload.localRoot);
+				if (!localRoot) return fail("Path escapes allowed roots");
+			}
+			try {
+				const picked = (await statFile(target)) ?? (localRoot ? await newestPlanFile(localRoot) : null);
+				if (!picked) return { ok: true, path: null, content: null };
+				return { ok: true, path: picked, content: await fsp.readFile(picked, "utf8") };
+			} catch (err) {
+				return fail(err instanceof Error ? err.message : String(err));
+			}
+		},
+	);
 
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_STATUS_GET, () => {
 		return { status: sidecar.status, cwd: sidecar.cwd };

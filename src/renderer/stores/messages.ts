@@ -3,6 +3,13 @@ import type { AgentMessage, AgentSessionEvent, MessagesPage } from "../../shared
 
 interface MessagesStore {
 	messages: AgentMessage[];
+	/**
+	 * Messages appended by the most recent applyEvents/appendMessage call —
+	 * the voice auto-speak watcher's clean signal: hydration/pagination
+	 * replaces `messages` wholesale without touching this field, so watchers
+	 * only ever see genuinely new finalized messages (never history).
+	 */
+	lastAppended: AgentMessage[];
 	streamingMessage: AgentMessage | null;
 	streamingText: string;
 	streamingThinking: string;
@@ -18,6 +25,7 @@ interface MessagesStore {
 
 const initialState = {
 	messages: [] as AgentMessage[],
+	lastAppended: [] as AgentMessage[],
 	streamingMessage: null as AgentMessage | null,
 	streamingText: "",
 	streamingThinking: "",
@@ -183,6 +191,10 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 		if (messages !== state.messages) {
 			patch.messages = messages;
 			patch.totalMessages = state.totalMessages + (messages.length - state.messages.length);
+			// Both paths above are append-only, so everything beyond the prior
+			// length is new (message_end/turn_end/agent_end deliveries).
+			const appended = messages.slice(state.messages.length);
+			if (appended.length > 0) patch.lastAppended = appended;
 		}
 
 		if (streamingEnd || runMessages) {
@@ -199,11 +211,13 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 	loadPage: page =>
 		set({
 			messages: page.messages,
+			lastAppended: [],
 			totalMessages: page.totalMessages,
 			nextCursor: page.nextCursor,
 			isLoadingPage: false,
 		}),
-	appendMessage: message => set(s => ({ messages: [...s.messages, message], totalMessages: s.totalMessages + 1 })),
+	appendMessage: message =>
+		set(s => ({ messages: [...s.messages, message], lastAppended: [message], totalMessages: s.totalMessages + 1 })),
 	/** Drop a locally appended placeholder (e.g. the composer's running-eval bubble) by identity. */
 	removeMessage: message =>
 		set(s => {
