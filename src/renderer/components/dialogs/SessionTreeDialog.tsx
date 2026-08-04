@@ -84,6 +84,11 @@ const ROLE_META: Record<SessionTreeEntry["role"], { labelKey: string; className:
 	system: { labelKey: "sessionTree.role.system", className: "text-(--omp-dim)" },
 };
 
+/** Total role lookup for wire roles outside the declared union. */
+function roleMeta(role: string): { labelKey: string; className: string } {
+	return ROLE_META[role as SessionTreeEntry["role"]] ?? ROLE_META.system;
+}
+
 /** Load the richest tree model available: get_session_tree if the sidecar has it, else the flat lineage. */
 async function loadSessionTreeModel(): Promise<SessionTreeModel> {
 	const rpc = window.omp.rpc as typeof window.omp.rpc & { getSessionTree?: () => Promise<RpcResponse> };
@@ -151,7 +156,7 @@ function filterTreeEntries(entries: SessionTreeEntry[], mode: TreeFilterMode): S
 }
 
 function RoleGlyph({ role }: { role: SessionTreeEntry["role"] }) {
-	const className = cx("shrink-0", ROLE_META[role].className);
+	const className = cx("shrink-0", roleMeta(role).className);
 	switch (role) {
 		case "user":
 			return <User className={className} size={11} />;
@@ -181,7 +186,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 	onBranch: (entryId: string) => void;
 }) {
 	const t = useT();
-	const meta = ROLE_META[entry.role];
+	const meta = roleMeta(entry.role);
 	return (
 		<div
 			className={cx(
@@ -943,10 +948,10 @@ export function SessionTreeDialog() {
 									<span
 										className={cx(
 											"text-[9px] font-semibold tracking-widest uppercase",
-											ROLE_META[selectedEntry.role].className,
+											roleMeta(selectedEntry.role).className,
 										)}
 									>
-										{t(ROLE_META[selectedEntry.role].labelKey)}
+										{t(roleMeta(selectedEntry.role).labelKey)}
 									</span>
 									{selectedEntry.timestamp > 0 && (
 										<span className="text-[10px] text-(--omp-dim)">

@@ -43,6 +43,11 @@ const STATUS_LABEL_KEY: Record<TodoTask["status"], string> = {
 	abandoned: "todoPanel.status.abandoned",
 };
 
+/** Total label lookup for wire statuses outside the declared union. */
+function statusLabelKey(status: string): string {
+	return STATUS_LABEL_KEY[status as TodoTask["status"]] ?? "todoPanel.status.pending";
+}
+
 const STATUS_CYCLE: TodoTask["status"][] = ["pending", "in_progress", "completed", "blocked", "abandoned"];
 
 function nextStatus(status: TodoTask["status"]): TodoTask["status"] {
@@ -72,7 +77,9 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState(task.content);
-	const meta = STATUS_META[task.status];
+	// task.status is free-form wire data (only the type is narrowed); an
+	// out-of-union status must not deref an undefined meta (white-screen class).
+	const meta = STATUS_META[task.status] ?? STATUS_META.pending;
 
 	const commit = () => {
 		const content = draft.trim();
@@ -104,14 +111,14 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 				<GripVertical size={12} />
 			</button>
 			<button
-				aria-label={t("todoPanel.statusAria", { status: t(STATUS_LABEL_KEY[task.status]) })}
+				aria-label={t("todoPanel.statusAria", { status: t(statusLabelKey(task.status)) })}
 				className="shrink-0"
 				onClick={() => onPatch(phaseId, task.id, { status: nextStatus(task.status) })}
 				title={t("todoPanel.cycleHint")}
 				type="button"
 			>
 				<Badge dot={meta.dot} pulse={task.status === "in_progress"} variant={meta.variant}>
-					{t(STATUS_LABEL_KEY[task.status])}
+					{t(statusLabelKey(task.status))}
 				</Badge>
 			</button>
 			{editing ? (

@@ -504,13 +504,18 @@ function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 // Hub: live multi-agent table
 // ---------------------------------------------------------------------------
 
-/** TUI hub ordering (running first); recency breaks ties. */
-const HUB_STATUS_ORDER: Record<SubagentSnapshot["status"], number> = {
-	started: 0,
-	failed: 1,
-	cancelled: 2,
-	completed: 3,
-};
+/**
+ * TUI hub ordering (running first); recency breaks ties. Keyed by the live
+ * predicate rather than raw status strings: the wire status is free-form
+ * (`running`/`pending`/`idle`/`parked`/`aborted` all occur), so a raw
+ * `TABLE[status]` lookup returned undefined and produced a NaN comparator.
+ */
+function hubStatusOrder(status: string): number {
+	if (isLiveSubagentStatus(status)) return 0;
+	if (status === "failed") return 1;
+	if (status === "cancelled" || status === "aborted") return 2;
+	return 3;
+}
 
 const HubRow = memo(function HubRow({
 	agent,
@@ -577,18 +582,31 @@ function HubTab() {
 	const sorted = useMemo(
 		() =>
 			[...subagents.values()].sort(
-				(a, b) => HUB_STATUS_ORDER[a.status] - HUB_STATUS_ORDER[b.status] || b.index - a.index,
+				(a, b) => hubStatusOrder(a.status) - hubStatusOrder(b.status) || b.index - a.index,
 			),
 		[subagents],
 	);
 
+	// Live count drives the 1s elapsed tick and the Abort button. Counted with
+	// the shared live predicate: tallying into a fixed status-keyed record left
+	// wire statuses like "running"/"pending"/"idle"/"parked" uncounted (NaN),
+	// which froze every elapsed timer and disabled Abort mid-run.
+	const liveCount = useMemo(() => {
+		let count = 0;
+		for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status)) count += 1;
+		return count;
+	}, [subagents]);
+
+	// Per-status badge tallies over the statuses actually present on the wire —
+	// a Map, not a fixed-key record, so unknown statuses are shown instead of
+	// silently producing NaN.
 	const counts = useMemo(() => {
-		const result: Record<SubagentSnapshot["status"], number> = { started: 0, completed: 0, failed: 0, cancelled: 0 };
-		for (const agent of subagents.values()) result[agent.status] += 1;
+		const result = new Map<string, number>();
+		for (const agent of subagents.values()) result.set(agent.status, (result.get(agent.status) ?? 0) + 1);
 		return result;
 	}, [subagents]);
 
-	const hasRunning = counts.started > 0;
+	const hasRunning = liveCount > 0;
 
 	useEffect(() => {
 		if (!hasRunning) return;
@@ -624,13 +642,11 @@ function HubTab() {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
 			<div className="flex shrink-0 flex-wrap items-center gap-2">
-				{(["started", "failed", "cancelled", "completed"] as const).map(status =>
-					counts[status] > 0 ? (
-						<Badge dot key={status} pulse={statusMeta(status).live} variant={statusMeta(status).variant}>
-							{t(statusMeta(status).labelKey)} {counts[status]}
-						</Badge>
-					) : null,
-				)}
+				{[...counts].map(([status, count]) => (
+					<Badge dot key={status} pulse={statusMeta(status).live} variant={statusMeta(status).variant}>
+						{t(statusMeta(status).labelKey)} {count}
+					</Badge>
+				))}
 				<span className="ml-auto">
 					<Button
 						disabled={!hasRunning}

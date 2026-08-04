@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
-import { basename, formatTokens } from "../../lib/format";
+import { basename, formatCost, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
 import { Modal, ProgressBar, Spinner } from "../common";
@@ -121,7 +121,7 @@ export function SessionInfoDialog() {
 							title={t("sessionInfo.section.usage")}
 							rows={[
 								{ label: t("sessionInfo.premiumRequests"), value: String(stats.premiumRequests) },
-								{ label: t("sessionInfo.cost"), value: `$${stats.cost.toFixed(4)}` },
+								{ label: t("sessionInfo.cost"), value: formatCost(stats.cost) },
 							]}
 						/>
 						{stats.contextUsage && (
@@ -132,14 +132,16 @@ export function SessionInfoDialog() {
 								<div className="rounded-md border border-(--omp-border-muted) px-2.5 py-2">
 									<ProgressBar
 										value={stats.contextUsage.percent / 100}
-										valueText={`${stats.contextUsage.percent.toFixed(1)}%`}
+										valueText={formatPercent(stats.contextUsage.percent, 1)}
 									/>
 									<div className="mt-1.5 flex items-center justify-between text-[10.5px] text-(--omp-muted)">
 										<span>
 											{formatTokens(stats.contextUsage.tokens)} /{" "}
 											{formatTokens(stats.contextUsage.contextWindow)} {t("sessionInfo.tokens")}
 										</span>
-										<span className="font-mono tabular-nums">{stats.contextUsage.percent.toFixed(1)}%</span>
+										<span className="font-mono tabular-nums">
+											{formatPercent(stats.contextUsage.percent, 1)}
+										</span>
 									</div>
 								</div>
 							</section>

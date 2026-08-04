@@ -133,6 +133,16 @@ export function formatBytes(n: number): string {
 	return `${n} B`;
 }
 
+/** Format cost with safe fallback for NaN/null (which the wire sends when sidecar aggregates produce NaN). */
+export function formatCost(n: number | null | undefined, decimals = 4): string {
+	return n != null && Number.isFinite(n) ? `$${n.toFixed(decimals)}` : "—";
+}
+
+/** Format percentage with safe fallback for NaN/null/undefined. */
+export function formatPercent(n: number | null | undefined, decimals = 1): string {
+	return n != null && Number.isFinite(n) ? `${n.toFixed(decimals)}%` : "—";
+}
+
 export function escapeHtml(s: string): string {
 	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

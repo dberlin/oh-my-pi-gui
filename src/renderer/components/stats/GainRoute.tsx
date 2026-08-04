@@ -8,6 +8,7 @@ import { Bar } from "react-chartjs-2";
 import { baseChartOptions, chartTheme, compact } from "../../lib/chart";
 import "../../lib/chart";
 import { useStats } from "../../hooks/use-stats";
+import { formatPercent } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import type { StatsRange } from "./StatsDashboard";
 import { ChartBox, MetricCard, RouteFrame, SectionTitle } from "./shared";
@@ -112,21 +113,18 @@ export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey
 					<div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
 						<MetricCard label={t("stats.gain.tokensSaved")} tone="success" value={compact(overall.savedTokens)} />
 						<MetricCard label={t("stats.gain.compactions")} value={compact(overall.hits)} />
-						<MetricCard
-							label={t("stats.gain.reduction")}
-							value={overall.reductionPercent !== null ? `${overall.reductionPercent.toFixed(0)}%` : "—"}
-						/>
+						<MetricCard label={t("stats.gain.reduction")} value={formatPercent(overall.reductionPercent, 0)} />
 						<MetricCard label={t("stats.gain.bytesSaved")} value={compact(overall.savedBytes)} />
 					</div>
 					<SectionTitle>{t("stats.gain.daily")}</SectionTitle>
 					<ChartBox height={260}>
 						<Bar data={chart} options={barOptions} />
 					</ChartBox>
-					{stats && Object.keys(stats.bySource).length > 1 && (
+					{stats && Object.keys(stats.bySource ?? {}).length > 1 && (
 						<SectionTitle>{t("stats.gain.bySource")}</SectionTitle>
 					)}
 					{stats &&
-						Object.entries(stats.bySource)
+						Object.entries(stats.bySource ?? {})
 							.filter(([, totals]) => totals.hits > 0)
 							.map(([source, totals]) => (
 								<div
@@ -138,9 +136,9 @@ export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey
 										{t("stats.gain.tokens", { count: compact(totals.savedTokens) })}
 									</span>
 									<span className="text-(--omp-dim)">{t("stats.gain.hits", { count: totals.hits })}</span>
-									{totals.reductionPercent !== null && (
+									{totals.reductionPercent != null && Number.isFinite(totals.reductionPercent) && (
 										<span className="ml-auto text-(--omp-success)">
-											−{totals.reductionPercent.toFixed(0)}%
+											−{formatPercent(totals.reductionPercent, 0)}
 										</span>
 									)}
 								</div>

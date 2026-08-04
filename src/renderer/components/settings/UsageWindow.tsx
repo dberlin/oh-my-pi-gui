@@ -6,7 +6,7 @@
 import { Coins, Database, RefreshCw, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { UsageLimit, UsageReport, UsageResult } from "../../../shared/rpc-types";
-import { formatDuration, formatTokens } from "../../lib/format";
+import { formatCost, formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
@@ -92,7 +92,7 @@ function ProviderReportCard({
 				</div>
 			)}
 			<div className="divide-y divide-[var(--omp-border-muted)]">
-				{report.limits.map(limit => (
+				{(Array.isArray(report.limits) ? report.limits : []).map(limit => (
 					<LimitRow key={limit.id} limit={limit} t={t} />
 				))}
 			</div>
@@ -144,7 +144,7 @@ export function UsageWindow() {
 					? [{ icon: Zap, label: t("usage.orchestration"), value: formatTokens(session.orchestrationTokens) }]
 					: []),
 				{ icon: Coins, label: t("usage.premiumRequests"), value: String(session.premiumRequests) },
-				{ icon: Coins, label: t("usage.cost"), value: `$${session.cost.toFixed(6)}` },
+				{ icon: Coins, label: t("usage.cost"), value: formatCost(session.cost, 6) },
 			]
 		: [];
 
