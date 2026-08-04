@@ -2,8 +2,8 @@ import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
-/** All main/preload runtime deps that must stay external (not bundled). */
-const MAIN_EXTERNALS = ["electron", "electron-log", "electron-store", "electron-updater", "chokidar", "zod"];
+/** Main-process packages bundled into out/main/index.js so packaged apps need no node_modules. */
+const MAIN_BUNDLED_DEPS = ["chokidar", "electron-store", "electron-updater"];
 
 /**
  * Heavy renderer vendor libs split out of the eager main chunk. Patterns match
@@ -50,16 +50,16 @@ function manualChunks(id: string): string | undefined {
 
 export default defineConfig({
 	main: {
-		plugins: [externalizeDepsPlugin({ include: MAIN_EXTERNALS })],
+		plugins: [externalizeDepsPlugin({ exclude: MAIN_BUNDLED_DEPS })],
 		build: {
 			rollupOptions: {
 				input: { index: resolve(__dirname, "src/main/index.ts") },
-				external: MAIN_EXTERNALS,
+				external: ["electron"],
 			},
 		},
 	},
 	preload: {
-		plugins: [externalizeDepsPlugin({ include: MAIN_EXTERNALS })],
+		plugins: [externalizeDepsPlugin()],
 		build: {
 			rollupOptions: {
 				input: { index: resolve(__dirname, "src/preload/index.ts") },
