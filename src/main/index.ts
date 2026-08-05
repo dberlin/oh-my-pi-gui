@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { app, BrowserWindow, globalShortcut, nativeImage } from "electron";
+import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
 import Store from "electron-store";
 import { setupDeepLinks } from "./deep-link";
 import { registerIpcHandlers } from "./ipc";
@@ -92,6 +92,7 @@ function resolveSourceCli(): string | null {
 
 interface MainPrefs {
 	lastProject?: string;
+	proxyUrl?: string;
 	[key: string]: unknown;
 }
 
@@ -104,6 +105,70 @@ function resolveInitialCwd(): string {
 
 	const launchCwd = process.cwd();
 	return launchCwd !== "/" && existsSync(launchCwd) ? launchCwd : homedir();
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Sidecar proxy env
+// ──────────────────────────────────────────────────────────────────────────
+// The agent reads proxy config from env vars only (PI_PROXY_* → PI_PROXY →
+// HTTPS_PROXY → ALL_PROXY). A Finder-launched app has no shell env, so a
+// proxy-only network (codex's chatgpt.com backend behind a firewall) would
+// silently hang every provider request. Resolution order per spawn:
+// explicit GUI pref → inherited env (terminal launch) → macOS system proxy.
+
+/** Expand one proxy URL into the full env-var set the agent and Bun honor. */
+function proxyEnvVars(proxyUrl: string): Record<string, string> {
+	return {
+		PI_PROXY: proxyUrl,
+		HTTPS_PROXY: proxyUrl,
+		HTTP_PROXY: proxyUrl,
+		ALL_PROXY: proxyUrl,
+		https_proxy: proxyUrl,
+		http_proxy: proxyUrl,
+		all_proxy: proxyUrl,
+	};
+}
+
+/** Accept "127.0.0.1:7890" shorthand; keep explicit schemes as-is. */
+function normalizeProxyUrl(raw: string): string {
+	const trimmed = raw.trim();
+	if (trimmed.includes("://")) return trimmed;
+	return `http://${trimmed}`;
+}
+
+/** First entry of a Chromium PAC result → URL ("PROXY h:p" / "SOCKS5 h:p" / "DIRECT"). */
+function parsePacResult(pac: string): string | undefined {
+	const first = pac.split(";")[0]?.trim() ?? "";
+	const [kind, endpoint] = first.split(/\s+/, 2);
+	if (!endpoint) return undefined;
+	if (kind === "PROXY") return `http://${endpoint}`;
+	if (kind === "HTTPS") return `https://${endpoint}`;
+	if (kind === "SOCKS" || kind === "SOCKS5") return `socks5://${endpoint}`;
+	return undefined;
+}
+
+/** Representative URL for system-proxy resolution (codex's OAuth backend). */
+const SYSTEM_PROXY_PROBE_URL = "https://chatgpt.com";
+
+async function resolveProxyEnvForSpawn(): Promise<Record<string, string>> {
+	const pref = new Store<MainPrefs>({ name: "prefs" }).get("proxyUrl");
+	if (typeof pref === "string" && pref.trim()) return proxyEnvVars(normalizeProxyUrl(pref));
+	if (
+		process.env.PI_PROXY ||
+		process.env.HTTPS_PROXY ||
+		process.env.https_proxy ||
+		process.env.ALL_PROXY ||
+		process.env.all_proxy
+	) {
+		return {};
+	}
+	try {
+		const pac = await session.defaultSession.resolveProxy(SYSTEM_PROXY_PROBE_URL);
+		const systemProxy = parsePacResult(pac);
+		return systemProxy ? proxyEnvVars(systemProxy) : {};
+	} catch {
+		return {};
+	}
 }
 
 // Module-level instances (alive for app lifetime)
@@ -139,6 +204,7 @@ app.whenReady().then(() => {
 			binaryPath: bundledOmp ?? "",
 			sourceCli: sourceCli ?? undefined,
 			cwd,
+			proxyEnv: resolveProxyEnvForSpawn,
 		});
 		// Ready-health-check applies to every pooled sidecar, not just the first.
 		sc.on("status", ({ status }) => {

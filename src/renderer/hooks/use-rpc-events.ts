@@ -90,6 +90,27 @@ function notifyOnAgentEnd(event: Extract<AgentSessionEvent, { type: "agent_end" 
 	void maybeNotify("completion", sessionName, "Complete");
 }
 
+/**
+ * Toast a failed turn in-app regardless of the desktop-notification policy
+ * (error notifications default off). The chat bubble carries the message, but
+ * a failure with no visible output — e.g. the provider rejects the first
+ * request right after a model switch — otherwise looks like a silent no-op.
+ * Same guards as notifyOnAgentEnd: deferred mid-run settles and live
+ * auto-retries stay quiet (the retry row and its final-failure toast cover
+ * those), and aborted turns are user-initiated.
+ */
+function toastOnAgentError(event: Extract<AgentSessionEvent, { type: "agent_end" }>): void {
+	if (event.isTerminal === false) return;
+	if (retryPending) return;
+	const last = event.messages?.findLast(message => message.role === "assistant");
+	if (last?.stopReason !== "error") return;
+	const detail =
+		typeof last.errorMessage === "string" && last.errorMessage
+			? last.errorMessage.replace(/\s+/g, " ").slice(0, 200)
+			: "Unknown error";
+	useToastStore.getState().push({ variant: "error", title: "Turn failed", message: detail });
+}
+
 /** Apply a get_state snapshot to every state-derived store. */
 function applySessionState(state: RpcSessionState, fallbackName?: string): void {
 	useModelStore.getState().setFromState(state);
@@ -284,6 +305,7 @@ export function useRpcEvents(): void {
 					case "agent_end": {
 						useSessionStore.setState({ isStreaming: false, awaitingModelSince: null });
 						notifyOnAgentEnd(event);
+						toastOnAgentError(event);
 						// Re-fetch state so agent-side todo updates mid-turn reach the panel.
 						void refreshSessionState();
 						break;

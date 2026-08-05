@@ -35,6 +35,12 @@ Every slash command as a menu · full-fidelity rendering · providers, models & 
 
 - **Sessions.** Search, group, rename, branch, fork/handoff, and resume sessions across projects. Global and per-project history.
 
+- **Parallel, protected sessions.** Open up to 10 windows, each with its own sidecar. Switching away from a busy session offers a new window, explicit abort, or cancel instead of silently killing work.
+
+- **OMP capabilities, not generic toggles.** Settings leads with TTSR, parallel subagents, model roles, Advisor, goal/loop modes, memory, and native tools. Schema-driven controls distinguish live settings from restart-required ones, and full-row switches persist across reconnects.
+
+- **Proxy-aware packaged app.** Finder-launched builds resolve an explicit GUI proxy, inherited proxy variables, or the macOS system proxy for OAuth, streaming, and usage requests.
+
 ### Screenshots
 
 | | |
@@ -48,10 +54,10 @@ Every slash command as a menu · full-fidelity rendering · providers, models & 
 
 ### Install
 
-Download the latest build from [**Releases**](https://github.com/nornzach/oh-my-pi-gui/releases):
+Current release: [**v0.3.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.3.1)
 
-- **Apple Silicon (M1/M2/M3/M4):** `omp-*-arm64.dmg`
-- **Intel:** `omp-*-x64.dmg`
+- **Apple Silicon (M1/M2/M3/M4):** `omp-0.3.1-arm64.dmg`
+- **Intel:** `omp-0.3.1-x64.dmg`
 
 Open the `.dmg` and drag **omp** into **Applications**. The build is unsigned, so on first launch macOS may block it: **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*).
 
@@ -93,6 +99,12 @@ bun run package:mac  # electron-builder → dist/
 
 - **会话管理。** 搜索、分组、重命名、分支、fork/交接、跨项目恢复会话,支持全局与项目级历史。
 
+- **并行且受保护的会话。** 最多同时打开 10 个窗口,每个窗口拥有独立 sidecar。离开繁忙会话时会明确提供“新窗口打开”“中止后切换”或取消,不会静默终止正在进行的工作。
+
+- **围绕 OMP 能力组织的设置。** 设置首页直接呈现 TTSR、并行子 agent、角色模型、顾问、目标/循环模式、记忆和原生工具；schema 控件会区分即时生效与需要重启的设置,整行滑块在重连后也保持正确状态。
+
+- **适配代理网络的打包应用。** 从 Finder 启动时,应用会依次解析 GUI 显式代理、继承的代理环境变量和 macOS 系统代理,用于 OAuth、流式请求与用量查询。
+
 ### 界面截图
 
 | | |
@@ -106,10 +118,10 @@ bun run package:mac  # electron-builder → dist/
 
 ### 安装
 
-从 [**Releases**](https://github.com/nornzach/oh-my-pi-gui/releases) 下载最新构建:
+当前版本：[**v0.3.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.3.1)
 
-- **Apple Silicon(M1/M2/M3/M4):** `omp-*-arm64.dmg`
-- **Intel:** `omp-*-x64.dmg`
+- **Apple Silicon(M1/M2/M3/M4):** `omp-0.3.1-arm64.dmg`
+- **Intel:** `omp-0.3.1-x64.dmg`
 
 打开 `.dmg`,把 **omp** 拖进 **应用程序**。构建未签名,首次打开 macOS 可能拦截:**右键 → 打开**(或 *系统设置 → 隐私与安全性 → 仍要打开*)。
 

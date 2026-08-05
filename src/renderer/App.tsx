@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
 import { ChatStream } from "./components/chat/ChatStream";
 import { ToastStack } from "./components/common";
@@ -11,6 +11,7 @@ import { PlanApprovalDialog } from "./components/dialogs/PlanApprovalDialog";
 import { RenameSessionDialog } from "./components/dialogs/RenameSessionDialog";
 import { SessionInfoDialog } from "./components/dialogs/SessionInfoDialog";
 import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
+import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
 import { SessionTreeDialog } from "./components/dialogs/SessionTreeDialog";
 import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
 import { InputArea } from "./components/layout/InputArea";
@@ -22,6 +23,7 @@ import { TitleBar } from "./components/layout/TitleBar";
 import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { hydrateSession, useRpcEvents } from "./hooks/use-rpc-events";
+import { requestSessionSwitch } from "./hooks/use-session-switch";
 import { useTraySync } from "./hooks/use-tray-sync";
 import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
@@ -166,6 +168,9 @@ export function App() {
 				if (typeof prefs.thinkingExpanded === "boolean") {
 					useUiStore.setState({ thinkingExpanded: prefs.thinkingExpanded });
 				}
+				if (prefs.transcriptDetail === "compact" || prefs.transcriptDetail === "full") {
+					useUiStore.setState({ transcriptDetail: prefs.transcriptDetail });
+				}
 				// Restore the default workspace panel tab (written by Settings → GUI).
 				if (
 					typeof prefs.defaultPanelTab === "string" &&
@@ -213,33 +218,30 @@ export function App() {
 	// Handle omp:// deep links (omp://new → new session; omp://session/<id> → switch).
 	useEffect(() => {
 		const handle = async (link: { action: "new-session" } | { action: "switch-session"; sessionId: string }) => {
-			if (useSessionStore.getState().isStreaming) {
-				toast({ variant: "warning", title: t("deepLink.streaming"), message: t("deepLink.streamingDesc") });
-				return;
-			}
-			try {
-				if (link.action === "new-session") {
+			if (link.action === "new-session") {
+				if (useSessionStore.getState().isStreaming) {
+					toast({ variant: "warning", title: t("deepLink.streaming"), message: t("deepLink.streamingDesc") });
+					return;
+				}
+				try {
 					const res = await window.omp.rpc.newSession();
 					if (!res.success) throw new Error(res.error);
 					if (!(res.data as { cancelled?: boolean } | undefined)?.cancelled) await hydrateSession();
-					return;
+				} catch (error) {
+					toast({ variant: "error", title: t("sidebar.openFailed"), message: String(error) });
 				}
+				return;
+			}
+			try {
 				const sessions = await window.omp.sessions.list("global");
 				const target = sessions.find(s => s.id === link.sessionId);
 				if (!target) {
 					toast({ variant: "error", title: t("deepLink.notFound"), message: link.sessionId });
 					return;
 				}
-				const res = await window.omp.rpc.switchSession(target.path);
-				if (!res.success) throw new Error(res.error);
-				if (!(res.data as { cancelled?: boolean } | undefined)?.cancelled)
-					await hydrateSession(target.title ?? target.firstMessage);
-				else
-					toast({
-						variant: "info",
-						title: t("sidebar.openCancelled"),
-						message: target.title ?? target.firstMessage ?? "",
-					});
+				// Busy sessions route to the switch dialog (new window vs abort);
+				// idle sessions switch straight through.
+				requestSessionSwitch(target);
 			} catch (error) {
 				toast({ variant: "error", title: t("sidebar.openFailed"), message: String(error) });
 			}
@@ -397,7 +399,7 @@ export function App() {
 					action === "handoff" ||
 					action === "switch-project")
 			) {
-				toast({ variant: "warning", message: "Abort the active turn before changing sessions or projects." });
+				toast({ variant: "warning", message: t("sessionSwitch.busyBlocked") });
 				return;
 			}
 
@@ -423,7 +425,7 @@ export function App() {
 			}
 		};
 		return window.omp.events.onMenuAction((action, payload) => void run(action, payload));
-	}, [setLang]);
+	}, [setLang, t]);
 
 	return (
 		<div className="omp-surface-depth flex h-screen w-screen overflow-hidden text-[var(--omp-text)]">
@@ -444,6 +446,7 @@ export function App() {
 			<ModelPicker />
 			<RenameSessionDialog />
 			<SessionPickerDialog />
+			<SessionSwitchDialog />
 			<BranchPickerDialog />
 			<SessionTreeDialog />
 			<SessionInfoDialog />

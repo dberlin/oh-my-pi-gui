@@ -342,6 +342,9 @@ export interface ContextUsage {
 export interface ModelInfo {
 	provider: string;
 	id: string;
+	/** Present on the wire (get_available_models / get_state carry full Model
+	 * objects) — used by the picker to flag over-context switches. */
+	contextWindow?: number | null;
 }
 
 export interface RpcSessionState {
@@ -820,7 +823,7 @@ export interface SettingEntry {
 	condition?: string;
 	/** True when array order is meaningful and the editor supports reordering. */
 	ordered?: boolean;
-	/** True when the setting only affects TUI chrome — badge it, it has no GUI effect. */
+	/** True when the setting only affects TUI chrome — the GUI hides it. */
 	tuiOnly?: boolean;
 	/** True when the value is cached at session construction — edits need a sidecar restart. */
 	restartRequired?: boolean;

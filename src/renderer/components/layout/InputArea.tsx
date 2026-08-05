@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FsTreeEntry } from "../../../shared/ipc-types";
 import type { AgentMessage, AvailableCommand, ImageContent } from "../../../shared/rpc-types";
 import { hydrateSession } from "../../hooks/use-rpc-events";
+import { planComposerSubmit, settleComposerResponse } from "../../lib/composer-submit";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { parseComposerMode } from "../../lib/input-modes";
@@ -423,22 +424,26 @@ export function InputArea() {
 
 			useInputHistoryStore.getState().record(message);
 
+			// Routing/guarding/hydration policy lives in lib/composer-submit:
+			// slash commands always go through prompt (server parses them even
+			// while streaming), session-replacing commands are blocked while
+			// busy, and local-only resolutions rehydrate the transcript.
 			const payload = images.map(image => image.content);
-			const request = isStreaming
-				? mode === "followUp"
-					? window.omp.rpc.followUp(message, payload)
-					: window.omp.rpc.steer(message, payload)
-				: window.omp.rpc.prompt(message, payload);
+			const submit = planComposerSubmit({ message, images: payload, isStreaming, mode });
+			if (submit.kind === "blocked") return;
 			const previousImages = images;
 			setText("");
 			setImages([]);
 			setMenu(null);
-			void request
-				.then(response => {
-					if (response.success) return;
-					setText(current => (current ? `${message}\n${current}` : message));
-					setImages(current => [...previousImages, ...current]);
-					toast({ variant: "error", title: t("input.sendFailed"), message: response.error });
+			void submit.request
+				.then(async response => {
+					if (!response.success) {
+						setText(current => (current ? `${message}\n${current}` : message));
+						setImages(current => [...previousImages, ...current]);
+						toast({ variant: "error", title: t("input.sendFailed"), message: response.error });
+						return;
+					}
+					await settleComposerResponse(response);
 				})
 				.catch(error => {
 					setText(current => (current ? `${message}\n${current}` : message));

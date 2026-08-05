@@ -69,11 +69,11 @@ export const ZH_GROUP_TITLES: Record<string, string> = {
 /** Per-setting row text, keyed by schema setting path. */
 export const ZH_SETTINGS: Record<string, { label: string; description?: string }> = {
 	// ── appearance ──────────────────────────────────────────────────────────
-	"theme.dark": { label: "深色主题", description: "终端为深色背景时使用的主题" },
-	"theme.light": { label: "浅色主题", description: "终端为浅色背景时使用的主题" },
+	"theme.dark": { label: "深色主题", description: "TUI 与 GUI 使用深色外观时的主题配色" },
+	"theme.light": { label: "浅色主题", description: "TUI 与 GUI 使用浅色外观时的主题配色" },
 	symbolPreset: { label: "符号预设", description: "图标与符号的字形集（Unicode、Nerd Font 或 ASCII）" },
 	colorBlindMode: { label: "色盲模式", description: "差异新增行使用蓝色而非绿色" },
-	"statusLine.preset": { label: "状态栏预设", description: "预置的状态栏配置" },
+	"statusLine.preset": { label: "状态预设", description: "TUI 状态栏与 GUI 底部状态栏共用的布局预设" },
 	"statusLine.separator": { label: "状态栏分隔符", description: "各分段之间分隔符的样式" },
 	"statusLine.sessionAccent": { label: "会话强调色", description: "将会话名称的颜色用于编辑器边框和状态栏间隙" },
 	"statusLine.transparent": {
@@ -89,28 +89,33 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"terminal.showImages": { label: "显示内联图片", description: "在终端中内联渲染图片" },
 	"images.autoResize": { label: "自动缩放图片", description: "将大图缩放至最大 2000x2000，以获得更好的模型兼容性" },
 	"images.blockImages": { label: "屏蔽图片", description: "阻止图片发送给 LLM 提供商" },
-	"terminal.showProgress": { label: "原生终端进度", description: "Agent 或上下文维护运行时，发出 OSC 9;4 不确定进度" },
+	"terminal.showProgress": {
+		label: "原生运行进度",
+		description: "显示原生运行进度：终端使用 OSC 9;4，GUI 使用 Dock 徽标与窗口进度条",
+	},
 	"tui.textSizing": {
 		label: "大标题（Kitty）",
 		description:
 			"使用 Kitty 的 OSC 66 文本尺寸协议将 Markdown H1 标题以 2 倍缩放渲染。仅在 Kitty 终端上生效，其他终端忽略。默认关闭。",
 	},
-	"tui.renderMermaid": { label: "渲染 Mermaid 图表", description: "将 Mermaid 围栏代码块渲染为 ASCII 图表" },
+	"tui.renderMermaid": {
+		label: "渲染 Mermaid 图表",
+		description: "允许 Agent 使用 Mermaid 图表：TUI 渲染为 ASCII，GUI 渲染为图形",
+	},
 	"tui.codexResetFireworks": {
 		label: "Codex 重置烟花",
 		description: "当 Codex 每周用量意外重置或有新存入的保存重置时，在屏幕顶部三分之一处放烟花庆祝，直到按 Escape",
 	},
 	"tui.titleState": {
-		label: "终端标题运行状态",
-		description:
-			"在终端标题的分隔符处显示 Agent 运行状态——工作时为动画旋转符（Windows 上为静态 ':'），轮到你时为 '>'，Agent 等待你时为 '!'",
+		label: "标题运行状态",
+		description: "在终端标题或 GUI 窗口标题中显示 Agent 的工作、等待和轮到用户状态",
 	},
 	"tui.hyperlinks": {
 		label: "终端超链接",
 		description:
 			"将路径和 URL 包裹为 OSC 8 超链接，以便终端原生点击打开（auto：检测支持；off：从不；always：无条件）",
 	},
-	"tui.tight": { label: "紧凑布局", description: "去掉终端输出左右两侧各 1 字符的水平内边距" },
+	"tui.tight": { label: "紧凑界面密度", description: "压缩 TUI 输出与 GUI 界面间距" },
 	"tui.scrollbackRebuild": {
 		label: "重写滚动历史",
 		description:

@@ -545,8 +545,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// Sidecar control
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_RESTART, event => {
-		sidecarFor(deps, event)?.restart();
+	ipcMain.handle(IPC_COMMANDS.SIDECAR_RESTART, (event, payload?: { sessionPath?: string }) => {
+		const sessionPath =
+			typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
+		sidecarFor(deps, event)?.restart(undefined, sessionPath);
 	});
 
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_SELECT_PROJECT, async event => {

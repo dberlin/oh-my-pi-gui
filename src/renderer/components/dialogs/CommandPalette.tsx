@@ -233,6 +233,7 @@ export function CommandPalette() {
 				openModelCompare,
 				openHandoffDialog,
 				forkSession,
+				hydrateSession,
 				openExtensions,
 				openInventory,
 				openThemePicker,

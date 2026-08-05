@@ -17,8 +17,8 @@ import {
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
-import { hydrateSession } from "../../hooks/use-rpc-events";
 import { useSessionList } from "../../hooks/use-session-list";
+import { requestSessionSwitch } from "../../hooks/use-session-switch";
 import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { mergeContentMatches, rankSessions } from "../../lib/session-search";
@@ -159,29 +159,10 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 		setCollapsed(prev => ({ ...prev, [groupCwd]: !isCollapsed(groupCwd) }));
 	};
 
-	const openSession = async (session: SessionInfo) => {
-		// No isStreaming guard: the server aborts the in-flight turn on switch
-		// (`switchSession` → `abort({goalReason:"internal"})`), matching the TUI,
-		// which never blocks switching mid-run. Locking here only hid that the
-		// switch is allowed — it is not a parallel session, it replaces the
-		// current one after aborting it.
-		if (session.id === sessionId) return;
-		try {
-			const response = await window.omp.rpc.switchSession(session.path);
-			if (!response.success) {
-				toast({ variant: "error", title: t("sidebar.openFailed"), message: response.error });
-				return;
-			}
-			// Hook veto: success:true with cancelled:true — stay on the current session.
-			const data = response.data as { cancelled?: boolean } | undefined;
-			if (data?.cancelled) {
-				toast({ variant: "info", message: t("sidebar.openCancelled") });
-				return;
-			}
-			await hydrateSession(session.title ?? session.firstMessage);
-		} catch (error) {
-			toast({ variant: "error", title: t("sidebar.openFailed"), message: String(error) });
-		}
+	const openSession = (session: SessionInfo) => {
+		// Busy sessions (streaming/compacting) route to the switch dialog — the
+		// server would abort the run on switch; idle sessions switch directly.
+		requestSessionSwitch(session);
 	};
 
 	// Explicit parallel action: open this session in a NEW window with its own

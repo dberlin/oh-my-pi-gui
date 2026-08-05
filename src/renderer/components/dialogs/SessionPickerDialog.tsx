@@ -11,12 +11,11 @@
 import { ArrowDownAZ, Check, Clock, Folder, FolderTree, Globe, History, Search } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
-import { hydrateSession } from "../../hooks/use-rpc-events";
+import { requestSessionSwitch, switchSessionNow } from "../../hooks/use-session-switch";
 import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
 import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Modal, Spinner } from "../common";
 
@@ -152,23 +151,17 @@ export function SessionPickerDialog() {
 
 	const select = async (session: SessionInfo) => {
 		if (switching !== null) return;
+		// Busy sessions route to the switch dialog (new window vs abort) — close
+		// the picker first so it doesn't sit behind the modal.
+		const { isStreaming, isCompacting } = useSessionStore.getState();
+		if (isStreaming || isCompacting) {
+			close();
+			requestSessionSwitch(session);
+			return;
+		}
 		setSwitching(session.path);
 		try {
-			const response = await window.omp.rpc.switchSession(session.path);
-			if (!response.success) {
-				toast({ variant: "error", title: t("sidebar.openFailed"), message: response.error });
-				return;
-			}
-			// Hook veto: success:true with cancelled:true — keep the picker open.
-			const data = response.data as { cancelled?: boolean } | undefined;
-			if (data?.cancelled) {
-				toast({ variant: "info", message: t("sidebar.openCancelled") });
-				return;
-			}
-			await hydrateSession(session.title ?? session.firstMessage);
-			close();
-		} catch (cause) {
-			toast({ variant: "error", title: t("sidebar.openFailed"), message: String(cause) });
+			if (await switchSessionNow(session)) close();
 		} finally {
 			setSwitching(null);
 		}

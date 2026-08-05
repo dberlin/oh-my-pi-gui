@@ -61,7 +61,20 @@ export function WorkspaceDialog({
 		return [...byCwd.values()].sort((a, b) => b.lastModified - a.lastModified);
 	}, [sessions, cwd]);
 
+	/**
+	 * Session-replacing actions (new session here, workspace jump, open
+	 * project) abort the in-flight run server-side — refuse to kill it
+	 * silently, same busy guard as the menu/deep-link paths.
+	 */
+	const guardBusy = (): boolean => {
+		const { isStreaming, isCompacting } = useSessionStore.getState();
+		if (!isStreaming && !isCompacting) return false;
+		toast({ variant: "warning", message: t("sessionSwitch.busyBlocked") });
+		return true;
+	};
+
 	const newSessionHere = async () => {
+		if (guardBusy()) return;
 		try {
 			const response = await window.omp.rpc.newSession();
 			if (!response.success) {
@@ -82,6 +95,7 @@ export function WorkspaceDialog({
 			else onClose();
 			return;
 		}
+		if (guardBusy()) return;
 		// Switching workspace restarts the sidecar there, which boots a fresh
 		// session — that IS the new session for the "+" flow.
 		try {
@@ -97,6 +111,7 @@ export function WorkspaceDialog({
 	};
 
 	const addWorkspace = async () => {
+		if (guardBusy()) return;
 		try {
 			const picked = await window.omp.sidecar.selectProject();
 			if (picked) onClose();

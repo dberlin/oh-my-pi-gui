@@ -2,17 +2,32 @@
  * Settings window (Cmd+,): schema-driven editor for the agent settings
  * schema. Tabs, groups, labels, and control types all come from the
  * sidecar (get_settings_schema / get_settings RPC); writes go through
- * set_setting and apply immediately. Two dedicated tabs sit beside the
- * schema tabs: "Runtime" for live RPC toggles (fast mode, steering,
- * plan mode, …) and "GUI" for renderer-local preferences persisted via
- * prefs IPC. Schema entries without UI metadata land in "Advanced".
+ * set_setting and apply immediately. Three product-level tabs sit beside the
+ * schema tabs: "OMP Capabilities" surfaces differentiating workflows first,
+ * "Runtime" holds ordinary live toggles, and "GUI" contains renderer-local
+ * preferences persisted via prefs IPC. Entries without UI metadata land in
+ * "Advanced".
  * String-typed settings that reference a model or a provider (last path
  * segment ends in Model/Provider) render as searchable dropdowns fed by
  * get_available_models / get_providers instead of free-text inputs.
  */
 
-import { Check, Eye, EyeOff, Search, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	Bot,
+	BrainCircuit,
+	Check,
+	Database,
+	Eye,
+	EyeOff,
+	Network,
+	Route,
+	Search,
+	ShieldCheck,
+	Sparkles,
+	Wrench,
+	X,
+} from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SettingEntry, SettingsSchemaResult, ThinkingLevel } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
@@ -22,7 +37,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Input, LangSwitcher, Modal, Spinner, type TabItem, Tabs, TextArea } from "../common";
+import { Button, Input, LangSwitcher, Spinner, type TabItem, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { type EnumerableOption, EnumerableSelect } from "./editors/EnumerableSelect";
 import { ProviderLimitsEditor } from "./editors/ProviderLimitsEditor";
@@ -34,6 +49,12 @@ const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "hi
 
 type ApprovalMode = "always-ask" | "write" | "yolo";
 type LoadState = "loading" | "error" | "ready";
+
+interface SettingsResponseData {
+	values?: Record<string, unknown>;
+	advisorEnabled?: boolean;
+	advisorActive?: boolean;
+}
 
 /**
  * Client-evaluable visibility gates, mirroring the TUI's CONDITIONS table
@@ -47,7 +68,7 @@ const CONDITION_EVALUATORS: Record<string, (values: Record<string, unknown>) => 
 	hindsightActive: values => values["memory.backend"] === "hindsight",
 	mnemopiActive: values => values["memory.backend"] === "mnemopi",
 	autolearnActive: values => values["autolearn.enabled"] === true,
-	autoThinkingActive: values => values["defaultThinkingLevel"] === "auto",
+	autoThinkingActive: values => values.defaultThinkingLevel === "auto",
 	usageAwareFallbackEnabled: values => values["retry.usageAwareFallback"] === true,
 	planModeEnabled: values => values["plan.enabled"] === true,
 	unexpectedStopDetection: values => values["features.unexpectedStopDetection"] === true,
@@ -64,10 +85,15 @@ export function isSettingVisible(entry: SettingEntry, values: Record<string, unk
 	return evaluate === undefined ? true : evaluate(values);
 }
 
+/** Settings the GUI can both display and apply honestly. */
+export function isSettingVisibleInGui(entry: SettingEntry, values: Record<string, unknown>): boolean {
+	return entry.tuiOnly !== true && isSettingVisible(entry, values);
+}
+
 // Theme live preview (TUI onThemePreview parity): browsing theme.dark/
-// theme.light options temporarily applies the same-named GUI theme — the GUI
-// ports the agent palettes — then reverts to the persisted GUI selection on
-// close/commit, since the agent theme setting never drives GUI appearance.
+// theme.light temporarily previews the same palette in the GUI. A commit
+// flows through shared config/theme sync; cancelling clears the transient
+// preview back to the persisted GUI selection.
 let themePreviewActive = false;
 function previewAgentTheme(name: string | null): void {
 	if (name !== null && name !== "" && name in THEMES) {
@@ -109,44 +135,53 @@ function shellOptions(): Promise<EnumerableOption[]> {
 	return Promise.resolve(COMMON_SHELLS.map(path => ({ value: path })));
 }
 
-function Toggle({
+export function Toggle({
 	checked,
 	onChange,
 	label,
 	description,
 	disabled,
+	badge,
 }: {
 	checked: boolean;
 	onChange: (value: boolean) => void;
 	label: string;
 	description?: string;
 	disabled?: boolean;
+	badge?: React.ReactNode;
 }) {
 	return (
-		<label className="flex cursor-pointer items-start justify-between gap-4 rounded-md px-2 py-2 transition-colors hover:bg-(--omp-bg-tertiary)">
+		<button
+			aria-checked={checked}
+			aria-label={label}
+			className="flex w-full cursor-pointer items-start justify-between gap-4 rounded-md px-2 py-2 text-left transition-colors hover:bg-(--omp-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+			disabled={disabled}
+			onClick={() => onChange(!checked)}
+			role="switch"
+			type="button"
+		>
 			<span className="min-w-0">
-				<span className="block text-xs font-medium text-(--omp-text)">{label}</span>
+				<span className="flex items-center gap-2">
+					<span className="block text-xs font-medium text-(--omp-text)">{label}</span>
+					{badge}
+				</span>
 				{description && (
 					<span className="mt-0.5 block text-[11px] leading-snug text-(--omp-muted)">{description}</span>
 				)}
 			</span>
-			<button
-				aria-checked={checked}
-				className={`relative mt-0.5 h-4.5 w-8 shrink-0 rounded-full transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
+			<span
+				aria-hidden
+				className={`relative mt-0.5 h-4.5 w-8 shrink-0 rounded-full transition-colors duration-150 ${
 					checked ? "bg-(--omp-accent)" : "bg-(--omp-bg-tertiary) border border-(--omp-border-muted)"
 				}`}
-				disabled={disabled}
-				onClick={() => onChange(!checked)}
-				role="switch"
-				type="button"
 			>
 				<span
 					className={`absolute top-0.5 size-3.5 rounded-full bg-white shadow transition-all duration-150 ${
 						checked ? "left-4" : "left-0.5"
 					}`}
 				/>
-			</button>
-		</label>
+			</span>
+		</button>
 	);
 }
 
@@ -282,9 +317,11 @@ function SchemaSettingRow({
 					onCommitted(entry.path, next);
 					setDraft(null);
 					setError(null);
-					setSaved(true);
-					window.clearTimeout(savedTimer.current);
-					savedTimer.current = window.setTimeout(() => setSaved(false), 2000);
+					if (entry.type !== "boolean") {
+						setSaved(true);
+						window.clearTimeout(savedTimer.current);
+						savedTimer.current = window.setTimeout(() => setSaved(false), 2000);
+					}
 				} else {
 					toast({ variant: "error", title: "Setting not saved", message: res.error });
 				}
@@ -294,7 +331,7 @@ function SchemaSettingRow({
 				setSaving(false);
 			}
 		},
-		[entry.path, onCommitted],
+		[entry.path, entry.type, onCommitted],
 	);
 
 	const commitText = useCallback(() => {
@@ -314,7 +351,7 @@ function SchemaSettingRow({
 			return;
 		}
 		void commit(draft);
-	}, [draft, baseDraft, entry.type, commit]);
+	}, [draft, baseDraft, entry.type, commit, t]);
 
 	const commitJson = useCallback(() => {
 		if (draft === null || draft === baseDraft) return;
@@ -334,7 +371,7 @@ function SchemaSettingRow({
 			return;
 		}
 		void commit(parsed);
-	}, [draft, baseDraft, entry.type, commit]);
+	}, [draft, baseDraft, entry.type, commit, t]);
 
 	const onTextKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
 		if (event.key === "Enter") event.currentTarget.blur();
@@ -346,18 +383,7 @@ function SchemaSettingRow({
 	};
 
 	const status = <SettingStatus dirty={dirty} saving={saving} saved={saved} />;
-	// Honest labeling: settings that only drive TUI chrome get a badge so a GUI
-	// user doesn't expect an effect this client can't deliver; settings cached
-	// at session construction get a restart badge (applies in EVERY client).
-	const tuiBadge =
-		entry.tuiOnly === true ? (
-			<span
-				title={t("settings.tuiOnly.hint")}
-				className="shrink-0 rounded border border-(--omp-border-muted) px-1 py-px text-[9.5px] font-medium uppercase tracking-wide text-(--omp-dim)"
-			>
-				{t("settings.tuiOnly.badge")}
-			</span>
-		) : null;
+	// Values cached at session construction need a restart in every client.
 	const restartBadge =
 		entry.restartRequired === true ? (
 			<span
@@ -368,23 +394,19 @@ function SchemaSettingRow({
 			</span>
 		) : null;
 
-	// Boolean settings render as a full-row toggle and write immediately.
+	// Boolean settings render as one full-row switch and write immediately.
+	// The switch position is the success feedback; transient "Saved" text would
+	// compete with the control's hit target and obscure its actual state.
 	if (entry.type === "boolean") {
 		return (
-			<div className="relative">
-				<Toggle
-					checked={value === true}
-					description={description}
-					disabled={saving}
-					label={label}
-					onChange={next => void commit(next)}
-				/>
-				<div className="absolute top-2 right-10 flex items-center gap-1.5">
-					{tuiBadge}
-					{restartBadge}
-					<div className="pointer-events-none">{status}</div>
-				</div>
-			</div>
+			<Toggle
+				badge={restartBadge}
+				checked={value === true}
+				description={description}
+				disabled={saving}
+				label={label}
+				onChange={next => void commit(next)}
+			/>
 		);
 	}
 
@@ -424,7 +446,7 @@ function SchemaSettingRow({
 					<span className="text-xs font-medium text-(--omp-text)" title={entry.path}>
 						{label}
 					</span>
-					{tuiBadge}
+
 					{restartBadge}
 					{status}
 				</div>
@@ -642,7 +664,7 @@ function SchemaSettingRow({
 					<span className="text-xs font-medium text-(--omp-text)" title={entry.path}>
 						{label}
 					</span>
-					{tuiBadge}
+
 					{restartBadge}
 					{status}
 				</div>
@@ -706,9 +728,12 @@ export function SchemaTabContent({
 	values: Record<string, unknown>;
 	onCommitted: (path: string, value: unknown) => void;
 }) {
-	// Drop entries whose condition gate currently resolves false; groups left
-	// empty by the filter emit no heading (groupSchemaEntries skips them).
-	const visibleEntries = useMemo(() => entries.filter(entry => isSettingVisible(entry, values)), [entries, values]);
+	// Drop TUI-only entries and entries whose condition resolves false. Groups
+	// left empty by either filter emit no heading.
+	const visibleEntries = useMemo(
+		() => entries.filter(entry => isSettingVisibleInGui(entry, values)),
+		[entries, values],
+	);
 	const { tabEntries, ungrouped, orderedGroups } = useMemo(
 		() => groupSchemaEntries(visibleEntries, tabId, groups),
 		[visibleEntries, tabId, groups],
@@ -749,7 +774,7 @@ function AdvancedTab({
 	const advanced = useMemo(
 		() =>
 			entries.filter(
-				entry => (entry.advanced === true || entry.tab === undefined) && isSettingVisible(entry, values),
+				entry => (entry.advanced === true || entry.tab === undefined) && isSettingVisibleInGui(entry, values),
 			),
 		[entries, values],
 	);
@@ -783,6 +808,239 @@ function AdvancedTab({
 	);
 }
 
+function CapabilityCard({
+	icon,
+	title,
+	description,
+	status,
+	statusActive = false,
+	featured = false,
+	children,
+}: {
+	icon: ReactNode;
+	title: string;
+	description: string;
+	status?: string;
+	statusActive?: boolean;
+	featured?: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<section
+			className={`rounded-xl border p-4 ${
+				featured
+					? "col-span-2 border-[color-mix(in_srgb,var(--omp-accent)_45%,var(--omp-border-muted))] bg-[color-mix(in_srgb,var(--omp-accent)_7%,var(--omp-bg-secondary))]"
+					: "border-(--omp-border-muted) bg-(--omp-bg-secondary)"
+			}`}
+		>
+			<div className="flex items-start gap-3">
+				<div
+					className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+						featured
+							? "bg-[color-mix(in_srgb,var(--omp-accent)_14%,transparent)] text-(--omp-accent)"
+							: "bg-(--omp-bg-tertiary) text-(--omp-muted)"
+					}`}
+				>
+					{icon}
+				</div>
+				<div className="min-w-0 flex-1">
+					<div className="flex flex-wrap items-center gap-2">
+						<h3 className="text-[13px] font-semibold text-(--omp-text)">{title}</h3>
+						{status && (
+							<span
+								className={`rounded-full border px-1.5 py-0.5 text-[9.5px] font-medium ${
+									statusActive
+										? "border-[color-mix(in_srgb,var(--omp-success)_35%,transparent)] bg-[color-mix(in_srgb,var(--omp-success)_12%,transparent)] text-(--omp-success)"
+										: "border-(--omp-border-muted) text-(--omp-dim)"
+								}`}
+							>
+								{status}
+							</span>
+						)}
+					</div>
+					<p className="mt-1 text-[11.5px] leading-relaxed text-(--omp-muted)">{description}</p>
+				</div>
+			</div>
+			<div className="mt-3 flex flex-wrap items-center gap-2">{children}</div>
+		</section>
+	);
+}
+
+interface CapabilitiesHomeProps {
+	ready: boolean;
+	ttsrEnabled: boolean;
+	advisorEnabled: boolean;
+	advisorActive: boolean | undefined;
+	memoryBackend: string;
+	pendingCapability?: "ttsr.enabled" | "advisor.enabled";
+	onToggleTtsr: () => void;
+	onConfigureTtsr: () => void;
+	onOpenAgents: () => void;
+	onOpenModelRoles: () => void;
+	onToggleAdvisor: () => void;
+	onConfigureAdvisor: () => void;
+	onOpenGoal: () => void;
+	onOpenLoop: () => void;
+	onOpenMemory: () => void;
+	onOpenTools: () => void;
+}
+
+export function CapabilitiesHome({
+	ready,
+	ttsrEnabled,
+	advisorEnabled,
+	advisorActive,
+	memoryBackend,
+	pendingCapability,
+	onToggleTtsr,
+	onConfigureTtsr,
+	onOpenAgents,
+	onOpenModelRoles,
+	onToggleAdvisor,
+	onConfigureAdvisor,
+	onOpenGoal,
+	onOpenLoop,
+	onOpenMemory,
+	onOpenTools,
+}: CapabilitiesHomeProps) {
+	const t = useT();
+	const stateLabel = (enabled: boolean) =>
+		ready
+			? t(enabled ? "settings.capabilities.enabled" : "settings.capabilities.disabled")
+			: t("settings.capabilities.loading");
+
+	return (
+		<div>
+			<header className="mb-6 max-w-2xl">
+				<div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.14em] text-(--omp-accent) uppercase">
+					<Sparkles size={12} />
+					{t("settings.capabilities.eyebrow")}
+				</div>
+				<h2 className="text-xl font-semibold tracking-tight text-(--omp-text)">
+					{t("settings.capabilities.title")}
+				</h2>
+				<p className="mt-2 text-[12px] leading-relaxed text-(--omp-muted)">
+					{t("settings.capabilities.description")}
+				</p>
+			</header>
+
+			<div className="grid grid-cols-2 gap-3">
+				<CapabilityCard
+					description={t("settings.capabilities.ttsrDesc")}
+					featured
+					icon={<ShieldCheck size={17} />}
+					status={stateLabel(ttsrEnabled)}
+					statusActive={ready && ttsrEnabled}
+					title={t("settings.capabilities.ttsr")}
+				>
+					<Button
+						disabled={!ready || pendingCapability !== undefined}
+						loading={pendingCapability === "ttsr.enabled"}
+						onClick={onToggleTtsr}
+						size="sm"
+						type="button"
+						variant={ttsrEnabled ? "secondary" : "primary"}
+					>
+						{t(ttsrEnabled ? "settings.capabilities.disable" : "settings.capabilities.enable")}
+					</Button>
+					<Button onClick={onConfigureTtsr} size="sm" type="button" variant="ghost">
+						{t("settings.capabilities.configureRules")}
+					</Button>
+				</CapabilityCard>
+
+				<CapabilityCard
+					description={t("settings.capabilities.agentsDesc")}
+					icon={<Network size={16} />}
+					title={t("settings.capabilities.agents")}
+				>
+					<Button onClick={onOpenAgents} size="sm" type="button" variant="secondary">
+						{t("settings.capabilities.openAgentHub")}
+					</Button>
+				</CapabilityCard>
+
+				<CapabilityCard
+					description={t("settings.capabilities.modelRolesDesc")}
+					icon={<Bot size={16} />}
+					title={t("settings.capabilities.modelRoles")}
+				>
+					<Button onClick={onOpenModelRoles} size="sm" type="button" variant="secondary">
+						{t("settings.capabilities.configureModelRoles")}
+					</Button>
+				</CapabilityCard>
+
+				<CapabilityCard
+					description={t("settings.capabilities.advisorDesc")}
+					icon={<BrainCircuit size={16} />}
+					status={
+						ready && advisorEnabled && advisorActive === false
+							? t("settings.capabilities.advisorInactive")
+							: stateLabel(advisorEnabled)
+					}
+					statusActive={ready && advisorEnabled && advisorActive !== false}
+					title={t("settings.capabilities.advisor")}
+				>
+					<Button
+						disabled={!ready || pendingCapability !== undefined}
+						loading={pendingCapability === "advisor.enabled"}
+						onClick={onToggleAdvisor}
+						size="sm"
+						type="button"
+						variant={advisorEnabled ? "secondary" : "primary"}
+					>
+						{t(advisorEnabled ? "settings.capabilities.disable" : "settings.capabilities.enable")}
+					</Button>
+					<Button onClick={onConfigureAdvisor} size="sm" type="button" variant="ghost">
+						{t("settings.capabilities.configureAdvisor")}
+					</Button>
+				</CapabilityCard>
+
+				<CapabilityCard
+					description={t("settings.capabilities.modesDesc")}
+					icon={<Route size={16} />}
+					title={t("settings.capabilities.modes")}
+				>
+					<Button onClick={onOpenGoal} size="sm" type="button" variant="secondary">
+						{t("settings.capabilities.goalMode")}
+					</Button>
+					<Button onClick={onOpenLoop} size="sm" type="button" variant="ghost">
+						{t("settings.capabilities.loopMode")}
+					</Button>
+				</CapabilityCard>
+
+				<CapabilityCard
+					description={t("settings.capabilities.memoryDesc")}
+					icon={<Database size={16} />}
+					status={
+						ready
+							? t("settings.capabilities.memoryBackend", {
+									backend: memoryBackend || t("settings.capabilities.unconfigured"),
+								})
+							: t("settings.capabilities.loading")
+					}
+					statusActive={ready && memoryBackend !== "" && memoryBackend !== "off"}
+					title={t("settings.capabilities.memory")}
+				>
+					<Button onClick={onOpenMemory} size="sm" type="button" variant="secondary">
+						{t("settings.capabilities.configureMemory")}
+					</Button>
+				</CapabilityCard>
+
+				<CapabilityCard
+					description={t("settings.capabilities.toolsDesc")}
+					icon={<Wrench size={16} />}
+					title={t("settings.capabilities.tools")}
+				>
+					<Button onClick={onOpenTools} size="sm" type="button" variant="secondary">
+						{t("settings.capabilities.configureTools")}
+					</Button>
+				</CapabilityCard>
+			</div>
+		</div>
+	);
+}
+
+const CAPABILITIES_TAB_ID = "capabilities";
+
 const RUNTIME_TAB_ID = "runtime";
 const ADVANCED_TAB_ID = "advanced";
 const GUI_TAB_ID = "gui";
@@ -795,18 +1053,21 @@ export function SettingsWindow() {
 	const setFontSize = useUiStore(state => state.setFontSize);
 	const setPanelTab = useUiStore(state => state.setPanelTab);
 	const setNotifications = useUiStore(state => state.setNotifications);
+	const setTranscriptDetail = useUiStore(state => state.setTranscriptDetail);
 	const theme = useUiStore(state => state.theme);
 	const fontSize = useUiStore(state => state.fontSize);
 	const panelTab = useUiStore(state => state.panelTab);
 	const notifications = useUiStore(state => state.notifications);
 	const thinkingExpanded = useUiStore(state => state.thinkingExpanded);
+	const transcriptDetail = useUiStore(state => state.transcriptDetail);
 	const settings = useSettingsStore();
 	const model = useModelStore(state => state.model);
 	const thinkingLevel = useModelStore(state => state.thinkingLevel);
 	const fastModeEnabled = useModelStore(state => state.fastModeEnabled);
 	const planModeEnabled = useSessionStore(state => state.planModeEnabled);
+	const sidecarReady = useSessionStore(state => state.status === "ready");
 
-	const [tab, setTab] = useState(RUNTIME_TAB_ID);
+	const [tab, setTab] = useState(CAPABILITIES_TAB_ID);
 	const [query, setQuery] = useState("");
 	const [loadState, setLoadState] = useState<LoadState>("loading");
 	const [loadError, setLoadError] = useState<string | null>(null);
@@ -814,11 +1075,17 @@ export function SettingsWindow() {
 	const [values, setValues] = useState<Record<string, unknown>>({});
 	const [approvalMode, setApprovalMode] = useState<ApprovalMode>("yolo");
 	const [fontSizeDraft, setFontSizeDraft] = useState<string | null>(null);
+	const [proxyDraft, setProxyDraft] = useState<string | null>(null);
+	const [savedProxy, setSavedProxy] = useState("");
 	const [reloadToken, setReloadToken] = useState(0);
+	const [pendingCapability, setPendingCapability] = useState<"ttsr.enabled" | "advisor.enabled" | undefined>();
+	const [advisorActive, setAdvisorActive] = useState<boolean>();
 
-	// Hydrate the schema, current values, and GUI prefs each time the window opens.
+	// Hydrate the schema, current values, and GUI prefs each time the window
+	// opens or the sidecar reconnects.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is the explicit retry trigger.
 	useEffect(() => {
-		if (!open) return;
+		if (!open || !sidecarReady) return;
 		let cancelled = false;
 		setLoadState("loading");
 		setLoadError(null);
@@ -845,8 +1112,10 @@ export function SettingsWindow() {
 				const nextValues: Record<string, unknown> = {};
 				for (const entry of result.entries) nextValues[entry.path] = entry.value;
 				if (settingsRes.success) {
-					const data = settingsRes.data as { values?: Record<string, unknown> } | undefined;
+					const data = settingsRes.data as SettingsResponseData | undefined;
 					if (data?.values) Object.assign(nextValues, data.values);
+					if (typeof data?.advisorEnabled === "boolean") nextValues["advisor.enabled"] = data.advisorEnabled;
+					setAdvisorActive(data?.advisorActive);
 				}
 				const configured = nextValues["tools.approvalMode"];
 				setApprovalMode(
@@ -867,11 +1136,46 @@ export function SettingsWindow() {
 		return () => {
 			cancelled = true;
 		};
-	}, [open, reloadToken]);
+	}, [open, reloadToken, sidecarReady]);
 
 	const handleCommitted = useCallback((path: string, value: unknown) => {
 		setValues(prev => ({ ...prev, [path]: value }));
 	}, []);
+
+	const applyCapabilityToggle = async (path: "ttsr.enabled" | "advisor.enabled", enabled: boolean, title: string) => {
+		if (pendingCapability !== undefined) return;
+		setPendingCapability(path);
+		try {
+			const res = await window.omp.rpc.setSetting(path, enabled);
+			if (!res.success) {
+				toast({ variant: "error", title, message: res.error });
+				return;
+			}
+
+			const data = res.data as SettingsResponseData | undefined;
+			const committedValue =
+				path === "advisor.enabled" && typeof data?.advisorEnabled === "boolean" ? data.advisorEnabled : enabled;
+			handleCommitted(path, committedValue);
+			if (path === "ttsr.enabled") {
+				const { isStreaming, isCompacting, sessionFile } = useSessionStore.getState();
+				if (isStreaming || isCompacting) {
+					toast({ variant: "info", title, message: t("settings.capabilities.ttsrRestartPending") });
+				} else {
+					await window.omp.sidecar.restart(sessionFile ?? undefined);
+					toast({ variant: "info", title, message: t("settings.capabilities.ttsrRestarting") });
+				}
+			} else {
+				setAdvisorActive(data?.advisorActive);
+				if (enabled && data?.advisorActive === false) {
+					toast({ variant: "warning", title, message: t("settings.capabilities.advisorNoModel") });
+				}
+			}
+		} catch (error) {
+			toast({ variant: "error", title, message: String(error) });
+		} finally {
+			setPendingCapability(undefined);
+		}
+	};
 
 	// External edits (TUI selector, composer controls, another window) push
 	// config_update — refresh the displayed values or this window goes stale
@@ -883,9 +1187,12 @@ export function SettingsWindow() {
 		const unsubscribe = window.omp.events.onConfigUpdate(() => {
 			void window.omp.rpc.getSettings().then(res => {
 				if (cancelled || !res.success) return;
-				const data = res.data as { values?: Record<string, unknown> } | undefined;
+				const data = res.data as SettingsResponseData | undefined;
 				if (!data?.values) return;
-				setValues(prev => ({ ...prev, ...data.values }));
+				const nextValues = { ...data.values };
+				if (typeof data.advisorEnabled === "boolean") nextValues["advisor.enabled"] = data.advisorEnabled;
+				setValues(prev => ({ ...prev, ...nextValues }));
+				setAdvisorActive(data.advisorActive);
 				const configured = data.values["tools.approvalMode"];
 				if (configured === "always-ask" || configured === "write" || configured === "yolo") {
 					setApprovalMode(configured);
@@ -899,9 +1206,16 @@ export function SettingsWindow() {
 	}, [open]);
 
 	const tabs = useMemo<TabItem[]>(() => {
-		const list: TabItem[] = [{ id: RUNTIME_TAB_ID, label: "Runtime" }];
+		const list: TabItem[] = [
+			{ id: CAPABILITIES_TAB_ID, label: "OMP Capabilities" },
+			{ id: RUNTIME_TAB_ID, label: "Runtime" },
+		];
 		if (schema) {
-			for (const schemaTab of schema.tabs) list.push({ id: schemaTab.id, label: schemaTab.label });
+			for (const schemaTab of schema.tabs) {
+				if (schema.entries.some(entry => entry.tab === schemaTab.id && entry.tuiOnly !== true)) {
+					list.push({ id: schemaTab.id, label: schemaTab.label });
+				}
+			}
 		}
 		list.push({ id: ADVANCED_TAB_ID, label: "Advanced" }, { id: GUI_TAB_ID, label: "GUI" });
 		return list;
@@ -960,6 +1274,22 @@ export function SettingsWindow() {
 		else toast({ variant: "error", title: "Thinking level", message: res.error });
 	};
 
+	// Load the persisted proxy pref each time the window opens.
+	useEffect(() => {
+		if (!open) return;
+		let cancelled = false;
+		setProxyDraft(null);
+		void window.omp.prefs
+			.get("proxyUrl")
+			.then(value => {
+				if (!cancelled) setSavedProxy(typeof value === "string" ? value : "");
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [open]);
+
 	// ── GUI-local preferences (prefs IPC) ──
 	// Route through applyThemeByName: it persists `themeName` (read FIRST at
 	// boot by getPersistedThemeSelection) and the legacy `theme` pref
@@ -981,6 +1311,10 @@ export function SettingsWindow() {
 		useUiStore.getState().setThinkingExpanded(next);
 		void window.omp.prefs.set("thinkingExpanded", next);
 	};
+	const applyTranscriptDetail = (next: typeof transcriptDetail) => {
+		setTranscriptDetail(next);
+		void window.omp.prefs.set("transcriptDetail", next);
+	};
 	const applyApprovalMode = (next: ApprovalMode) => {
 		setApprovalMode(next);
 		// Update the shared store too so the composer ApprovalControl + tray reflect
@@ -999,16 +1333,34 @@ export function SettingsWindow() {
 		void window.omp.prefs.set("fontSize", parsed);
 		setFontSizeDraft(null);
 	};
+	const commitProxy = () => {
+		if (proxyDraft === null) return;
+		const next = proxyDraft.trim();
+		setProxyDraft(null);
+		if (next === savedProxy) return;
+		setSavedProxy(next);
+		void window.omp.prefs.set("proxyUrl", next || null);
+		// Apply immediately when the agent is idle; a busy sidecar keeps its
+		// env until the next restart — killing a run to change proxy is never
+		// right.
+		const { isStreaming, isCompacting } = useSessionStore.getState();
+		if (isStreaming || isCompacting) {
+			toast({ variant: "info", message: t("settings.gui.proxySavedPending") });
+			return;
+		}
+		void window.omp.sidecar.restart();
+		toast({ variant: "info", message: t("settings.gui.proxyApplied") });
+	};
 
-	const isSchemaTab = schema !== null && schema.tabs.some(schemaTab => schemaTab.id === tab);
+	const isSchemaTab = schema?.tabs.some(schemaTab => schemaTab.id === tab) === true;
 
-	// Global search: filter every schema setting by path/label/description across
-	// all tabs (TUI type-to-search parity). Grouped by tab for display.
+	// Global search covers every GUI-relevant schema setting across all tabs.
+	// TUI-only entries never appear in results.
 	const searchGroups = useMemo(() => {
 		const q = query.trim().toLowerCase();
 		if (!q || !schema) return null;
 		const matches = schema.entries.filter(entry => {
-			if (!isSettingVisible(entry, values)) return false;
+			if (!isSettingVisibleInGui(entry, values)) return false;
 			const hay = `${entry.path} ${entry.label ?? ""} ${entry.description ?? ""}`.toLowerCase();
 			return hay.includes(q);
 		});
@@ -1116,15 +1468,19 @@ export function SettingsWindow() {
 						const active = tb.id === tab;
 						return (
 							<button
-								className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
+								className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
 									active
 										? "bg-(--omp-selected-bg) font-medium text-(--omp-text)"
 										: "text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
 								}`}
 								key={tb.id}
-								onClick={() => setTab(tb.id)}
+								onClick={() => {
+									setTab(tb.id);
+									setQuery("");
+								}}
 								type="button"
 							>
+								{tb.id === CAPABILITIES_TAB_ID && <Sparkles aria-hidden="true" size={13} />}
 								{tabTitle(tb)}
 							</button>
 						);
@@ -1134,6 +1490,65 @@ export function SettingsWindow() {
 					<div className="mx-auto max-w-3xl">
 						{searchGroups === null ? (
 							<>
+								{tab === CAPABILITIES_TAB_ID && (
+									<CapabilitiesHome
+										pendingCapability={pendingCapability}
+										advisorActive={advisorActive}
+										advisorEnabled={values["advisor.enabled"] === true}
+										memoryBackend={
+											typeof values["memory.backend"] === "string" ? values["memory.backend"] : ""
+										}
+										onConfigureAdvisor={() => {
+											setTab("model");
+											setQuery("advisor");
+										}}
+										onConfigureTtsr={() => {
+											setTab("context");
+											setQuery("ttsr");
+										}}
+										onOpenAgents={() => {
+											close();
+											useUiStore.getState().openAgentHub("definitions");
+										}}
+										onOpenGoal={() => {
+											close();
+											useUiStore.getState().openModes("goal");
+										}}
+										onOpenLoop={() => {
+											close();
+											useUiStore.getState().openModes("loop");
+										}}
+										onOpenMemory={() => {
+											setTab("memory");
+											setQuery("");
+										}}
+										onOpenTools={() => {
+											setTab("tools");
+											setQuery("");
+										}}
+										onOpenModelRoles={() => {
+											close();
+											useUiStore.getState().openModelRoles();
+										}}
+										onToggleAdvisor={() =>
+											void applyCapabilityToggle(
+												"advisor.enabled",
+												values["advisor.enabled"] !== true,
+												t("settings.capabilities.advisor"),
+											)
+										}
+										onToggleTtsr={() =>
+											void applyCapabilityToggle(
+												"ttsr.enabled",
+												values["ttsr.enabled"] !== true,
+												t("settings.capabilities.ttsr"),
+											)
+										}
+										ready={loadState === "ready" && sidecarReady}
+										ttsrEnabled={values["ttsr.enabled"] === true}
+									/>
+								)}
+
 								{tab === RUNTIME_TAB_ID && (
 									<>
 										<Section title={t("settings.runtime.activeModel")}>
@@ -1332,6 +1747,38 @@ export function SettingsWindow() {
 												label={t("settings.gui.thinkingExpanded")}
 												onChange={applyThinkingExpanded}
 											/>
+										</Section>
+										<Section title={t("settings.gui.transcriptDetail")}>
+											<RadioGroup
+												name="transcriptDetail"
+												onChange={applyTranscriptDetail}
+												options={[
+													{
+														value: "compact",
+														label: t("settings.gui.transcript.compact"),
+														description: t("settings.gui.transcript.compactDesc"),
+													},
+													{
+														value: "full",
+														label: t("settings.gui.transcript.full"),
+														description: t("settings.gui.transcript.fullDesc"),
+													},
+												]}
+												value={transcriptDetail}
+											/>
+										</Section>
+										<Section title={t("settings.gui.proxy")}>
+											<Input
+												onBlur={commitProxy}
+												onChange={event => setProxyDraft(event.target.value)}
+												onKeyDown={event => {
+													if (event.key === "Enter") event.currentTarget.blur();
+												}}
+												placeholder="http://127.0.0.1:7890"
+												spellCheck={false}
+												value={proxyDraft ?? savedProxy}
+											/>
+											<p className="mt-1.5 text-[11px] text-(--omp-muted)">{t("settings.gui.proxyDesc")}</p>
 										</Section>
 										<Section title={t("settings.gui.approvalMode")}>
 											<RadioGroup

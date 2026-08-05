@@ -15,7 +15,7 @@ function getInitialLang(): Lang {
 	} catch {
 		/* ignore */
 	}
-	const nav = typeof navigator !== "undefined" ? navigator.language : "en";
+	const nav = typeof navigator !== "undefined" ? (navigator.language ?? "en") : "en";
 	return nav.startsWith("zh") ? "zh" : "en";
 }
 

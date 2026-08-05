@@ -1,0 +1,80 @@
+/**
+ * Shown when the user opens another session while the attached session is
+ * streaming or compacting. One window owns one sidecar, so switching here
+ * aborts the run server-side — the dialog steers to the parallel path (open
+ * in a new window with its own sidecar) while keeping the destructive
+ * abort-and-switch one click away.
+ */
+
+import { useState } from "react";
+import { switchSessionNow } from "../../hooks/use-session-switch";
+import { useT } from "../../lib/i18n";
+import { toast } from "../../stores/toast";
+import { useUiStore } from "../../stores/ui";
+import { Button, Modal } from "../common";
+
+export function SessionSwitchDialog() {
+	const t = useT();
+	const session = useUiStore(s => s.sessionSwitchPrompt);
+	const close = useUiStore(s => s.closeSessionSwitch);
+	const [busy, setBusy] = useState<"new-window" | "switch" | null>(null);
+
+	const dismiss = () => {
+		setBusy(null);
+		close();
+	};
+
+	const openInNewWindow = async () => {
+		if (!session) return;
+		setBusy("new-window");
+		try {
+			const ok = await window.omp.sessions.openInNewWindow({ sessionPath: session.path, cwd: session.cwd });
+			if (!ok) {
+				toast({ variant: "warning", message: t("sidebar.parallelCap") });
+				return;
+			}
+			dismiss();
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	const switchAnyway = async () => {
+		if (!session) return;
+		setBusy("switch");
+		try {
+			if (await switchSessionNow(session)) dismiss();
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	const name = session?.title || session?.firstMessage || session?.id || "";
+
+	return (
+		<Modal open={session !== null} onClose={dismiss} title={t("sessionSwitch.title")} size="sm">
+			<p className="text-[13px] leading-relaxed text-(--omp-muted)">{t("sessionSwitch.body", { name })}</p>
+			<div className="mt-5 flex flex-col gap-2">
+				<Button
+					variant="primary"
+					loading={busy === "new-window"}
+					disabled={busy !== null}
+					onClick={() => void openInNewWindow()}
+				>
+					{t("sessionSwitch.openNewWindow")}
+				</Button>
+				<Button
+					variant="danger"
+					loading={busy === "switch"}
+					disabled={busy !== null}
+					onClick={() => void switchAnyway()}
+				>
+					{t("sessionSwitch.switchAnyway")}
+				</Button>
+				<Button variant="ghost" disabled={busy !== null} onClick={dismiss}>
+					{t("common.cancel")}
+				</Button>
+			</div>
+		</Modal>
+	);
+}

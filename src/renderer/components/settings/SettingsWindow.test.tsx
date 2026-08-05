@@ -10,7 +10,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { SettingEntry } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
-import { groupSchemaEntries, SchemaTabContent, SettingsWindow } from "./SettingsWindow";
+import {
+	CapabilitiesHome,
+	groupSchemaEntries,
+	isSettingVisibleInGui,
+	SchemaTabContent,
+	SettingsWindow,
+	Toggle,
+} from "./SettingsWindow";
 
 function entry(partial: Partial<SettingEntry> & { path: string }): SettingEntry {
 	return { type: "boolean", value: false, default: false, ...partial };
@@ -18,6 +25,94 @@ function entry(partial: Partial<SettingEntry> & { path: string }): SettingEntry 
 
 afterEach(() => {
 	useUiStore.setState({ settingsOpen: false });
+});
+
+describe("Toggle", () => {
+	it("uses the entire row as one switch without overlaying save text", () => {
+		const html = renderToStaticMarkup(
+			<Toggle
+				checked={false}
+				description="Applies immediately."
+				label="Advisor for Subagents"
+				onChange={() => {}}
+			/>,
+		);
+
+		expect(html.startsWith("<button")).toBe(true);
+		expect(html.match(/<button/g)).toHaveLength(1);
+		expect(html).toContain('role="switch"');
+		expect(html).toContain('aria-checked="false"');
+		expect(html).not.toContain("Saved");
+	});
+});
+
+describe("CapabilitiesHome", () => {
+	it("leads with OMP-specific workflows and exposes a direct action for each", () => {
+		const noop = () => {};
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<CapabilitiesHome
+					advisorActive={false}
+					advisorEnabled
+					memoryBackend="local"
+					onConfigureAdvisor={noop}
+					onConfigureTtsr={noop}
+					onOpenAgents={noop}
+					onOpenGoal={noop}
+					onOpenLoop={noop}
+					onOpenMemory={noop}
+					onOpenModelRoles={noop}
+					onOpenTools={noop}
+					onToggleAdvisor={noop}
+					onToggleTtsr={noop}
+					ready
+					ttsrEnabled
+				/>
+			</I18nProvider>,
+		);
+
+		expect(html).toContain("Start with what makes OMP different");
+		expect(html.indexOf("Mid-stream correction · TTSR")).toBeLessThan(html.indexOf("Parallel subagents"));
+		expect(html).toContain("Configure rules");
+		expect(html).toContain("Open Agent Hub");
+		expect(html).toContain("Configure model roles");
+		expect(html).toContain("Advisor settings");
+		expect(html).toContain("Goal mode");
+		expect(html).toContain("Loop mode");
+		expect(html).toContain("Configure memory");
+		expect(html).toContain("Configure tool access");
+		expect(html).toContain("Backend: local");
+		expect(html).toContain("Enabled, not running");
+	});
+
+	it("locks capability toggles and exposes progress while a mutation is pending", () => {
+		const noop = () => {};
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<CapabilitiesHome
+					advisorEnabled={false}
+					advisorActive={false}
+					memoryBackend="off"
+					onConfigureAdvisor={noop}
+					onConfigureTtsr={noop}
+					onOpenAgents={noop}
+					onOpenGoal={noop}
+					onOpenLoop={noop}
+					onOpenMemory={noop}
+					onOpenModelRoles={noop}
+					onOpenTools={noop}
+					onToggleAdvisor={noop}
+					onToggleTtsr={noop}
+					pendingCapability="ttsr.enabled"
+					ready
+					ttsrEnabled
+				/>
+			</I18nProvider>,
+		);
+
+		expect(html.match(/ disabled=\"\"/g)).toHaveLength(2);
+		expect(html).toContain('role="status"');
+	});
 });
 
 describe("groupSchemaEntries", () => {
@@ -53,6 +148,44 @@ describe("groupSchemaEntries", () => {
 	});
 });
 
+describe("GUI settings visibility", () => {
+	const sharedEntry = entry({
+		path: "colorBlindMode",
+		tab: "appearance",
+		group: "Theme",
+		label: "Color Blind Mode",
+	});
+	const terminalEntry = entry({
+		path: "statusLine.separator",
+		tab: "appearance",
+		group: "Status Line",
+		label: "Status Line Separator",
+		tuiOnly: true,
+	});
+
+	it("rejects settings whose only consumer is TUI chrome", () => {
+		expect(isSettingVisibleInGui(sharedEntry, {})).toBe(true);
+		expect(isSettingVisibleInGui(terminalEntry, {})).toBe(false);
+	});
+
+	it("omits TUI-only rows and groups from a schema tab", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<SchemaTabContent
+					entries={[sharedEntry, terminalEntry]}
+					groups={["Theme", "Status Line"]}
+					onCommitted={() => {}}
+					tabId="appearance"
+					values={{}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("Color Blind Mode");
+		expect(html).not.toContain("Status Line Separator");
+		expect(html).not.toContain(">Status Line</h3>");
+	});
+});
+
 describe("SchemaTabContent zh translations", () => {
 	const zhEntries: SettingEntry[] = [
 		entry({
@@ -60,7 +193,7 @@ describe("SchemaTabContent zh translations", () => {
 			tab: "appearance",
 			group: "Theme",
 			label: "Dark Theme",
-			description: "Theme used when the terminal has a dark background",
+			description: "Theme palette used for dark appearance in both the TUI and GUI",
 		}),
 		entry({
 			path: "zz.mystery",
@@ -92,7 +225,7 @@ describe("SchemaTabContent zh translations", () => {
 			const html = renderTab();
 			expect(html).toContain(">主题</h3>"); // translated group title
 			expect(html).toContain("深色主题"); // translated label
-			expect(html).toContain("终端为深色背景时使用的主题"); // translated description
+			expect(html).toContain("TUI 与 GUI 使用深色外观时的主题配色"); // translated description
 			expect(html).toContain(">Undeclared</h3>"); // group without a translation stays English
 			expect(html).toContain("Mystery Setting"); // setting without a translation stays English
 			expect(html).toContain("An English-only setting");
@@ -106,7 +239,7 @@ describe("SchemaTabContent zh translations", () => {
 		const html = renderTab();
 		expect(html).toContain(">Theme</h3>");
 		expect(html).toContain("Dark Theme");
-		expect(html).toContain("Theme used when the terminal has a dark background");
+		expect(html).toContain("Theme palette used for dark appearance in both the TUI and GUI");
 	});
 });
 

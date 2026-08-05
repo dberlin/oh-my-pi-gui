@@ -785,6 +785,53 @@ export const en: Record<string, string> = {
 	"settings.tabs.providers": "Providers",
 	"settings.tabs.advanced": "Advanced",
 	"settings.tabs.gui": "GUI",
+	"settings.tabs.capabilities": "OMP Capabilities",
+	"settings.capabilities.eyebrow": "Start with OMP",
+	"settings.capabilities.title": "Start with what makes OMP different",
+	"settings.capabilities.description":
+		"These controls change how work is executed, not how the settings page looks: intervene mid-stream, fan work out, route model roles, and keep project memory.",
+	"settings.capabilities.enabled": "Enabled",
+	"settings.capabilities.disabled": "Off",
+	"settings.capabilities.loading": "Loading…",
+	"settings.capabilities.enable": "Enable",
+	"settings.capabilities.disable": "Disable",
+	"settings.capabilities.ttsr": "Mid-stream correction · TTSR",
+	"settings.capabilities.ttsrDesc":
+		"When output matches a rule, OMP interrupts generation, injects the relevant guidance, and continues from the same turn—without permanently bloating the prompt.",
+	"settings.capabilities.configureRules": "Configure rules",
+	"settings.capabilities.ttsrRestarting": "TTSR saved — restarting the agent and restoring this session…",
+	"settings.capabilities.ttsrRestartPending":
+		"TTSR saved — it will take effect after the next agent restart because this session is busy.",
+	"settings.capabilities.agents": "Parallel subagents",
+	"settings.capabilities.agentsDesc":
+		"Fan independent work out to isolated agents, collect structured results, and let sibling tasks coordinate through the hub.",
+	"settings.capabilities.openAgentHub": "Open Agent Hub",
+	"settings.capabilities.modelRoles": "Role-based model routing",
+	"settings.capabilities.modelRolesDesc":
+		"Assign different models to planning, fast lookups, deep work, design, review, and advisor roles instead of using one model for everything.",
+	"settings.capabilities.configureModelRoles": "Configure model roles",
+	"settings.capabilities.advisor": "Second-model advisor",
+	"settings.capabilities.advisorDesc":
+		"Have an independent model review the primary agent's work each turn and return inline guidance or a blocking correction.",
+	"settings.capabilities.configureAdvisor": "Advisor settings",
+	"settings.capabilities.advisorNoModel":
+		"Advisor is enabled, but no advisor model could be resolved. Configure the Advisor model role.",
+	"settings.capabilities.advisorInactive": "Enabled, not running",
+	"settings.capabilities.modes": "Goal & loop modes",
+	"settings.capabilities.modesDesc":
+		"Track explicit goal state or let the agent continue under a loop condition instead of prompting it again after every step.",
+	"settings.capabilities.goalMode": "Goal mode",
+	"settings.capabilities.loopMode": "Loop mode",
+	"settings.capabilities.memory": "Cross-session project memory",
+	"settings.capabilities.memoryDesc":
+		"Keep project facts and learned context across sessions using the local, Hindsight, or Mnemopi memory backend.",
+	"settings.capabilities.memoryBackend": "Backend: {backend}",
+	"settings.capabilities.unconfigured": "not configured",
+	"settings.capabilities.configureMemory": "Configure memory",
+	"settings.capabilities.tools": "Auditable native toolchain",
+	"settings.capabilities.toolsDesc":
+		"Use structured read, search, edit, LSP, debugger, and browser tools—with staged AST rewrites and explicit approval boundaries.",
+	"settings.capabilities.configureTools": "Configure tool access",
 	"settings.runtime.activeModel": "Active model",
 	"settings.runtime.noModel": "No model selected",
 	"settings.runtime.change": "Change…",
@@ -826,8 +873,17 @@ export const en: Record<string, string> = {
 	"settings.gui.thinkingExpanded": "Expand reasoning by default",
 	"settings.gui.thinkingExpandedDesc":
 		"Show the model's reasoning trace without clicking each block; blocks can still be collapsed individually.",
-	"settings.tuiOnly.badge": "TUI only",
-	"settings.tuiOnly.hint": "This setting only affects the terminal UI — it has no effect in the GUI.",
+	"settings.gui.transcriptDetail": "Conversation detail",
+	"settings.gui.transcript.compact": "Compact (recommended)",
+	"settings.gui.transcript.compactDesc":
+		"Show final answers and result summaries; fold reasoning and tool steps into one expandable Process row.",
+	"settings.gui.transcript.full": "Full",
+	"settings.gui.transcript.fullDesc": "Show every reasoning block and tool card.",
+	"settings.gui.proxy": "HTTP proxy",
+	"settings.gui.proxyDesc":
+		"Routes the agent's provider requests (OAuth, streaming, usage) through this proxy. Leave empty to follow the macOS system proxy. Applies on agent restart — restarted for you when idle.",
+	"settings.gui.proxyApplied": "Proxy saved — restarting the agent to apply…",
+	"settings.gui.proxySavedPending": "Proxy saved — takes effect on the next agent restart.",
 	"settings.restartRequired.badge": "Restart",
 	"settings.restartRequired.hint":
 		"Cached at session startup — edits take effect after restarting the session (in every client).",
@@ -976,6 +1032,20 @@ export const en: Record<string, string> = {
 	"modelPicker.auth.authenticated": "authenticated",
 	"modelPicker.auth.notSignedIn": "not signed in",
 	"modelPicker.auth.unavailable": "unavailable",
+	"modelPicker.overContext": "compact first",
+	"modelPicker.overContextHint":
+		"Context {current} exceeds the {limit} window — compacts with the current model, then switches",
+	"modelPicker.compactFailed": "Compaction failed",
+	"modelPicker.compactedSwitching": "Context compacted — switching model",
+
+	// Busy-session switch dialog (new window vs abort-and-switch)
+	"sessionSwitch.title": "Session is running",
+	"sessionSwitch.body":
+		'The current session is still running. Switching to "{name}" in this window will abort it — or open it in a new window instead.',
+	"sessionSwitch.openNewWindow": "Open in new window",
+	"sessionSwitch.switchAnyway": "Abort & switch",
+	"sessionSwitch.busyBlocked":
+		"A turn is still running — abort it first (Esc), or use a new window (⌘⇧N) for parallel work.",
 
 	// Command palette additions
 	"palette.failed": "Command failed",
@@ -1137,6 +1207,10 @@ export const en: Record<string, string> = {
 	"chat.exec.truncated": "… output truncated …",
 	"chat.context.compacted": "Context compacted",
 	"chat.compaction.showEarlier": "Show {count} earlier messages",
+	"chat.process.summary": "Process · {count} step{plural}",
+	"chat.process.running": "Working · {count} step{plural}",
+	"chat.process.reasoning": "reasoning",
+	"chat.process.failed": "{count} failed",
 	"chat.context.compactedFrom": "Context compacted from {tokens} tokens",
 	"chat.context.branchSummary": "Branch summary",
 	"chat.context.referencedFiles": "Referenced files",
@@ -1164,6 +1238,8 @@ export const en: Record<string, string> = {
 	"chat.thinking.live": "Thinking…",
 	"chat.awaitingModel": "Waiting for model response… {seconds}s",
 	"chat.awaitingModel.slow": "Slow response — the network may be unstable",
+	"chat.awaitingModel.stalled":
+		"Still nothing — likely the network. The request auto-times-out (~5 min) and retries; Esc aborts now.",
 	"chat.interruptHint": "(press Esc to interrupt)",
 	"chat.retry.pending": "Retrying ({attempt}/{maxAttempts}) in {seconds}s…",
 	"chat.retry.inflight": "Retrying ({attempt}/{maxAttempts})…",

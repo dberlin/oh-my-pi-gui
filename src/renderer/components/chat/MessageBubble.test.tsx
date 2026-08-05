@@ -59,3 +59,85 @@ describe("MessageBubble tool messages", () => {
 		).toBe("");
 	});
 });
+
+describe("MessageBubble noise filtering", () => {
+	const at = "2026-08-02T12:00:00.000Z";
+
+	it('renders nothing for punctuation-only text blocks (model filler like ".")', () => {
+		for (const text of [".", "…", "---", " ", "***"]) {
+			const message: AgentMessage = { role: "assistant", content: [{ type: "text", text }], timestamp: at };
+			expect(
+				renderToStaticMarkup(
+					<I18nProvider>
+						<MessageBubble message={message} />
+					</I18nProvider>,
+				),
+			).toBe("");
+		}
+	});
+
+	it("keeps real text, CJK, and emoji-only blocks", () => {
+		for (const text of ["已修复", "Done.", "👍"]) {
+			const message: AgentMessage = { role: "assistant", content: [{ type: "text", text }], timestamp: at };
+			expect(
+				renderToStaticMarkup(
+					<I18nProvider>
+						<MessageBubble message={message} />
+					</I18nProvider>,
+				),
+			).toContain(text);
+		}
+	});
+
+	it("compacts tool-only messages — no hover footer chrome", () => {
+		useToolsStore.getState().hydrateMessages([assistantMessage, toolResultMessage]);
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble message={assistantMessage} />
+			</I18nProvider>,
+		);
+		// The timestamp/copy/branch footer is message-level chrome a tool card
+		// doesn't need (copy would copy an empty string).
+		expect(html).not.toContain("Copy message text");
+		expect(html).toContain("py-1.5");
+	});
+
+	it("keeps the footer on text-bearing messages", () => {
+		const mixed: AgentMessage = {
+			role: "assistant",
+			content: [
+				{ type: "text", text: "Fixed." },
+				{ type: "toolCall", id: "call_mixed", name: "read", arguments: { path: "x" } },
+			],
+			timestamp: at,
+		};
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble message={mixed} />
+			</I18nProvider>,
+		);
+		expect(html).toContain("Fixed.");
+		expect(html).toContain("Copy message text");
+		expect(html).toContain("py-3");
+	});
+
+	it("uses compact chrome for expanded process details containing reasoning and tools", () => {
+		const processMessage: AgentMessage = {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "Inspect first." },
+				{ type: "toolCall", id: "call_process", name: "read", arguments: { path: "x" } },
+			],
+			timestamp: at,
+		};
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble compact message={processMessage} />
+			</I18nProvider>,
+		);
+		expect(html).toContain("read");
+		expect(html).not.toContain("Copy message text");
+		expect(html).toContain("py-1.5");
+		expect(html).toMatch(/^<div class="group flex px-6 py-1\.5">/);
+	});
+});

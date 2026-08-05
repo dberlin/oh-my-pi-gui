@@ -3,11 +3,14 @@
  * login providers, current model highlighted. Selection calls set_model.
  */
 
-import { Check, Cpu, Search } from "lucide-react";
+import { Check, Cpu, Search, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { LoginProvider, ModelInfo } from "../../../shared/rpc-types";
+import { hydrateSession } from "../../hooks/use-rpc-events";
+import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
+import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Modal, Spinner } from "../common";
@@ -19,6 +22,9 @@ export function ModelPicker() {
 	const availableModels = useModelStore(state => state.availableModels);
 	const current = useModelStore(state => state.model);
 	const setAvailableModels = useModelStore(state => state.setAvailableModels);
+	// Live session usage: models whose window is smaller render with an
+	// over-context warning and compact-first on pick (TUI markOverContext parity).
+	const contextUsage = useSessionStore(state => state.contextUsage);
 
 	const [query, setQuery] = useState("");
 	const [providers, setProviders] = useState<LoginProvider[]>([]);
@@ -119,15 +125,37 @@ export function ModelPicker() {
 		listRef.current?.querySelector(`[data-option-index="${activeIndex}"]`)?.scrollIntoView({ block: "nearest" });
 	}, [activeIndex]);
 
+	const isOverContext = (model: ModelInfo): boolean => {
+		const tokens = contextUsage?.tokens ?? 0;
+		const contextWindow = model.contextWindow ?? 0;
+		return tokens > 0 && contextWindow > 0 && tokens > contextWindow;
+	};
+
 	const select = async (provider: string, modelId: string) => {
 		const key = `${provider}/${modelId}`;
 		setSwitching(key);
 		try {
+			// TUI parity: picking a model whose context window is smaller than the
+			// live session usage compacts with the CURRENT model first, then
+			// switches. The row carries the over-context warning before the pick.
+			const target = availableModels.find(m => m.provider === provider && m.id === modelId);
+			const overContext = target !== undefined && isOverContext(target);
+			if (overContext) {
+				const compactRes = await window.omp.rpc.compact();
+				if (!compactRes.success) {
+					toast({ variant: "error", title: t("modelPicker.compactFailed"), message: compactRes.error });
+					return;
+				}
+				toast({ variant: "info", message: t("modelPicker.compactedSwitching") });
+			}
 			const response = await window.omp.rpc.setModel(provider, modelId);
 			if (!response.success) {
 				toast({ variant: "error", title: t("modelPicker.failed"), message: response.error });
 				return;
 			}
+			// Compaction rewrote the transcript — rehydrate so the chat and the
+			// context bar reflect the compacted session, not just the new model.
+			if (overContext) await hydrateSession();
 			close();
 		} finally {
 			setSwitching(null);
@@ -271,6 +299,7 @@ export function ModelPicker() {
 										const key = `${provider}/${model.id}`;
 										const optionIndex = indexByKey.get(key) ?? 0;
 										const isActive = optionIndex === activeIndex;
+										const over = !isCurrent && isOverContext(model);
 										return (
 											<button
 												aria-selected={isCurrent}
@@ -287,10 +316,22 @@ export function ModelPicker() {
 												type="button"
 											>
 												<span
-													className={`min-w-0 flex-1 truncate font-mono text-xs ${isCurrent ? "font-semibold text-(--omp-accent)" : "text-(--omp-text)"}`}
+													className={`min-w-0 flex-1 truncate font-mono text-xs ${isCurrent ? "font-semibold text-(--omp-accent)" : over ? "text-(--omp-dim)" : "text-(--omp-text)"}`}
 												>
 													{model.id}
 												</span>
+												{over && (
+													<span
+														className="flex shrink-0 items-center gap-1 text-(--omp-warning)"
+														title={t("modelPicker.overContextHint", {
+															current: formatTokens(contextUsage?.tokens),
+															limit: formatTokens(model.contextWindow),
+														})}
+													>
+														<TriangleAlert size={12} />
+														<span className="text-[9px] font-medium">{t("modelPicker.overContext")}</span>
+													</span>
+												)}
 												{switching === key && <Spinner size="sm" />}
 												{isCurrent && <Check className="shrink-0 text-(--omp-accent)" size={13} />}
 											</button>

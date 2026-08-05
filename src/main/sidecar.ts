@@ -63,6 +63,15 @@ export interface SidecarOptions {
 	extraFlags?: string[];
 	/** When set, spawn the workspace source CLI via bun instead of the installed binary. */
 	sourceCli?: string;
+	/**
+	 * Resolves proxy env vars (PI_PROXY / HTTPS_PROXY / …) injected at spawn —
+	 * the GUI proxy pref or the macOS system proxy. Finder-launched apps have
+	 * no shell env, so without this a proxy-only network (e.g. codex's
+	 * chatgpt.com backend behind a firewall) hangs every provider request.
+	 * Called on every start()/restart(); crash-loop respawns reuse the last
+	 * result. Resolution failure degrades to no proxy env, never a spawn block.
+	 */
+	proxyEnv?: () => Promise<Record<string, string>>;
 }
 
 /** Resolve the bun executable for source-sidecar spawns (PATH fallback last). */
@@ -94,6 +103,8 @@ export class SidecarManager extends EventEmitter {
 	#restartTimer: NodeJS.Timeout | null = null;
 	#status: SidecarStatus = "starting";
 	#options: SidecarOptions;
+	#proxyEnvVars: Record<string, string> = {};
+	#resumeSessionPath: string | null = null;
 	#disposed = false;
 
 	constructor(options: SidecarOptions) {
@@ -125,13 +136,25 @@ export class SidecarManager extends EventEmitter {
 			return;
 		}
 		this.#setStatus("starting");
-		this.#spawn();
+		const resolveProxyEnv = this.#options.proxyEnv;
+		if (!resolveProxyEnv) {
+			this.#spawn();
+			return;
+		}
+		void resolveProxyEnv()
+			.catch(() => ({}) as Record<string, string>)
+			.then(env => {
+				if (this.#disposed) return;
+				this.#proxyEnvVars = env;
+				this.#spawn();
+			});
 	}
 
 	#spawn(): void {
 		const { binaryPath, sourceCli, cwd, extraFlags } = this.#options;
 
 		const args = ["--mode", "rpc-ui"];
+		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
 		if (extraFlags) args.push(...extraFlags);
 
 		// Source sidecar (monorepo dev): run the workspace coding-agent from
@@ -147,6 +170,7 @@ export class SidecarManager extends EventEmitter {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
 					...process.env,
+					...this.#proxyEnvVars,
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
 					PI_NOTIFICATIONS: "off",
@@ -278,6 +302,7 @@ export class SidecarManager extends EventEmitter {
 	}
 
 	#handleReady(ready: RpcReadyFrame): void {
+		this.#resumeSessionPath = null;
 		// Negotiate protocol v2
 		if (ready.supportedProtocolVersions.includes(2)) {
 			this.#rpcClient
@@ -346,9 +371,10 @@ export class SidecarManager extends EventEmitter {
 		this.#setStatus("error", reason);
 	}
 
-	restart(cwd?: string): void {
+	restart(cwd?: string, resumeSessionPath?: string): void {
 		this.kill();
 		if (cwd) this.#options = { ...this.#options, cwd };
+		this.#resumeSessionPath = resumeSessionPath ?? null;
 		this.#restartCount = 0;
 		this.start();
 	}

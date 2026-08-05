@@ -520,7 +520,7 @@ export interface OmpApi {
 		set(key: string, value: unknown): Promise<void>;
 	};
 	sidecar: {
-		restart(): Promise<void>;
+		restart(sessionPath?: string): Promise<void>;
 		selectProject(): Promise<string | null>;
 		setProject(cwd: string): Promise<boolean>;
 		getStatus(): Promise<IpcSidecarStatusPayload>;

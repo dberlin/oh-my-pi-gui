@@ -19,6 +19,7 @@ import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { toast } from "../stores/toast";
 import { exportSessionHtml } from "./export-session";
+import { translate } from "./i18n";
 
 export type CommandAffordance =
 	| { kind: "action"; run: () => unknown; status?: string }
@@ -87,6 +88,8 @@ export interface CommandRegistryContext {
 	retryLastTurn: () => Promise<unknown>;
 	/** Clone the whole session at head (true /fork) into a new session. */
 	forkSession: () => Promise<unknown>;
+	/** Refresh session state after a mutation (compact, fork, etc). */
+	hydrateSession: () => Promise<void>;
 	rpc: {
 		setFastMode: (enabled: boolean) => Promise<RpcResponse>;
 		setAutoCompaction: (enabled: boolean) => Promise<RpcResponse>;
@@ -94,7 +97,7 @@ export interface CommandRegistryContext {
 		setSteeringMode: (mode: "all" | "one-at-a-time") => Promise<unknown>;
 		setFollowUpMode: (mode: "all" | "one-at-a-time") => Promise<unknown>;
 		setInterruptMode: (mode: "immediate" | "wait") => Promise<unknown>;
-		compact: (instructions?: string) => Promise<unknown>;
+		compact: (instructions?: string) => Promise<RpcResponse>;
 		newSession: () => Promise<unknown>;
 		handoff: () => Promise<unknown>;
 		prompt: (message: string) => Promise<unknown>;
@@ -175,13 +178,24 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	// ═══════════════════════════════════════════════════════════════════
 	// SESSION
 	// ═══════════════════════════════════════════════════════════════════
+	// /new and /clear replace the session server-side and would silently abort
+	// an in-flight run — block while busy, same guard as the menu/deep-link
+	// paths and the WorkspaceDialog actions.
+	const newSessionGuarded = (): Promise<unknown> | undefined => {
+		const { isStreaming, isCompacting } = useSessionStore.getState();
+		if (isStreaming || isCompacting) {
+			toast({ variant: "warning", message: translate("sessionSwitch.busyBlocked") });
+			return undefined;
+		}
+		return ctx.rpc.newSession();
+	};
 	add({
 		name: "new",
 		label: "New Session",
 		description: "Start a fresh session",
 		category: "session",
 		shortcut: "⌘N",
-		affordance: { kind: "action", run: () => ctx.rpc.newSession() },
+		affordance: { kind: "action", run: () => newSessionGuarded() },
 	});
 	add({
 		name: "clear",
@@ -189,7 +203,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: "Alias for /new",
 		category: "session",
 		aliases: ["clear"],
-		affordance: { kind: "action", run: () => ctx.rpc.newSession() },
+		affordance: { kind: "action", run: () => newSessionGuarded() },
 	});
 	add({
 		name: "resume",
@@ -394,7 +408,15 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: "Compact Context",
 		description: "Manually compact the conversation",
 		category: "context",
-		affordance: { kind: "action", run: () => ctx.rpc.compact() },
+		affordance: {
+			kind: "action",
+			run: async () => {
+				const res = await ctx.rpc.compact();
+				if (!res.success) throw new Error(res.error);
+				await ctx.hydrateSession();
+				toast({ variant: "success", title: "Compacted", message: "Context compacted successfully" });
+			},
+		},
 	});
 	add({
 		name: "shake",

@@ -63,6 +63,7 @@ interface MockOmp {
 		onExtensionUi: Mock<() => () => void>;
 	};
 	sidecar: { getStatus: Mock<() => Promise<unknown>> };
+	sessions: { consumePendingOpen: Mock<() => Promise<unknown>> };
 	system: { notify: Mock<(title: string, body: string) => void> };
 }
 
@@ -106,6 +107,9 @@ function installMockOmp(): { omp: MockOmp; emitBatch: BatchHandler } {
 			onExtensionUi: vi.fn(() => () => {}),
 		},
 		sidecar: { getStatus: vi.fn(async () => ({ status: "ready", cwd: "/tmp" })) },
+		// Boot pulls the pending "open in new window" session before hydrating;
+		// null = none pending (the plain-attach path this suite drives).
+		sessions: { consumePendingOpen: vi.fn(async () => null) },
 		system: { notify: vi.fn() },
 	};
 	const ompWindow = window as unknown as { omp: MockOmp };
@@ -339,6 +343,16 @@ describe("TurnStatusRow", () => {
 		await mount(<TurnStatusRow />);
 		expect(document.body.textContent).toContain("35s");
 		expect(document.body.textContent).toContain("Slow response");
+	});
+
+	it("escalates to the stalled-connection hint after 90s, replacing the generic interrupt hint", async () => {
+		useSessionStore.setState({ awaitingModelSince: Date.now() - 95_000 });
+		await mount(<TurnStatusRow />);
+		expect(document.body.textContent).toContain("95s");
+		// The stalled copy explains the ~5min watchdog + retry and names Esc
+		// itself, so the generic interrupt hint would be redundant noise.
+		expect(document.body.textContent).toContain("auto-times-out");
+		expect(document.body.textContent).not.toContain("(press Esc to interrupt)");
 	});
 
 	it("renders the retry countdown with the failure detail", async () => {

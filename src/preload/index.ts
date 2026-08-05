@@ -251,7 +251,7 @@ const api: OmpApi = {
 	},
 
 	sidecar: {
-		restart: () => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_RESTART),
+		restart: (sessionPath?: string) => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_RESTART, { sessionPath }),
 		selectProject: () => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_SELECT_PROJECT),
 		setProject: (cwd: string) => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_SET_PROJECT, { cwd }),
 		getStatus: () => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_STATUS_GET),

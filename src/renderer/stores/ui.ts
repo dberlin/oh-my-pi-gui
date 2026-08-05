@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import type { CustomProviderView } from "../../shared/ipc-types";
+import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
 import type { ThemeMode } from "../lib/theme";
 
 export type { ThemeMode };
 
 export type PanelTab = "todo" | "agents" | "diff" | "files" | "logs" | "plan";
+export type TranscriptDetail = "compact" | "full";
 
 interface UiStore {
 	sidebarVisible: boolean;
@@ -34,6 +35,10 @@ interface UiStore {
 	branchPickerOpen: boolean;
 	sessionTreeOpen: boolean;
 	sessionInfoOpen: boolean;
+	/** Session the user tried to open while the attached session was busy
+	 * (streaming/compacting). Non-null shows the SessionSwitchDialog offering
+	 * a parallel new window vs abort-and-switch. */
+	sessionSwitchPrompt: SessionInfo | null;
 	sidecarError: string | null;
 	theme: ThemeMode;
 	fontSize: number;
@@ -41,6 +46,8 @@ interface UiStore {
 	notifications: boolean;
 	/** Expand reasoning (thinking) blocks by default (Settings → GUI, default off). */
 	thinkingExpanded: boolean;
+	/** Transcript density: compact folds reasoning/tools; full shows every step. */
+	transcriptDetail: TranscriptDetail;
 	/** Expand/collapse-all signal for tool cards (⌃O); `seq` bumps per toggle so cards re-sync their local state. */
 	toolsExpandAll: { expanded: boolean; seq: number };
 	toggleSidebar: () => void;
@@ -85,12 +92,15 @@ interface UiStore {
 	closeSessionTree: () => void;
 	openSessionInfo: () => void;
 	closeSessionInfo: () => void;
+	requestSessionSwitch: (session: SessionInfo) => void;
+	closeSessionSwitch: () => void;
 	setSidecarError: (error: string | null) => void;
 	clearSidecarError: () => void;
 	setTheme: (theme: ThemeMode) => void;
 	setFontSize: (size: number) => void;
 	setNotifications: (enabled: boolean) => void;
 	setThinkingExpanded: (enabled: boolean) => void;
+	setTranscriptDetail: (detail: TranscriptDetail) => void;
 }
 
 export const useUiStore = create<UiStore>()((set, get) => ({
@@ -104,6 +114,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	fontSize: 15,
 	notifications: true,
 	thinkingExpanded: false,
+	transcriptDetail: "compact",
 	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),
 	togglePanel: () => set({ panelVisible: !get().panelVisible }),
 	toolsExpandAll: { expanded: false, seq: 0 },
@@ -169,6 +180,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	sessionInfoOpen: false,
 	openSessionInfo: () => set({ sessionInfoOpen: true }),
 	closeSessionInfo: () => set({ sessionInfoOpen: false }),
+	sessionSwitchPrompt: null as SessionInfo | null,
+	requestSessionSwitch: session => set({ sessionSwitchPrompt: session }),
+	closeSessionSwitch: () => set({ sessionSwitchPrompt: null }),
 	sidecarError: null as string | null,
 	setSidecarError: (error: string | null) => set({ sidecarError: error }),
 	clearSidecarError: () => set({ sidecarError: null }),
@@ -176,4 +190,5 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setFontSize: size => set({ fontSize: size }),
 	setNotifications: enabled => set({ notifications: enabled }),
 	setThinkingExpanded: enabled => set({ thinkingExpanded: enabled }),
+	setTranscriptDetail: detail => set({ transcriptDetail: detail }),
 }));

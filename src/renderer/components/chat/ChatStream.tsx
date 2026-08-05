@@ -1,25 +1,150 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, Bug, Code2, Loader2, SearchCode, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentMessage } from "../../../shared/rpc-types";
+import { ArrowDown, Bug, ChevronRight, Code2, Loader2, SearchCode, Sparkles } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentMessage, MessageContent } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { isRenderableMessageText } from "../../lib/messages";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { type TranscriptDetail, useUiStore } from "../../stores/ui";
 import { PiLogo } from "../common";
 import { ToolCard } from "../tools/ToolCard";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
 
-/** Virtualized row: a finalized message, or one of the live streaming rows. */
-type Row =
+interface ProcessMeta {
+	stepCount: number;
+	toolCallIds: string[];
+	toolNames: string[];
+}
+
+export type HistoryRow =
 	| { kind: "message"; message: AgentMessage }
-	| { kind: "streaming" }
-	| { kind: "pending" }
-	| { kind: "expander"; count: number };
+	| ({ kind: "process"; messages: AgentMessage[] } & ProcessMeta);
+
+/** Virtualized row: finalized history or one of the live streaming rows. */
+type Row = HistoryRow | { kind: "streaming" } | { kind: "pending" } | { kind: "expander"; count: number };
+
+function messageContent(message: AgentMessage): MessageContent[] {
+	if (Array.isArray(message.content)) return message.content;
+	if (typeof message.content === "string") return [{ type: "text", text: message.content }];
+	return [];
+}
+
+/**
+ * Keep zero-height/non-display messages out of the virtualizer. Estimating an
+ * invisible toolResult row at 128px was the remaining source of blank bands
+ * between cards; its content already lives in the matching ToolCard.
+ */
+function isVisibleTranscriptMessage(message: AgentMessage): boolean {
+	if (message.role === "toolResult") return false;
+	if ((message.role === "custom" || message.role === "hookMessage") && message.display === false) return false;
+	if (
+		message.role === "user" ||
+		message.role === "bashExecution" ||
+		message.role === "pythonExecution" ||
+		message.role === "branchSummary" ||
+		message.role === "compactionSummary" ||
+		message.role === "fileMention" ||
+		message.role === "custom" ||
+		message.role === "hookMessage"
+	) {
+		return true;
+	}
+	if (message.errorMessage || message.steering) return true;
+	return messageContent(message).some(block => {
+		switch (block.type) {
+			case "text":
+				return isRenderableMessageText(block.text);
+			case "thinking":
+				return block.thinking.trim().length > 0;
+			case "toolCall":
+			case "image":
+				return true;
+		}
+		return false;
+	});
+}
+
+function summarizeProcess(messages: AgentMessage[]): ProcessMeta {
+	let thinkingCount = 0;
+	const toolCallIds: string[] = [];
+	const toolNames: string[] = [];
+	for (const message of messages) {
+		for (const block of messageContent(message)) {
+			if (block.type === "thinking" && block.thinking.trim()) thinkingCount++;
+			if (block.type !== "toolCall") continue;
+			toolCallIds.push(block.id);
+			toolNames.push(block.name);
+		}
+	}
+	return { stepCount: thinkingCount + toolCallIds.length, toolCallIds, toolNames };
+}
+
+/**
+ * Build finalized transcript rows. Compact mode folds a run's reasoning and
+ * tool-call messages into one disclosure while preserving the final answer.
+ * A final assistant message containing both thinking and text is split: only
+ * the thinking fragment joins the process row.
+ */
+export function buildHistoryRows(messages: AgentMessage[], detail: TranscriptDetail): HistoryRow[] {
+	const rows: HistoryRow[] = [];
+	let processMessages: AgentMessage[] = [];
+	const flushProcess = () => {
+		if (processMessages.length === 0) return;
+		rows.push({ kind: "process", messages: processMessages, ...summarizeProcess(processMessages) });
+		processMessages = [];
+	};
+
+	for (const message of messages) {
+		// toolResult/display:false/empty-filler messages must not split a process
+		// run — they are invisible transport records, not transcript boundaries.
+		if (!isVisibleTranscriptMessage(message)) continue;
+		if (
+			detail !== "compact" ||
+			message.role !== "assistant" ||
+			message.errorMessage ||
+			message.steering ||
+			!Array.isArray(message.content)
+		) {
+			flushProcess();
+			rows.push({ kind: "message", message });
+			continue;
+		}
+
+		const hasToolCall = message.content.some(block => block.type === "toolCall");
+		const hasImage = message.content.some(block => block.type === "image");
+		if (hasToolCall && !hasImage) {
+			// Text accompanying a tool call is intermediate narration; the API
+			// delivers the final answer in a later assistant message.
+			processMessages.push(message);
+			continue;
+		}
+
+		const thinking = message.content.filter(block => block.type === "thinking" && block.thinking.trim());
+		if (thinking.length > 0) {
+			processMessages.push({ ...message, content: thinking });
+			const coreMessage: AgentMessage = {
+				...message,
+				content: message.content.filter(block => block.type !== "thinking"),
+			};
+			if (isVisibleTranscriptMessage(coreMessage)) {
+				flushProcess();
+				rows.push({ kind: "message", message: coreMessage });
+			}
+			continue;
+		}
+
+		flushProcess();
+		rows.push({ kind: "message", message });
+	}
+	flushProcess();
+	return rows;
+}
 
 /**
  * Virtual-scroll message list. Stays pinned to the bottom while streaming
@@ -39,15 +164,23 @@ export function ChatStream() {
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const status = useSessionStore(s => s.status);
 	const sessionId = useSessionStore(s => s.sessionId);
-	// Shared `display.collapseCompacted` setting: fold history before the latest
-	// compaction summary behind an expander (TUI transcript parity).
+	// Shared agent compaction preference and GUI-local transcript detail.
 	const collapseCompacted = useSettingsStore(s => s.collapseCompacted);
+	const transcriptDetail = useUiStore(s => s.transcriptDetail);
 	const [preCompactionOpen, setPreCompactionOpen] = useState(false);
-	useEffect(() => setPreCompactionOpen(false), [sessionId]);
+	useEffect(() => {
+		// Session identity is the reset signal; process/history rows below are
+		// rebuilt from the new transcript in the same render cycle.
+		void sessionId;
+		setPreCompactionOpen(false);
+	}, [sessionId]);
 
 	const lastCompactionIndex = messages.findLastIndex(message => message.role === "compactionSummary");
 	const hiddenCount = collapseCompacted && !preCompactionOpen && lastCompactionIndex > 0 ? lastCompactionIndex : 0;
-	const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+	const historyRows = useMemo(
+		() => buildHistoryRows(hiddenCount > 0 ? messages.slice(hiddenCount) : messages, transcriptDetail),
+		[messages, hiddenCount, transcriptDetail],
+	);
 
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the
@@ -69,7 +202,7 @@ export function ChatStream() {
 
 	const rows: Row[] = [];
 	if (hiddenCount > 0) rows.push({ kind: "expander", count: hiddenCount });
-	for (const message of visibleMessages) rows.push({ kind: "message", message });
+	rows.push(...historyRows);
 	if (hasStreamedContent) rows.push({ kind: "streaming" });
 	if (showStatusRow) rows.push({ kind: "pending" });
 
@@ -91,7 +224,7 @@ export function ChatStream() {
 				? 96
 				: rows[i]?.kind === "pending"
 					? 56
-					: rows[i]?.kind === "expander"
+					: rows[i]?.kind === "expander" || rows[i]?.kind === "process"
 						? 44
 						: 128,
 		overscan: 8,
@@ -177,7 +310,7 @@ export function ChatStream() {
 						if (!row) return null;
 						return (
 							<div
-								key={row.kind === "message" ? `msg-${item.index}` : row.kind}
+								key={row.kind === "message" ? `msg-${item.index}` : `${row.kind}-${item.index}`}
 								data-index={item.index}
 								ref={virtualizer.measureElement}
 								style={{
@@ -191,6 +324,8 @@ export function ChatStream() {
 								<div className="mx-auto w-full max-w-[900px]">
 									{row.kind === "message" ? (
 										<MessageBubble message={row.message} />
+									) : row.kind === "process" ? (
+										<ProcessGroup row={row} />
 									) : row.kind === "streaming" ? (
 										<StreamingRows />
 									) : row.kind === "expander" ? (
@@ -226,6 +361,91 @@ export function ChatStream() {
 	);
 }
 
+function ProcessDisclosure({
+	meta,
+	live = false,
+	inset = true,
+	children,
+}: {
+	meta: ProcessMeta;
+	live?: boolean;
+	inset?: boolean;
+	children: ReactNode;
+}) {
+	const t = useT();
+	const activeTools = useToolsStore(s => s.activeTools);
+	const [open, setOpen] = useState(false);
+	const toolCounts = new Map<string, number>();
+	for (const name of meta.toolNames) toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
+	const toolEntries = [...toolCounts.entries()];
+	const visibleTools = toolEntries
+		.slice(0, 4)
+		.map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
+		.join(" · ");
+	const hiddenToolCount = Math.max(0, toolEntries.length - 4);
+	const toolSummary =
+		visibleTools.length > 0
+			? `${visibleTools}${hiddenToolCount > 0 ? ` · +${hiddenToolCount}` : ""}`
+			: t("chat.process.reasoning");
+	let failedCount = 0;
+	for (const id of meta.toolCallIds) {
+		const entry = activeTools.get(id);
+		if (entry?.isError || entry?.status === "error") failedCount++;
+	}
+	const label = t(live ? "chat.process.running" : "chat.process.summary", {
+		count: meta.stepCount,
+		plural: meta.stepCount === 1 ? "" : "s",
+	});
+
+	return (
+		<div className="py-1.5">
+			<div className={inset ? "px-6" : undefined}>
+				<button
+					aria-expanded={open}
+					className="omp-pressable flex w-full items-center gap-2 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2 text-left text-[12px] text-[var(--omp-muted)] hover:border-[var(--omp-border)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+					onClick={() => setOpen(value => !value)}
+					type="button"
+				>
+					<ChevronRight
+						aria-hidden
+						className={cx("shrink-0 transition-transform", open && "rotate-90")}
+						size={14}
+					/>
+					{live ? (
+						<Loader2 aria-hidden className="shrink-0 animate-spin text-[var(--omp-accent)]" size={13} />
+					) : (
+						<Sparkles aria-hidden className="shrink-0 text-[var(--omp-accent)]" size={13} />
+					)}
+					<span className="shrink-0 font-medium text-[var(--omp-text)]">{label}</span>
+					<span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--omp-dim)]">
+						{toolSummary}
+					</span>
+					{failedCount > 0 && (
+						<span className="shrink-0 text-[11px] font-medium text-[var(--omp-error)]">
+							{t("chat.process.failed", { count: failedCount })}
+						</span>
+					)}
+				</button>
+			</div>
+			{open ? <div className="mt-1">{children}</div> : null}
+		</div>
+	);
+}
+
+function ProcessGroup({ row }: { row: Extract<HistoryRow, { kind: "process" }> }) {
+	return (
+		<ProcessDisclosure meta={row}>
+			{row.messages.map((message, index) => (
+				<MessageBubble
+					compact
+					key={typeof message.id === "string" ? message.id : `${String(message.timestamp ?? "process")}-${index}`}
+					message={message}
+				/>
+			))}
+		</ProcessDisclosure>
+	);
+}
+
 /**
  * The in-flight assistant turn: thinking block, any tool calls already
  * emitted, and the live text tail. Replaces itself with a finalized
@@ -235,6 +455,7 @@ function StreamingRows() {
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
 	const streamingThinking = useMessagesStore(s => s.streamingThinking);
 	const activeTools = useToolsStore(s => s.activeTools);
+	const transcriptDetail = useUiStore(s => s.transcriptDetail);
 	if (!streamingMessage) return null;
 	const content = Array.isArray(streamingMessage.content) ? streamingMessage.content : [];
 	const toolCalls = content.filter(block => block.type === "toolCall");
@@ -248,7 +469,7 @@ function StreamingRows() {
 	const ts = streamingMessage.timestamp;
 	const parsed = typeof ts === "number" ? ts : typeof ts === "string" ? Date.parse(ts) : Number.NaN;
 	const streamStart = Number.isFinite(parsed) ? parsed : 0;
-	const contentIds = new Set(toolCalls.map(block => (block.type === "toolCall" ? block.id : "")));
+	const contentIds = new Set(toolCalls.map(block => block.id));
 	const liveTools: Array<{ id: string; entry: ToolEntry }> = [];
 	for (const [id, entry] of activeTools) {
 		if (contentIds.has(id)) continue;
@@ -257,21 +478,48 @@ function StreamingRows() {
 		liveTools.push({ id, entry });
 	}
 
+	const hasThinking = streamingThinking.trim().length > 0;
+	const hasProcess = hasThinking || toolCalls.length > 0 || liveTools.length > 0;
+	const processMeta: ProcessMeta = {
+		stepCount: (hasThinking ? 1 : 0) + toolCalls.length + liveTools.length,
+		toolCallIds: [...toolCalls.map(block => block.id), ...liveTools.map(({ id }) => id)],
+		toolNames: [...toolCalls.map(block => block.name), ...liveTools.map(({ entry }) => entry.toolName)],
+	};
+	const toolCards = (
+		<>
+			{toolCalls.map(block => (
+				<ToolCard key={block.id} toolCallId={block.id} toolName={block.name} args={block.arguments} />
+			))}
+			{liveTools.map(({ id, entry }) => (
+				<ToolCard key={id} toolCallId={id} toolName={entry.toolName} args={entry.args} />
+			))}
+		</>
+	);
+
+	if (transcriptDetail === "full") {
+		return (
+			<div className="flex flex-col px-6 py-4">
+				{/* streamingMessage.content only fills at message_end; mid-stream the
+				    thinking deltas accumulate in the streamingThinking buffer, which
+				    ThinkingBlock reads itself when live. */}
+				{hasThinking ? <ThinkingBlock live /> : null}
+				<div className="space-y-2">
+					{toolCards}
+					<StreamingText />
+				</div>
+			</div>
+		);
+	}
+
 	return (
-		<div className="flex flex-col px-6 py-4">
-			{/* streamingMessage.content only fills at message_end; mid-stream the
-			    thinking deltas accumulate in the streamingThinking buffer, which
-			    ThinkingBlock reads itself when live. */}
-			{streamingThinking ? <ThinkingBlock live /> : null}
-			<div className="space-y-2">
-				{toolCalls.map(block =>
-					block.type === "toolCall" ? (
-						<ToolCard key={block.id} toolCallId={block.id} toolName={block.name} args={block.arguments} />
-					) : null,
-				)}
-				{liveTools.map(({ id, entry }) => (
-					<ToolCard key={id} toolCallId={id} toolName={entry.toolName} args={entry.args} />
-				))}
+		<div className="flex flex-col px-6 py-2">
+			{hasProcess ? (
+				<ProcessDisclosure inset={false} live meta={processMeta}>
+					{hasThinking ? <ThinkingBlock live /> : null}
+					{toolCalls.length + liveTools.length > 0 ? <div className="space-y-2">{toolCards}</div> : null}
+				</ProcessDisclosure>
+			) : null}
+			<div className={hasProcess ? "mt-1" : undefined}>
 				<StreamingText />
 			</div>
 		</div>
@@ -280,6 +528,13 @@ function StreamingRows() {
 
 /** Seconds past which the waiting row escalates to the slow-response hint. */
 const SLOW_RESPONSE_HINT_SECONDS = 30;
+/**
+ * Seconds past which the row escalates again to the stalled-connection hint.
+ * The provider first-event watchdog fires at ~300s (and auto-retry may
+ * follow); telling the user that up front turns a silent 5-minute wait into
+ * an informed one — they know it's still alive, why, and that Esc aborts now.
+ */
+const STALLED_RESPONSE_HINT_SECONDS = 90;
 
 /**
  * Live status row for the windows where the agent is busy but the transcript
@@ -314,6 +569,7 @@ export function TurnStatusRow() {
 	let text: string;
 	let detail: string | null = null;
 	let slow = false;
+	let stalled = false;
 
 	if (retryInfo) {
 		const remainingSeconds = Math.max(0, Math.ceil((retryInfo.startedAt + retryInfo.delayMs - now) / 1000));
@@ -342,6 +598,7 @@ export function TurnStatusRow() {
 	} else if (awaitingModelSince != null) {
 		const elapsedSeconds = Math.max(0, Math.floor((now - awaitingModelSince) / 1000));
 		slow = elapsedSeconds >= SLOW_RESPONSE_HINT_SECONDS;
+		stalled = elapsedSeconds >= STALLED_RESPONSE_HINT_SECONDS;
 		text = t("chat.awaitingModel", { seconds: elapsedSeconds });
 	} else {
 		return null;
@@ -352,8 +609,16 @@ export function TurnStatusRow() {
 			<div className="flex items-center gap-2.5">
 				<Loader2 size={14} className={cx("animate-spin shrink-0", iconClass)} />
 				<span>{text}</span>
-				<span className="text-[var(--omp-dim)]">{t("chat.interruptHint")}</span>
-				{slow ? <span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.slow")}</span> : null}
+				{stalled ? (
+					// The stalled hint already names Esc — drop the generic interrupt
+					// hint so the line stays readable.
+					<span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.stalled")}</span>
+				) : (
+					<>
+						<span className="text-[var(--omp-dim)]">{t("chat.interruptHint")}</span>
+						{slow ? <span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.slow")}</span> : null}
+					</>
+				)}
 			</div>
 			{detail ? (
 				<div className="max-w-full truncate pl-[26px] text-[11.5px] text-[var(--omp-dim)]" title={detail}>

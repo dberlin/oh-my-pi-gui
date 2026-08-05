@@ -7,6 +7,15 @@ import { useSessionStore } from "../stores/session";
  * keyboard shortcuts (App.tsx), so both ride the same retry semantics.
  */
 
+/**
+ * Display-worthy model text. Punctuation/whitespace-only fragments (".",
+ * "…", "---") are provider/model filler between tool calls, while letters,
+ * numbers, and emoji are user-visible content in any script.
+ */
+const MESSAGE_TEXT_CONTENT_CHAR = /[\p{L}\p{N}\p{Extended_Pictographic}]/u;
+export function isRenderableMessageText(text: string): boolean {
+	return MESSAGE_TEXT_CONTENT_CHAR.test(text);
+}
 /** Plain-text content of a message (user text lives in text blocks). */
 export function messageText(message: AgentMessage): string {
 	if (typeof message.content === "string") return message.content.trim();

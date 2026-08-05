@@ -5,6 +5,7 @@ import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from
 import { copyText, cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
+import { isRenderableMessageText } from "../../lib/messages";
 import { ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -12,6 +13,8 @@ import { UsageRow } from "./UsageRow";
 
 export interface MessageBubbleProps {
 	message: AgentMessage;
+	/** Suppress per-message footer/padding inside an expanded Process group. */
+	compact?: boolean;
 }
 
 function messageEntryId(message: AgentMessage): string | undefined {
@@ -206,7 +209,7 @@ function ContextBubble({ message }: { message: AgentMessage }) {
  * render text, thinking, images, and tool cards. Standalone toolResult messages
  * are folded into their matching card through the tools store.
  */
-export const MessageBubble = memo(function MessageBubble({ message }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, compact = false }: MessageBubbleProps) {
 	const t = useT();
 	const [copied, setCopied] = useState(false);
 	if (message.role === "bashExecution" || message.role === "pythonExecution") {
@@ -294,17 +297,20 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
 
 	// Assistant / system: render block by block.
 	const blocks: ReactNode[] = [];
+	let sawNonToolBlock = false;
 	for (const block of content) {
 		switch (block.type) {
 			case "text": {
-				if (block.text.trim()) {
+				if (isRenderableMessageText(block.text)) {
 					blocks.push(<MarkdownRenderer key={blocks.length} content={block.text} />);
+					sawNonToolBlock = true;
 				}
 				break;
 			}
 			case "thinking": {
 				if (block.thinking.trim()) {
 					blocks.push(<ThinkingBlock key={blocks.length} text={block.thinking} />);
+					sawNonToolBlock = true;
 				}
 				break;
 			}
@@ -314,6 +320,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
 			}
 			case "image": {
 				blocks.push(<InlineImage key={blocks.length} image={block} />);
+				sawNonToolBlock = true;
 				break;
 			}
 		}
@@ -321,8 +328,13 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
 
 	if (blocks.length === 0 && !message.errorMessage && !customLabel && !isSteering) return null;
 
+	// Tool-only messages and messages nested inside an expanded Process group
+	// don't need the 28px hover footer plus py-3 padding. Tool-only copy would
+	// be empty; the Process disclosure owns the grouped chrome and branch point.
+	const compactChrome = compact || (!sawNonToolBlock && !message.errorMessage && !customLabel && !isSteering);
+
 	return (
-		<div className="group omp-fade-up flex px-6 py-3">
+		<div className={cx("group flex px-6", !compact && "omp-fade-up", compactChrome ? "py-1.5" : "py-3")}>
 			<div className="min-w-0 flex-1">
 				{customLabel && (
 					<div className="mb-2 text-[11px] font-bold tracking-[0.1em] text-[var(--omp-status-context)] uppercase">
@@ -342,27 +354,29 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
 					</div>
 				)}
 				<UsageRow message={message} />
-				<div className="mt-2 flex items-center gap-1.5 text-[10.5px] tabular-nums text-[var(--omp-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-					{timestamp && <span className="font-mono">{timestamp}</span>}
-					<button
-						type="button"
-						onClick={handleCopy}
-						title={t("chat.copyMessage")}
-						className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-					>
-						{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
-					</button>
-					{entryId && (
+				{!compactChrome && (
+					<div className="mt-2 flex items-center gap-1.5 text-[10.5px] tabular-nums text-[var(--omp-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+						{timestamp && <span className="font-mono">{timestamp}</span>}
 						<button
 							type="button"
-							onClick={handleBranch}
-							title={t("chat.branchFromHere")}
+							onClick={handleCopy}
+							title={t("chat.copyMessage")}
 							className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 						>
-							<GitBranch size={13} />
+							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
 						</button>
-					)}
-				</div>
+						{entryId && (
+							<button
+								type="button"
+								onClick={handleBranch}
+								title={t("chat.branchFromHere")}
+								className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							>
+								<GitBranch size={13} />
+							</button>
+						)}
+					</div>
+				)}
 			</div>
 		</div>
 	);

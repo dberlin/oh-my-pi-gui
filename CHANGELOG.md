@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.3.1] - 2026-08-05
+
+### Added
+
+- **Proxy support for the agent sidecar.** Provider requests (OAuth, streaming, usage) no longer depend on shell env the Finder-launched app never had: the sidecar now spawns with proxy env resolved per spawn — explicit GUI pref (Settings → GUI → HTTP proxy) → inherited env (terminal launch) → macOS system proxy (auto-detected via Chromium's PAC resolution). Applies on agent restart, done automatically when idle; a busy run is never killed to change proxy. This fixes codex/OAuth models hanging silently on proxy-only networks, where the TUI worked only because the terminal shell exported HTTPS_PROXY.
+- Switching sessions while the attached session is streaming or compacting now opens a confirmation dialog offering "open in a new window" (the parallel path, recommended), "abort & switch", or cancel — instead of silently killing the in-flight run. Covers the sidebar, ⌘P session picker, and `omp://session/<id>` deep links; idle sessions still switch straight through.
+- The model picker now flags over-context models (live session tokens exceed the model's context window) with a warning badge and tooltip, mirroring the TUI's grayed rows; picking one compacts with the current model first, then switches, with toasts at each stage.
+- Failed turns now raise an in-app error toast in addition to the chat error bubble — desktop error notifications default off, so a provider failure (e.g. right after a model switch) no longer looks like a silent no-op. Deferred mid-run settles, live auto-retries, and user aborts stay quiet.
+- The waiting-for-model row gains a second escalation tier: after 90s without a first response it explains the likely network cause, the ~5-minute automatic timeout/retry, and that Esc aborts immediately (previously only a generic 30s "slow response" hint).
+
+### Changed
+
+- The schema-driven Settings window now omits entries marked TUI-only from tabs, empty groups, Advanced, and global search instead of showing controls that cannot affect the GUI. Shared settings with real GUI behavior remain visible and now describe both clients honestly (themes, color-blind palette, status footer, native progress, title state, compact density, Mermaid, token usage, and compaction display).
+- Settings now opens on an action-oriented **OMP Capabilities** home instead of generic runtime toggles, surfacing TTSR mid-stream correction, parallel subagents, role-based model routing, the second-model advisor, goal/loop modes, cross-session memory, and the native toolchain with direct configure/open actions; ordinary runtime controls remain available in the next tab.
+
+### Fixed
+
+- `/compact` (and the Command Palette "Compact Context" action) now shows success/failure feedback and refreshes the transcript and context-usage bar on completion — previously it resolved silently with no UI update.
+- Boolean settings now use the full row as one switch, keep save-state text out of the hit target, immediately reflect the persisted value, and rehydrate after a sidecar reconnect instead of looking unclickable or reverting on restart.
+- Capability-home toggles now expose their real runtime state: TTSR restarts the idle sidecar and resumes the current session so cached rule buckets actually change, busy sessions get an explicit next-restart notice, toggle buttons show in-flight state, and enabling Advisor without a resolvable advisor model now shows a persistent not-running badge plus the missing model-role warning instead of appearing to succeed silently.
+- Slash commands **typed into the composer** ("/compact", "/model", …) no longer vanish without feedback: they always route through the prompt RPC (never steer/followUp while streaming, which would inject the text as a user steer), and local-only resolutions (`agentInvoked:false`, no agent events) now rehydrate the transcript — so the compaction summary, model change, and context bar actually appear, matching the TUI re-render.
+- Session-replacing actions are now guarded everywhere while a turn is running, closing the paths that silently killed the run: the sidebar "+" workspace dialog (new session here / jump workspace / open project), the `/new` and `/clear` command-palette entries, and `/new` or `/clear` typed into the composer. All block with a warning toast (Esc to abort first, or use ⌘⇧N for a parallel window), consistent with the existing menu and deep-link guards; session switching itself already offered the new-window/abort/cancel dialog.
+- Fixed a crash in language detection when `navigator.language` is unavailable (e.g. under the test runner), which took down the entire renderer test suite (52 failures).
+- Fixed transcript noise in tool-heavy runs: punctuation-only text blocks (".", "…", "---" — model filler between tool calls) no longer render as stray glyphs and ghost bubbles, and tool-call-only messages drop the hover footer row and use compact padding, removing the ~60px-per-message blank bands between consecutive tool cards.
+- Fixed the awaiting-model test harness missing `sessions.consumePendingOpen`, matching the boot contract added with parallel sessions.
+
 ## [0.3.0] - 2026-08-05
 
 ### Added
