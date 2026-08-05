@@ -1,4 +1,36 @@
 #!/usr/bin/env bun
+/* eslint-disable no-console -- CLI script: intentional user-facing output */
+/**
+ * PREREQUISITE (checked before anything else, including imports): the omp
+ * monorepo must be checked out with this GUI repo at packages/gui/ — see
+ * AGENTS.md / README. The check lives before the static imports below because
+ * `../../coding-agent/scripts/compile-binary` does not resolve in a standalone
+ * GUI clone, and a bare module-not-found error tells nobody what to do.
+ */
+import { existsSync as monorepoProbe } from "node:fs";
+
+if (!monorepoProbe(new URL("../../coding-agent/scripts/compile-binary.ts", import.meta.url))) {
+	console.error(
+		[
+			"",
+			"  build:omp cannot find the omp monorepo next to this checkout.",
+			"",
+			"  This script compiles the GUI's bundled agent sidecar from monorepo source,",
+			"  so the GUI repo must sit at packages/gui/ inside a monorepo clone:",
+			"",
+			"    git clone https://github.com/can1357/oh-my-pi.git omp-monorepo",
+			"    cd omp-monorepo && bun install",
+			"    cd packages && git clone https://github.com/nornzach/oh-my-pi-gui.git gui",
+			"    cd gui && bun install",
+			"",
+			"  To package WITHOUT the monorepo, copy a prebuilt sidecar into resources/omp",
+			"  (and resources/omp.x64 for Intel) and skip this script — see README → Build from source.",
+			"",
+		].join("\n"),
+	);
+	process.exit(1);
+}
+
 /**
  * Build the GUI's bundled (built-in) omp sidecar binary.
  *
