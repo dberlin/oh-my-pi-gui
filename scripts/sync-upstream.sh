@@ -38,13 +38,16 @@ bun install
 
 new_version="$(cd packages/coding-agent && node -p "require('./package.json').version" 2>/dev/null || true)"
 say "4/7 pi_natives for v$new_version"
+# build:omp (step 6) now stages the matching-version addon itself — including
+# replacing stale addons whose version sentinel doesn't match — so this step is
+# only an early, explicit check that the new version is available somewhere.
 native_dir="$HOME/.omp/natives/$new_version"
 if [ -n "$new_version" ] && [ ! -f "$native_dir/pi_natives.darwin-arm64.node" ]; then
 	tmp="$(mktemp -d)"
-	bun install --no-cache --registry=https://registry.npmjs.org "@oh-my-pi/pi-natives-darwin-arm64@$new_version" --cwd "$tmp"
+	bun add --no-cache --registry=https://registry.npmjs.org --os=darwin --cpu=arm64 "@oh-my-pi/pi-natives-darwin-arm64@$new_version" --cwd "$tmp" || \
+		echo "WARN: natives $new_version not on npm yet — build:omp will fail unless you build from crates/pi-natives"
 	mkdir -p "$native_dir"
-	cp "$tmp"/node_modules/@oh-my-pi/pi-natives-darwin-arm64/pi_natives.darwin-arm64.node "$native_dir/" || \
-		echo "WARN: natives for $new_version not on npm yet — build from crates/pi-natives instead"
+	cp "$tmp"/node_modules/@oh-my-pi/pi-natives-darwin-arm64/pi_natives.darwin-arm64.node "$native_dir/" 2>/dev/null || true
 else
 	echo "natives present (or version unchanged)"
 fi
