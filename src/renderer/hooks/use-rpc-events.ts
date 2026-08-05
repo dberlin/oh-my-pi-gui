@@ -180,7 +180,7 @@ async function syncGoal(): Promise<void> {
 		if (!res.success) return;
 		// get_goal wire payload is RpcGoalState; `data` crosses the bridge as unknown.
 		const data = res.data as RpcGoalState | undefined;
-		if (!data || data.enabled !== true) {
+		if (data?.enabled !== true) {
 			useSessionStore.setState({ goal: null, goalState: null });
 			return;
 		}

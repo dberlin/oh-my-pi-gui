@@ -110,7 +110,7 @@ describe("CapabilitiesHome", () => {
 			</I18nProvider>,
 		);
 
-		expect(html.match(/ disabled=\"\"/g)).toHaveLength(2);
+		expect(html.match(/ disabled=""/g)).toHaveLength(2);
 		expect(html).toContain('role="status"');
 	});
 });

@@ -283,6 +283,15 @@ export function CommandPalette() {
 			openSessionTree,
 			openSessionInfo,
 			retryLastTurn,
+			openModes,
+			openProviderConfig,
+			setPanelTab,
+			openModelCompare,
+			openAgentHub,
+			openThemePicker,
+			openInventory,
+			openExtensions,
+			forkSession,
 		],
 	);
 
@@ -391,7 +400,7 @@ export function CommandPalette() {
 
 	useEffect(() => {
 		setActiveIndex(0);
-	}, [query, submenu]);
+	}, []);
 
 	useEffect(() => {
 		listRef.current?.querySelector(`[data-palette-index="${activeIndex}"]`)?.scrollIntoView({ block: "nearest" });
