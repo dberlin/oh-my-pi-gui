@@ -1,15 +1,57 @@
 #!/usr/bin/env bun
-/* eslint-disable no-console -- CLI script: intentional user-facing output */
 /**
- * PREREQUISITE (checked before anything else, including imports): the omp
- * monorepo must be checked out with this GUI repo at packages/gui/ — see
- * AGENTS.md / README. The check lives before the static imports below because
- * `../../coding-agent/scripts/compile-binary` does not resolve in a standalone
- * GUI clone, and a bare module-not-found error tells nobody what to do.
+ * Build the GUI's bundled (built-in) omp sidecar binary.
+ *
+ * Produces a self-contained `resources/omp` executable from the omp monorepo's
+ * coding-agent source via compileCodingAgent (Bun.build --compile). The native
+ * addon archive is embedded as an asset, so the binary needs no external omp,
+ * no node_modules, and no bun runtime — the GUI spawns it as its dedicated
+ * sidecar. The packaged GUI NEVER falls back to a system-installed omp
+ * (src/main/index.ts resolveBundledOmp).
+ *
+ * REQUIRES the omp monorepo: this file resolves `../../coding-agent` and
+ * `../../natives` relative to packages/gui, so the GUI repo must sit at
+ * `packages/gui/` inside a monorepo checkout (the nested-layout contract in
+ * AGENTS.md). A standalone GUI clone can package only by dropping a prebuilt
+ * sidecar into resources/ — see README → Build from source. The compile-binary
+ * import is dynamic precisely so this prerequisite failure prints setup
+ * instructions instead of a bare module-not-found.
+ *
+ * What it does:
+ *   1. Verifies the monorepo neighbors exist (fails with setup instructions).
+ *   2. Ensures the native addon (.node) for the TARGET arch is staged in
+ *      packages/natives/native/ — downloads the published leaf package
+ *      (@oh-my-pi/pi-natives-<tag>@<version>) on a cache miss, and replaces
+ *      stale addons whose version sentinel doesn't match the package version.
+ *   3. Re-embeds the addon (natives gen:native) for the target arch.
+ *   4. Compiles the coding-agent entrypoint into a single executable.
+ *   5. Restores embedded-addon.js to the stub and undoes addon staging, so the
+ *      monorepo tree is exactly as it was before the build.
+ *
+ * Usage (from packages/gui):
+ *   bun run build:omp                                       # host arch → resources/omp
+ *   bun run build:omp:x64                                   # Intel cross-build → resources/omp.x64
+ *   bun scripts/build-bundled-omp.ts --target bun-darwin-x64 --out custom/path
+ *
+ * After upgrading the monorepo (upstream sync), run scripts/sync-upstream.sh
+ * instead — it merges upstream and re-runs this end-to-end.
  */
-import { existsSync as monorepoProbe } from "node:fs";
+import { existsSync } from "node:fs";
+import * as fs from "node:fs/promises";
+import { createRequire } from "node:module";
+import * as path from "node:path";
 
-if (!monorepoProbe(new URL("../../coding-agent/scripts/compile-binary.ts", import.meta.url))) {
+const guiRoot = path.join(import.meta.dir, "..");
+const repoRoot = path.join(guiRoot, "..", "..");
+const nativesDir = path.join(repoRoot, "packages", "natives");
+const nativesNativeDir = path.join(nativesDir, "native");
+const compileBinaryModulePath = path.join(repoRoot, "packages", "coding-agent", "scripts", "compile-binary.ts");
+
+// ---------------------------------------------------------------------------
+// Prerequisite — actionable failure, not a module-resolution stack trace
+// ---------------------------------------------------------------------------
+
+if (!existsSync(compileBinaryModulePath) || !existsSync(path.join(nativesDir, "scripts", "embed-native.ts"))) {
 	console.error(
 		[
 			"",
@@ -31,47 +73,9 @@ if (!monorepoProbe(new URL("../../coding-agent/scripts/compile-binary.ts", impor
 	process.exit(1);
 }
 
-/**
- * Build the GUI's bundled (built-in) omp sidecar binary.
- *
- * Produces a self-contained `resources/omp` executable from the omp monorepo's
- * coding-agent source via compileCodingAgent (Bun.build --compile). The native
- * addon archive is embedded as an asset, so the binary needs no external omp,
- * no node_modules, and no bun runtime — the GUI spawns it as its dedicated
- * sidecar. The packaged GUI NEVER falls back to a system-installed omp
- * (src/main/index.ts resolveBundledOmp).
- *
- * REQUIRES the omp monorepo: this file resolves `../../coding-agent` and
- * `../../natives` relative to packages/gui, so the GUI repo must sit at
- * `packages/gui/` inside a monorepo checkout (the nested-layout contract in
- * AGENTS.md). A standalone GUI clone can package only by dropping a prebuilt
- * sidecar into resources/ — see README → Build from source.
- *
- * What it does:
- *   1. Verifies the monorepo neighbors exist (fails with setup instructions).
- *   2. Ensures the native addon (.node) for the TARGET arch is staged in
- *      packages/natives/native/ — downloads the published leaf package
- *      (@oh-my-pi/pi-natives-<tag>@<version>) on a cache miss.
- *   3. Re-embeds the addon (natives gen:native) for the target arch.
- *   4. Compiles the coding-agent entrypoint into a single executable.
- *   5. Restores embedded-addon.js to the stub (tracked file stays clean).
- *
- * Usage (from packages/gui):
- *   bun run build:omp                                             # host arch → resources/omp
- *   bun run build:omp --target bun-darwin-x64 --out resources/omp.x64   # Intel cross-build
- *
- * After upgrading the monorepo (upstream sync), run scripts/sync-upstream.sh
- * instead — it re-provisions natives and rebuilds end-to-end.
- */
-import * as fs from "node:fs/promises";
-import { createRequire } from "node:module";
-import * as path from "node:path";
-import { compileCodingAgent } from "../../coding-agent/scripts/compile-binary";
-
-const guiRoot = path.join(import.meta.dir, "..");
-const repoRoot = path.join(guiRoot, "..", "..");
-const nativesDir = path.join(repoRoot, "packages", "natives");
-const nativesNativeDir = path.join(nativesDir, "native");
+// Runtime-selected module: only resolvable inside the monorepo layout proven
+// above, so a static import would crash standalone clones before the guidance.
+const { compileCodingAgent } = await import(compileBinaryModulePath);
 
 // ---------------------------------------------------------------------------
 // Target arch → sidecar output + native addon provisioning
@@ -94,6 +98,12 @@ interface SidecarTarget {
 	readonly addonFilenames: readonly string[];
 }
 
+function addonFilenamesFor(platformTag: string): readonly string[] {
+	return platformTag.endsWith("-x64")
+		? [`pi_natives.${platformTag}-modern.node`, `pi_natives.${platformTag}-baseline.node`]
+		: [`pi_natives.${platformTag}.node`];
+}
+
 function resolveTarget(): SidecarTarget {
 	const targetFlag = argValue("--target");
 	if (!targetFlag || targetFlag === `bun-${process.platform}-${process.arch}`) {
@@ -101,10 +111,7 @@ function resolveTarget(): SidecarTarget {
 		return {
 			platformTag,
 			out: path.join(guiRoot, "resources", "omp"),
-			addonFilenames:
-				process.arch === "x64"
-					? [`pi_natives.${platformTag}-modern.node`, `pi_natives.${platformTag}-baseline.node`]
-					: [`pi_natives.${platformTag}.node`],
+			addonFilenames: addonFilenamesFor(platformTag),
 		};
 	}
 	const match = /^bun-(darwin|linux|win32)-(arm64|x64)(?:-.*)?$/.exec(targetFlag);
@@ -112,42 +119,12 @@ function resolveTarget(): SidecarTarget {
 		throw new Error(`Unsupported --target '${targetFlag}'. Expected bun-<os>-<arch> (e.g. bun-darwin-x64).`);
 	}
 	const platformTag = `${match[1]}-${match[2]}`;
-	const arch = match[2];
 	return {
 		target: targetFlag as Bun.Build.CompileTarget,
 		platformTag,
-		out: path.join(guiRoot, "resources", `omp.${arch}`),
-		addonFilenames:
-			arch === "x64"
-				? [`pi_natives.${platformTag}-modern.node`, `pi_natives.${platformTag}-baseline.node`]
-				: [`pi_natives.${platformTag}.node`],
+		out: path.join(guiRoot, "resources", `omp.${match[2]}`),
+		addonFilenames: addonFilenamesFor(platformTag),
 	};
-}
-
-// ---------------------------------------------------------------------------
-// Prerequisite checks — fail with an actionable message, not an import error
-// ---------------------------------------------------------------------------
-
-async function assertMonorepo(): Promise<void> {
-	const missing: string[] = [];
-	for (const rel of ["packages/coding-agent/src/cli.ts", "packages/natives/scripts/embed-native.ts"]) {
-		if (!(await Bun.file(path.join(repoRoot, rel)).exists())) missing.push(rel);
-	}
-	if (missing.length === 0) return;
-	throw new Error(
-		[
-			"build-bundled-omp must run inside the omp monorepo (GUI repo at packages/gui/).",
-			`Missing: ${missing.join(", ")}`,
-			"",
-			"Set up the nested checkout:",
-			"  git clone https://github.com/can1357/oh-my-pi.git omp-monorepo",
-			"  cd omp-monorepo/packages && git clone https://github.com/nornzach/oh-my-pi-gui.git gui",
-			"  cd gui && bun install",
-			"",
-			"Or, to package without the monorepo, copy a prebuilt sidecar into resources/omp",
-			"(and resources/omp.x64 for Intel) and skip this script — see README → Build from source.",
-		].join("\n"),
-	);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +136,7 @@ const nativesPkg = (await Bun.file(path.join(nativesDir, "package.json")).json()
 /** Filenames we staged that did NOT exist before — removed after the build so the monorepo tree stays clean. */
 const addedByUs: string[] = [];
 /** Pre-existing files we overwrote with the matching-version addon — restored after the build. */
-const replacedByUs = new Map<string, Uint8Array>();
+const replacedByUs: Record<string, Uint8Array> = {};
 
 /**
  * The loader rejects a .node whose exported version sentinel doesn't match the
@@ -183,13 +160,13 @@ async function stageNativeAddon(target: SidecarTarget): Promise<void> {
 	for (const filename of target.addonFilenames) {
 		const local = path.join(nativesNativeDir, filename);
 		if (await Bun.file(local).exists()) {
-			replacedByUs.set(filename, Buffer.from(await Bun.file(local).arrayBuffer()));
+			replacedByUs[filename] = Buffer.from(await Bun.file(local).arrayBuffer());
 			console.log(`[build:omp] replacing stale addon ${filename} (version sentinel ≠ ${nativesPkg.version})`);
 		}
 	}
 	const leafPackage = `@oh-my-pi/pi-natives-${target.platformTag}`;
 	console.log(`[build:omp] staging ${leafPackage}@${nativesPkg.version} (target ${target.platformTag})`);
-	const cacheDir = path.join(osTmp(), `omp-natives-${target.platformTag}-${nativesPkg.version}`);
+	const cacheDir = path.join(process.env.TMPDIR ?? "/tmp", `omp-natives-${target.platformTag}-${nativesPkg.version}`);
 	const installDir = path.join(cacheDir, "node_modules", "@oh-my-pi", `pi-natives-${target.platformTag}`);
 	if (!(await Bun.file(path.join(installDir, "package.json")).exists())) {
 		await fs.mkdir(cacheDir, { recursive: true });
@@ -230,7 +207,7 @@ async function stageNativeAddon(target: SidecarTarget): Promise<void> {
 	for (const filename of target.addonFilenames) {
 		const src = path.join(installDir, filename);
 		if (await Bun.file(src).exists()) {
-			if (!replacedByUs.has(filename)) addedByUs.push(filename);
+			if (!(filename in replacedByUs)) addedByUs.push(filename);
 			await Bun.write(path.join(nativesNativeDir, filename), Bun.file(src));
 			stagedCount++;
 		}
@@ -242,16 +219,12 @@ async function stageNativeAddon(target: SidecarTarget): Promise<void> {
 	}
 }
 
-function osTmp(): string {
-	return process.env.TMPDIR ?? "/tmp";
-}
-
 /** Undo the staging writes: remove files we added, restore files we overwrote. */
 async function restoreStagedAddons(): Promise<void> {
 	for (const filename of addedByUs) {
 		await fs.rm(path.join(nativesNativeDir, filename), { force: true });
 	}
-	for (const [filename, original] of replacedByUs) {
+	for (const [filename, original] of Object.entries(replacedByUs)) {
 		await Bun.write(path.join(nativesNativeDir, filename), original);
 	}
 }
@@ -285,7 +258,6 @@ async function restoreEmbeddedStub(): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-await assertMonorepo();
 const target = resolveTarget();
 const out = argValue("--out") ?? target.out;
 
@@ -306,7 +278,7 @@ try {
 } finally {
 	// embedded-addon.js is tracked; leave the checkout in the stub state so the
 	// archive never shows up as a monorepo diff. Staged .node files are
-	// untracked artifacts too — remove the ones we copied in.
+	// untracked artifacts too — remove the ones we added, restore the rest.
 	await restoreEmbeddedStub();
 	await restoreStagedAddons();
 }
