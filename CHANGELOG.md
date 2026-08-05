@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Thinking blocks now render reasoning as Markdown — bold headers, inline code, links, and fenced code blocks (TUI parity) — instead of showing literal `**` markers in monospace plain text. The live streaming caret behavior is unchanged, and the markdown pipeline is still sanitized for untrusted model output.
+
 ## [0.3.1] - 2026-08-05
 
 ### Added

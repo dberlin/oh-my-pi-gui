@@ -252,7 +252,7 @@ const COMPONENTS: Components = {
  */
 export const MarkdownRenderer = memo(function MarkdownRenderer({ content }: MarkdownRendererProps) {
 	return (
-		<div className="markdown-body leading-[1.5]">
+		<div className="markdown-body text-[1em] leading-[1.5]">
 			<ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={COMPONENTS}>
 				{content}
 			</ReactMarkdown>

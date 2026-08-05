@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThinkingLevel } from "../../../shared/rpc-types";
 import { cx, durationBetween, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { MarkdownRenderer } from "../../lib/markdown";
 import {
 	formatThinkingForDisplay,
 	hasDisplayableThinking,
@@ -207,9 +208,11 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 				{duration && <span className="ml-auto tabular-nums text-[var(--omp-dim)]">{duration}</span>}
 			</button>
 			{open && (
-				<div className="max-h-64 overflow-y-auto whitespace-pre-wrap px-3 pb-2 font-mono text-[11.5px] leading-[1.45] text-[var(--omp-muted)]">
-					{formatted}
-					{isLive && <span aria-hidden className="omp-caret" />}
+				<div className="max-h-64 overflow-y-auto px-3 pb-2 font-mono text-[11.5px] leading-[1.45] text-[var(--omp-muted)]">
+					<div className={cx(isLive && "omp-streaming")}>
+						<MarkdownRenderer content={formatted} />
+						{isLive && <span aria-hidden className="omp-caret" />}
+					</div>
 				</div>
 			)}
 		</div>
