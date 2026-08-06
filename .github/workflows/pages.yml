@@ -35,3 +35,7 @@ jobs:
           path: .
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          # GitHub's Pages backend has been slow to reach a terminal state
+          # today (10-min default timed out twice on 2026-08-06).
+          timeout: 30
