@@ -63,7 +63,7 @@ Open the `.dmg` and drag **omp** into **Applications**. The build is unsigned, s
 
 ### Repository layout (read this first)
 
-This repo ([`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui)) is the **only** commit/release target for the GUI — but it does **not** contain the agent source. The agent is compiled in from the [oh-my-pi monorepo](https://github.com/can1357/oh-my-pi) at package time, as a bundled sidecar binary. Consequences:
+This repo ([`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui)) is the **only** commit/release target for the GUI — but it does **not** contain the agent source. The agent is compiled in from the [oh-my-pi monorepo fork](https://github.com/nornzach/oh-my-pi) (tracking [upstream can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) at package time, as a bundled sidecar binary. Consequences:
 
 - **Cloning this repo alone is not enough to build a package.** `bun run build:omp` resolves `../../coding-agent` and `../../natives`, i.e. it expects this repo checked out at `packages/gui/` inside a monorepo clone.
 - **The ~120 MB sidecar binaries (`resources/omp*`) are gitignored.** A fresh clone has no `resources/omp`, and without it the app shows "Built-in omp not found" at startup. That is expected until you build or drop in a sidecar.
@@ -75,7 +75,7 @@ This repo ([`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui)) 
 
 ```bash
 # 1. Monorepo — provides the agent + native addon that become the sidecar
-git clone https://github.com/can1357/oh-my-pi.git omp-monorepo
+git clone https://github.com/nornzach/oh-my-pi.git omp-monorepo
 cd omp-monorepo && bun install && cd ..
 
 # 2. GUI repo, checked out at packages/gui inside the monorepo
@@ -185,7 +185,7 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 
 ### 仓库结构（先读这段）
 
-本仓库（[`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui)）是 GUI **唯一**的提交与发布仓库——但它**不包含** agent 源码。agent 在打包时从 [oh-my-pi monorepo](https://github.com/can1357/oh-my-pi) 编译进来,成为内置 sidecar 二进制。因此：
+本仓库（[`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui)）是 GUI **唯一**的提交与发布仓库——但它**不包含** agent 源码。agent 在打包时从 [oh-my-pi monorepo fork](https://github.com/nornzach/oh-my-pi)(同步自[上游 can1357/oh-my-pi](https://github.com/can1357/oh-my-pi))编译进来,成为内置 sidecar 二进制。因此：
 
 - **只 clone 本仓库无法完成打包。** `bun run build:omp` 会解析 `../../coding-agent` 与 `../../natives`,即要求本仓库位于 monorepo 克隆的 `packages/gui/` 位置。
 - **约 120 MB 的 sidecar 二进制(`resources/omp*`)不入库。** 全新克隆没有 `resources/omp`,此时启动应用会显示“Built-in omp not found”,这是构建/放置 sidecar 之前的预期行为。
@@ -197,7 +197,7 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 
 ```bash
 # 1. monorepo——提供编译 sidecar 所需的 agent 与原生插件
-git clone https://github.com/can1357/oh-my-pi.git omp-monorepo
+git clone https://github.com/nornzach/oh-my-pi.git omp-monorepo
 cd omp-monorepo && bun install && cd ..
 
 # 2. GUI 仓库,克隆到 monorepo 的 packages/gui 位置

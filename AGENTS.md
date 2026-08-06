@@ -5,7 +5,7 @@ This file governs the **omp GUI sub-repository**. Read it before any edit here �
 ## Repository Identity
 
 - **This repo is the real product repo:** [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui). It owns all GUI code, commits, tags, and GitHub Releases.
-- **Remote layout:** `origin` = `nornzach/oh-my-pi-gui` (push here). The surrounding monorepo's remotes (`upstream` = `can1357/oh-my-pi`) are NOT this repo's remotes.
+- **Remote layout:** `origin` = `nornzach/oh-my-pi-gui` (push here). The surrounding monorepo's remotes (`upstream` = `can1357/oh-my-pi`, `origin` = `nornzach/oh-my-pi` — the fork that is the sidecar build source) are NOT this repo's remotes.
 - **All GUI work commits to this repo and pushes to `origin/main`.** Never commit GUI paths into the enclosing monorepo's git — from its perspective this directory is an intentionally untracked, self-contained checkout.
 
 ## Nested Checkout Layout
