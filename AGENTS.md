@@ -5,8 +5,32 @@ This file governs the **omp GUI sub-repository**. Read it before any edit here �
 ## Repository Identity
 
 - **This repo is the real product repo:** [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui). It owns all GUI code, commits, tags, and GitHub Releases.
-- **Remote layout:** `origin` = `nornzach/oh-my-pi-gui` (push here). The surrounding monorepo's remotes (`upstream` = `can1357/oh-my-pi`, `origin` = `nornzach/oh-my-pi` — the fork that is the sidecar build source) are NOT this repo's remotes.
+- **Remote layout:** `origin` = `nornzach/oh-my-pi-gui` (push here). The surrounding monorepo's remotes are NOT this repo's remotes — never `git push` from inside `packages/gui/` expecting monorepo changes to go anywhere, and never push anything to `can1357`.
+
+### The three repos — never confuse them
+
+| Repo | Role | Push? | Pull/sync from? |
+|---|---|---|---|
+| [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui) | **This repo** — GUI product, releases. | ✅ all GUI work | only own commits |
+| [`nornzach/oh-my-pi`](https://github.com/nornzach/oh-my-pi) | **Monorepo fork** (`origin` of the enclosing checkout) — agent source; the only sidecar build source, and the monorepo the README's build-from-source flow clones. | ✅ (from the monorepo root, not from here) | only own commits |
+| [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi) | **Upstream** (`upstream` of the enclosing checkout) — where new omp features come from. | ❌ **NEVER** | ✅ `scripts/sync-upstream.sh` |
+
 - **All GUI work commits to this repo and pushes to `origin/main`.** Never commit GUI paths into the enclosing monorepo's git — from its perspective this directory is an intentionally untracked, self-contained checkout.
+- Agent-side work (RPC commands, session logic, `packages/agent|coding-agent|ai|…`) belongs to the **monorepo**, commits at the monorepo root, and pushes to `nornzach/oh-my-pi` (fork) — it does not exist in this repo's history even though the files sit above this directory.
+
+### Upstream sync (pulling new omp features)
+
+Always the script (it re-provisions what a plain merge misses), from anywhere:
+
+```bash
+bash packages/gui/scripts/sync-upstream.sh   # run from the GUI repo; it cds to the monorepo root
+# fetch upstream → incoming list → merge upstream/main → bun install →
+# pi_natives re-provision on version bump → gen:stats → build:omp → GUI build + tests
+```
+
+- Conflicts: resolve, commit the merge, re-run with `SKIP_MERGE=1`.
+- A sync touches monorepo files only until step 6; the sidecar rebuild (`build:omp`) and GUI build/tests close the loop. Push monorepo results from the monorepo root (fork), GUI results from here.
+- **Every release starts with a sync** (README → Release process step 1) so the DMG's sidecar carries current upstream.
 
 ## Nested Checkout Layout
 
