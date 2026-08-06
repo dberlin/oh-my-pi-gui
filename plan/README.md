@@ -17,6 +17,10 @@ Source-verified against omp codebase (2026-08-01 audit).
 | 07 | [Sidecar Integration](./07-sidecar-integration.md) | Wire protocol spec: 42 commands, 24 events, 11 UI methods, 15 stats endpoints | 13.1KB |
 | 08 | [Implementation Phases](./08-implementation-phases.md) | 8 phases, 15 weeks, task checklists, verification gates, risks | 10.5KB |
 | 14 | [Parallel Sessions](./14-parallel-sessions.md) | Multi-window multi-sidecar pool (≤10), window↔sidecar 1:1, IPC/event routing, phases, risks | 18.7KB |
+| 15 | [Parity Closeout](./15-parity-closeout.md) | TUI 对等收尾:三条 workstream、跨切面决策、5 阶段验证门、风险 |
+| 16 | [Agent RPC Extensions](./16-agent-rpc-extensions.md) | 11 个新 RPC 命令的线路契约、插入点、错误语义 |
+| 17 | [Composer & Input](./17-composer-input.md) | 队列简写、大粘贴、补全 provider 链、键位/重映射、渲染小项 |
+| 18 | [Management Surfaces](./18-management-surfaces.md) | MCP 向导/测试/reauth、marketplace、插件配置、Agent Hub、会话树、启动 profile |
 
 ## Key Decisions
 
