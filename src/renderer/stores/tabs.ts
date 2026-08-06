@@ -19,16 +19,18 @@
  */
 import { useEffect } from "react";
 import { create } from "zustand";
-import type { IpcTabInfo, IpcTabStatusPayload, TabStatus } from "../../shared/ipc-types";
+import type { IpcSpawnTabResult, IpcTabInfo, IpcTabStatusPayload, TabStatus } from "../../shared/ipc-types";
 import type {
 	ContextUsage,
 	ModelInfo,
 	RpcLoopModeState,
 	RpcQueuedMessage,
+	RpcSessionState,
 	ThinkingLevel,
 	TodoTask,
 } from "../../shared/rpc-types";
-import { hydrateSession } from "../hooks/use-rpc-events";
+import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
+import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { useComposerStore } from "./composer";
 import { type MessagesSnapshot, useMessagesStore } from "./messages";
@@ -161,6 +163,11 @@ function captureBundle(): SessionTabBundle {
  * update the entry while the bundle froze at switch-away time.
  */
 function restoreBundle(bundle: SessionTabBundle | null, tab: SessionTab | undefined): void {
+	// The auto-retry gate lives outside the stores (module-level in
+	// use-rpc-events), so bundles can't carry it: clear it on every switch to
+	// keep the outgoing tab's mid-retry state from suppressing the restored
+	// tab's agent_end notification/toast.
+	resetRetryPending();
 	const session = bundle?.session;
 	useSessionStore.setState({
 		sessionId: session?.sessionId ?? "",
@@ -194,6 +201,29 @@ function restoreBundle(bundle: SessionTabBundle | null, tab: SessionTab | undefi
 	// Tool cards derive from the transcript; rebuild them for the restored
 	// messages so the switch paints this tab's tools, not the previous tab's.
 	useToolsStore.getState().hydrateMessages(useMessagesStore.getState().messages);
+}
+
+/**
+ * Chip label for the tab strip (F-HYDRATE): session title when known, else
+ * the cwd basename (both empty → the localized "New session"). Identical
+ * UNTITLED labels disambiguate with a short index suffix ("gui #2") — the
+ * common same-cwd parallel-tabs case. Titled tabs are never suffixed: an
+ * explicit title is itself the disambiguator, and the suffix disappears as
+ * soon as a title arrives.
+ */
+export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): string {
+	// `||` everywhere: empty-string titles (never-generated auto-title slot)
+	// fall through to the cwd basename like null.
+	const base = tab.title || basename(tab.cwd) || translate("sidebar.newSession");
+	if (tab.title) return base;
+	let occurrence = 0;
+	for (const entry of tabs) {
+		if (entry.title) continue;
+		if ((basename(entry.cwd) || translate("sidebar.newSession")) !== base) continue;
+		occurrence += 1;
+		if (entry.id === tab.id) break;
+	}
+	return occurrence > 1 ? `${base} #${occurrence}` : base;
 }
 
 interface TabsStore {
@@ -271,7 +301,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 
 	openTab: async args => {
 		const cwd = args?.cwd ?? useSessionStore.getState().cwd;
-		let result: { tabId: string } | null;
+		let result: IpcSpawnTabResult | null;
 		try {
 			result = await window.omp.tabs.spawn({ cwd: cwd || undefined, sessionPath: args?.sessionPath });
 		} catch (error) {
@@ -281,6 +311,25 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (!result) {
 			toast({ variant: "warning", message: translate("tabs.parallelCap") });
 			return null;
+		}
+		// F-OWN belt guard: the session file is already attached to a tab, so
+		// main refused the double-attach. Owner lives in THIS window → switch
+		// to it; a foreign window's tab → focus that window (main focuses the
+		// owner window for an owned sessionPath instead of spawning).
+		if (result.tabId === null) {
+			const ownerTabId = result.ownerTabId ?? null;
+			if (ownerTabId && get().tabs.some(tab => tab.id === ownerTabId)) {
+				await get().switchTab(ownerTabId);
+				return ownerTabId;
+			}
+			if (args?.sessionPath) {
+				try {
+					await window.omp.sessions.openInNewWindow({ sessionPath: args.sessionPath });
+				} catch {
+					// Best-effort focus — the owner window may be mid-teardown.
+				}
+			}
+			return ownerTabId;
 		}
 		const { tabId } = result;
 		// Upsert eagerly — the fresh sidecar's first TAB_STATUS can beat the reply.
@@ -333,9 +382,16 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		//    (hydrate's RPCs resolve through the active tab server-side).
 		try {
 			await window.omp.tabs.setActive(id);
-		} catch {
-			// Pre-tabs main (dev mismatch): hydrate still pulls the window's one
-			// sidecar, the best available truth.
+		} catch (error) {
+			// Routing never re-pointed: main still forwards the PREVIOUS tab's
+			// events, so hydrating here would pull that sidecar's session into
+			// this tab's restored stores. Surface the failure and re-converge
+			// from GET_TABS — reconcile also retries SET_ACTIVE_TAB for the
+			// renderer's pick, re-pointing routing when the failure was
+			// transient — instead of silently diverging.
+			toast({ variant: "error", title: translate("tabs.switchFailed"), message: String(error) });
+			await get().reconcileTabs();
+			return;
 		}
 		await hydrateSession();
 	},
@@ -360,7 +416,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		try {
 			await window.omp.tabs.close(id);
 		} catch {
-			// Same dev-mismatch tolerance as switchTab; the entry is already gone.
+			// Pre-tabs main (dev mismatch) tolerance; the entry is already gone.
 		}
 	},
 
@@ -407,6 +463,12 @@ export function useSessionTabs(): void {
 			if (payload.status !== "ready") return;
 			const state = useTabsStore.getState();
 			const tab = state.tabs.find(entry => entry.id === payload.tabId);
+			// Per-tab subagent subscription (F-HYDRATE): a sidecar only forwards
+			// subagent frames once subscribed, and RPC commands route through
+			// the ACTIVE tab — so subscribe at each tab's ready-while-active
+			// moment. Background tabs can't be routed to; hydrateSession
+			// re-asserts the subscription on switch-in.
+			if (payload.tabId === state.activeTabId) void window.omp.rpc.setSubagentSubscription("events");
 			if (!tab?.pendingSessionPath || tab.id !== state.activeTabId) return;
 			// Clear before the RPC so a duplicate ready push can't re-enter.
 			const sessionPath = tab.pendingSessionPath;
@@ -416,10 +478,20 @@ export function useSessionTabs(): void {
 				),
 			}));
 			void (async () => {
-				const response = await window.omp.rpc.switchSession(sessionPath);
-				if (!response.success) {
-					toast({ variant: "error", title: translate("sidebar.openFailed"), message: response.error });
-					return;
+				// A sidecar spawned WITH --session is already on the pending
+				// session by the time it reports ready: switching again would
+				// abort the in-flight resume. Gate on get_state and only switch
+				// when the sidecar's sessionFile differs (a failed read keeps
+				// the old behavior — switch unconditionally).
+				const state = await window.omp.rpc.getState();
+				const currentFile =
+					state.success && state.data != null ? (state.data as RpcSessionState).sessionFile : undefined;
+				if (currentFile !== sessionPath) {
+					const response = await window.omp.rpc.switchSession(sessionPath);
+					if (!response.success) {
+						toast({ variant: "error", title: translate("sidebar.openFailed"), message: response.error });
+						return;
+					}
 				}
 				await hydrateSession();
 			})();

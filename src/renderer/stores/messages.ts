@@ -40,6 +40,10 @@ interface MessagesStore {
 	loadPage: (page: MessagesPage) => void;
 	appendMessage: (message: AgentMessage) => void;
 	removeMessage: (message: AgentMessage) => void;
+	/** Clear the live-stream slice and chunk buffers without touching history —
+	 * for a run that settled unseen (background tab: its message_end/agent_end
+	 * never forwarded), where hydrate's transcript merge owns the final content. */
+	clearStreaming: () => void;
 	/** Capture the full stream state (fields + buffers) for a session-tab switch. */
 	snapshot: () => MessagesSnapshot;
 	/** Restore a captured snapshot; null resets to the empty initial state. */
@@ -250,6 +254,10 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 			if (removed === 0) return s;
 			return { messages, totalMessages: Math.max(0, s.totalMessages - removed) };
 		}),
+	clearStreaming: () => {
+		resetStreamingBuffers();
+		set({ streamingMessage: null, streamingText: "", streamingThinking: "" });
+	},
 	snapshot: () => {
 		const state = get();
 		return {

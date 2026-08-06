@@ -63,6 +63,7 @@ interface MockRpc {
 	getTranscript: Mock<() => Promise<RpcResponse>>;
 	getSubagents: Mock<() => Promise<RpcResponse>>;
 	getGoal: Mock<() => Promise<RpcResponse>>;
+	setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 }
 
 interface MockOmp {
@@ -87,6 +88,7 @@ function installMockOmp(overrides: { rpc?: Partial<MockRpc>; pickedPath?: string
 		getTranscript: vi.fn(async () => success({ messages: [] })),
 		getSubagents: vi.fn(async () => success({ subagents: [] })),
 		getGoal: vi.fn(async () => success({})),
+		setSubagentSubscription: vi.fn(async () => success({})),
 		...overrides.rpc,
 	};
 	const omp: MockOmp = {

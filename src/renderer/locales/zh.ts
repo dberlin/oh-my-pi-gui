@@ -26,6 +26,8 @@ export const zh: Record<string, string> = {
 	"tabs.done": "运行已完成",
 	"tabs.newFailed": "无法打开标签页",
 	"tabs.parallelCap": "已达并行上限(10)——请先关闭一个标签页或窗口",
+	"tabs.switchFailed": "无法切换标签页",
+	"tabs.confirmClose": "确认关闭？运行中的任务将被中止",
 
 	// InputArea
 	"input.placeholder.connecting": "正在连接 omp…",

@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { SessionTreeDialog } from "./SessionTreeDialog";
@@ -66,6 +67,7 @@ interface MockRpc {
 	getMessages: Mock<() => Promise<RpcResponse>>;
 	getTranscript: Mock<() => Promise<RpcResponse>>;
 	getSubagents: Mock<() => Promise<RpcResponse>>;
+	setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	getSessionTree?: Mock<() => Promise<RpcResponse>>;
 }
 
@@ -79,6 +81,7 @@ function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
 		getMessages: vi.fn(async () => success({ messages: [] })),
 		getTranscript: vi.fn(async () => success({ messages: [] })),
 		getSubagents: vi.fn(async () => success({ subagents: [] })),
+		setSubagentSubscription: vi.fn(async () => success({})),
 		...overrides,
 	};
 	// linkedom's window lacks the preload bridge; install the mock OmpApi on it.
@@ -164,6 +167,34 @@ function seedSession(sessionId: string): void {
 	useUiStore.getState().openSessionTree();
 }
 
+/** Extend the installed mock omp with the tabs/sessions surface the F-OWN guard uses. */
+function installOwnerMocks(owner: { tabId: string; winId: number } | null): {
+	getSessionOwner: Mock<(sessionPath: string) => Promise<{ tabId: string; winId: number } | null>>;
+	setActive: Mock<(tabId: string) => Promise<boolean>>;
+	openInNewWindow: Mock<(payload: { sessionPath?: string }) => Promise<boolean>>;
+} {
+	const getSessionOwner = vi.fn(async () => owner);
+	const setActive = vi.fn(async () => true);
+	const openInNewWindow = vi.fn(async () => true);
+	const ompWindow = window as unknown as { omp: Record<string, unknown> };
+	ompWindow.omp = { ...ompWindow.omp, tabs: { getSessionOwner, setActive }, sessions: { openInNewWindow } };
+	return { getSessionOwner, setActive, openInNewWindow };
+}
+
+/** Node corner menu → "Switch to this point" (switchToLeaf's UI path). */
+async function triggerSwitchToThisPoint(entryId: string): Promise<void> {
+	const card = nodeCards().find(el => el.getAttribute("data-tree-node") === entryId);
+	if (!card) throw new Error(`card ${entryId} not found`);
+	const actionButton = card.querySelector("button");
+	if (!actionButton) throw new Error("node action button not found");
+	await click(actionButton);
+	const switchItem = queryAll("button").find(button => button.textContent?.includes("Switch to this point"));
+	if (!switchItem) throw new Error("switch action not found");
+	await click(switchItem);
+	await flush();
+	await flush();
+}
+
 afterEach(async () => {
 	if (root) {
 		await act(async () => {
@@ -173,6 +204,7 @@ afterEach(async () => {
 	container?.remove();
 	useUiStore.getState().closeSessionTree();
 	useSessionStore.getState().reset();
+	useTabsStore.getState().reset();
 	useToastStore.setState({ toasts: [] });
 });
 
@@ -421,6 +453,74 @@ describe("SessionTreeDialog", () => {
 		expect(rpc.getState.mock.invocationCallOrder[0]).toBeLessThan(
 			rpc.resumeAfterAskReanswer.mock.invocationCallOrder[0]!,
 		);
+		expect(useUiStore.getState().sessionTreeOpen).toBe(false);
+	});
+
+	it("defers switch-leaf to the owning tab when the session file is owned elsewhere (F-OWN)", async () => {
+		const rpc = installMockOmp({
+			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+		});
+		// The attached session file is owned by a DIFFERENT tab (diverged state).
+		const { getSessionOwner, setActive, openInNewWindow } = installOwnerMocks({ tabId: "t-owner", winId: 1 });
+		useSessionStore.setState({ sessionFile: "/sessions/x.jsonl" });
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t-me", cwd: "/a", status: "ready", unreadDone: false },
+				{ id: "t-owner", cwd: "/a", status: "ready", unreadDone: false },
+			],
+			activeTabId: "t-me",
+			bundles: new Map(),
+		});
+		seedSession("tree-owned");
+		await mount(<SessionTreeDialog />);
+		await triggerSwitchToThisPoint("m1");
+
+		expect(getSessionOwner).toHaveBeenCalledWith("/sessions/x.jsonl");
+		expect(rpc.switchLeaf).not.toHaveBeenCalled();
+		// Owner lives in this window → routed via switchTab (SET_ACTIVE_TAB proof).
+		expect(setActive).toHaveBeenCalledWith("t-owner");
+		expect(openInNewWindow).not.toHaveBeenCalled();
+		expect(useUiStore.getState().sessionTreeOpen).toBe(false);
+	});
+
+	it("focuses the foreign owner window for switch-leaf when the owner is in another window", async () => {
+		const rpc = installMockOmp({
+			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+		});
+		const { getSessionOwner, setActive, openInNewWindow } = installOwnerMocks({ tabId: "t-elsewhere", winId: 9 });
+		useSessionStore.setState({ sessionFile: "/sessions/x.jsonl" });
+		useTabsStore.setState({
+			tabs: [{ id: "t-me", cwd: "/a", status: "ready", unreadDone: false }],
+			activeTabId: "t-me",
+			bundles: new Map(),
+		});
+		seedSession("tree-foreign-owned");
+		await mount(<SessionTreeDialog />);
+		await triggerSwitchToThisPoint("m1");
+
+		expect(getSessionOwner).toHaveBeenCalledWith("/sessions/x.jsonl");
+		expect(rpc.switchLeaf).not.toHaveBeenCalled();
+		expect(setActive).not.toHaveBeenCalled();
+		expect(openInNewWindow).toHaveBeenCalledWith({ sessionPath: "/sessions/x.jsonl" });
+		expect(useUiStore.getState().sessionTreeOpen).toBe(false);
+	});
+
+	it("proceeds with switch-leaf when the current tab owns the session file", async () => {
+		const rpc = installMockOmp({
+			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+		});
+		installOwnerMocks({ tabId: "t-me", winId: 1 });
+		useSessionStore.setState({ sessionFile: "/sessions/x.jsonl" });
+		useTabsStore.setState({
+			tabs: [{ id: "t-me", cwd: "/a", status: "ready", unreadDone: false }],
+			activeTabId: "t-me",
+			bundles: new Map(),
+		});
+		seedSession("tree-self-owned");
+		await mount(<SessionTreeDialog />);
+		await triggerSwitchToThisPoint("m1");
+
+		expect(rpc.switchLeaf).toHaveBeenCalledWith("m1", undefined);
 		expect(useUiStore.getState().sessionTreeOpen).toBe(false);
 	});
 });

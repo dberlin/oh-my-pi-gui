@@ -13,6 +13,7 @@ import type {
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
 	IpcSessionOpenNewWindowPayload,
+	IpcSessionOwner,
 	IpcSidecarStatusPayload,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
@@ -345,6 +346,8 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.SPAWN_TAB, payload) as Promise<IpcSpawnTabResult | null>,
 		close: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.CLOSE_TAB, { tabId }) as Promise<boolean>,
 		setActive: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.SET_ACTIVE_TAB, { tabId }) as Promise<boolean>,
+		getSessionOwner: (sessionPath: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.GET_SESSION_OWNER, { sessionPath }) as Promise<IpcSessionOwner | null>,
 	},
 
 	stats: {

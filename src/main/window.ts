@@ -127,6 +127,20 @@ export class WindowManager {
 		return this.#records.get(win.webContents.id);
 	}
 
+	/**
+	 * Show+focus a window by its webContents id (the F-OWN focus pattern:
+	 * opening an already-attached session foregrounds its owner window
+	 * instead of spawning a duplicate). False when unknown or destroyed.
+	 */
+	focusWindowById(id: number): boolean {
+		const record = this.#records.get(id);
+		if (!record || record.win.isDestroyed()) return false;
+		if (record.win.isMinimized()) record.win.restore();
+		record.win.show();
+		record.win.focus();
+		return true;
+	}
+
 	/** Update a window's project dir (called when its sidecar switches project). */
 	setRecordCwd(win: BrowserWindow, cwd: string): void {
 		const record = this.#records.get(win.webContents.id);

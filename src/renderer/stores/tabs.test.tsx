@@ -33,7 +33,8 @@ import { useModelStore } from "./model";
 import { useQueueStore } from "./queue";
 import { useSessionStore } from "./session";
 import { useSubagentsStore } from "./subagents";
-import { useSessionTabs, useTabsStore } from "./tabs";
+import { type SessionTab, tabChipLabel, useSessionTabs, useTabsStore } from "./tabs";
+import { useToastStore } from "./toast";
 import { useTodoStore } from "./todo";
 import { useToolsStore } from "./tools";
 
@@ -95,6 +96,7 @@ interface MockOmp {
 		getVibeMode: Mock<() => Promise<RpcResponse>>;
 		getQueue: Mock<() => Promise<RpcResponse>>;
 		switchSession: Mock<(sessionPath: string) => Promise<RpcResponse>>;
+		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	};
 }
 
@@ -124,6 +126,7 @@ function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
 			getVibeMode: vi.fn(async () => ok({ enabled: false })),
 			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
 			switchSession: vi.fn(async () => ok({})),
+			setSubagentSubscription: vi.fn(async () => ok({})),
 		},
 	};
 	(window as unknown as { omp: MockOmp }).omp = omp;
@@ -347,6 +350,24 @@ describe("tabs store switch", () => {
 		const t0 = useTabsStore.getState().tabs.find(tab => tab.id === "t0");
 		expect(t0?.status).toBe("running");
 	});
+
+	it("surfaces a SET_ACTIVE_TAB failure, re-converges from GET_TABS, and skips hydrate", async () => {
+		seedTabs();
+		useToastStore.setState({ toasts: [] });
+		omp.tabs.setActive.mockRejectedValueOnce(new Error("routing wedged"));
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha"), tabInfo("t1", "/beta"), tabInfo("t2", "/gamma")]);
+
+		await useTabsStore.getState().switchTab("t1");
+
+		// Surfaced, not swallowed…
+		expect(useToastStore.getState().toasts.some(toast => toast.title === "Could not switch tab")).toBe(true);
+		// …re-converged from GET_TABS — reconcile retries SET_ACTIVE_TAB for the
+		// renderer's pick, so a transient failure re-points routing here…
+		expect(omp.tabs.list).toHaveBeenCalled();
+		expect(omp.tabs.setActive).toHaveBeenCalledTimes(2);
+		// …and hydrate never pulled the still-misrouted sidecar into this tab.
+		expect(omp.rpc.getTranscript).not.toHaveBeenCalled();
+	});
 });
 
 describe("tabs store close", () => {
@@ -503,6 +524,34 @@ describe("useSessionTabs hook", () => {
 		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
 	});
 
+	it("skips the ready-time switchSession when the sidecar is already on the pending session", async () => {
+		useTabsStore.setState({
+			tabs: [{ id: "t1", cwd: "/beta", status: "starting", unreadDone: false, pendingSessionPath: "/s.json" }],
+			activeTabId: "t1",
+			bundles: new Map(),
+		});
+		// Spawned WITH --session /s.json: get_state already reports that file,
+		// so a second switch would only abort the in-flight resume.
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionFile: "/s.json" })));
+		await mount();
+
+		await act(async () => {
+			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+		});
+		// The gate + hydrate run in a trailing microtask chain.
+		await act(async () => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 0);
+			await promise;
+		});
+
+		// No redundant switch — but the transcript still hydrates and the
+		// pending path is consumed.
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
 	it("does not switch the session for a background tab's pending path", async () => {
 		useTabsStore.setState({
 			tabs: [
@@ -521,6 +570,54 @@ describe("useSessionTabs hook", () => {
 		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
 		// Pending path survives for when the user actually switches to t1.
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.pendingSessionPath).toBe("/s.json");
+	});
+
+	it("subscribes subagent frames on a tab's ready only while it is active (F-HYDRATE)", async () => {
+		seedTabs();
+		await mount();
+
+		// Background ready: renderer RPC routes through the ACTIVE tab, so a
+		// background tab's ready must NOT fire the command (it would land on
+		// the wrong sidecar). hydrateSession re-asserts on switch-in instead.
+		await act(async () => {
+			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+		});
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+
+		await act(async () => {
+			emitTabStatus({ tabId: "t0", cwd: "/alpha", status: "ready" });
+		});
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
+	});
+});
+
+describe("tabChipLabel (F-HYDRATE)", () => {
+	function chip(id: string, cwd: string, title?: string): SessionTab {
+		const tab: SessionTab = { id, cwd, status: "ready", unreadDone: false };
+		if (title !== undefined) tab.title = title;
+		return tab;
+	}
+
+	it("prefers the session title, then the cwd basename, then the new-session label", () => {
+		expect(tabChipLabel(chip("t0", "/work/alpha", "Alpha plan"), [])).toBe("Alpha plan");
+		expect(tabChipLabel(chip("t1", "/work/beta"), [])).toBe("beta");
+		expect(tabChipLabel(chip("t2", ""), [])).toBe("New session");
+		// Empty-string titles (never-generated auto-title slot) fall through too.
+		expect(tabChipLabel(chip("t3", "/work/gamma", ""), [])).toBe("gamma");
+	});
+
+	it("suffixes identical untitled labels in tab order, first occurrence bare", () => {
+		const tabs = [chip("t0", "/work/gui"), chip("t1", "/other/gui"), chip("t2", "/tmp/gui")];
+		expect(tabs.map(tab => tabChipLabel(tab, tabs))).toEqual(["gui", "gui #2", "gui #3"]);
+		// Distinct basenames never collide, even beside a suffixed group.
+		const mixed = [chip("t0", "/work/gui"), chip("t1", "/work/beta"), chip("t2", "/other/gui")];
+		expect(mixed.map(tab => tabChipLabel(tab, mixed))).toEqual(["gui", "beta", "gui #2"]);
+	});
+
+	it("never suffixes titled tabs — a title is itself the disambiguator", () => {
+		const tabs = [chip("t0", "/work/gui"), chip("t1", "/other/gui", "Release plan")];
+		// The titled tab left the collision set, so the untitled one stays bare.
+		expect(tabs.map(tab => tabChipLabel(tab, tabs))).toEqual(["gui", "Release plan"]);
 	});
 });
 

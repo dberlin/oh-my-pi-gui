@@ -11,6 +11,8 @@ class FakeSidecar extends EventEmitter {
 	started = false;
 	disposed = false;
 	restartArgs: Array<{ cwd: string | undefined; sessionPath: string | undefined }> = [];
+	/** Side-channel frames written via sendSideChannel (F-UI-ORIGIN assertions). */
+	sentFrames: object[] = [];
 	constructor(readonly cwd: string) {
 		super();
 	}
@@ -28,6 +30,9 @@ class FakeSidecar extends EventEmitter {
 		this.disposed = true;
 		this.removeAllListeners();
 	}
+	sendSideChannel(frame: object): void {
+		this.sentFrames.push(frame);
+	}
 	emitStatus(status: SidecarStatus): void {
 		this.emit("status", { status, cwd: this.cwd });
 	}
@@ -39,6 +44,21 @@ class FakeSidecar extends EventEmitter {
 			"events",
 			types.map(type => ({ type })),
 		);
+	}
+	emitExtensionUi(id: string): void {
+		this.emit("extensionUi", {
+			type: "extension_ui_request",
+			id,
+			method: "confirm",
+			title: "Proceed?",
+			message: "ok?",
+		});
+	}
+	emitHostToolCall(id: string): void {
+		this.emit("hostToolCall", { type: "host_tool_call", id, name: "gui_tool", args: {} });
+	}
+	emitHostUriRequest(id: string): void {
+		this.emit("hostUriRequest", { type: "host_uri_request", id, operation: "read", uri: "https://example.com" });
 	}
 }
 
@@ -324,5 +344,211 @@ describe("SidecarPool tabs", () => {
 		// Late events from the surviving window still forward normally.
 		sidecars[2]?.emitStatus("ready");
 		expect(fw2.sentTo(IPC_EVENTS.SIDECAR_STATUS)).toHaveLength(1);
+	});
+});
+
+describe("SidecarPool session ownership (F-OWN)", () => {
+	it("registers the owner at acquire-with-sessionPath and unregisters on release", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
+
+		// A duplicate attach consults this: SPAWN_TAB maps it to
+		// { tabId: null, ownerTabId, ownerWinId } instead of acquiring.
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
+		expect(pool.sessionOwner("/sessions/other.jsonl")).toBeNull();
+
+		expect(pool.releaseTab("tab-a")).toBe(true);
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toBeNull();
+	});
+
+	it("learns the file from noteSessionFile (get_state / switch_session reports)", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toBeNull();
+
+		pool.noteSessionFile("tab-a", "/sessions/s.jsonl");
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
+
+		// A switch moves the entry: the old file is freed, the new one owned.
+		pool.noteSessionFile("tab-a", "/sessions/s2.jsonl");
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toBeNull();
+		expect(pool.sessionOwner("/sessions/s2.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
+
+		// get_state with sessionFile null (fresh unsaved session) unregisters.
+		pool.noteSessionFile("tab-a", null);
+		expect(pool.sessionOwner("/sessions/s2.jsonl")).toBeNull();
+
+		// Unknown tabs are a no-op.
+		pool.noteSessionFile("nope", "/sessions/x.jsonl");
+		expect(pool.sessionOwner("/sessions/x.jsonl")).toBeNull();
+	});
+
+	it("keeps the acquire-time registration through first attach but drops it on a sessionId change", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
+		const [a] = sidecars;
+
+		// First attach: the resumed session reports its id — registration kept
+		// (this is what lets a background --session tab stay guarded).
+		a?.emitSessionInfo({ sessionId: "sess-1", title: "Resumed" });
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
+
+		// Title-only updates don't touch ownership either.
+		a?.emitSessionInfo({ title: "Renamed" });
+		expect(pool.sessionOwner("/sessions/s.jsonl")).not.toBeNull();
+
+		// The session under the tab changed (crash-restart into a fresh
+		// session, an unobserved switch): the cached file mapping is stale.
+		a?.emitSessionInfo({ sessionId: "sess-2" });
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toBeNull();
+		// …and the renderer's hydrate re-registers the file now attached.
+		pool.noteSessionFile("tab-a", "/sessions/s.jsonl");
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
+	});
+
+	it("only the current owner clears a mapping", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
+		pool.acquire("/b", fw.win, "tab-b");
+
+		// Last writer wins if two tabs ever report the same file…
+		pool.noteSessionFile("tab-b", "/sessions/s.jsonl");
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual({ tabId: "tab-b", winId: 1 });
+
+		// …so releasing the FORMER owner must not drop the new registration.
+		expect(pool.releaseTab("tab-a")).toBe(true);
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual({ tabId: "tab-b", winId: 1 });
+	});
+
+	it("foreignSessionOwner blocks only foreign attaches", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
+		pool.acquire("/b", fw.win, "tab-b");
+
+		// A different tab's switch_session is blocked — with the owner info the
+		// refusal carries for routing.
+		expect(pool.foreignSessionOwner("tab-b", "/sessions/s.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
+		// The owner itself re-attaches freely (switch_session onto its own file).
+		expect(pool.foreignSessionOwner("tab-a", "/sessions/s.jsonl")).toBeNull();
+		// Unowned files are free (first attach).
+		expect(pool.foreignSessionOwner("tab-b", "/sessions/other.jsonl")).toBeNull();
+		// An untracked issuer is blocked by any owner — the safe direction.
+		expect(pool.foreignSessionOwner(null, "/sessions/s.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
+		// Re-attach after release: the mapping is gone, the path is free.
+		expect(pool.releaseTab("tab-a")).toBe(true);
+		expect(pool.foreignSessionOwner("tab-b", "/sessions/s.jsonl")).toBeNull();
+	});
+
+	it("unregisters owners when a window closes", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
+		expect(pool.sessionOwner("/sessions/s.jsonl")).not.toBeNull();
+		fw.close();
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toBeNull();
+	});
+});
+
+describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
+	it("routes an extension-ui response to the raising sidecar even after a tab switch", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const [a, b] = sidecars;
+
+		// Tab A raises the request while active; the dialog is forwarded…
+		a?.emitExtensionUi("req-1");
+		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
+
+		// …the user switches to tab B, THEN the response arrives. It must go to
+		// A's sidecar — B never saw the request and would drop/misroute it.
+		expect(pool.setActiveTab(fw.win, "tab-b")).toBe(true);
+		const response = { type: "extension_ui_response", id: "req-1", confirmed: true };
+		expect(pool.routeSideChannel("req-1", response, true)).toBe(true);
+		expect(a?.sentFrames).toEqual([response]);
+		expect(b?.sentFrames).toEqual([]);
+
+		// Final responses consume the route — a repeat id falls back to the caller.
+		expect(pool.routeSideChannel("req-1", response, true)).toBe(false);
+	});
+
+	it("routes host-uri results to the origin sidecar", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const [a, b] = sidecars;
+
+		a?.emitHostUriRequest("uri-1");
+		expect(fw.sentTo(IPC_EVENTS.HOST_URI_REQUEST)).toHaveLength(1);
+		pool.setActiveTab(fw.win, "tab-b");
+
+		const result = { type: "host_uri_result", id: "uri-1", content: "data" };
+		expect(pool.routeSideChannel("uri-1", result, true)).toBe(true);
+		expect(a?.sentFrames).toEqual([result]);
+		expect(b?.sentFrames).toEqual([]);
+	});
+
+	it("keeps the route across non-final host-tool updates and consumes it on the result", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const [a, b] = sidecars;
+		// Unknown tool → forwarded to the renderer (executor returns false).
+		pool.hostToolExecutor = () => false;
+
+		a?.emitHostToolCall("tool-1");
+		expect(fw.sentTo(IPC_EVENTS.HOST_TOOL_CALL)).toHaveLength(0); // fake executor sends nothing
+		pool.setActiveTab(fw.win, "tab-b");
+
+		const update = { type: "host_tool_update", id: "tool-1", update: "working…" };
+		expect(pool.routeSideChannel("tool-1", update, false)).toBe(true);
+		// Still registered: the result follows the update stream.
+		const result = { type: "host_tool_result", id: "tool-1", result: "done" };
+		expect(pool.routeSideChannel("tool-1", result, true)).toBe(true);
+		expect(a?.sentFrames).toEqual([update, result]);
+		expect(b?.sentFrames).toEqual([]);
+		expect(pool.routeSideChannel("tool-1", result, true)).toBe(false);
+	});
+
+	it("does not track host tools answered inline", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const [a] = sidecars;
+		// GUI-registered tool: the executor answers on the spot, nothing is
+		// forwarded to the renderer, so no response will ever arrive to route.
+		pool.hostToolExecutor = (sidecar, request) => {
+			sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result: "inline" });
+			return true;
+		};
+
+		a?.emitHostToolCall("tool-inline");
+		expect(a?.sentFrames).toEqual([{ type: "host_tool_result", id: "tool-inline", result: "inline" }]);
+		expect(pool.routeSideChannel("tool-inline", { type: "host_tool_result", id: "tool-inline" }, true)).toBe(false);
+	});
+
+	it("drops pending routes when the owning tab is released", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const [a, b] = sidecars;
+
+		a?.emitExtensionUi("req-doomed");
+		expect(pool.releaseTab("tab-a")).toBe(true);
+		// A late response falls back instead of writing to a disposed sidecar.
+		expect(pool.routeSideChannel("req-doomed", { type: "extension_ui_response", id: "req-doomed" }, true)).toBe(
+			false,
+		);
+		expect(a?.sentFrames).toEqual([]);
+		expect(b?.sentFrames).toEqual([]);
 	});
 });

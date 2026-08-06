@@ -52,6 +52,16 @@ type NotifyKind = keyof typeof NOTIFY_DEFAULTS;
 let retryPending = false;
 
 /**
+ * Clear the auto-retry gate. retryPending is module-level, so it survives the
+ * per-tab bundle park/restore in tabs.ts — a tab switched away mid-retry would
+ * otherwise keep suppressing agent_end notifications/toasts for the tab being
+ * restored. restoreBundle calls this on every switch.
+ */
+export function resetRetryPending(): void {
+	retryPending = false;
+}
+
+/**
  * Desktop-notification gate, mirroring the TUI's notify policy: the GUI master
  * pref (Settings → GUI, default on), then the agent's `<kind>.notify` setting
  * (read live via get_settings so edits from either the TUI or the GUI's
@@ -260,6 +270,22 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 		if (wire.isStreaming && useSessionStore.getState().awaitingModelSince === null) {
 			useSessionStore.setState({ awaitingModelSince: Date.now() });
 		}
+		if (!wire.isStreaming) {
+			// Zombie settle: the run finished while this tab sat in the
+			// background, so its message_end/agent_end never forwarded and the
+			// restored bundle still paints a live bubble. The transcript merge
+			// below already carries the finalized content — drop the stale
+			// stream slice wholesale. While streaming, keep it: live deltas
+			// resume onto the restored buffers.
+			useMessagesStore.getState().clearStreaming();
+		}
+		// Per-tab subagent subscription (F-HYDRATE), re-asserted on every
+		// successful hydrate: RPC commands route through the ACTIVE tab's
+		// sidecar, so this lands on the tab just switched to. Tabs that report
+		// ready while active also subscribe via the status handlers — this
+		// covers tabs that booted or settled in the background, whose frames
+		// would otherwise stay silent on return. Idempotent server-side.
+		void window.omp.rpc.setSubagentSubscription("events");
 	}
 
 	if (messagesResult.status === "fulfilled" && messagesResult.value.success) {

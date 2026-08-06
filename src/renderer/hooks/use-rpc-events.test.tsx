@@ -25,8 +25,10 @@ import { TurnStatusRow } from "../components/chat/ChatStream";
 import { I18nProvider } from "../lib/i18n";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
+import { useTabsStore } from "../stores/tabs";
+import { useToastStore } from "../stores/toast";
 import { useToolsStore } from "../stores/tools";
-import { useRpcEvents } from "./use-rpc-events";
+import { hydrateSession, useRpcEvents } from "./use-rpc-events";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -57,6 +59,9 @@ type CommandOutputHandler = (frame: CommandOutputFrame) => void;
 type PromptResultHandler = (frame: PromptResultFrame) => void;
 
 interface MockOmp {
+	tabs: {
+		setActive: Mock<(tabId: string) => Promise<boolean>>;
+	};
 	rpc: {
 		getState: Mock<() => Promise<RpcResponse>>;
 		getTranscript: Mock<() => Promise<RpcResponse>>;
@@ -98,6 +103,7 @@ function installMockOmp(): {
 	// the event-set flag with stale state and test a race production never has.
 	let mockStreaming = false;
 	const omp: MockOmp = {
+		tabs: { setActive: vi.fn(async () => true) },
 		rpc: {
 			getState: vi.fn(async () =>
 				success({
@@ -457,6 +463,52 @@ describe("useRpcEvents mode-state sync", () => {
 	});
 });
 
+describe("retryPending reset on tab switch", () => {
+	it("clears the auto-retry gate so the restored tab's failed turns still toast", async () => {
+		const { emitBatch } = installMockOmp();
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		useToastStore.setState({ toasts: [] });
+		await mount(<RpcEventsProbe />);
+
+		// Arm the retry gate on the outgoing tab: while it is set, agent_end
+		// error toasts are suppressed as mid-saga noise.
+		await act(async () => {
+			emitBatch([
+				{ type: "agent_start", sessionId: "s1" },
+				{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 5000, errorMessage: "boom" },
+			]);
+		});
+
+		// The switch parks t0 and restores t1 — restoreBundle resets the gate,
+		// which is module-level and would otherwise leak across tabs.
+		await act(async () => {
+			await useTabsStore.getState().switchTab("t1");
+		});
+
+		await act(async () => {
+			emitBatch([
+				{
+					type: "agent_end",
+					messages: [{ role: "assistant", content: [], timestamp: 1, stopReason: "error", errorMessage: "kaput" }],
+				},
+			]);
+		});
+
+		// The restored tab's failure surfaces; the leaked gate would have eaten it.
+		expect(useToastStore.getState().toasts.some(toast => toast.title === "Turn failed")).toBe(true);
+
+		useTabsStore.getState().reset();
+		useToastStore.setState({ toasts: [] });
+	});
+});
+
 describe("TurnStatusRow", () => {
 	it("renders the waiting label with elapsed seconds and the interrupt hint", async () => {
 		useSessionStore.setState({ awaitingModelSince: Date.now() - 5000 });
@@ -518,5 +570,71 @@ describe("TurnStatusRow", () => {
 		useSessionStore.setState({ compactionInfo: { reason: "overflow", action: "handoff" } });
 		await mount(<TurnStatusRow />);
 		expect(document.body.textContent).toContain("Context overflow detected, Auto-handoff…");
+	});
+});
+
+describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
+	it("clears the stale streaming bubble when the hydrated tab has settled", async () => {
+		const { omp } = installMockOmp();
+		const finalized: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "settled reply" }],
+			timestamp: 2,
+		};
+		// Zombie state: the tab's run settled in the background, so its
+		// message_end/agent_end never forwarded — the restored bundle still
+		// carries the mid-run slice while the transcript holds the final text.
+		useMessagesStore.setState({
+			messages: [],
+			streamingMessage: assistantMessage,
+			streamingText: "partial reply",
+			streamingThinking: "partial thinking",
+		});
+		omp.rpc.getTranscript.mockResolvedValue(success({ messages: [finalized] }));
+
+		await hydrateSession();
+
+		const messages = useMessagesStore.getState();
+		expect(messages.streamingMessage).toBeNull();
+		expect(messages.streamingText).toBe("");
+		expect(messages.streamingThinking).toBe("");
+		// The finalized content arrives via the transcript merge, not the bubble.
+		expect(messages.messages).toEqual([finalized]);
+		// Hydrate re-asserts the per-tab subagent subscription (switch-in path).
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
+	});
+
+	it("keeps the live stream while the hydrated tab is still streaming", async () => {
+		const { omp } = installMockOmp();
+		omp.rpc.getState.mockImplementation(async () =>
+			success({
+				sessionId: "s1",
+				sessionName: null,
+				sessionFile: null,
+				cwd: "/tmp",
+				isStreaming: true,
+				isCompacting: false,
+				contextUsage: null,
+				messageCount: 3,
+				queuedMessageCount: 0,
+				planModeEnabled: false,
+				todoPhases: [],
+			}),
+		);
+		useMessagesStore.setState({
+			streamingMessage: assistantMessage,
+			streamingText: "partial reply",
+			streamingThinking: "partial thinking",
+		});
+
+		await hydrateSession();
+
+		// Mid-run attach: live deltas resume onto the restored buffers, so the
+		// streaming slice must survive hydration untouched.
+		const messages = useMessagesStore.getState();
+		expect(messages.streamingMessage).toBe(assistantMessage);
+		expect(messages.streamingText).toBe("partial reply");
+		expect(messages.streamingThinking).toBe("partial thinking");
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
 	});
 });

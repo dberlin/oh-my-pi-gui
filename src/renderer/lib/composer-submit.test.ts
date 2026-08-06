@@ -33,6 +33,7 @@ interface MockOmp {
 		getState: Mock<() => Promise<RpcResponse>>;
 		getTranscript: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
+		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	};
 	sessions: { consumePendingOpen: Mock<() => Promise<unknown>> };
 }
@@ -66,6 +67,7 @@ function installMockOmp(): MockOmp {
 			),
 			getTranscript: vi.fn(async () => success({ messages: [] })),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
+			setSubagentSubscription: vi.fn(async () => success({})),
 		},
 		sessions: { consumePendingOpen: vi.fn(async () => null) },
 	};

@@ -151,6 +151,8 @@ export const IPC_COMMANDS = {
 	SET_ACTIVE_TAB: "tab:set-active",
 	/** List the calling window's tabs (boot reconciliation) */
 	GET_TABS: "tab:get-all",
+	/** Look up the tab/window currently attached to a session file (F-OWN double-attach guard) */
+	GET_SESSION_OWNER: "tab:get-session-owner",
 	/** Round-trip a draft through the user's $VISUAL/$EDITOR (temp file, exit-0 read-back) */
 	EDITOR_OPEN_EXTERNAL: "editor:open-external",
 	/** Manual update check */
@@ -445,8 +447,28 @@ export interface IpcSpawnTabPayload {
 	sessionPath?: string;
 }
 
-export interface IpcSpawnTabResult {
+/** Owner of a session file: the tab (and its window) currently attached to it. */
+export interface IpcSessionOwner {
 	tabId: string;
+	/** Owner window's webContents.id. */
+	winId: number;
+}
+
+export interface IpcSpawnTabResult {
+	/**
+	 * Minted tab id. Null when the requested sessionPath is already attached
+	 * to a tab — the renderer switches to/focuses the owner instead of
+	 * spawning a second sidecar for the same file (F-OWN).
+	 */
+	tabId: string | null;
+	/** Present iff tabId is null: the tab/window owning the requested sessionPath. */
+	ownerTabId?: string;
+	ownerWinId?: number;
+}
+
+/** Look up which tab/window owns a session file (F-OWN renderer belt-guards). */
+export interface IpcGetSessionOwnerPayload {
+	sessionPath: string;
 }
 
 export interface IpcCloseTabPayload {
@@ -672,7 +694,12 @@ export interface OmpApi {
 		list(scope: "local" | "global"): Promise<SessionInfo[]>;
 		delete(sessionPath: string): Promise<void>;
 		search(query: string, scope: "local" | "global"): Promise<string[]>;
-		/** Open a session (or a fresh project window) in a new parallel window. False at the cap. */
+		/**
+		 * Open a session (or a fresh project window) in a new parallel window.
+		 * False at the cap. When `sessionPath` is already attached to a tab,
+		 * the owner window is focused instead of spawning (F-OWN) and the
+		 * call resolves true — the session is foregrounded either way.
+		 */
 		openInNewWindow(payload: IpcSessionOpenNewWindowPayload): Promise<boolean>;
 		/** One-shot: the session this window was opened to display, if any. */
 		consumePendingOpen(): Promise<string | null>;
@@ -680,12 +707,18 @@ export interface OmpApi {
 	tabs: {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */
 		list(): Promise<IpcTabInfo[]>;
-		/** Spawn a background tab bound to this window. Null at the pool cap. */
+		/**
+		 * Spawn a background tab bound to this window. Null at the pool cap.
+		 * When `sessionPath` is already attached to a tab, resolves with
+		 * `{ tabId: null, ownerTabId, ownerWinId }` instead of spawning (F-OWN).
+		 */
 		spawn(payload: IpcSpawnTabPayload): Promise<IpcSpawnTabResult | null>;
 		/** Release a tab's sidecar. False when the tab is unknown or foreign. */
 		close(tabId: string): Promise<boolean>;
 		/** Move full event forwarding to this tab. False when unknown or foreign. */
 		setActive(tabId: string): Promise<boolean>;
+		/** The tab/window currently attached to a session file, if any (F-OWN). */
+		getSessionOwner(sessionPath: string): Promise<IpcSessionOwner | null>;
 	};
 	stats: {
 		fetch(path: string, params?: Record<string, string>): Promise<unknown>;

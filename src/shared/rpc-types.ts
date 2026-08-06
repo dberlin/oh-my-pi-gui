@@ -218,6 +218,12 @@ export interface RpcResponseError {
 	success: false;
 	error: string;
 	code?: string;
+	/**
+	 * Optional structured details for machine-handled failures. Defined codes:
+	 * `session_owned_elsewhere` (F-OWN switch_session refusal) carries
+	 * `{ ownerTabId: string; ownerWinId: number }`.
+	 */
+	data?: unknown;
 }
 
 // ============================================================================

@@ -26,6 +26,8 @@ export const en: Record<string, string> = {
 	"tabs.done": "Run completed",
 	"tabs.newFailed": "Could not open tab",
 	"tabs.parallelCap": "Parallel limit reached (10) — close a tab or window first",
+	"tabs.switchFailed": "Could not switch tab",
+	"tabs.confirmClose": "Close tab? The running task will be aborted",
 
 	// InputArea
 	"input.placeholder.connecting": "Connecting to omp…",

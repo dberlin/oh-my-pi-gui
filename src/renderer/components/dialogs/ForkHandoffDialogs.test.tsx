@@ -54,6 +54,7 @@ interface MockRpc {
 	getState: Mock<() => Promise<RpcResponse>>;
 	getTranscript: Mock<() => Promise<RpcResponse>>;
 	getSubagents: Mock<() => Promise<RpcResponse>>;
+	setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 }
 
 function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
@@ -62,6 +63,7 @@ function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
 		getState: vi.fn(async () => success({ sessionId: "s2", todoPhases: [], messageCount: 3, queuedMessageCount: 0 })),
 		getTranscript: vi.fn(async () => success({ messages: [] })),
 		getSubagents: vi.fn(async () => success({ subagents: [] })),
+		setSubagentSubscription: vi.fn(async () => success({})),
 		...overrides,
 	};
 	// linkedom's window lacks the preload bridge; install the mock OmpApi on it.

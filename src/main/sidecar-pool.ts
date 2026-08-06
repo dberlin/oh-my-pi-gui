@@ -14,9 +14,22 @@
  * tab — listeners move on setActiveTab, never duplicate. Every tab (active or
  * background) additionally pushes the light TAB_STATUS channel, so background
  * tabs report status flips and session title/id changes.
+ *
+ * F-OWN (double-attach guard): `#sessionOwners` maps a session file to the
+ * tab/window attached to it, registered at acquire (spawn-with-sessionPath),
+ * from the RPC passthrough (switch_session success / get_state — the only
+ * main-observable carriers of the file path), and dropped on release or when
+ * session_info_update reports a sessionId change (the cached file is stale;
+ * the renderer's hydrate re-registers the current one).
+ *
+ * F-UI-ORIGIN (response routing): extension_ui / host_tool / host_uri
+ * requests raised by a tab are recorded by request id → owning entry, so a
+ * renderer response routes back to the sidecar that RAISED the request even
+ * after the user switched to another tab (sidecarForWindow would misroute
+ * it to the newly active sidecar, which never saw the request).
  */
 import type { BrowserWindow } from "electron";
-import { IPC_EVENTS, type IpcTabInfo, type IpcTabStatusPayload } from "../shared/ipc-types";
+import { IPC_EVENTS, type IpcSessionOwner, type IpcTabInfo, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type {
 	AgentSessionEvent,
 	AvailableCommand,
@@ -62,6 +75,12 @@ interface PoolEntry {
 	sessionId?: string;
 	title?: string;
 	/**
+	 * Session file this tab is attached to (F-OWN). Set at acquire when
+	 * spawned with --session and maintained from the RPC passthrough via
+	 * noteSessionFile; the reverse key of #sessionOwners.
+	 */
+	sessionFile?: string;
+	/**
 	 * Detaches the full-channel forwarders. Null while the tab is background
 	 * (nothing wired); set exactly once per active stint so switches move
 	 * listeners without duplicating them.
@@ -74,6 +93,16 @@ export class SidecarPool {
 	#byTabId = new Map<string, PoolEntry>();
 	/** Window (webContents.id) → active tab. The first acquired tab defaults active. */
 	#activeByWindow = new Map<number, string>();
+	/** Session file → owning tab/window (F-OWN double-attach guard). */
+	#sessionOwners = new Map<string, IpcSessionOwner>();
+	/**
+	 * Pending renderer-facing request id → entry that raised it (F-UI-ORIGIN).
+	 * Registered when a tab forwards an extension_ui / host_tool / host_uri
+	 * request to its window; a response routes back to that exact sidecar even
+	 * after the window's active tab moved on. Entries drop on the (final)
+	 * response or when the owning entry is released.
+	 */
+	#requestOwners = new Map<string, PoolEntry>();
 	/**
 	 * Synchronously-reserved spawn slots. An acquire claims one before the
 	 * (synchronous-but-fragile) SidecarManager.start(), and releases it if the
@@ -86,9 +115,11 @@ export class SidecarPool {
 	/**
 	 * Host-tool dispatch needs the main-process executor (ipc.ts), which the
 	 * pool cannot import without a cycle. Set once at startup; the pool routes
-	 * each sidecar's hostToolCall through it with the owning window.
+	 * each sidecar's hostToolCall through it with the owning window. Returns
+	 * true when the tool was answered inline (GUI-registered) — the pool only
+	 * tracks request ids for renderer-forwarded calls (F-UI-ORIGIN).
 	 */
-	hostToolExecutor: ((sidecar: SidecarManager, request: HostToolCallRequest, win: BrowserWindow) => void) | null =
+	hostToolExecutor: ((sidecar: SidecarManager, request: HostToolCallRequest, win: BrowserWindow) => boolean) | null =
 		null;
 
 	constructor(factory: SidecarFactory, max = 10) {
@@ -135,6 +166,9 @@ export class SidecarPool {
 			this.#wireLight(entry);
 			this.#entries.add(entry);
 			this.#byTabId.set(tabId, entry);
+			// F-OWN: a spawn-with-sessionPath attaches immediately — register the
+			// owner before any duplicate attach can slip past the IPC guard.
+			if (sessionPath) this.#registerSessionFile(entry, sessionPath);
 			if (!this.#activeByWindow.has(entry.winId)) this.#setActive(entry);
 
 			win.once("closed", () => {
@@ -167,7 +201,16 @@ export class SidecarPool {
 		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
 			if (typeof frame.title === "string") entry.title = frame.title;
-			if (typeof frame.sessionId === "string") entry.sessionId = frame.sessionId;
+			if (typeof frame.sessionId === "string") {
+				const previousId = entry.sessionId;
+				entry.sessionId = frame.sessionId;
+				// F-OWN: the session under this tab changed (switch / new session
+				// / crash-restart) — the cached file→owner mapping is stale. The
+				// first attach (previousId undefined) keeps the acquire-time
+				// registration; the renderer's hydrate (get_state) re-registers
+				// the current file after a real change.
+				if (previousId !== undefined && previousId !== frame.sessionId) this.#unregisterSessionFile(entry);
+			}
 			// Session meta changes ride the light channel too, so a background
 			// tab's title/id updates without waiting for a status flip.
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
@@ -208,12 +251,19 @@ export class SidecarPool {
 			forwardToWindow(win, IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
 		});
 		wire("extensionUi", (request: ExtensionUIRequest) => {
+			// F-UI-ORIGIN: the response must reach THIS sidecar even if the user
+			// switches tabs while the dialog is open — track the request id.
+			this.#requestOwners.set(request.id, entry);
 			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { request });
 		});
 		wire("hostToolCall", (request: HostToolCallRequest) => {
-			this.hostToolExecutor?.(sidecar, request, win);
+			// Answered-inline tools never reach the renderer, so only forwarded
+			// calls need id → origin tracking for the result/update route.
+			const answeredInline = this.hostToolExecutor ? this.hostToolExecutor(sidecar, request, win) : true;
+			if (!answeredInline) this.#requestOwners.set(request.id, entry);
 		});
 		wire("hostUriRequest", (request: HostUriRequest) => {
+			this.#requestOwners.set(request.id, entry);
 			forwardToWindow(win, IPC_EVENTS.HOST_URI_REQUEST, { request });
 		});
 		wire("subagentFrame", (frame: SubagentFrame) => {
@@ -265,6 +315,12 @@ export class SidecarPool {
 	#releaseEntry(entry: PoolEntry): void {
 		if (!this.#entries.delete(entry)) return;
 		this.#byTabId.delete(entry.tabId);
+		this.#unregisterSessionFile(entry);
+		// Drop pending request-id routes pointing at the released entry — a
+		// late renderer response must fall back, never write to a dead sidecar.
+		for (const [id, owner] of this.#requestOwners) {
+			if (owner === entry) this.#requestOwners.delete(id);
+		}
 		entry.sidecar.removeAllListeners();
 		entry.sidecar.dispose();
 		if (this.#activeByWindow.get(entry.winId) !== entry.tabId) return;
@@ -317,6 +373,75 @@ export class SidecarPool {
 		return true;
 	}
 
+	/**
+	 * The tab/window currently attached to `sessionPath`, null when free
+	 * (F-OWN). SPAWN_TAB and SESSION_OPEN_NEW_WINDOW consult this before
+	 * spawning a second sidecar for the same file.
+	 */
+	sessionOwner(sessionPath: string): IpcSessionOwner | null {
+		return this.#sessionOwners.get(sessionPath) ?? null;
+	}
+
+	/**
+	 * The owner BLOCKING `tabId`'s attach to `sessionPath` — the file's current
+	 * owner when it is a different tab, else null (unowned, or owned by the
+	 * issuer itself, which re-attaches freely). An untracked issuer (null
+	 * tabId) is blocked by any owner: refusing is the safe direction there.
+	 * F-OWN's refuse-or-focus decision point for the switch_session passthrough.
+	 */
+	foreignSessionOwner(tabId: string | null, sessionPath: string): IpcSessionOwner | null {
+		const owner = this.#sessionOwners.get(sessionPath);
+		if (!owner || owner.tabId === tabId) return null;
+		return owner;
+	}
+
+	/**
+	 * Record the session file a tab's sidecar is attached to. ipc.ts reports
+	 * this from the RPC passthrough (switch_session success, get_state — the
+	 * only main-observable carriers of the file path; session_info_update
+	 * itself carries just the id). Null unregisters (fresh unsaved session).
+	 */
+	noteSessionFile(tabId: string, sessionFile: string | null): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return;
+		if (sessionFile) this.#registerSessionFile(entry, sessionFile);
+		else this.#unregisterSessionFile(entry);
+	}
+
+	/**
+	 * Route a renderer side-channel response to the sidecar that RAISED the
+	 * request (F-UI-ORIGIN), tracked by request id at forward time — not the
+	 * window's active tab, which may have changed while the dialog was open.
+	 * `final` unregisters the id (extension_ui/host_tool/host_uri RESULTS are
+	 * single-shot; a host_tool UPDATE is not, the result follows). False when
+	 * the id is unknown — the caller falls back to the active tab's sidecar.
+	 */
+	routeSideChannel(id: string, frame: object, final: boolean): boolean {
+		const entry = this.#requestOwners.get(id);
+		if (!entry) return false;
+		if (final) this.#requestOwners.delete(id);
+		entry.sidecar.sendSideChannel(frame);
+		return true;
+	}
+
+	/** Register sessionFile → owner, moving the entry off any previous file. */
+	#registerSessionFile(entry: PoolEntry, sessionFile: string): void {
+		if (entry.sessionFile !== sessionFile) this.#unregisterSessionFile(entry);
+		entry.sessionFile = sessionFile;
+		this.#sessionOwners.set(sessionFile, { tabId: entry.tabId, winId: entry.winId });
+	}
+
+	/** Drop the entry's file→owner mapping when it still points at this entry. */
+	#unregisterSessionFile(entry: PoolEntry): void {
+		if (entry.sessionFile === undefined) return;
+		// Another tab may have re-registered the same file since — only the
+		// current owner may clear the mapping.
+		if (this.#sessionOwners.get(entry.sessionFile)?.tabId === entry.tabId) {
+			this.#sessionOwners.delete(entry.sessionFile);
+		}
+		entry.sessionFile = undefined;
+	}
+
 	/** The window's active tab id (null when the window has no tabs). */
 	activeTabForWindow(win: BrowserWindow): string | null {
 		return this.#activeByWindow.get(win.webContents.id) ?? null;
@@ -340,6 +465,8 @@ export class SidecarPool {
 		this.#entries.clear();
 		this.#byTabId.clear();
 		this.#activeByWindow.clear();
+		this.#sessionOwners.clear();
+		this.#requestOwners.clear();
 	}
 }
 

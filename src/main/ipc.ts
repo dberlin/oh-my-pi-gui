@@ -14,6 +14,7 @@ import type {
 	IpcFsReadPayload,
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
+	IpcGetSessionOwnerPayload,
 	IpcHostToolResultPayload,
 	IpcHostToolUpdatePayload,
 	IpcHostUriResultPayload,
@@ -30,7 +31,7 @@ import type {
 	IpcStatsFetchPayload,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
-import type { RpcCommand } from "../shared/rpc-types";
+import type { RpcCommand, RpcSessionState } from "../shared/rpc-types";
 import { openInExternalEditor } from "./editor";
 import type { LogWatcher } from "./log-watcher";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
@@ -334,15 +335,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Sidecar → owning-window event forwarding (events/status/extensionUi/
 	// hostUriRequest/subagentFrame/commandsUpdate/configUpdate) is wired by
 	// SidecarPool at acquire time. hostToolCall needs the main-process executor,
-	// so the pool routes it through this callback (set once at startup).
+	// so the pool routes it through this callback (set once at startup). The
+	// boolean tells the pool whether the tool was answered inline; only
+	// renderer-forwarded calls get request-id → origin tracking (F-UI-ORIGIN).
 	sidecarPool.hostToolExecutor = (sidecar, request, win) => {
 		const result = executeGuiHostTool(request.toolName, request.arguments);
 		if (result !== undefined) {
 			sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result });
-			return;
+			return true;
 		}
 		// Unknown host tools → forward to the owning renderer.
 		if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.HOST_TOOL_CALL, { request });
+		return false;
 	};
 
 	// Session index changes
@@ -385,7 +389,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND, async (event, payload: IpcRpcCommandPayload) => {
-		const sidecar = sidecarFor(deps, event);
+		const win = BrowserWindow.fromWebContents(event.sender);
+		const sidecar = win ? sidecarPool.sidecarForWindow(win) : null;
 		const client = sidecar?.rpcClient;
 		if (!client || !sidecar) {
 			return { id: payload.command.id, type: "response", success: false, error: "Sidecar not connected" };
@@ -399,31 +404,82 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			};
 		}
 		const { id: _id, ...cmd } = payload.command;
+		// F-OWN: pin the issuing tab NOW — the ownership note below must register
+		// against the tab that sent the command even if the user switches tabs
+		// while it is in flight.
+		const issuerTabId = win ? sidecarPool.activeTabForWindow(win) : null;
+		// F-OWN refuse-or-focus backstop: a switch_session onto a file a
+		// DIFFERENT tab owns would double-attach it (the owner itself re-attaches
+		// freely). Refuse BEFORE dispatch — the sidecar would attach for real
+		// and silently diverge the owner's file. The renderer pre-check routes
+		// to the owner; this catches the race.
+		if (cmd.type === "switch_session") {
+			const blocker = sidecarPool.foreignSessionOwner(issuerTabId, cmd.sessionPath);
+			if (blocker) {
+				return {
+					id: _id,
+					type: "response",
+					command: "switch_session",
+					success: false,
+					error: "Session is already open in another tab",
+					code: "session_owned_elsewhere",
+					data: { ownerTabId: blocker.tabId, ownerWinId: blocker.winId },
+				};
+			}
+		}
 		try {
-			return await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
+			const response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
+			// F-OWN registration points carried by this passthrough: a successful
+			// switch_session attaches the issuer to that file; get_state is how
+			// the renderer's attach/hydrate reports the file (session_info_update
+			// itself carries only the session id, never the path).
+			if (issuerTabId && response.success) {
+				if (cmd.type === "switch_session") {
+					const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
+					if (!cancelled) sidecarPool.noteSessionFile(issuerTabId, cmd.sessionPath);
+				} else if (cmd.type === "get_state") {
+					const sessionFile = (response.data as RpcSessionState | undefined)?.sessionFile ?? null;
+					sidecarPool.noteSessionFile(issuerTabId, sessionFile);
+				}
+			}
+			return response;
 		} catch (err) {
 			return { id: _id, type: "response", success: false, error: err instanceof Error ? err.message : String(err) };
 		}
 	});
 
-	// Extension UI respond
+	// Extension UI respond — F-UI-ORIGIN: route to the sidecar that RAISED the
+	// request (tracked by request id), not the window's active tab; the user
+	// may have switched tabs while the dialog was open. Unknown ids (raised
+	// before tracking, or after a restart) fall back to the active sidecar.
 	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, (event, payload: IpcExtensionUiRespondPayload) => {
-		sidecarFor(deps, event)?.sendSideChannel(payload.response);
+		const { response } = payload;
+		if (typeof response?.id === "string" && sidecarPool.routeSideChannel(response.id, response, true)) return;
+		sidecarFor(deps, event)?.sendSideChannel(response);
 	});
 
-	// Host tool result
+	// Host tool result — same origin routing as extension UI (verified: the
+	// raise path is per-sidecar, but a naive sidecarFor response route would
+	// misroute to the active tab after a switch).
 	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_RESULT, (event, payload: IpcHostToolResultPayload) => {
-		sidecarFor(deps, event)?.sendSideChannel(payload.result);
+		const { result } = payload;
+		if (typeof result?.id === "string" && sidecarPool.routeSideChannel(result.id, result, true)) return;
+		sidecarFor(deps, event)?.sendSideChannel(result);
 	});
 
-	// Host tool update
+	// Host tool update — origin routing without unregistering: the result
+	// frame follows and still needs the route.
 	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_UPDATE, (event, payload: IpcHostToolUpdatePayload) => {
-		sidecarFor(deps, event)?.sendSideChannel(payload.update);
+		const { update } = payload;
+		if (typeof update?.id === "string" && sidecarPool.routeSideChannel(update.id, update, false)) return;
+		sidecarFor(deps, event)?.sendSideChannel(update);
 	});
 
-	// Host URI result
+	// Host URI result — same origin routing as extension UI.
 	ipcMain.handle(IPC_COMMANDS.HOST_URI_RESULT, (event, payload: IpcHostUriResultPayload) => {
-		sidecarFor(deps, event)?.sendSideChannel(payload.result);
+		const { result } = payload;
+		if (typeof result?.id === "string" && sidecarPool.routeSideChannel(result.id, result, true)) return;
+		sidecarFor(deps, event)?.sendSideChannel(result);
 	});
 
 	// Sessions
@@ -442,14 +498,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Open a session (or a fresh project window) in a NEW parallel window with
 	// its own sidecar. The calling window's sidecar is left running untouched —
 	// this is the explicit parallel action. Returns false at the pool cap.
+	// F-OWN: when the session is already attached to a tab, focus the owner
+	// window (win.show()+win.focus() — the codebase's focus pattern, see
+	// deep-link.ts/tray.ts) instead of spawning a second sidecar for the same
+	// file; resolves true because the session ends up foregrounded either way.
 	// The session switch is done by the NEW window's renderer on boot (it pulls
 	// pendingSessionPath and runs switch_session + hydrate itself), which avoids
 	// racing the renderer's boot hydration and surfaces failures in that window.
 	ipcMain.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (event, payload: IpcSessionOpenNewWindowPayload) => {
+		const sessionPath = typeof payload?.sessionPath === "string" ? payload.sessionPath : undefined;
+		if (sessionPath) {
+			const owner = deps.sidecarPool.sessionOwner(sessionPath);
+			if (owner && deps.windowManager.focusWindowById(owner.winId)) return true;
+		}
 		if (deps.sidecarPool.atCap) return false;
 		const callerCwd = cwdFor(deps, event) ?? process.cwd();
 		const cwd = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : callerCwd;
-		const sessionPath = typeof payload?.sessionPath === "string" ? payload.sessionPath : undefined;
 		return deps.spawnWindow(cwd, sessionPath) !== null;
 	});
 
@@ -470,15 +534,23 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// Spawn a background tab. Null at the pool cap; the renderer decides
 	// whether to activate it (SET_ACTIVE_TAB) — spawn itself never switches.
+	// F-OWN: a sessionPath already attached to a tab returns
+	// { tabId: null, ownerTabId, ownerWinId } — the renderer switches to (or
+	// focuses) the owner instead of double-attaching the session file.
 	ipcMain.handle(IPC_COMMANDS.SPAWN_TAB, (event, payload: IpcSpawnTabPayload) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
-		if (!win || deps.sidecarPool.atCap) return null;
+		if (!win) return null;
+		const sessionPath =
+			typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
+		if (sessionPath) {
+			const owner = deps.sidecarPool.sessionOwner(sessionPath);
+			if (owner) return { tabId: null, ownerTabId: owner.tabId, ownerWinId: owner.winId };
+		}
+		if (deps.sidecarPool.atCap) return null;
 		const cwd =
 			typeof payload?.cwd === "string" && payload.cwd.length > 0
 				? payload.cwd
 				: (cwdFor(deps, event) ?? process.cwd());
-		const sessionPath =
-			typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
 		const tabId = nextSnowflake();
 		return deps.sidecarPool.acquire(cwd, win, tabId, sessionPath) ? { tabId } : null;
 	});
@@ -505,6 +577,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.GET_TABS, event => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		return win ? deps.sidecarPool.tabsForWindow(win) : [];
+	});
+
+	// F-OWN: which tab/window owns a session file, if any. The renderer
+	// belt-guards (open tab / open-in-new-window rows) consult this before
+	// attempting an attach.
+	ipcMain.handle(IPC_COMMANDS.GET_SESSION_OWNER, (_event, payload: IpcGetSessionOwnerPayload) => {
+		return typeof payload?.sessionPath === "string" ? deps.sidecarPool.sessionOwner(payload.sessionPath) : null;
 	});
 
 	// Full-content search over session files (raw JSONL grep in main, scoped to

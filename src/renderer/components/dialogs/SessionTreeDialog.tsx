@@ -38,10 +38,12 @@ import type { MouseEvent as ReactMouseEvent, ReactNode, PointerEvent as ReactPoi
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcResponse, RpcSwitchLeafResult } from "../../../shared/rpc-types";
 import { hydrateSession } from "../../hooks/use-rpc-events";
+import { routeToSessionOwner } from "../../hooks/use-session-switch";
 import { cx, formatClock, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, Modal, Spinner } from "../common";
@@ -630,6 +632,22 @@ export function SessionTreeDialog() {
 	// text restores into the composer, and a hook veto is not a failure.
 	const switchToLeaf = async (entryId: string, summarize = false) => {
 		if (branching !== null) return;
+		// F-OWN belt guard: switch_leaf mutates the attached session file. When
+		// a DIFFERENT tab owns that file (diverged state), defer to the owner
+		// instead of navigating a session this tab no longer owns.
+		const sessionFile = useSessionStore.getState().sessionFile;
+		if (sessionFile) {
+			try {
+				const owner = await window.omp.tabs.getSessionOwner(sessionFile);
+				if (owner && owner.tabId !== useTabsStore.getState().activeTabId) {
+					await routeToSessionOwner(owner, sessionFile);
+					close();
+					return;
+				}
+			} catch {
+				// Best-effort pre-check; same-owner navigation is the common case.
+			}
+		}
 		setBranching(entryId);
 		try {
 			const response = await window.omp.rpc.switchLeaf(entryId, summarize ? { summarize: true } : undefined);

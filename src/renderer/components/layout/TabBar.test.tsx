@@ -64,6 +64,7 @@ interface MockOmp {
 		getLoopMode: Mock<() => Promise<RpcResponse>>;
 		getVibeMode: Mock<() => Promise<RpcResponse>>;
 		getQueue: Mock<() => Promise<RpcResponse>>;
+		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	};
 }
 
@@ -98,6 +99,7 @@ function installMockOmp(): MockOmp {
 			getLoopMode: vi.fn(async () => ok({ enabled: false, state: "off" })),
 			getVibeMode: vi.fn(async () => ok({ enabled: false })),
 			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
+			setSubagentSubscription: vi.fn(async () => ok({})),
 		},
 	};
 	(window as unknown as { omp: MockOmp }).omp = omp;
@@ -281,5 +283,167 @@ describe("TabBar", () => {
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0"]);
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
 		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+	});
+});
+
+describe("TabBar close confirm", () => {
+	const sleep = (ms: number) => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, ms);
+		return promise;
+	};
+
+	function seedRunning(): void {
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ id: "t1", cwd: "/beta", status: "running", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+	}
+
+	it("closing a running tab arms an inline confirm; the ✓ executes the close", async () => {
+		seedRunning();
+		await mount(<TabBar />);
+
+		await click(chips()[1]!.querySelector('[aria-label="Close tab"]')!);
+
+		// Armed, not executed: the chip swaps its label for the warning + ✓/✕.
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+		expect(chips()[1]?.textContent).toContain("Close tab? The running task will be aborted");
+		expect(chips()[1]?.querySelector('[aria-label="Close tab"]')).toBeNull();
+
+		await click(chips()[1]!.querySelector('[aria-label="Confirm"]')!);
+
+		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0"]);
+	});
+
+	it("the ✕ cancels the armed close and restores the chip", async () => {
+		seedRunning();
+		await mount(<TabBar />);
+
+		await click(chips()[1]!.querySelector('[aria-label="Close tab"]')!);
+		expect(chips()[1]?.textContent).toContain("Close tab? The running task will be aborted");
+
+		await click(chips()[1]!.querySelector('[aria-label="Cancel"]')!);
+
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+		expect(chips()[1]?.textContent).not.toContain("Close tab? The running task will be aborted");
+		expect(chips()[1]?.querySelector('[aria-label="Close tab"]')).not.toBeNull();
+	});
+
+	it("the armed close auto-cancels after the timeout", async () => {
+		// Real timers + a short injected window (bun-test compatible).
+		seedRunning();
+		await mount(<TabBar confirmCloseMs={25} />);
+
+		await click(chips()[1]!.querySelector('[aria-label="Close tab"]')!);
+		expect(chips()[1]?.textContent).toContain("Close tab? The running task will be aborted");
+
+		await act(async () => {
+			await sleep(60);
+		});
+
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+		expect(chips()[1]?.querySelector('[aria-label="Confirm"]')).toBeNull();
+		expect(chips()[1]?.querySelector('[aria-label="Close tab"]')).not.toBeNull();
+	});
+
+	it("a starting tab arms, and so does the active tab's live stream", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ id: "t1", cwd: "/beta", status: "starting", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+
+		// t1's sidecar is still booting — closing kills the launch, so it arms.
+		await click(chips()[1]!.querySelector('[aria-label="Close tab"]')!);
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+		expect(chips()[1]?.textContent).toContain("Close tab? The running task will be aborted");
+
+		// The active tab's status push says ready, but the foreground stream is
+		// live — foreground knowledge wins and the close arms.
+		useSessionStore.setState({ isStreaming: true });
+		await flush();
+		await click(chips()[0]!.querySelector('[aria-label="Close tab"]')!);
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+		expect(chips()[0]?.textContent).toContain("Close tab? The running task will be aborted");
+	});
+
+	it("closing an idle tab is immediate, active tab included", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+
+		// The active-but-idle tab closes with no confirm interlude.
+		await click(chips()[0]!.querySelector('[aria-label="Close tab"]')!);
+		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t1"]);
+	});
+});
+
+describe("TabBar chip labels (F-HYDRATE)", () => {
+	it("disambiguates identical untitled labels with an index suffix in tab order", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
+				{ id: "t1", cwd: "/other/gui", status: "ready", unreadDone: false },
+				{ id: "t2", cwd: "/tmp/gui", status: "ready", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+
+		const rendered = chips();
+		expect(rendered).toHaveLength(3);
+		// First occurrence stays bare; later collisions number from #2.
+		expect(rendered.map(chip => chip.textContent)).toEqual(["gui", "gui #2", "gui #3"]);
+	});
+
+	it("prefers the session title and never suffixes titled tabs", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
+				{ id: "t1", cwd: "/other/gui", status: "ready", title: "Release plan", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+
+		// The titled tab left the collision set, so the untitled chip stays bare.
+		expect(chips().map(chip => chip.textContent)).toEqual(["gui", "Release plan"]);
+	});
+
+	it("drops the suffix once a colliding tab gains a title", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
+				{ id: "t1", cwd: "/other/gui", status: "ready", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+		expect(chips().map(chip => chip.textContent)).toEqual(["gui", "gui #2"]);
+
+		// The auto-title arrives via TAB_STATUS: labels recompute immediately.
+		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/other/gui", status: "ready", title: "Fix races" });
+		await flush();
+		expect(chips().map(chip => chip.textContent)).toEqual(["gui", "Fix races"]);
 	});
 });
