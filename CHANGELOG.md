@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-06
+
 ### Added
 
 - **Session tabs — multi-session parallelism inside ONE window**: each tab owns its own sidecar process (independent session, run, queue, and subagents), so a running task no longer forces a new window — press `+` in the new tab strip (below the title bar) to start a parallel session next to the current one, exactly the Claude Code / Codex model. Background tabs keep executing autonomously (a tab's streaming dot shows activity; a done badge appears when its run finishes while you're elsewhere); switching tabs snapshots and restores the full session state (transcript, todos, subagents, queue lanes, model state, composer draft) and reattaches the renderer to that tab's sidecar with zero duplicated event listeners. Tabs close individually (releasing their sidecar; pool cap of 10 is now shared across tabs and windows), the busy-session switch dialog now offers "open in a new tab" as the recommended parallel path, and sessions can be opened straight into a new tab.
