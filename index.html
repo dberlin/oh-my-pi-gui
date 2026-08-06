@@ -1,380 +1,689 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>omp GUI — 一个窗口,所有会话并行</title>
-<meta name="description" content="omp 编码 agent 的桌面 GUI:会话 Tab 单窗并行、队列与模式可视、语音协作调试原生界面、自动更新。macOS arm64 / Intel。" />
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<title>omp GUI — One window. Every session in parallel.</title>
+<meta name="description" content="The desktop GUI for the omp coding agent: parallel session tabs, background agents, voice & collab, structured debug, command palette, auto-update. macOS arm64 / x64." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
-	:root {
-		--bg: #060709;
-		--bg-2: #0b0d10;
-		--panel: rgba(255,255,255,0.03);
-		--panel-border: rgba(255,255,255,0.08);
-		--text: #eef2f6;
-		--muted: #8a97a5;
-		--accent: #14b8a6;
-		--accent-2: #2dd4bf;
-		--accent-dim: rgba(20,184,166,0.12);
-		--violet: #8b7cf6;
-		--glow: 0 0 40px rgba(20,184,166,0.35);
-		--ease: cubic-bezier(0.22, 1, 0.36, 1);
-		--font: "Inter", -apple-system, sans-serif;
-		--mono: "JetBrains Mono", ui-monospace, monospace;
-	}
-	* { box-sizing: border-box; margin: 0; padding: 0; }
-	html { scroll-behavior: smooth; }
-	body {
-		font-family: var(--font);
-		background: var(--bg);
-		color: var(--text);
-		line-height: 1.6;
-		-webkit-font-smoothing: antialiased;
-		overflow-x: hidden;
-	}
-	a { color: var(--accent-2); text-decoration: none; }
-	a:hover { text-decoration: underline; }
-	::selection { background: var(--accent-dim); color: var(--accent-2); }
+  :root {
+    --bg: #060a09;
+    --bg-2: #0a100f;
+    --line: rgba(255, 255, 255, 0.07);
+    --line-strong: rgba(255, 255, 255, 0.12);
+    --text: #ecf3f1;
+    --muted: #96a8a3;
+    --faint: #5f706b;
+    --accent: #34d3be;
+    --accent-soft: rgba(52, 211, 190, 0.12);
+    --radius: 22px;
+    --container: 1180px;
+    --ease: cubic-bezier(0.22, 0.68, 0.26, 1);
+  }
 
-	.bg-grid {
-		position: fixed; inset: 0; z-index: 0; pointer-events: none;
-		background-image:
-			linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-			linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-		background-size: 56px 56px;
-		mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 20%, transparent 75%);
-	}
-	.glow {
-		position: fixed; width: 900px; height: 500px; top: -220px; left: 50%;
-		transform: translateX(-50%); z-index: 0; pointer-events: none;
-		background: radial-gradient(ellipse at center, rgba(20,184,166,0.14), transparent 65%);
-		filter: blur(40px);
-	}
-	.wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  ::selection { background: rgba(52, 211, 190, 0.28); }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
 
-	/* ---------- nav ---------- */
-	nav {
-		position: sticky; top: 0; z-index: 20;
-		backdrop-filter: blur(14px);
-		background: rgba(6,7,9,0.72);
-		border-bottom: 1px solid var(--panel-border);
-	}
-	.nav-inner {
-		max-width: 1120px; margin: 0 auto; padding: 14px 28px;
-		display: flex; align-items: center; gap: 28px;
-	}
-	.logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: 0.01em; }
-	.logo-badge {
-		width: 26px; height: 26px; border-radius: 7px;
-		background: linear-gradient(135deg, var(--accent), #0d8a7c);
-		display: grid; place-items: center;
-		font-family: var(--mono); font-size: 12px; color: #04100e; font-weight: 600;
-		box-shadow: var(--glow);
-	}
-	.nav-links { display: flex; gap: 22px; margin-left: auto; font-size: 13.5px; }
-	.nav-links a { color: var(--muted); }
-	.nav-links a:hover { color: var(--text); text-decoration: none; }
-	.nav-cta {
-		padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
-		background: var(--accent); color: #04100e !important;
-	}
-	.nav-cta:hover { background: var(--accent-2); text-decoration: none; }
+  .container { max-width: var(--container); margin: 0 auto; padding: 0 32px; }
 
-	/* ---------- hero ---------- */
-	.hero { padding: 96px 0 60px; text-align: center; }
-	.version-pill {
-		display: inline-flex; align-items: center; gap: 8px;
-		padding: 5px 14px; border-radius: 999px; font-size: 12.5px;
-		border: 1px solid rgba(20,184,166,0.35); color: var(--accent-2);
-		background: var(--accent-dim); margin-bottom: 26px;
-	}
-	.version-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
-	h1 {
-		font-size: clamp(34px, 5.4vw, 58px); font-weight: 800; line-height: 1.12;
-		letter-spacing: -0.025em; margin-bottom: 20px;
-	}
-	h1 .grad {
-		background: linear-gradient(92deg, var(--accent-2), #7ce8d8 55%, var(--violet));
-		-webkit-background-clip: text; background-clip: text; color: transparent;
-	}
-	.hero p.sub {
-		max-width: 640px; margin: 0 auto 36px;
-		font-size: 17px; color: var(--muted);
-	}
-	.hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-	.btn {
-		display: inline-flex; align-items: center; gap: 9px;
-		padding: 13px 24px; border-radius: 12px; font-size: 14.5px; font-weight: 600;
-		border: 1px solid var(--panel-border);
-		transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease), background 0.18s;
-	}
-	.btn:hover { transform: translateY(-2px); text-decoration: none; }
-	.btn-primary { background: var(--accent); color: #04100e; box-shadow: var(--glow); }
-	.btn-primary:hover { background: var(--accent-2); }
-	.btn-ghost { color: var(--text); background: var(--panel); }
-	.btn-ghost:hover { border-color: rgba(255,255,255,0.2); }
-	.btn small { font-weight: 400; opacity: 0.72; font-size: 12px; }
-	.hero-note { margin-top: 18px; font-size: 12.5px; color: var(--muted); }
-	.hero-shot {
-		margin: 64px auto 0; max-width: 1020px; border-radius: 16px; overflow: hidden;
-		border: 1px solid var(--panel-border);
-		box-shadow: 0 30px 90px rgba(0,0,0,0.55), 0 0 60px rgba(20,184,166,0.07);
-	}
-	.hero-shot img, .shot img { display: block; width: 100%; }
+  /* ---------- background stage ---------- */
+  .stage { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+  .stage .grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 72px 72px;
+    mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 20%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 20%, transparent 75%);
+  }
+  .orb { position: absolute; border-radius: 50%; filter: blur(90px); opacity: 0.5; }
+  .orb-a {
+    width: 560px; height: 560px; left: 8%; top: -180px;
+    background: radial-gradient(circle, rgba(52, 211, 190, 0.22), transparent 65%);
+    animation: drift-a 26s ease-in-out infinite;
+  }
+  .orb-b {
+    width: 480px; height: 480px; right: 4%; top: 12%;
+    background: radial-gradient(circle, rgba(94, 164, 255, 0.13), transparent 65%);
+    animation: drift-b 32s ease-in-out infinite;
+  }
+  @keyframes drift-a { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(70px, 46px); } }
+  @keyframes drift-b { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(-56px, 64px); } }
 
-	/* ---------- sections ---------- */
-	section { padding: 88px 0; }
-	.eyebrow {
-		font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
-		color: var(--accent-2); text-transform: uppercase; margin-bottom: 14px;
-	}
-	h2 { font-size: clamp(26px, 3.6vw, 38px); font-weight: 800; letter-spacing: -0.02em; margin-bottom: 16px; }
-	.lead { color: var(--muted); font-size: 16px; max-width: 680px; margin-bottom: 40px; }
-	.split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
-	.split.reverse > .shot { order: -1; }
-	@media (max-width: 880px) { .split { grid-template-columns: 1fr; gap: 32px; } .split.reverse > .shot { order: 0; } }
-	.feat-list { display: flex; flex-direction: column; gap: 18px; }
-	.feat-item { display: flex; gap: 14px; }
-	.feat-item .ic {
-		flex-shrink: 0; width: 34px; height: 34px; border-radius: 9px;
-		display: grid; place-items: center; font-size: 16px;
-		background: var(--accent-dim); border: 1px solid rgba(20,184,166,0.25);
-	}
-	.feat-item h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 3px; }
-	.feat-item p { font-size: 14px; color: var(--muted); }
-	.shot {
-		border-radius: 14px; overflow: hidden; border: 1px solid var(--panel-border);
-		box-shadow: 0 24px 70px rgba(0,0,0,0.5);
-	}
-	.shot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
-	@media (max-width: 880px) { .shot-grid { grid-template-columns: 1fr; } }
-	.shot-cap { font-size: 12.5px; color: var(--muted); text-align: center; margin-top: 10px; }
+  /* ---------- nav ---------- */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    transition: background 0.35s var(--ease), border-color 0.35s var(--ease), backdrop-filter 0.35s var(--ease);
+    border-bottom: 1px solid transparent;
+  }
+  nav.scrolled {
+    background: rgba(6, 10, 9, 0.72);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    border-bottom-color: var(--line);
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 72px; }
+  .brand { display: flex; align-items: center; gap: 11px; font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
+  .brand-mark {
+    width: 32px; height: 32px; border-radius: 9px;
+    background: linear-gradient(135deg, #123f39, #1a6b60);
+    border: 1px solid rgba(52, 211, 190, 0.35);
+    display: grid; place-items: center; color: var(--accent);
+    box-shadow: 0 0 24px rgba(52, 211, 190, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  .nav-links { display: flex; gap: 34px; align-items: center; }
+  .nav-links a { color: var(--muted); font-size: 14px; font-weight: 500; transition: color 0.25s; position: relative; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-links a::after {
+    content: ""; position: absolute; left: 0; bottom: -4px; width: 0; height: 1.5px;
+    background: var(--accent); transition: width 0.3s var(--ease);
+  }
+  .nav-links a:hover::after { width: 100%; }
 
-	.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
-	.card {
-		background: var(--panel); border: 1px solid var(--panel-border);
-		border-radius: 14px; overflow: hidden;
-		transition: transform 0.2s var(--ease), border-color 0.2s;
-	}
-	.card:hover { transform: translateY(-3px); border-color: rgba(20,184,166,0.4); }
-	.card img { display: block; width: 100%; border-bottom: 1px solid var(--panel-border); }
-	.card .body { padding: 18px 20px 20px; }
-	.card h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 6px; }
-	.card p { font-size: 13.5px; color: var(--muted); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 13px 26px; border-radius: 999px;
+    font-weight: 600; font-size: 15px; letter-spacing: -0.01em;
+    transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease), background 0.3s, border-color 0.3s;
+    cursor: pointer; border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--accent); color: #052019;
+    box-shadow: 0 0 0 rgba(52, 211, 190, 0);
+  }
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 40px rgba(52, 211, 190, 0.28);
+  }
+  .btn-ghost { border-color: var(--line-strong); color: var(--text); background: rgba(255, 255, 255, 0.02); }
+  .btn-ghost:hover { transform: translateY(-2px); border-color: rgba(52, 211, 190, 0.45); background: var(--accent-soft); }
+  .btn .btn-sub { font-weight: 500; font-size: 12px; opacity: 0.72; }
+  .btn-sm { padding: 9px 18px; font-size: 13.5px; }
 
-	.pill-list { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 26px; }
-	.pill {
-		font-family: var(--mono); font-size: 12px; padding: 5px 12px; border-radius: 999px;
-		background: var(--panel); border: 1px solid var(--panel-border); color: var(--muted);
-	}
-	.pill b { color: var(--accent-2); font-weight: 500; }
+  /* ---------- hero ---------- */
+  .hero { padding: 196px 0 0; text-align: center; position: relative; }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 7px 16px; border-radius: 999px;
+    border: 1px solid rgba(52, 211, 190, 0.3);
+    background: rgba(52, 211, 190, 0.07);
+    color: #9fe8dd; font-size: 13px; font-weight: 500;
+  }
+  .hero-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .hero h1 {
+    margin: 34px auto 0; max-width: 900px;
+    font-size: clamp(46px, 6.6vw, 84px);
+    font-weight: 800; letter-spacing: -0.045em; line-height: 1.04;
+  }
+  .hero h1 .grad {
+    background: linear-gradient(92deg, #eafffa 0%, var(--accent) 55%, #5ea4ff 115%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero .sub {
+    margin: 28px auto 0; max-width: 620px;
+    color: var(--muted); font-size: clamp(17px, 1.6vw, 19.5px); line-height: 1.65;
+  }
+  .hero-cta { display: flex; gap: 16px; justify-content: center; margin-top: 44px; flex-wrap: wrap; }
+  .hero-fine { margin-top: 26px; font-size: 13.5px; color: var(--faint); }
+  .hero-fine a { color: var(--accent); border-bottom: 1px solid transparent; transition: border-color 0.25s; }
+  .hero-fine a:hover { border-bottom-color: var(--accent); }
 
-	.update-flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 34px; }
-	@media (max-width: 760px) { .update-flow { grid-template-columns: 1fr; } }
-	.step {
-		background: var(--panel); border: 1px solid var(--panel-border); border-radius: 14px; padding: 22px;
-	}
-	.step .n {
-		font-family: var(--mono); font-size: 12px; color: var(--accent-2);
-		display: inline-block; padding: 3px 10px; border-radius: 999px;
-		border: 1px solid rgba(20,184,166,0.3); margin-bottom: 12px;
-	}
-	.step h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
-	.step p { font-size: 13.5px; color: var(--muted); }
-	.step code {
-		font-family: var(--mono); font-size: 11.5px; color: var(--accent-2);
-		background: rgba(20,184,166,0.08); padding: 1px 6px; border-radius: 5px;
-	}
+  .hero-shot-wrap { margin: 96px auto 0; max-width: 1120px; padding: 0 8px; perspective: 1400px; }
+  .hero-shot {
+    position: relative; border-radius: var(--radius);
+    transition: transform 0.5s var(--ease);
+    transform-style: preserve-3d; will-change: transform;
+  }
+  .hero-shot::before {
+    content: ""; position: absolute; inset: -1px; border-radius: inherit; z-index: -1;
+    background: linear-gradient(180deg, rgba(52, 211, 190, 0.35), rgba(255, 255, 255, 0.06) 30%, transparent 70%);
+    padding: 1px;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+  }
+  .hero-shot::after {
+    content: ""; position: absolute; left: 8%; right: 8%; bottom: -60px; height: 120px; z-index: -2;
+    background: radial-gradient(ellipse, rgba(52, 211, 190, 0.22), transparent 70%);
+    filter: blur(40px);
+  }
+  .hero-shot img { border-radius: var(--radius); box-shadow: 0 60px 140px rgba(0, 0, 0, 0.65); }
 
-	.install { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 40px; align-items: start; }
-	@media (max-width: 880px) { .install { grid-template-columns: 1fr; } }
-	pre {
-		font-family: var(--mono); font-size: 12.5px; line-height: 1.75;
-		background: #0a0c0f; border: 1px solid var(--panel-border); border-radius: 12px;
-		padding: 18px 20px; overflow-x: auto; color: #c9d4de;
-	}
-	pre .c { color: #5b6b7a; }
-	pre .p { color: var(--accent-2); }
-	.warn {
-		border: 1px solid rgba(234,179,8,0.3); background: rgba(234,179,8,0.07);
-		border-radius: 12px; padding: 14px 18px; font-size: 13px; color: #d8c47a;
-		margin-top: 18px;
-	}
-	.warn b { color: #f0d98c; }
+  /* entrance */
+  .rise { opacity: 0; animation: rise 1s var(--ease) forwards; }
+  @keyframes rise { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: none; } }
+  .d1 { animation-delay: 0.08s; } .d2 { animation-delay: 0.18s; } .d3 { animation-delay: 0.3s; }
+  .d4 { animation-delay: 0.42s; } .d5 { animation-delay: 0.56s; }
 
-	footer {
-		border-top: 1px solid var(--panel-border); padding: 42px 0 54px;
-		color: var(--muted); font-size: 13px;
-	}
-	.foot-inner { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; align-items: center; }
-	.foot-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  /* ---------- marquee ---------- */
+  .marquee {
+    margin-top: 110px; padding: 26px 0;
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    overflow: hidden; position: relative;
+    mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  }
+  .marquee-track { display: flex; gap: 14px; width: max-content; animation: marquee 36s linear infinite; }
+  .marquee:hover .marquee-track { animation-play-state: paused; }
+  @keyframes marquee { to { transform: translateX(-50%); } }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+    padding: 9px 18px; border-radius: 999px;
+    border: 1px solid var(--line); background: rgba(255, 255, 255, 0.02);
+    color: var(--muted); font-size: 13.5px; font-weight: 500;
+  }
+  .chip svg { color: var(--accent); flex: none; }
 
-	@media (max-width: 640px) {
-		.hero { padding: 64px 0 40px; }
-		section { padding: 56px 0; }
-		.nav-links { display: none; }
-	}
+  /* ---------- stats ---------- */
+  .stats { padding: 130px 0 10px; }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .stat {
+    padding: 36px 30px; border-radius: var(--radius);
+    border: 1px solid var(--line); background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
+    transition: transform 0.35s var(--ease), border-color 0.35s;
+  }
+  .stat:hover { transform: translateY(-4px); border-color: rgba(52, 211, 190, 0.3); }
+  .stat .num { font-size: 44px; font-weight: 800; letter-spacing: -0.03em; color: var(--text); line-height: 1; font-variant-numeric: tabular-nums; }
+  .stat .num em { font-style: normal; color: var(--accent); }
+  .stat .lbl { margin-top: 12px; color: var(--muted); font-size: 14px; }
+
+  /* ---------- sections ---------- */
+  section { padding: 150px 0; position: relative; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    color: var(--accent); font-size: 12.5px; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase;
+  }
+  .eyebrow::before { content: ""; width: 22px; height: 1.5px; background: var(--accent); }
+  h2 { margin-top: 20px; font-size: clamp(34px, 4.4vw, 54px); font-weight: 800; letter-spacing: -0.038em; line-height: 1.08; }
+  .lead { margin-top: 22px; color: var(--muted); font-size: 17.5px; max-width: 540px; }
+  .center { text-align: center; }
+  .center .lead { margin-left: auto; margin-right: auto; }
+  .center .eyebrow::before { display: none; }
+
+  .split { display: grid; grid-template-columns: 5fr 7fr; gap: 88px; align-items: center; }
+  .split.flip { grid-template-columns: 7fr 5fr; }
+  .split.flip .split-text { order: 2; }
+
+  .points { margin-top: 34px; display: flex; flex-direction: column; gap: 0; }
+  .point { display: flex; gap: 16px; padding: 18px 0; border-top: 1px solid var(--line); }
+  .point:last-child { border-bottom: 1px solid var(--line); }
+  .point .ico {
+    flex: none; width: 38px; height: 38px; border-radius: 11px;
+    display: grid; place-items: center; color: var(--accent);
+    background: var(--accent-soft); border: 1px solid rgba(52, 211, 190, 0.22);
+  }
+  .point strong { display: block; font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; }
+  .point p { color: var(--muted); font-size: 14.5px; margin-top: 3px; }
+
+  .shot {
+    position: relative; border-radius: var(--radius);
+    border: 1px solid var(--line-strong);
+    overflow: hidden;
+    box-shadow: 0 40px 110px rgba(0, 0, 0, 0.55);
+    transition: transform 0.5s var(--ease), box-shadow 0.5s var(--ease), border-color 0.5s;
+  }
+  .shot:hover { transform: translateY(-6px); border-color: rgba(52, 211, 190, 0.35); box-shadow: 0 56px 130px rgba(0, 0, 0, 0.65), 0 0 80px rgba(52, 211, 190, 0.08); }
+  .shot img { width: 100%; }
+  .shot figcaption {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 40px 24px 16px;
+    background: linear-gradient(transparent, rgba(4, 8, 7, 0.92));
+    font-size: 13.5px; color: var(--muted);
+    opacity: 0; transform: translateY(8px);
+    transition: opacity 0.4s var(--ease), transform 0.4s var(--ease);
+  }
+  .shot:hover figcaption { opacity: 1; transform: none; }
+
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .duo .shot:nth-child(2) { transform: translateY(28px); }
+  .duo .shot:nth-child(2):hover { transform: translateY(22px); }
+
+  /* ---------- native cards ---------- */
+  .cards { margin-top: 70px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .card {
+    position: relative; border-radius: var(--radius); overflow: hidden;
+    border: 1px solid var(--line); background: var(--bg-2);
+    transition: transform 0.4s var(--ease), border-color 0.4s, box-shadow 0.4s;
+  }
+  .card:hover { transform: translateY(-6px); border-color: rgba(52, 211, 190, 0.3); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); }
+  .card img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; opacity: 0.92; transition: opacity 0.4s, transform 0.6s var(--ease); }
+  .card:hover img { opacity: 1; transform: scale(1.02); }
+  .card-body { padding: 28px 30px 32px; }
+  .card-body h3 { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px; }
+  .card-body h3 svg { color: var(--accent); }
+  .card-body p { margin-top: 10px; color: var(--muted); font-size: 14.5px; }
+
+  /* ---------- steps ---------- */
+  .steps { margin-top: 80px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; counter-reset: step; }
+  .step {
+    position: relative; padding: 40px 32px; border-radius: var(--radius);
+    border: 1px solid var(--line); background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
+    transition: transform 0.35s var(--ease), border-color 0.35s;
+    overflow: hidden;
+  }
+  .step:hover { transform: translateY(-4px); border-color: rgba(52, 211, 190, 0.3); }
+  .step .n {
+    font-size: 64px; font-weight: 800; letter-spacing: -0.04em; line-height: 1;
+    background: linear-gradient(180deg, rgba(52, 211, 190, 0.85), rgba(52, 211, 190, 0.12));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .step h3 { margin-top: 20px; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+  .step p { margin-top: 10px; color: var(--muted); font-size: 14.5px; }
+
+  /* ---------- install ---------- */
+  .install-panel {
+    margin-top: 70px; border-radius: 28px; padding: 72px 64px;
+    border: 1px solid rgba(52, 211, 190, 0.22);
+    background:
+      radial-gradient(ellipse 70% 120% at 15% 0%, rgba(52, 211, 190, 0.09), transparent 60%),
+      radial-gradient(ellipse 60% 120% at 90% 100%, rgba(94, 164, 255, 0.06), transparent 60%),
+      var(--bg-2);
+    text-align: center;
+  }
+  .install-panel .cta-row { display: flex; gap: 16px; justify-content: center; margin-top: 40px; flex-wrap: wrap; }
+  .install-note {
+    margin: 34px auto 0; max-width: 640px;
+    padding: 18px 22px; border-radius: 14px; text-align: left;
+    border: 1px solid rgba(255, 200, 100, 0.25); background: rgba(255, 200, 100, 0.05);
+    color: #d8c9a8; font-size: 14px; display: flex; gap: 14px;
+  }
+  .install-note svg { flex: none; color: #e8c47a; margin-top: 2px; }
+  .install-note code, .src code {
+    font-family: "JetBrains Mono", monospace; font-size: 12.5px;
+    background: rgba(0, 0, 0, 0.45); padding: 3px 8px; border-radius: 7px;
+    border: 1px solid var(--line); color: #bfe9e2; white-space: nowrap;
+  }
+  .src { margin-top: 44px; text-align: left; border-top: 1px solid var(--line); padding-top: 36px; }
+  .src h3 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 16px; color: var(--text); }
+  .src pre {
+    font-family: "JetBrains Mono", monospace; font-size: 13px; line-height: 1.85;
+    background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line);
+    border-radius: 16px; padding: 24px 28px; overflow-x: auto; color: #b7c6c2;
+  }
+  .src pre .c { color: var(--faint); }
+
+  /* ---------- footer ---------- */
+  footer { border-top: 1px solid var(--line); padding: 56px 0 64px; }
+  .foot { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; flex-wrap: wrap; }
+  .foot .brand { font-size: 15px; }
+  .foot-links { display: flex; gap: 56px; flex-wrap: wrap; }
+  .foot-col strong { display: block; font-size: 13px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+  .foot-col a { display: block; color: var(--muted); font-size: 13.5px; padding: 4px 0; transition: color 0.2s; }
+  .foot-col a:hover { color: var(--accent); }
+  .foot-base { margin-top: 48px; color: var(--faint); font-size: 13px; display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+
+  /* ---------- reveal on scroll ---------- */
+  .reveal { opacity: 0; transform: translateY(28px); transition: opacity 0.9s var(--ease), transform 0.9s var(--ease); }
+  .reveal.visible { opacity: 1; transform: none; }
+  .reveal-late { transition-delay: 0.12s; }
+  .reveal-later { transition-delay: 0.24s; }
+
+  @media (max-width: 940px) {
+    .nav-links { display: none; }
+    .split, .split.flip { grid-template-columns: 1fr; gap: 48px; }
+    .split.flip .split-text { order: 0; }
+    .cards { grid-template-columns: 1fr; }
+    .steps { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .duo { grid-template-columns: 1fr; }
+    .duo .shot:nth-child(2) { transform: none; }
+    section { padding: 100px 0; }
+    .install-panel { padding: 48px 28px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    html { scroll-behavior: auto; }
+    .reveal, .rise { opacity: 1 !important; transform: none !important; }
+  }
 </style>
 </head>
 <body>
-<div class="bg-grid"></div>
-<div class="glow"></div>
 
-<nav>
-	<div class="nav-inner">
-		<div class="logo"><span class="logo-badge">›_</span> omp GUI</div>
-		<div class="nav-links">
-			<a href="#tabs">会话 Tab</a>
-			<a href="#dock">活动坞</a>
-			<a href="#surfaces">原生界面</a>
-			<a href="#update">自动更新</a>
-			<a href="#install">安装</a>
-			<a href="https://github.com/nornzach/oh-my-pi-gui">GitHub</a>
-		</div>
-		<a class="nav-cta" href="#install">下载 v0.5.1</a>
-	</div>
+<div class="stage">
+  <div class="grid"></div>
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+</div>
+
+<nav id="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      </span>
+      omp GUI
+    </a>
+    <div class="nav-links">
+      <a href="#tabs">Session Tabs</a>
+      <a href="#dock">Activity Dock</a>
+      <a href="#native">Native</a>
+      <a href="#updates">Updates</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/nornzach/oh-my-pi-gui">GitHub</a>
+    </div>
+    <a class="btn btn-primary btn-sm" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1-arm64.dmg">Download v0.5.1</a>
+  </div>
 </nav>
 
-<header class="hero wrap">
-	<div class="version-pill"><span class="dot"></span> v0.5.1 · 2026-08-06 · 新增会话 Tab 与架构加固</div>
-	<h1>一个窗口,<br /><span class="grad">所有会话并行。</span></h1>
-	<p class="sub">omp 编码 agent 的桌面 GUI。每个会话 Tab 都有独立的 agent 进程——任务在后台自主推进,你只管切换。TUI 的全部能力,原生的桌面体验。</p>
-	<div class="hero-actions">
-		<a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp-0.5.1-arm64.dmg">下载 macOS 版 <small>Apple Silicon</small></a>
-		<a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp-0.5.1.dmg">下载 Intel 版 <small>macOS x64</small></a>
-	</div>
-	<p class="hero-note">免安装 agent / bun / Node——应用自带 sidecar 二进制 · <a href="https://github.com/nornzach/oh-my-pi-gui/releases">全部版本</a> · <a href="#install">从源码构建</a></p>
-	<div class="hero-shot"><img src="docs/screenshots/01-session-tabs.webp" alt="三个会话 Tab 并行,第二个正在流式输出" /></div>
+<header class="hero" id="top">
+  <div class="container">
+    <div class="hero-badge rise d1"><span class="dot"></span>v0.5.1 · Aug 2026 — Session Tabs &amp; Architecture Hardening</div>
+    <h1 class="rise d2">One window.<br /><span class="grad">Every session in parallel.</span></h1>
+    <p class="sub rise d3">The desktop GUI for the omp coding agent. Every session tab runs its own agent process — your work keeps moving in the background while you switch. All of the TUI's power, none of its walls.</p>
+    <div class="hero-cta rise d4">
+      <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1-arm64.dmg">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download for macOS <span class="btn-sub">Apple Silicon</span>
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1.dmg">Intel build <span class="btn-sub">macOS x64</span></a>
+    </div>
+    <p class="hero-fine rise d5">Bundled sidecar — no agent, bun, or Node to install · <a href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a> · <a href="#install">Build from source</a></p>
+    <div class="hero-shot-wrap rise d5">
+      <div class="hero-shot" id="tilt">
+        <img src="docs/screenshots/01-session-tabs.webp" alt="omp GUI with three parallel session tabs, activity dock and workspace drawer" loading="eager" />
+      </div>
+    </div>
+  </div>
 </header>
 
-<section id="tabs" class="wrap">
-	<div class="split">
-		<div>
-			<p class="eyebrow">Session Tabs</p>
-			<h2>不再"开新软件"。<br />开新 Tab 就行。</h2>
-			<div class="feat-list">
-				<div class="feat-item"><span class="ic">⚡</span><div><h3>每 Tab 一个独立 agent 进程</h3><p>会话、回合、队列、子代理完全隔离——和 Claude Code / Codex 一样的单程序多会话模型。</p></div></div>
-				<div class="feat-item"><span class="ic">▶</span><div><h3>后台 Tab 自主执行</h3><p>切走不暂停:绿点表示仍在运行,完成时亮起徽章,回来接着看结果。</p></div></div>
-				<div class="feat-item"><span class="ic">⇄</span><div><h3>切换零损耗</h3><p>转录、待办、子代理、队列、模型状态、输入草稿按 Tab 快照恢复,事件监听原子迁移。</p></div></div>
-				<div class="feat-item"><span class="ic">⛨</span><div><h3>会话文件所有权守卫</h3><p>同一会话在任何入口重复打开都会被重定向到持有它的 Tab——永远不会出现两个进程盲写同一份转录。</p></div></div>
-			</div>
-		</div>
-		<div class="shot"><img src="docs/screenshots/01-session-tabs.webp" alt="会话 Tab 栏" loading="lazy" /></div>
-	</div>
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track" id="marquee">
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="3" y="3" width="18" height="18" rx="4"/></svg>Parallel session tabs</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/></svg>Independent agent processes</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Background execution</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/></svg>Live voice mode</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Real-time collaboration</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Structured debug console</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Command palette</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Three-step auto-update</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Session stats</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Provider &amp; login management</span>
+  </div>
+</div>
+
+<section class="stats">
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat reveal"><div class="num"><em>0</em></div><div class="lbl">Runtimes to install — the sidecar ships inside the app</div></div>
+      <div class="stat reveal reveal-late"><div class="num"><span class="count" data-to="14">0</span><em>+</em></div><div class="lbl">Native RPC dialogs, from providers to process control</div></div>
+      <div class="stat reveal reveal-late"><div class="num"><span class="count" data-to="2">0</span><em>×</em></div><div class="lbl">Parallel agents observed live in one window</div></div>
+      <div class="stat reveal reveal-later"><div class="num"><span class="count" data-to="3">0</span></div><div class="lbl">Steps from update banner to restarted app</div></div>
+    </div>
+  </div>
 </section>
 
-<section id="dock" class="wrap" style="background: var(--bg-2); border-block: 1px solid var(--panel-border);">
-	<p class="eyebrow">Activity Dock</p>
-	<h2>执行中的一切,都看得见、管得着。</h2>
-	<p class="lead">队列不再是一行计数:双泳道面板支持拖拽与按钮排序、单项删除、分泳道清空;子代理按任务命名,状态、时长、模型、消息一目了然;计划/目标/循环模式在 composer 和底栏常驻可见。</p>
-	<div class="shot-grid">
-		<div>
-			<div class="shot"><img src="docs/screenshots/02-queue-panel.webp" alt="队列面板:两条消息排队,活动条显示 队列 2·引导 0" loading="lazy" /></div>
-			<p class="shot-cap">队列面板:排序 / 删除 / 清空,活动条与待发送气泡实时联动</p>
-		</div>
-		<div>
-			<div class="shot"><img src="docs/screenshots/03-agents-hub.webp" alt="子代理面板:ReadPackageJson 与 ReadTsconfig 两个任务命名的 scout 卡片" loading="lazy" /></div>
-			<p class="shot-cap">子代理按任务命名,不再是清一色的 "task"——可查看消息、中止、复活</p>
-		</div>
-	</div>
+<section id="tabs">
+  <div class="container split">
+    <div class="split-text reveal">
+      <span class="eyebrow">Session Tabs</span>
+      <h2>Sessions that never block each other</h2>
+      <p class="lead">Every tab owns a full agent process. Kick off a long task, switch to another tab, and let it finish on its own — the titlebar keeps a live heartbeat so you always know what's running.</p>
+      <div class="points">
+        <div class="point">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><line x1="3" y1="9" x2="21" y2="9"/></svg></span>
+          <div><strong>Independent processes</strong><p>A crash or hang in one tab never touches the others.</p></div>
+        </div>
+        <div class="point">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+          <div><strong>Background execution</strong><p>Steer, queue follow-ups, or walk away — agents keep working.</p></div>
+        </div>
+        <div class="point">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+          <div><strong>Ownership guard</strong><p>Live sessions are locked against accidental takeover.</p></div>
+        </div>
+      </div>
+    </div>
+    <figure class="shot reveal reveal-late">
+      <img src="docs/screenshots/01-session-tabs.webp" alt="Three session tabs running in parallel" loading="lazy" />
+      <figcaption>Three tabs, three agent processes — two running concurrently.</figcaption>
+    </figure>
+  </div>
 </section>
 
-<section id="surfaces" class="wrap">
-	<p class="eyebrow">Native Surfaces</p>
-	<h2>TUI 的能力,桌面的形态。</h2>
-	<p class="lead">不是把终端命令包一层壳——每个功能都是原生界面,背后是 50+ 个专用 RPC 命令打通 agent 运行时。</p>
-	<div class="cards">
-		<div class="card"><img src="docs/screenshots/04-voice.webp" alt="实时语音对话框" loading="lazy" /><div class="body"><h3>实时语音</h3><p>原生语音会话:状态、麦克风电平、实时转写、静音与挂断。</p></div></div>
-		<div class="card"><img src="docs/screenshots/05-collab.webp" alt="实时协作对话框" loading="lazy" /><div class="body"><h3>实时协作</h3><p>主持或加入协作会话:可编辑/只读链接、参与者列表、浏览器直达。</p></div></div>
-		<div class="card"><img src="docs/screenshots/06-debug.webp" alt="结构化调试控制台" loading="lazy" /><div class="body"><h3>调试控制台</h3><p>完整 DAP 调试:会话列表、线程/调用栈/单步/输出,结构化结果而不是手写 JSON。</p></div></div>
-		<div class="card"><img src="docs/screenshots/07-command-palette.webp" alt="中文命令面板" loading="lazy" /><div class="body"><h3>全中文命令面板</h3><p>159 个命令全部本地化,⌘K 唤起,中文搜索直达一切功能。</p></div></div>
-	</div>
-	<div class="pill-list">
-		<span class="pill"><b>对话框</b> 工作目录</span>
-		<span class="pill"><b>对话框</b> 分享会话</span>
-		<span class="pill"><b>对话框</b> 强制工具</span>
-		<span class="pill"><b>对话框</b> 后台任务</span>
-		<span class="pill"><b>对话框</b> 更新日志</span>
-		<span class="pill"><b>对话框</b> 外源会话导入</span>
-		<span class="pill"><b>面板</b> MCP 服务器</span>
-		<span class="pill"><b>面板</b> 插件市场</span>
-		<span class="pill"><b>面板</b> 会话树</span>
-		<span class="pill"><b>面板</b> Agent Hub</span>
-		<span class="pill"><b>设置</b> 启动配置</span>
-		<span class="pill"><b>设置</b> 键位重映射</span>
-	</div>
+<section id="dock" style="padding-top: 40px;">
+  <div class="container split flip">
+    <div class="split-text reveal">
+      <span class="eyebrow">Activity Dock</span>
+      <h2>Watch the whole fleet from one dock</h2>
+      <p class="lead">Queued work, steering replies and sub-agent runs surface in a single strip — across every tab, without losing your place.</p>
+      <div class="points">
+        <div class="point">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+          <div><strong>Queue panel</strong><p>Pending follow-ups per session, visible at a glance.</p></div>
+        </div>
+        <div class="point">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg></span>
+          <div><strong>Labeled sub-agents</strong><p>Named task agents with live progress, per tab.</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="duo reveal reveal-late">
+      <figure class="shot">
+        <img src="docs/screenshots/02-queue-panel.webp" alt="Queue panel with pending follow-ups" loading="lazy" />
+        <figcaption>Queue panel — two follow-ups parked behind a running task.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="docs/screenshots/03-agents-hub.webp" alt="Agents panel showing two labeled sub-agents" loading="lazy" />
+        <figcaption>Agents panel — two named sub-agents live in one tab.</figcaption>
+      </figure>
+    </div>
+  </div>
 </section>
 
-<section class="wrap" style="background: var(--bg-2); border-block: 1px solid var(--panel-border);">
-	<div class="split reverse">
-		<div>
-			<p class="eyebrow">Context & Control</p>
-			<h2>上下文花在哪,一眼看清。</h2>
-			<p class="lead" style="margin-bottom: 22px;">上下文报告按类别拆分 token 占用;压缩、清理、手动/自动重试都有明确的结果反馈。Mermaid、KaTeX、代码行号、GFM 任务列表、read 分组折叠——渲染保真度与 TUI 对齐。</p>
-			<div class="feat-list">
-				<div class="feat-item"><span class="ic">☰</span><div><h3>50+ 专用 RPC,不是命令转发</h3><p>GUI 与 agent 运行时之间是类型化的 NDJSON RPC 桥:队列管理、上下文报告、工具清单、分享、任务……每一个都是结构化的。</p></div></div>
-				<div class="feat-item"><span class="ic">⚙</span><div><h3>环境自适应</h3><p>GUI 启动自动合并 login-shell 环境:MCP 服务器、shell 导出的 API key、代理设置,在 Finder 启动的应用里一样工作。</p></div></div>
-			</div>
-		</div>
-		<div class="shot"><img src="docs/screenshots/08-context-report.webp" alt="上下文报告:按类别拆分的 token 占用条" loading="lazy" /></div>
-	</div>
+<section id="native" style="padding-top: 40px;">
+  <div class="container">
+    <div class="center reveal">
+      <span class="eyebrow">Native, Not a Wrapper</span>
+      <h2>Real interfaces for real workflows</h2>
+      <p class="lead" style="max-width: 600px;">Voice, collaboration, debugging and commands get first-class native surfaces — not a terminal crammed into a webview.</p>
+    </div>
+    <div class="cards">
+      <div class="card reveal">
+        <img src="docs/screenshots/04-voice.webp" alt="Live voice mode dialog" loading="lazy" />
+        <div class="card-body">
+          <h3><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>Live voice mode</h3>
+          <p>Real-time speech sessions with live transcripts — talk to the agent while your hands stay on the keyboard.</p>
+        </div>
+      </div>
+      <div class="card reveal reveal-late">
+        <img src="docs/screenshots/05-collab.webp" alt="Collaboration dialog" loading="lazy" />
+        <div class="card-body">
+          <h3><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Collaboration</h3>
+          <p>Bring teammates into a session and watch the agent work together, live.</p>
+        </div>
+      </div>
+      <div class="card reveal">
+        <img src="docs/screenshots/06-debug.webp" alt="Structured debug console" loading="lazy" />
+        <div class="card-body">
+          <h3><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Structured debug console</h3>
+          <p>The raw RPC event stream — search, filters and pause — for when you need to see exactly what the agent did.</p>
+        </div>
+      </div>
+      <div class="card reveal reveal-late">
+        <img src="docs/screenshots/07-command-palette.webp" alt="Command palette in Chinese" loading="lazy" />
+        <div class="card-body">
+          <h3><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Command palette</h3>
+          <p>Every command, dialog and setting one keystroke away — fully localized, English and Chinese included.</p>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 
-<section id="update" class="wrap">
-	<p class="eyebrow">Auto Update</p>
-	<h2>更新自己找上门。</h2>
-	<p class="lead">应用启动与每四小时检查 GitHub Releases。看到横幅,点两下,重启即新版——增量块下载,不占满带宽。</p>
-	<div class="update-flow">
-		<div class="step"><span class="n">1</span><h3>发现</h3><p>横幅提示"新版本 x.y.z 已发布",可按版本忽略;设置页随时手动检查。</p></div>
-		<div class="step"><span class="n">2</span><h3>暂存</h3><p>点击下载,blockmap 增量只拉差异块,实时进度;下载在后台完成,不打断工作。</p></div>
-		<div class="step"><span class="n">3</span><h3>重启生效</h3><p>"重启安装"一键完成替换。更新服务器就是 GitHub Releases,零额外运维。</p></div>
-	</div>
+<section id="context" style="padding-top: 40px;">
+  <div class="container split">
+    <div class="split-text reveal">
+      <span class="eyebrow">Context &amp; Usage</span>
+      <h2>Context you can actually audit</h2>
+      <p class="lead">Per-file token breakdowns, tool-call frequency and live cost — the numbers behind every session, rendered natively.</p>
+      <div class="points">
+        <div class="point">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+          <div><strong>Session statistics</strong><p>Requests, tokens, cost and cache-hit rate at a glance.</p></div>
+        </div>
+        <div class="point">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+          <div><strong>Context report</strong><p>Exactly which files and tools are eating your window.</p></div>
+        </div>
+      </div>
+    </div>
+    <figure class="shot reveal reveal-late">
+      <img src="docs/screenshots/08-context-report.webp" alt="Context report with token bars" loading="lazy" />
+      <figcaption>Context report — sorted token bars per source, with a copyable breakdown.</figcaption>
+    </figure>
+  </div>
 </section>
 
-<section id="install" class="wrap" style="background: var(--bg-2); border-block: 1px solid var(--panel-border);">
-	<p class="eyebrow">Install</p>
-	<h2>两种装法,都只要一分钟。</h2>
-	<div class="install">
-		<div>
-			<h3 style="font-size:17px; margin-bottom:14px;">下载即用(推荐)</h3>
-			<p style="color: var(--muted); font-size:14px; margin-bottom:16px;">macOS 13+,Apple Silicon 或 Intel。拖入 /Applications 即可——agent、运行时、原生插件全部内置。</p>
-			<div class="hero-actions" style="justify-content:flex-start;">
-				<a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp-0.5.1-arm64.dmg">Apple Silicon <small>150 MB</small></a>
-				<a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp-0.5.1.dmg">Intel <small>166 MB</small></a>
-			</div>
-			<div class="warn"><b>未签名构建:</b>首次打开如被 Gatekeeper 拦截,右键 → 打开,或执行 <code style="font-family:var(--mono);">xattr -dr com.apple.quarantine /Applications/omp.app</code>。签名与公证在路上。</div>
-		</div>
-		<div>
-			<h3 style="font-size:17px; margin-bottom:14px;">从源码构建</h3>
-			<pre><span class="c"># 1. monorepo(fork,含 GUI 使能改动)</span>
-<span class="p">git clone</span> https://github.com/nornzach/oh-my-pi.git omp-monorepo
-<span class="p">cd</span> omp-monorepo && <span class="p">bun install</span> && <span class="p">cd</span> ..
-
-<span class="c"># 2. GUI 仓库,嵌套到 packages/gui</span>
-<span class="p">cd</span> omp-monorepo/packages
-<span class="p">git clone</span> https://github.com/nornzach/oh-my-pi-gui.git gui
-<span class="p">cd</span> gui && <span class="p">bun install</span>
-
-<span class="c"># 3. 编译 sidecar 并打包</span>
-<span class="p">bun run</span> build:omp
-<span class="p">bun run</span> package:mac:arm64</pre>
-		</div>
-	</div>
+<section id="updates" style="padding-top: 40px;">
+  <div class="container">
+    <div class="center reveal">
+      <span class="eyebrow">Auto-Update</span>
+      <h2>Never reinstall by hand again</h2>
+      <p class="lead" style="max-width: 560px;">Signed update metadata ships with every release. The app checks GitHub, downloads in the background, and relaunches itself.</p>
+    </div>
+    <div class="steps">
+      <div class="step reveal"><div class="n">01</div><h3>Banner appears</h3><p>A new release on GitHub shows up as a quiet banner — no modal, no interruption.</p></div>
+      <div class="step reveal reveal-late"><div class="n">02</div><h3>Download in place</h3><p>The DMG downloads with live progress inside the banner. Keep working.</p></div>
+      <div class="step reveal reveal-later"><div class="n">03</div><h3>Restart &amp; done</h3><p>One click swaps the app and relaunches you into the new version.</p></div>
+    </div>
+  </div>
 </section>
 
-<footer class="wrap">
-	<div class="foot-inner">
-		<div>omp GUI · 桌面版 omp 编码 agent · MIT License</div>
-		<div class="foot-links">
-			<a href="https://github.com/nornzach/oh-my-pi-gui">GUI 仓库</a>
-			<a href="https://github.com/nornzach/oh-my-pi-gui/releases">全部版本</a>
-			<a href="https://github.com/nornzach/oh-my-pi">monorepo fork</a>
-			<a href="https://github.com/can1357/oh-my-pi">上游 omp</a>
-		</div>
-	</div>
+<section id="install" style="padding-top: 40px;">
+  <div class="container">
+    <div class="install-panel reveal">
+      <span class="eyebrow" style="justify-content: center; display: inline-flex;">Install</span>
+      <h2>Up and running in a minute</h2>
+      <p class="lead" style="margin-left: auto; margin-right: auto;">Grab the DMG for your Mac. The agent, its runtime and everything else are already inside.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1-arm64.dmg">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Apple Silicon <span class="btn-sub">arm64</span>
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1.dmg">Intel <span class="btn-sub">x64</span></a>
+        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a>
+      </div>
+      <div class="install-note">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>Builds are unsigned for now. On first launch macOS will quarantine the app — right-click → <b>Open</b> once, or run <code>xattr -cr /Applications/omp\ GUI.app</code>. Gatekeeper only asks once.</span>
+      </div>
+      <div class="src">
+        <h3>Prefer building it yourself?</h3>
+        <pre><span class="c"># clone the fork, with the GUI nested inside</span>
+git clone https://github.com/nornzach/oh-my-pi.git
+cd oh-my-pi &amp;&amp; git clone https://github.com/nornzach/oh-my-pi-gui.git packages/gui
+bun install
+bun --cwd packages/gui run build:omp   <span class="c"># build the sidecar from the monorepo</span>
+bun --cwd packages/gui run dist        <span class="c"># → packages/gui/release/*.dmg</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="foot">
+      <div>
+        <a class="brand" href="#top">
+          <span class="brand-mark">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </span>
+          omp GUI
+        </a>
+        <p style="margin-top: 14px; color: var(--faint); font-size: 13.5px; max-width: 280px;">The desktop GUI for the omp coding agent. Built on the real agent, not a reimplementation.</p>
+      </div>
+      <div class="foot-links">
+        <div class="foot-col">
+          <strong>Product</strong>
+          <a href="https://github.com/nornzach/oh-my-pi-gui/releases">Releases</a>
+          <a href="https://github.com/nornzach/oh-my-pi-gui#readme">README</a>
+          <a href="#install">Install</a>
+        </div>
+        <div class="foot-col">
+          <strong>Code</strong>
+          <a href="https://github.com/nornzach/oh-my-pi-gui">GUI repo</a>
+          <a href="https://github.com/nornzach/oh-my-pi">Monorepo fork</a>
+          <a href="https://github.com/can1357/oh-my-pi">Upstream omp</a>
+        </div>
+      </div>
+    </div>
+    <div class="foot-base">
+      <span>© 2026 omp GUI contributors · MIT</span>
+      <span>Not affiliated with Anthropic, OpenAI, or any model provider.</span>
+    </div>
+  </div>
 </footer>
+
+<script>
+  // nav backdrop on scroll
+  const nav = document.getElementById("nav");
+  const onScroll = () => nav.classList.toggle("scrolled", window.scrollY > 24);
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  // scroll reveal
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) { e.target.classList.add("visible"); io.unobserve(e.target); }
+    }
+  }, { threshold: 0.16 });
+  document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+
+  // count-up stats
+  const counters = document.querySelectorAll(".count");
+  const cio = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      cio.unobserve(e.target);
+      const to = Number(e.target.dataset.to);
+      const t0 = performance.now();
+      const dur = 1100;
+      const tick = (t) => {
+        const p = Math.min(1, (t - t0) / dur);
+        e.target.textContent = String(Math.round(to * (1 - Math.pow(1 - p, 3))));
+        if (p < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+  }, { threshold: 0.6 });
+  counters.forEach((c) => cio.observe(c));
+
+  // hero shot tilt (fine pointers only)
+  const tilt = document.getElementById("tilt");
+  if (tilt && window.matchMedia("(pointer: fine)").matches) {
+    const wrap = tilt.parentElement;
+    wrap.addEventListener("mousemove", (ev) => {
+      const r = wrap.getBoundingClientRect();
+      const x = (ev.clientX - r.left) / r.width - 0.5;
+      const y = (ev.clientY - r.top) / r.height - 0.5;
+      tilt.style.transform = `rotateX(${(-y * 3.5).toFixed(2)}deg) rotateY(${(x * 4.5).toFixed(2)}deg)`;
+    });
+    wrap.addEventListener("mouseleave", () => { tilt.style.transform = ""; });
+  }
+
+  // duplicate marquee content for a seamless loop
+  const track = document.getElementById("marquee");
+  track.innerHTML += track.innerHTML;
+</script>
+
 </body>
 </html>
