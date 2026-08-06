@@ -10,10 +10,9 @@ import type { AvailableCommand } from "../../../shared/rpc-types";
 import { hydrateSession } from "../../hooks/use-rpc-events";
 import {
 	buildCommandMenu,
-	CATEGORY_LABELS,
 	type CommandAffordance,
-	type CommandCategory,
 	type CommandMenuItem,
+	forkSessionFromGui,
 	groupByCategory,
 } from "../../lib/command-registry";
 import { useT } from "../../lib/i18n";
@@ -136,6 +135,8 @@ export function CommandPalette() {
 	const openThemePicker = useUiStore(state => state.openThemePicker);
 	const openModes = useUiStore(state => state.openModes);
 	const openAgentHub = useUiStore(state => state.openAgentHub);
+	const openHotkeys = useUiStore(state => state.openHotkeys);
+	const openImportDialog = useUiStore(state => state.openImportDialog);
 	const openProviderConfig = useUiStore(state => state.openProviderConfig);
 	const setPanelTab = useUiStore(state => state.setPanelTab);
 
@@ -147,6 +148,7 @@ export function CommandPalette() {
 	const followUpMode = useSettingsStore(s => s.followUpMode);
 	const interruptMode = useSettingsStore(s => s.interruptMode);
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
+	const prewalkArmed = useSessionStore(s => s.prewalkArmed);
 
 	const [query, setQuery] = useState("");
 	const [availableCommands, setAvailableCommands] = useState<AvailableCommand[]>([]);
@@ -192,24 +194,23 @@ export function CommandPalette() {
 		[t],
 	);
 
-	/** Fork: clone the whole session at head into a new session, then hydrate. */
-	const forkSession = useCallback(async () => {
-		try {
-			const response = await window.omp.rpc.fork();
-			if (!response.success) {
-				toast({ variant: "error", title: t("fork.failed"), message: response.error });
-				return;
-			}
-			await hydrateSession();
-			toast({ variant: "success", message: t("fork.success") });
-		} catch (error) {
-			toast({ variant: "error", title: t("fork.failed"), message: String(error) });
+	/** Retry the last FAILED turn via the retry RPC (TUI /retry parity). */
+	const retryTurn = useCallback(async () => {
+		const response = await window.omp.rpc.retry();
+		if (!response.success) {
+			toast({ variant: "error", title: t("palette.failed"), message: response.error });
+			return;
+		}
+		const data = response.data as { retried?: boolean } | undefined;
+		if (!data?.retried) {
+			toast({ variant: "warning", title: t("palette.retryNothing"), message: t("palette.retryNothingDesc") });
 		}
 	}, [t]);
 
 	const menuItems = useMemo(
 		() =>
 			buildCommandMenu({
+				t,
 				isStreaming,
 				fastModeEnabled,
 				autoCompaction,
@@ -218,6 +219,7 @@ export function CommandPalette() {
 				followUpMode,
 				interruptMode,
 				planModeEnabled,
+				prewalkArmed,
 				availableCommands,
 				openModelPicker,
 				openSettings,
@@ -232,16 +234,19 @@ export function CommandPalette() {
 				openSessionInfo,
 				openModelCompare,
 				openHandoffDialog,
-				forkSession,
+				forkSession: forkSessionFromGui,
 				hydrateSession,
 				openExtensions,
 				openInventory,
 				openThemePicker,
 				openModes,
 				openAgentHub,
+				openHotkeys,
+				openImportDialog,
 				openProviderConfig,
 				openWorkspaceTab: setPanelTab,
 				openCommandPalette: () => {},
+				retryTurn,
 				retryLastTurn,
 				rpc: {
 					setFastMode: enabled => window.omp.rpc.setFastMode(enabled),
@@ -255,6 +260,7 @@ export function CommandPalette() {
 					handoff: () => window.omp.rpc.handoff(),
 					prompt: message => window.omp.rpc.prompt(message),
 					setPlanMode: enabled => window.omp.rpc.setPlanMode(enabled),
+					setPrewalk: enabled => window.omp.rpc.setPrewalk(enabled),
 					exportHtml: path => window.omp.rpc.exportHtml(path),
 					setSessionName: name => window.omp.rpc.setSessionName(name),
 					cycleModel: () => window.omp.rpc.cycleModel(),
@@ -262,6 +268,7 @@ export function CommandPalette() {
 				},
 			}),
 		[
+			t,
 			isStreaming,
 			fastModeEnabled,
 			autoCompaction,
@@ -270,6 +277,7 @@ export function CommandPalette() {
 			followUpMode,
 			interruptMode,
 			planModeEnabled,
+			prewalkArmed,
 			availableCommands,
 			openModelPicker,
 			openSettings,
@@ -283,15 +291,17 @@ export function CommandPalette() {
 			openSessionTree,
 			openSessionInfo,
 			retryLastTurn,
+			retryTurn,
 			openModes,
 			openProviderConfig,
 			setPanelTab,
 			openModelCompare,
 			openAgentHub,
+			openHotkeys,
+			openImportDialog,
 			openThemePicker,
 			openInventory,
 			openExtensions,
-			forkSession,
 		],
 	);
 
@@ -532,7 +542,7 @@ export function CommandPalette() {
 							{Array.from(grouped.entries()).map(([category, items]) => (
 								<div key={category} className="mb-1">
 									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">
-										{CATEGORY_LABELS[category as CommandCategory]}
+										{t(`category.${category}`)}
 									</div>
 									{items.map(item => renderItem(item))}
 								</div>

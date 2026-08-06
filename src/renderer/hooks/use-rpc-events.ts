@@ -4,16 +4,24 @@ import {
 	type AgentMessage,
 	type AgentSessionEvent,
 	BLOCKING_UI_METHODS,
+	type CommandOutputFrame,
+	type ExtensionErrorFrame,
 	isThinkingLevel,
+	type PromptResultFrame,
 	type RpcGoalState,
+	type RpcLoopModeState,
 	type RpcSessionState,
+	type RpcVibeModeState,
+	type SessionInfoUpdateFrame,
 	type SubagentSnapshot,
 	type ThinkingLevel,
 } from "../../shared/rpc-types";
+import { normalizeLoopUpdate } from "../components/panels/ModesPanel";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { messageIdentityKey, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
 import { usePlanApprovalStore } from "../stores/plan-approval";
+import { useQueueStore } from "../stores/queue";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { useSubagentsStore } from "../stores/subagents";
@@ -193,6 +201,30 @@ async function syncGoal(): Promise<void> {
 	}
 }
 
+/** Fetch the live loop-mode state (get_loop_mode) into the session store; null on failure. */
+async function syncLoopMode(): Promise<void> {
+	try {
+		const res = await window.omp.rpc.getLoopMode();
+		if (!res.success) return;
+		// get_loop_mode wire payload is RpcLoopModeState; `data` crosses the bridge as unknown.
+		useSessionStore.setState({ loopMode: (res.data as RpcLoopModeState | undefined) ?? null });
+	} catch {
+		// Transient — the next loop_mode_update event or hydration retries.
+	}
+}
+
+/** Fetch the live vibe-mode state (get_vibe_mode) into the session store; no event exists. */
+async function syncVibeMode(): Promise<void> {
+	try {
+		const res = await window.omp.rpc.getVibeMode();
+		if (!res.success) return;
+		const data = res.data as RpcVibeModeState | undefined;
+		useSessionStore.setState({ vibeModeEnabled: data?.enabled === true });
+	} catch {
+		// Transient — the next hydration retries.
+	}
+}
+
 /** Reload every renderer store that belongs to the active sidecar session. */
 export async function hydrateSession(fallbackName?: string): Promise<void> {
 	// Capture before the fetch: messages the live stream appends while the
@@ -207,6 +239,14 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 		// composer chip reflects an active goal after boot/session switches,
 		// not only on goal_updated events.
 		syncGoal(),
+		// Loop and vibe mode likewise: loop_mode_update frames keep loop fresh
+		// afterwards; vibe emits nothing, so the Modes window mirrors toggles.
+		syncLoopMode(),
+		syncVibeMode(),
+		// Queue snapshot: queue_update frames keep it fresh afterwards;
+		// get_queue is only the hydrate fallback (boot/reconnect/session
+		// switch all land here). refresh() swallows its own failures.
+		useQueueStore.getState().refresh(),
 	]);
 
 	if (stateResult.status === "fulfilled" && stateResult.value.success && stateResult.value.data != null) {
@@ -438,6 +478,21 @@ export function useRpcEvents(): void {
 						useSessionStore.setState(goalPatchFromEvent(event.goal, event.state));
 						break;
 					}
+					case "loop_mode_update": {
+						// Loop state is passive display too — the composer chip and
+						// footer badge read it from the session store. Reuse the Modes
+						// window's normalizer: frames may arrive flat or nested.
+						const next = normalizeLoopUpdate(event);
+						if (next) useSessionStore.setState({ loopMode: next });
+						break;
+					}
+					case "queue_update": {
+						// Authoritative queue snapshot — fires on every queue mutation
+						// (enqueue, drain/consume, remove, move, clear), so the strip,
+						// panel, and pending bubbles never poll mid-run.
+						useQueueStore.getState().setFromFrame({ steering: event.steering, followUp: event.followUp });
+						break;
+					}
 					case "irc_message": {
 						// IRC messages are rendered in the subagent/notification feed
 						useToastStore.getState().push({
@@ -556,6 +611,37 @@ export function useRpcEvents(): void {
 			void useSettingsStore.getState().syncDisplaySettings();
 			void useSettingsStore.getState().syncApproval();
 		});
+		// Extension slash commands can settle locally after the prompt response
+		// has already resolved; prompt_result carries the deferred rehydrate signal.
+		const unsubPromptResult = window.omp.events.onPromptResult((frame: PromptResultFrame) => {
+			if (!frame.agentInvoked) void hydrateSession();
+		});
+		// Text-mode slash commands write outside the transcript. Surface their
+		// output as local custom messages instead of silently dropping the frame.
+		const unsubCommandOutput = window.omp.events.onCommandOutput((frame: CommandOutputFrame) => {
+			if (!frame.text) return;
+			useMessagesStore.getState().appendMessage({
+				role: "custom",
+				customType: "command",
+				content: [{ type: "text", text: frame.text }],
+				timestamp: Date.now(),
+			});
+		});
+
+		const unsubSessionInfo = window.omp.events.onSessionInfoUpdate((frame: SessionInfoUpdateFrame) => {
+			useSessionStore.setState(state => ({
+				sessionName: frame.title ?? state.sessionName,
+				sessionId: frame.sessionId ?? state.sessionId,
+			}));
+		});
+
+		const unsubExtensionError = window.omp.events.onExtensionError((frame: ExtensionErrorFrame) => {
+			useToastStore.getState().push({
+				variant: "error",
+				title: "Extension error",
+				message: `${frame.extensionPath} (${frame.event}): ${frame.error}`,
+			});
+		});
 
 		// Ask/extension-UI requests that block for input (ask tool, approvals,
 		// confirms, …) — notify when the window is unfocused.
@@ -575,7 +661,11 @@ export function useRpcEvents(): void {
 			unsubStatus();
 			unsubSubagent();
 			unsubConfig();
+			unsubPromptResult();
 			unsubExtensionUi();
+			unsubCommandOutput();
+			unsubSessionInfo();
+			unsubExtensionError();
 		};
 	}, []);
 }

@@ -7,20 +7,27 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import Store from "electron-store";
+import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../renderer/lib/launch-profile";
 import type {
 	AgentSessionEvent,
+	CommandOutputFrame,
 	ConfigUpdateFrame,
+	ExtensionErrorFrame,
 	ExtensionUIRequest,
 	HostToolCallRequest,
 	HostUriRequest,
 	OutboundFrame,
+	PromptResultFrame,
+	RpcLiveUpdateFrame,
 	RpcReadyFrame,
 	RpcResponse,
+	SessionInfoUpdateFrame,
 	SidecarStatus,
 	SubagentFrame,
 } from "../shared/rpc-types";
 import { EventBatcher } from "./event-batcher";
-import { attachNdjsonParser } from "./rpc-bridge";
+import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 
 const MAX_RESTART_ATTEMPTS = 3;
@@ -55,6 +62,7 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	goal_updated: true,
 	loop_mode_update: true,
 	plan_proposal: true,
+	queue_update: true,
 };
 
 export interface SidecarOptions {
@@ -72,6 +80,38 @@ export interface SidecarOptions {
 	 * result. Resolution failure degrades to no proxy env, never a spawn block.
 	 */
 	proxyEnv?: () => Promise<Record<string, string>>;
+	/**
+	 * Resolves the login-shell PATH overlay injected at spawn. Finder-launched
+	 * apps inherit launchd's bare PATH, so agent-spawned tools configured by
+	 * bare name (MCP servers, CLI helpers) die with ENOENT while the terminal
+	 * TUI works. Same point-of-use pattern as proxyEnv: called on every
+	 * start()/restart(), failure degrades to the inherited PATH.
+	 */
+	shellEnv?: () => Promise<Record<string, string>>;
+}
+
+/**
+ * Load the workspace's launch profile from GUI prefs (`launchProfiles.<cwd>`)
+ * and map it to agent CLI flags. Prefs access mirrors the 0.3.1 proxy-env
+ * pattern (point-of-use electron-store read); any failure — prefs unreadable,
+ * non-electron test env, malformed JSON — degrades to no flags, never a
+ * spawn block. Profile changes require a sidecar restart: flags are
+ * spawn-time argv, there is no live apply.
+ */
+function loadLaunchProfileFlags(cwd: string): string[] {
+	try {
+		// projectName is only a fallback for electron-less environments (tests):
+		// with the app present, electron-store's own userData cwd wins and the
+		// store matches index.ts/ipc.ts exactly. A pre-typed variable sidesteps
+		// the excess-property check — electron-store's Options type hides
+		// projectName, but its constructor passes it through to conf.
+		const storeOptions = { name: "prefs", projectName: "omp-gui" };
+		const profiles = new Store<{ launchProfiles?: Record<string, unknown> }>(storeOptions).get("launchProfiles");
+		if (typeof profiles !== "object" || profiles === null) return [];
+		return profileToFlags(parseLaunchProfile(profiles[cwd]));
+	} catch {
+		return [];
+	}
 }
 
 /** Resolve the bun executable for source-sidecar spawns (PATH fallback last). */
@@ -90,6 +130,7 @@ export interface SidecarEvents {
 	hostToolCall: (request: HostToolCallRequest) => void;
 	hostUriRequest: (request: HostUriRequest) => void;
 	subagentFrame: (frame: SubagentFrame) => void;
+	liveUpdate: (frame: RpcLiveUpdateFrame) => void;
 	commandsUpdate: (commands: unknown[]) => void;
 	frame: (frame: OutboundFrame) => void;
 }
@@ -104,6 +145,7 @@ export class SidecarManager extends EventEmitter {
 	#status: SidecarStatus = "starting";
 	#options: SidecarOptions;
 	#proxyEnvVars: Record<string, string> = {};
+	#shellEnvVars: Record<string, string> = {};
 	#resumeSessionPath: string | null = null;
 	#disposed = false;
 
@@ -137,17 +179,21 @@ export class SidecarManager extends EventEmitter {
 		}
 		this.#setStatus("starting");
 		const resolveProxyEnv = this.#options.proxyEnv;
-		if (!resolveProxyEnv) {
+		const resolveShellEnv = this.#options.shellEnv;
+		if (!resolveProxyEnv && !resolveShellEnv) {
 			this.#spawn();
 			return;
 		}
-		void resolveProxyEnv()
-			.catch(() => ({}) as Record<string, string>)
-			.then(env => {
-				if (this.#disposed) return;
-				this.#proxyEnvVars = env;
-				this.#spawn();
-			});
+		const fallback = () => ({}) as Record<string, string>;
+		void Promise.all([
+			resolveProxyEnv ? resolveProxyEnv().catch(fallback) : Promise.resolve({}),
+			resolveShellEnv ? resolveShellEnv().catch(fallback) : Promise.resolve({}),
+		]).then(([proxyEnv, shellEnv]) => {
+			if (this.#disposed) return;
+			this.#proxyEnvVars = proxyEnv;
+			this.#shellEnvVars = shellEnv;
+			this.#spawn();
+		});
 	}
 
 	#spawn(): void {
@@ -155,14 +201,19 @@ export class SidecarManager extends EventEmitter {
 
 		const args = ["--mode", "rpc-ui"];
 		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
-		if (extraFlags) args.push(...extraFlags);
+		// User-controllable flags ride the extraFlags seam + the launch profile.
+		// Strip the code-controlled-flag denylist (pair-aware) over BOTH, then
+		// append: neither can override the code-controlled argv above, while a
+		// profile value that merely looks like a protected flag survives intact.
+		const userFlags = [...(extraFlags ?? []), ...loadLaunchProfileFlags(cwd)];
+		args.push(...stripDenylistedFlags(userFlags));
 
 		// Source sidecar (monorepo dev): run the workspace coding-agent from
 		// source via bun so in-repo RPC fixes are live in the running GUI.
 		// Falls back to the installed binary when no workspace source exists.
 		const command = sourceCli ? resolveBunExe() : binaryPath;
 		const spawnArgs = sourceCli ? [sourceCli, ...args] : args;
-		console.log(`[sidecar] spawning: ${command} ${spawnArgs.join(" ")} (cwd: ${cwd})`);
+		console.log(`[sidecar] spawning ${sourceCli ? "source" : "bundled"} omp (${args.length} args, cwd: ${cwd})`);
 
 		let child: ChildProcess;
 		try {
@@ -170,6 +221,9 @@ export class SidecarManager extends EventEmitter {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
 					...process.env,
+					// Login-shell PATH first so the GUI proxy pref (and inherited
+					// proxy env) keeps precedence over rc-file proxy exports.
+					...this.#shellEnvVars,
 					...this.#proxyEnvVars,
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
@@ -289,6 +343,31 @@ export class SidecarManager extends EventEmitter {
 			this.emit("frame", obj);
 			return;
 		}
+		if (obj.type === "prompt_result") {
+			this.emit("promptResult", obj as unknown as PromptResultFrame);
+			this.emit("frame", obj);
+			return;
+		}
+		if (obj.type === "command_output") {
+			this.emit("commandOutput", obj as unknown as CommandOutputFrame);
+			this.emit("frame", obj);
+			return;
+		}
+		if (obj.type === "session_info_update") {
+			this.emit("sessionInfoUpdate", obj as unknown as SessionInfoUpdateFrame);
+			this.emit("frame", obj);
+			return;
+		}
+		if (obj.type === "extension_error") {
+			this.emit("extensionError", obj as unknown as ExtensionErrorFrame);
+			this.emit("frame", obj);
+			return;
+		}
+		if (obj.type === "live_update") {
+			this.emit("liveUpdate", obj as unknown as RpcLiveUpdateFrame);
+			this.emit("frame", obj);
+			return;
+		}
 
 		// Agent session events → batcher
 		if (AGENT_EVENT_TYPES[obj.type as string] === true) {
@@ -297,14 +376,15 @@ export class SidecarManager extends EventEmitter {
 			return;
 		}
 
-		// Other frames (prompt_result, command_output, etc.)
+		// Other extension/host frames not consumed directly by the renderer.
 		this.emit("frame", obj);
 	}
 
 	#handleReady(ready: RpcReadyFrame): void {
 		this.#resumeSessionPath = null;
-		// Negotiate protocol v2
-		if (ready.supportedProtocolVersions.includes(2)) {
+		// Stay on v1 when an older/malformed sidecar omits the negotiation fields
+		// or advertises limits this decoder cannot safely honor.
+		if (supportsRpcProtocolV2(ready)) {
 			this.#rpcClient
 				?.command({ type: "negotiate_protocol", protocolVersion: 2 })
 				.then(() => {
@@ -312,7 +392,6 @@ export class SidecarManager extends EventEmitter {
 					this.#restartCount = 0;
 				})
 				.catch(() => {
-					// v2 negotiation failed, stay on v1
 					this.#setStatus("ready");
 					this.#restartCount = 0;
 				});

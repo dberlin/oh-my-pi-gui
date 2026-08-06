@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { MarkdownRenderer } from "../../lib/markdown";
 import { useExtensionUiStore } from "../../stores/extension-ui";
 import { toast } from "../../stores/toast";
 import { Button, Input, Modal } from "../common";
@@ -302,6 +303,7 @@ function AskDialog({
 
 	const submit = () => {
 		onSubmit({
+			kind: "submit",
 			results: request.questions.map((question, index) => {
 				const answer = answers[index];
 				const custom = answer?.custom.trim() ?? "";
@@ -392,6 +394,16 @@ function AskDialog({
 									);
 								})}
 							</div>
+							{question.options
+								.filter(option => answer?.selected.has(option.label) && option.preview)
+								.map(option => (
+									<div
+										className="rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) px-2.5 py-2 text-[11px]"
+										key={`preview:${option.label}`}
+									>
+										<MarkdownRenderer content={option.preview!} />
+									</div>
+								))}
 							<Input
 								onChange={event => setCustom(questionIndex, event.target.value)}
 								placeholder={t("extDialog.ask.customPlaceholder")}
@@ -417,6 +429,9 @@ function AskDialog({
 					<div className="flex gap-2">
 						<Button onClick={onCancel} size="sm" type="button" variant="ghost">
 							{t("common.cancel")}
+						</Button>
+						<Button onClick={() => onSubmit({ kind: "chat" })} size="sm" type="button" variant="secondary">
+							{t("extDialog.ask.chat")}
 						</Button>
 						<Button size="sm" type="submit" variant="primary">
 							{t("extDialog.submit")}
@@ -624,8 +639,8 @@ export function ExtensionDialog() {
 	const request = useMemo(() => pending.find(req => !NON_DIALOG_METHODS.has(req.method)) ?? null, [pending]);
 	const remaining = useCountdown(request);
 
-	// Drop non-dialog requests that reached the queue, and fire toasts for
-	// `notify` as they arrive.
+	// Consume non-dialog requests in place. Editor/title mutations must target
+	// real GUI surfaces directly; dispatching listenerless events drops them.
 	useEffect(() => {
 		for (const req of pending) {
 			if (req.method === "notify") {
@@ -640,10 +655,10 @@ export function ExtensionDialog() {
 				}
 				removeRequest(req.id);
 			} else if (req.method === "set_editor_text") {
-				window.dispatchEvent(new CustomEvent("omp:set-editor-text", { detail: { text: req.text } }));
+				window.dispatchEvent(new CustomEvent("omp:fill-composer", { detail: { text: req.text } }));
 				removeRequest(req.id);
 			} else if (req.method === "setTitle") {
-				window.dispatchEvent(new CustomEvent("omp:set-title", { detail: { title: req.title } }));
+				document.title = req.title;
 				removeRequest(req.id);
 			} else if (NON_DIALOG_METHODS.has(req.method)) {
 				removeRequest(req.id);

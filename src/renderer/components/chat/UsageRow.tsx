@@ -1,5 +1,4 @@
 import { ArrowDown, ArrowUp, Clock, DollarSign, Zap } from "lucide-react";
-import type { AgentMessage } from "../../../shared/rpc-types";
 import { formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settings";
@@ -16,11 +15,25 @@ interface MessageUsage {
 }
 
 /**
+ * The usage slice UsageRow renders: a full finalized assistant message or the
+ * narrower ReadGroupUsage carried by a read-group card. AgentMessage satisfies
+ * it via its index signature; read-group.ts builds the slice directly.
+ */
+export interface UsageSource {
+	role?: string;
+	usage?: unknown;
+	model?: string;
+	duration?: number;
+	ttft?: number;
+	timestamp?: string | number;
+}
+
+/**
  * Narrow the pi-ai `usage` payload that rides on finalized assistant messages
  * (absent on other roles). Returns null when nothing billable was recorded —
  * aborted/errored turns carry an all-zero usage block not worth a row.
  */
-function readUsage(message: AgentMessage): MessageUsage | null {
+function readUsage(message: UsageSource): MessageUsage | null {
 	const usage = message.usage;
 	if (usage == null || typeof usage !== "object") return null;
 	const record = usage as Record<string, unknown>;
@@ -50,8 +63,10 @@ function formatCost(total: number): string {
  * Compact usage/cost footer under completed assistant messages (TUI
  * usage-row.ts parity): model, in/out tokens, cache reads, cost, wall-clock
  * duration, and throughput — only the segments the message actually carries.
+ * Accepts a full AgentMessage or the narrower usage slice carried by a read
+ * group card (read-group.ts ReadGroupUsage).
  */
-export function UsageRow({ message }: { message: AgentMessage }) {
+export function UsageRow({ message }: { message: UsageSource }) {
 	const t = useT();
 	// Honors the shared `display.showTokenUsage` setting (schema default off) —
 	// previously the GUI ignored it and always rendered usage.
@@ -63,8 +78,25 @@ export function UsageRow({ message }: { message: AgentMessage }) {
 
 	const model = typeof message.model === "string" ? message.model : "";
 	const durationMs = typeof message.duration === "number" && Number.isFinite(message.duration) ? message.duration : 0;
+	const ttftMs = typeof message.ttft === "number" && Number.isFinite(message.ttft) ? message.ttft : 0;
 	const totalInput = usage.input + usage.cacheWrite;
 	const tokPerSec = durationMs > MIN_DURATION_MS && usage.output > 0 ? (usage.output / durationMs) * 1000 : 0;
+	// Message time (TUI usage-row parity): the wire timestamp is an ISO string
+	// or epoch ms; render a compact HH:MM.
+	const timestampMs =
+		typeof message.timestamp === "number"
+			? message.timestamp
+			: typeof message.timestamp === "string"
+				? Date.parse(message.timestamp)
+				: Number.NaN;
+	const timeText = Number.isFinite(timestampMs)
+		? (() => {
+				const date = new Date(timestampMs);
+				const hours = String(date.getHours()).padStart(2, "0");
+				const minutes = String(date.getMinutes()).padStart(2, "0");
+				return `${hours}:${minutes}`;
+			})()
+		: "";
 
 	return (
 		<div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10.5px] tabular-nums text-[var(--omp-dim)]">
@@ -100,12 +132,14 @@ export function UsageRow({ message }: { message: AgentMessage }) {
 					{formatDuration(durationMs)}
 				</span>
 			)}
+			{ttftMs > 0 && <span title={t("chat.usage.ttft")}>TTFT {formatDuration(ttftMs)}</span>}
 			{tokPerSec > 0 && (
 				<span className="flex items-center gap-1" title={t("chat.usage.throughput")}>
 					<Zap size={10} />
 					{tokPerSec.toFixed(1)}/s
 				</span>
 			)}
+			{timeText && <span title={t("chat.usage.time")}>{timeText}</span>}
 		</div>
 	);
 }

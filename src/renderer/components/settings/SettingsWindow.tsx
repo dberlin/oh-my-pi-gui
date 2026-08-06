@@ -31,12 +31,16 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from "react-dom";
 import type { SettingEntry, SettingsSchemaResult, ThinkingLevel } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
+import { flagsToCommandLine, type LaunchProfile, parseLaunchProfile, profileToFlags } from "../../lib/launch-profile";
+import { setCodeLineNumbersPref } from "../../lib/markdown";
 import { applyThemeByName, getPersistedThemeSelection, THEMES, type ThemeName } from "../../lib/themes";
+import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
+import { CodeBlock } from "../chat/CodeBlock";
 import { Button, Input, LangSwitcher, Spinner, type TabItem, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { type EnumerableOption, EnumerableSelect } from "./editors/EnumerableSelect";
@@ -49,6 +53,18 @@ const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "hi
 
 type ApprovalMode = "always-ask" | "write" | "yolo";
 type LoadState = "loading" | "error" | "ready";
+
+/** Launch-profile text fields that commit on blur (checkboxes/chips apply immediately). */
+type LaunchTextField = "systemPrompt" | "appendSystemPrompt" | "profile" | "sessionDir" | "config";
+const LAUNCH_TEXT_FIELDS: readonly LaunchTextField[] = [
+	"systemPrompt",
+	"appendSystemPrompt",
+	"profile",
+	"sessionDir",
+	"config",
+];
+/** Prompt fields keep whitespace verbatim (the CLI takes the literal value); the rest trim. */
+const LAUNCH_VERBATIM_FIELDS: Record<string, true> = { systemPrompt: true, appendSystemPrompt: true };
 
 interface SettingsResponseData {
 	values?: Record<string, unknown>;
@@ -1077,6 +1093,22 @@ export function SettingsWindow() {
 	const [fontSizeDraft, setFontSizeDraft] = useState<string | null>(null);
 	const [proxyDraft, setProxyDraft] = useState<string | null>(null);
 	const [savedProxy, setSavedProxy] = useState("");
+	const [launchProfile, setLaunchProfile] = useState<LaunchProfile>({});
+	const [launchDrafts, setLaunchDrafts] = useState<Partial<Record<LaunchTextField, string>>>({});
+	const [launchRestarting, setLaunchRestarting] = useState(false);
+	const [codeLineNumbers, setCodeLineNumbers] = useState(false);
+	const cwd = useSessionStore(state => state.cwd);
+	// Never restart out from under a model run, compaction, or foreground
+	// composer execution. Bash/eval pending bubbles are the live execution
+	// signal and disappear only after their RPC settles.
+	const sessionBusy = useSessionStore(state => state.isStreaming || state.isCompacting);
+	const executionBusy = useMessagesStore(state =>
+		state.messages.some(
+			message =>
+				(message.role === "bashExecution" || message.role === "pythonExecution") && message.running === true,
+		),
+	);
+	const sidecarBusy = sessionBusy || executionBusy;
 	const [reloadToken, setReloadToken] = useState(0);
 	const [pendingCapability, setPendingCapability] = useState<"ttsr.enabled" | "advisor.enabled" | undefined>();
 	const [advisorActive, setAdvisorActive] = useState<boolean>();
@@ -1290,6 +1322,33 @@ export function SettingsWindow() {
 		};
 	}, [open]);
 
+	// Load this workspace's launch profile (prefs `launchProfiles.<cwd>`) and
+	// the codeLineNumbers pref each time the window opens or the workspace
+	// changes. In-progress blur-commit drafts are workspace-local — reset them.
+	useEffect(() => {
+		if (!open) return;
+		let cancelled = false;
+		setLaunchDrafts({});
+		void window.omp.prefs
+			.get("launchProfiles")
+			.then(raw => {
+				if (cancelled) return;
+				const map =
+					typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+				setLaunchProfile(parseLaunchProfile(map[cwd]));
+			})
+			.catch(() => {});
+		void window.omp.prefs
+			.get("codeLineNumbers")
+			.then(value => {
+				if (!cancelled) setCodeLineNumbers(value === true);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [open, cwd]);
+
 	// ── GUI-local preferences (prefs IPC) ──
 	// Route through applyThemeByName: it persists `themeName` (read FIRST at
 	// boot by getPersistedThemeSelection) and the legacy `theme` pref
@@ -1351,6 +1410,83 @@ export function SettingsWindow() {
 		void window.omp.sidecar.restart();
 		toast({ variant: "info", message: t("settings.gui.proxyApplied") });
 	};
+
+	// ── Launch profile (per-workspace, prefs `launchProfiles.<cwd>`) ──
+	// Write-through like the other GUI prefs: every committed change persists
+	// immediately (read-modify-write so other workspaces' profiles survive),
+	// so the effective-command preview is always truthful. The sidecar reads
+	// the profile at spawn — changes need a restart (note in the section).
+	const persistLaunchProfile = (next: LaunchProfile) => {
+		setLaunchProfile(next);
+		const cleaned = parseLaunchProfile(next);
+		void window.omp.prefs
+			.get("launchProfiles")
+			.then(raw => {
+				const map =
+					typeof raw === "object" && raw !== null && !Array.isArray(raw)
+						? { ...(raw as Record<string, unknown>) }
+						: {};
+				if (Object.keys(cleaned).length === 0) delete map[cwd];
+				else map[cwd] = cleaned;
+				void window.omp.prefs.set("launchProfiles", map);
+			})
+			.catch(() => {});
+	};
+	const updateLaunchProfile = (patch: Partial<LaunchProfile>) => persistLaunchProfile({ ...launchProfile, ...patch });
+	const commitLaunchField = (field: LaunchTextField) => {
+		const draft = launchDrafts[field];
+		if (draft === undefined) return;
+		setLaunchDrafts(prev => {
+			const next = { ...prev };
+			delete next[field];
+			return next;
+		});
+		const value = LAUNCH_VERBATIM_FIELDS[field] === true ? draft : draft.trim();
+		persistLaunchProfile({ ...launchProfile, [field]: value === "" ? undefined : value });
+	};
+	const pickLaunchAddDirs = async () => {
+		const picked = await window.omp.system.showOpenDialog([], { directory: true }).catch(() => null);
+		if (!picked || picked.length === 0) return;
+		const current = launchProfile.addDirs ?? [];
+		const merged = [...current];
+		for (const dir of picked) if (!merged.includes(dir)) merged.push(dir);
+		if (merged.length !== current.length) updateLaunchProfile({ addDirs: merged });
+	};
+	const restartForLaunchProfile = () => {
+		if (sidecarBusy || launchRestarting) return;
+		setLaunchRestarting(true);
+		// Preserve the current conversation: the respawned sidecar resumes the
+		// active session (--session) instead of starting a fresh one.
+		const { sessionFile } = useSessionStore.getState();
+		void window.omp.sidecar
+			.restart(sessionFile ?? undefined)
+			.then(() => {
+				toast({ variant: "info", message: t("settings.launch.restarting") });
+			})
+			.catch(() => {})
+			.finally(() => setLaunchRestarting(false));
+	};
+	const applyCodeLineNumbers = (next: boolean) => {
+		setCodeLineNumbers(next);
+		// Persists via prefs IPC and flips every mounted markdown code block live.
+		setCodeLineNumbersPref(next);
+	};
+
+	// Effective command line, refreshed live as fields change: in-progress
+	// blur-commit drafts win over persisted values so the preview shows exactly
+	// what will run on the next sidecar start.
+	const launchPreview = useMemo(() => {
+		const effective: LaunchProfile = { ...launchProfile };
+		for (const field of LAUNCH_TEXT_FIELDS) {
+			const draft = launchDrafts[field];
+			if (draft === undefined) continue;
+			const value = LAUNCH_VERBATIM_FIELDS[field] === true ? draft : draft.trim();
+			if (value === "") delete effective[field];
+			else effective[field] = value;
+		}
+		const suffix = flagsToCommandLine(profileToFlags(effective));
+		return suffix === "" ? "omp --mode rpc-ui" : `omp --mode rpc-ui ${suffix}`;
+	}, [launchProfile, launchDrafts]);
 
 	const isSchemaTab = schema?.tabs.some(schemaTab => schemaTab.id === tab) === true;
 
@@ -1767,6 +1903,14 @@ export function SettingsWindow() {
 												value={transcriptDetail}
 											/>
 										</Section>
+										<Section title={t("codeblock.title")}>
+											<Toggle
+												checked={codeLineNumbers}
+												description={t("codeblock.lineNumbersDesc")}
+												label={t("codeblock.lineNumbers")}
+												onChange={applyCodeLineNumbers}
+											/>
+										</Section>
 										<Section title={t("settings.gui.proxy")}>
 											<Input
 												onBlur={commitProxy}
@@ -1806,6 +1950,181 @@ export function SettingsWindow() {
 											<p className="mt-2 text-[11px] text-(--omp-muted)">
 												{t("settings.gui.approval.note")}
 											</p>
+										</Section>
+										<Section title={t("settings.launch.title")}>
+											<div className="space-y-3">
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.systemPrompt")}
+													</span>
+													<TextArea
+														mono
+														onBlur={() => commitLaunchField("systemPrompt")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({ ...prev, systemPrompt: event.target.value }))
+														}
+														placeholder={t("settings.launch.systemPromptPlaceholder")}
+														rows={4}
+														spellCheck={false}
+														value={launchDrafts.systemPrompt ?? launchProfile.systemPrompt ?? ""}
+													/>
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.appendSystemPrompt")}
+													</span>
+													<TextArea
+														mono
+														onBlur={() => commitLaunchField("appendSystemPrompt")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({
+																...prev,
+																appendSystemPrompt: event.target.value,
+															}))
+														}
+														placeholder={t("settings.launch.appendSystemPromptPlaceholder")}
+														rows={4}
+														spellCheck={false}
+														value={
+															launchDrafts.appendSystemPrompt ?? launchProfile.appendSystemPrompt ?? ""
+														}
+													/>
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.addDirs")}
+													</span>
+													<ArrayChipEditor
+														onCommit={dirs => updateLaunchProfile({ addDirs: dirs })}
+														placeholder={t("settings.launch.addDirsPlaceholder")}
+														values={launchProfile.addDirs ?? []}
+													/>
+													<div className="mt-1.5">
+														<Button
+															onClick={() => void pickLaunchAddDirs()}
+															size="sm"
+															type="button"
+															variant="secondary"
+														>
+															{t("settings.launch.addDirPick")}
+														</Button>
+													</div>
+													<p className="mt-1.5 text-[11px] text-(--omp-muted)">
+														{t("settings.launch.addDirsDesc")}
+													</p>
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.tools")}
+													</span>
+													<ArrayChipEditor
+														onCommit={tools => updateLaunchProfile({ tools })}
+														values={launchProfile.tools ?? []}
+													/>
+													<p className="mt-1.5 text-[11px] text-(--omp-muted)">
+														{t("settings.launch.toolsDesc")}
+													</p>
+												</div>
+												<Toggle
+													checked={launchProfile.noRules === true}
+													description={t("settings.launch.noRulesDesc")}
+													label={t("settings.launch.noRules")}
+													onChange={value => updateLaunchProfile({ noRules: value })}
+												/>
+												<Toggle
+													checked={launchProfile.noLsp === true}
+													description={t("settings.launch.noLspDesc")}
+													label={t("settings.launch.noLsp")}
+													onChange={value => updateLaunchProfile({ noLsp: value })}
+												/>
+												<Toggle
+													checked={launchProfile.planYolo === true}
+													description={t("settings.launch.planYoloDesc")}
+													label={t("settings.launch.planYolo")}
+													onChange={value => updateLaunchProfile({ planYolo: value })}
+												/>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.profile")}
+													</span>
+													<Input
+														onBlur={() => commitLaunchField("profile")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({ ...prev, profile: event.target.value }))
+														}
+														onKeyDown={event => {
+															if (event.key === "Enter") event.currentTarget.blur();
+														}}
+														placeholder={t("settings.launch.profilePlaceholder")}
+														spellCheck={false}
+														value={launchDrafts.profile ?? launchProfile.profile ?? ""}
+													/>
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.sessionDir")}
+													</span>
+													<Input
+														onBlur={() => commitLaunchField("sessionDir")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({ ...prev, sessionDir: event.target.value }))
+														}
+														onKeyDown={event => {
+															if (event.key === "Enter") event.currentTarget.blur();
+														}}
+														placeholder={t("settings.launch.sessionDirPlaceholder")}
+														spellCheck={false}
+														value={launchDrafts.sessionDir ?? launchProfile.sessionDir ?? ""}
+													/>
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.config")}
+													</span>
+													<Input
+														onBlur={() => commitLaunchField("config")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({ ...prev, config: event.target.value }))
+														}
+														onKeyDown={event => {
+															if (event.key === "Enter") event.currentTarget.blur();
+														}}
+														placeholder={t("settings.launch.configPlaceholder")}
+														spellCheck={false}
+														value={launchDrafts.config ?? launchProfile.config ?? ""}
+													/>
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.preview")}
+													</span>
+													<CodeBlock
+														code={launchPreview}
+														language="bash"
+														showCopy={false}
+														showLineNumbers={false}
+													/>
+												</div>
+												<div className="flex items-center gap-3 rounded-md border border-[var(--omp-warning)]/40 px-3 py-2">
+													<span className="min-w-0 flex-1 text-[11px] text-[var(--omp-warning)]">
+														{t("settings.launch.restartNote")}
+													</span>
+													<Button
+														disabled={sidecarBusy || launchRestarting}
+														onClick={restartForLaunchProfile}
+														size="sm"
+														type="button"
+														variant="secondary"
+													>
+														{launchRestarting
+															? t("settings.launch.restarting")
+															: t("settings.launch.restartNow")}
+													</Button>
+												</div>
+												{sidecarBusy && (
+													<p className="text-[11px] text-(--omp-muted)">{t("settings.launch.busyHint")}</p>
+												)}
+											</div>
 										</Section>
 									</>
 								)}

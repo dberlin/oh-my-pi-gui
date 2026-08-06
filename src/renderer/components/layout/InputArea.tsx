@@ -4,10 +4,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FsTreeEntry } from "../../../shared/ipc-types";
 import type { AgentMessage, AvailableCommand, ImageContent } from "../../../shared/rpc-types";
 import { hydrateSession } from "../../hooks/use-rpc-events";
-import { planComposerSubmit, settleComposerResponse } from "../../lib/composer-submit";
+import { isGuiOnlyBuiltinCommand, planComposerSubmit, settleComposerResponse } from "../../lib/composer-submit";
+import { expandEmoticons, getEmojiSuggestions, tryEmojiInlineReplace } from "../../lib/emoji";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { parseComposerMode } from "../../lib/input-modes";
+import { clearSessionContext } from "../../lib/messages";
+import {
+	clearPastes,
+	expandPasteMarkers,
+	isMarkerSized,
+	pasteMarkerText,
+	shouldOfferPasteMenu,
+	storePaste,
+	wrapPasteInAttachmentBlock,
+} from "../../lib/paste-blobs";
+import { parseQueueShorthand, splitQueuedMessages } from "../../lib/queue-input";
 import {
 	cancelVoiceRecording,
 	evaluateSttSubmitTrigger,
@@ -22,24 +34,33 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
+import { ActivityStrip } from "../chat/ActivityStrip";
 import { ApprovalControl } from "./ApprovalControl";
 import { ComposerModes } from "./ComposerModes";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { ThinkingControl } from "./ThinkingControl";
+
+interface CompletionItem {
+	value: string;
+	label: string;
+	description?: string;
+	hint?: string;
+}
+
+/** Completion menu state: the winning provider's items + replace range. */
+interface CompletionMenu {
+	source: "slash-arg" | "github-ref" | "command" | "mention" | "emoji";
+	rangeStart: number;
+	rangeEnd: number;
+	items: CompletionItem[];
+	index: number;
+}
 
 type SendMode = "prompt" | "steer" | "followUp";
 
 interface PastedImage {
 	content: ImageContent;
 	preview: string;
-}
-
-interface MentionEntry {
-	/** Unique key + display source (file path or scheme). */
-	path: string;
-	label: string;
-	/** Text inserted into the composer when the entry is chosen. */
-	insert: string;
 }
 
 const MAX_MENU_ITEMS = 8;
@@ -143,17 +164,22 @@ export function InputArea() {
 	const openModelPicker = useUiStore(s => s.openModelPicker);
 	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
 	const sttEnabled = useSettingsStore(s => s.sttEnabled);
+	/** Agent `paste.largeMenuThreshold` setting: line count that triggers the paste menu. */
+	const pasteMenuThreshold = useSettingsStore(s => s.pasteMenuThreshold);
+	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
+	const emojiAutocomplete = useSettingsStore(s => s.emojiAutocomplete);
 
 	const [text, setText] = useState("");
 	const [images, setImages] = useState<PastedImage[]>([]);
 	const [mode, setMode] = useState<SendMode>("prompt");
-	const [menu, setMenu] = useState<{ kind: "command" | "mention"; index: number } | null>(null);
+	const [menu, setMenu] = useState<CompletionMenu | null>(null);
 	const [commands, setCommands] = useState<AvailableCommand[]>([]);
 	const [sending, setSending] = useState(false);
-	const [mentions, setMentions] = useState<MentionEntry[]>([]);
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
 	const [recording, setRecording] = useState(false);
+	/** Pending large-paste choice: the paste already happened, this picks the form. */
+	const [pasteMenu, setPasteMenu] = useState<{ content: string; lineCount: number } | null>(null);
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +210,43 @@ export function InputArea() {
 				? "var(--omp-warning)"
 				: undefined;
 
+	// `->` / `=>` yield-queue shorthand (TUI queue-input.ts parity). The badge
+	// preview and the send-path dispatch share this one parser so the "splits
+	// into N" promise always matches what actually gets queued.
+	const queueBody = useMemo(() => parseQueueShorthand(text), [text]);
+	const queueSplitCount = useMemo(() => {
+		if (queueBody === undefined || queueBody.length === 0) return 0;
+		const items = splitQueuedMessages(queueBody);
+		return items.length > 1 ? items.length : 0;
+	}, [queueBody]);
+
+	// Contextual argument hint (TUI ghost-text parity): the command's usage
+	// hint, or the unique-matching subcommand's remainder + usage. Rendered as
+	// a dim row under the textarea — an inline-after-cursor ghost needs
+	// pixel-aligned overlay metrics that break with auto-grow/IME (same
+	// tradeoff as the queue highlight).
+	const argHint = useMemo(() => {
+		if (menu || !text.startsWith("/")) return "";
+		const cursor = textareaRef.current?.selectionStart ?? text.length;
+		if (cursor !== text.length) return "";
+		const match = /^\/([a-z-]+)(?:\s(\S*))?$/i.exec(text);
+		if (!match) return "";
+		const name = (match[1] ?? "").toLowerCase();
+		const command = commands.find(
+			candidate =>
+				candidate.name.toLowerCase() === name || candidate.aliases?.some(alias => alias.toLowerCase() === name),
+		);
+		if (!command) return "";
+		const argPrefix = match[2] ?? "";
+		if (argPrefix === "") return command.input?.hint ?? "";
+		if (command.subcommands?.length) {
+			const lower = argPrefix.toLowerCase();
+			const sub = command.subcommands.find(candidate => candidate.name.startsWith(lower));
+			if (sub) return [sub.name.slice(lower.length), sub.usage].filter(Boolean).join(" ");
+		}
+		return "";
+	}, [text, menu, commands]);
+
 	// Keep slash commands current across sidecar startup and extension reloads.
 	useEffect(() => {
 		let cancelled = false;
@@ -212,24 +275,134 @@ export function InputArea() {
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 	}, [text]);
 
-	// Derive menu state from the draft text around the caret.
+	// Derive the completion menu from the draft around the caret. Provider
+	// chain (TUI getSuggestions order): slash-arg → github-ref → slash names →
+	// @mention → emoji. First provider with items wins; async providers (emoji
+	// buckets, dynamic arg RPC) resolve through a cancel token + debounce.
 	useEffect(() => {
 		const el = textareaRef.current;
 		if (!el) {
 			setMenu(null);
 			return;
 		}
-		const before = text.slice(0, el.selectionStart ?? text.length);
-		if (/(^|\s)\/([a-z-]*)$/i.test(before)) {
-			setMentions([]);
-			setMenu({ kind: "command", index: 0 });
-			return;
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const cursor = el.selectionStart ?? text.length;
+		const before = text.slice(0, cursor);
+		const apply = (result: Omit<CompletionMenu, "index" | "rangeEnd"> | null) => {
+			if (cancelled) return;
+			setMenu(result && result.items.length > 0 ? { ...result, rangeEnd: cursor, index: 0 } : null);
+		};
+
+		// 1. Slash-command ARGUMENTS: "/cmd <args>" with the slash at buffer start.
+		const argMatch = /^\/([a-z-]+)\s(.+)$/i.exec(before);
+		if (argMatch) {
+			const name = (argMatch[1] ?? "").toLowerCase();
+			const command = commands.find(
+				candidate =>
+					candidate.name.toLowerCase() === name || candidate.aliases?.some(alias => alias.toLowerCase() === name),
+			);
+			if (command && command.allowArgs === false) {
+				apply(null); // args not accepted — hard close (TUI parity)
+				return () => {
+					cancelled = true;
+				};
+			}
+			if (command) {
+				const argPrefix = argMatch[2] ?? "";
+				const rangeStart = cursor - argPrefix.length;
+				if (!argPrefix.includes(" ")) {
+					// Still typing the subcommand (or a one-word arg): static list first.
+					if (command.subcommands?.length) {
+						const lower = argPrefix.toLowerCase();
+						const items = command.subcommands
+							.filter(sub => sub.name.startsWith(lower))
+							.map(sub => ({
+								value: `${sub.name} `,
+								label: sub.name,
+								description: sub.description,
+								hint: sub.usage,
+							}));
+						if (items.length > 0) {
+							apply({ source: "slash-arg", rangeStart, items });
+							return () => {
+								cancelled = true;
+							};
+						}
+					}
+				}
+				if (command.hasDynamicArgCompletion) {
+					timer = setTimeout(() => {
+						void window.omp.rpc.getCommandArgCompletions(command.name, argPrefix).then(response => {
+							if (!response.success) {
+								apply(null);
+								return;
+							}
+							const data = response.data as { items?: CompletionItem[] } | undefined;
+							apply(data?.items?.length ? { source: "slash-arg", rangeStart, items: data.items } : null);
+						});
+					}, 120);
+					return () => {
+						cancelled = true;
+						clearTimeout(timer);
+					};
+				}
+				apply(null);
+				return () => {
+					cancelled = true;
+				};
+			}
 		}
+
+		// 2. GitHub #ref: standalone #<positive-int> at a token boundary (no network).
+		const refMatch = /(?:^|[\s"'`(<=])(?:(pr|pull|issue)(\s+))?#([1-9]\d*)$/i.exec(before);
+		if (refMatch) {
+			const qualifier = refMatch[1]?.toLowerCase();
+			const number = refMatch[3] ?? "";
+			const rangeStart = cursor - number.length - 1; // include the '#'
+			const items =
+				qualifier === "pr" || qualifier === "pull"
+					? [{ value: `pr://${number} `, label: `pr://${number}` }]
+					: qualifier === "issue"
+						? [{ value: `issue://${number} `, label: `issue://${number}` }]
+						: [
+								{ value: `pr://${number} `, label: `pr://${number}`, description: "pull request" },
+								{ value: `issue://${number} `, label: `issue://${number}`, description: "issue" },
+							];
+			apply({ source: "github-ref", rangeStart, items });
+			return () => {
+				cancelled = true;
+			};
+		}
+
+		// 3. Slash command NAMES at a word boundary.
+		const cmdMatch = /(^|\s)\/([a-z-]*)$/i.exec(before);
+		if (cmdMatch) {
+			const query = (cmdMatch[2] ?? "").toLowerCase();
+			const items = commands
+				.filter(
+					command =>
+						!query ||
+						command.name.toLowerCase().includes(query) ||
+						command.aliases?.some(alias => alias.toLowerCase().includes(query)),
+				)
+				.slice(0, MAX_MENU_ITEMS)
+				.map(command => ({
+					value: `/${command.name} `,
+					label: `/${command.name}`,
+					description: command.description,
+				}));
+			apply({ source: "command", rangeStart: cursor - query.length - 1, items });
+			return () => {
+				cancelled = true;
+			};
+		}
+
+		// 4. @ mention: workspace files (fuzzy) above internal URL schemes.
 		const mentionMatch = /(^|\s)@([\w./-]*)$/.exec(before);
 		if (mentionMatch) {
-			const q = mentionMatch[2];
-			const entries: MentionEntry[] = [];
-			// Workspace files first: subsequence fuzzy match, density-ranked, capped.
+			const q = mentionMatch[2] ?? "";
+			const items: CompletionItem[] = [];
 			const scored: { path: string; score: number }[] = [];
 			for (const path of filePaths) {
 				const score = fuzzyScore(q, path);
@@ -237,20 +410,37 @@ export function InputArea() {
 			}
 			scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
 			for (const { path } of scored.slice(0, MAX_MENTION_FILE_ITEMS)) {
-				entries.push({ path, label: path, insert: `@${path} ` });
+				items.push({ value: `@${path} `, label: path });
 			}
-			// Internal URL schemes below the file results.
 			const lowerQuery = q.toLowerCase();
 			for (const scheme of MENTION_SCHEMES) {
-				if (scheme.toLowerCase().includes(lowerQuery))
-					entries.push({ path: scheme, label: scheme, insert: scheme });
+				if (scheme.toLowerCase().includes(lowerQuery)) items.push({ value: scheme, label: scheme });
 			}
-			setMentions(entries);
-			setMenu(entries.length > 0 ? { kind: "mention", index: 0 } : null);
-			return;
+			apply({ source: "mention", rangeStart: cursor - q.length - 1, items });
+			return () => {
+				cancelled = true;
+			};
 		}
-		setMenu(null);
-	}, [text, filePaths]);
+
+		// 5. Emoji (async; the bucket JSON lazy-loads on first trigger).
+		if (emojiAutocomplete) {
+			void getEmojiSuggestions(before).then(result => {
+				if (!result) {
+					apply(null);
+					return;
+				}
+				apply({ source: "emoji", rangeStart: cursor - result.prefix.length, items: result.items });
+			});
+			return () => {
+				cancelled = true;
+			};
+		}
+
+		apply(null);
+		return () => {
+			cancelled = true;
+		};
+	}, [text, filePaths, commands, emojiAutocomplete]);
 
 	// Reset the mention file list when the session cwd changes (cache is per-cwd).
 	useEffect(() => {
@@ -286,10 +476,14 @@ export function InputArea() {
 
 	useEffect(() => {
 		const fillComposer = (event: Event) => {
-			const detail = (event as CustomEvent<{ text?: string; images?: ImageContent[]; prepend?: boolean }>).detail;
+			const detail = (
+				event as CustomEvent<{ text?: string; images?: ImageContent[]; prepend?: boolean; clearPastes?: boolean }>
+			).detail;
 			const next = detail?.text;
 			const restoredImages = detail?.images ?? [];
 			if (!next && restoredImages.length === 0) return;
+			// The editor dialog writes back fully-inline text — consume the blobs.
+			if (detail?.clearPastes) clearPastes();
 			// prepend (dequeue restore): queued text goes ahead of any draft, TUI-style;
 			// otherwise replace (starter cards, history recall).
 			setText(current => {
@@ -316,47 +510,106 @@ export function InputArea() {
 		return () => window.removeEventListener("omp:fill-composer", fillComposer);
 	}, []);
 
-	const filteredCommands = useMemo(() => {
-		if (menu?.kind !== "command") return [];
-		const match = /(?:^|\s)\/([a-z-]*)$/i.exec(text.slice(0, textareaRef.current?.selectionStart ?? text.length));
-		const query = match?.[1]?.toLowerCase() ?? "";
-		return commands
-			.filter(command => {
-				if (!query) return true;
-				return (
-					command.name.toLowerCase().includes(query) ||
-					command.aliases?.some(alias => alias.toLowerCase().includes(query))
-				);
-			})
-			.slice(0, MAX_MENU_ITEMS);
-	}, [commands, menu?.kind, text]);
-
 	const insertCompletion = useCallback(
-		(insert: string) => {
+		(item: CompletionItem) => {
 			const el = textareaRef.current;
-			if (!el) return;
+			if (!el || !menu) return;
 			const pos = el.selectionStart ?? text.length;
-			const before = text.slice(0, pos);
-			const after = text.slice(pos);
-			const replaced = before.replace(/(?:^|\s)[@/][\w./-]*$/, m => {
-				const lead = m.startsWith(" ") ? " " : "";
-				return `${lead}${insert}`;
-			});
-			setText(`${replaced}${after}`);
+			if (pos !== menu.rangeEnd) {
+				setMenu(null);
+				return;
+			}
+			const replaced = `${text.slice(0, menu.rangeStart)}${item.value}${text.slice(pos)}`;
+			setText(replaced);
 			setMenu(null);
 			requestAnimationFrame(() => {
 				el.focus();
-				const newPos = replaced.length;
+				const newPos = menu.rangeStart + item.value.length;
 				el.setSelectionRange(newPos, newPos);
+			});
+		},
+		[text, menu],
+	);
+
+	// Collapse a large paste into a `[Paste #N]` marker with the blob held in
+	// memory; the marker expands back to full content at submit time (TUI
+	// editor.ts parity). Inserted at the caret, replacing any selection.
+	const insertPasteBlob = useCallback(
+		(content: string) => {
+			const blob = storePaste(content);
+			const marker = pasteMarkerText(blob.id, blob.content);
+			const el = textareaRef.current;
+			const start = el?.selectionStart ?? text.length;
+			const end = el?.selectionEnd ?? start;
+			setText(current => `${current.slice(0, start)}${marker}${current.slice(end)}`);
+			requestAnimationFrame(() => {
+				const target = textareaRef.current;
+				if (!target) return;
+				target.focus();
+				const caret = start + marker.length;
+				target.setSelectionRange(caret, caret);
 			});
 		},
 		[text],
 	);
 
+	// Paste menu actions — the paste always inserts something; the menu only
+	// picks the form. Keep side effects outside state updaters: React may replay
+	// updater functions, which must never duplicate a paste or an RPC write.
+	const choosePasteInline = useCallback(() => {
+		if (!pasteMenu) return;
+		insertPasteBlob(pasteMenu.content);
+		setPasteMenu(null);
+	}, [insertPasteBlob, pasteMenu]);
+
+	const choosePasteWrapped = useCallback(() => {
+		if (!pasteMenu) return;
+		insertPasteBlob(wrapPasteInAttachmentBlock(pasteMenu.content));
+		setPasteMenu(null);
+	}, [insertPasteBlob, pasteMenu]);
+
+	// Save-as-file: the agent writes the blob into the session's local:// store
+	// (counter allocated agent-side so two windows can never collide) and the
+	// composer gets the returned literal reference. Any protocol or transport
+	// failure falls back to the inline marker, so clipboard content is not lost.
+	const choosePasteSaveFile = useCallback(() => {
+		if (!pasteMenu) return;
+		const pendingPaste = pasteMenu;
+		setPasteMenu(null);
+		void (async () => {
+			try {
+				const response = await window.omp.rpc.writeLocalPaste(pendingPaste.content);
+				if (!response.success) throw new Error(response.error);
+				const data = response.data as { url?: string } | undefined;
+				if (!data?.url) throw new Error("write_local_paste returned no URL");
+				const el = textareaRef.current;
+				const start = el?.selectionStart ?? text.length;
+				const end = el?.selectionEnd ?? start;
+				const insert = `${data.url} `;
+				setText(currentText => `${currentText.slice(0, start)}${insert}${currentText.slice(end)}`);
+				requestAnimationFrame(() => {
+					const target = textareaRef.current;
+					if (!target) return;
+					target.focus();
+					const caret = start + insert.length;
+					target.setSelectionRange(caret, caret);
+				});
+			} catch (cause) {
+				toast({
+					variant: "error",
+					title: t("input.paste.saveFailed"),
+					message: cause instanceof Error ? cause.message : String(cause),
+				});
+				insertPasteBlob(pendingPaste.content);
+			}
+		})();
+	}, [insertPasteBlob, pasteMenu, text, t]);
+
 	const send = useCallback(
 		// `overrideText` sends a freshly computed value (voice dictation submit
 		// trigger) instead of the rendered `text` state, which lags a setText.
-		(overrideText?: string) => {
+		// `forceMode` overrides the steer/followUp toggle for one send (⌃Enter).
+		(overrideText?: string, forceMode?: SendMode) => {
 			const message = (overrideText ?? text).trim();
 			if ((!message && images.length === 0) || sending) return;
 			if (status !== "ready") {
@@ -364,13 +617,32 @@ export function InputArea() {
 				return;
 			}
 
-			const parsed = parseComposerMode(message);
+			// Paste markers expand to full blob content BEFORE mode/queue parsing and
+			// every dispatch path (bash, python, prompt, queue items) — the wire only
+			// ever sees expanded text (TUI getExpandedText parity, regression #3737).
+			// History records the raw typed text (markers included), matching the TUI.
+			// Emoticon expansion also runs at submit time over the whole message
+			// (input-controller.ts:617 — Enter without a trailing space after `:)`).
+			const expandedMessage = emojiAutocomplete
+				? expandEmoticons(expandPasteMarkers(message))
+				: expandPasteMarkers(message);
+
+			const parsed = parseComposerMode(expandedMessage);
 			if (parsed?.mode === "bash" && parsed.body) {
 				useInputHistoryStore.getState().record(message);
 				setSending(true);
+				const pending: AgentMessage = {
+					role: "bashExecution",
+					command: parsed.body,
+					excludeFromContext: parsed.excluded,
+					timestamp: Date.now(),
+					running: true,
+				};
+				useMessagesStore.getState().appendMessage(pending);
 				void window.omp.rpc
-					.bash(parsed.body)
+					.bash(parsed.body, parsed.excluded)
 					.then(async response => {
+						useMessagesStore.getState().removeMessage(pending);
 						if (!response.success) {
 							toast({ variant: "error", title: t("input.bashFailed"), message: response.error });
 							return;
@@ -378,9 +650,11 @@ export function InputArea() {
 						setText("");
 						setImages([]);
 						setMenu(null);
+						clearPastes();
 						await hydrateSession();
 					})
 					.catch(error => {
+						useMessagesStore.getState().removeMessage(pending);
 						toast({ variant: "error", title: t("input.bashFailed"), message: String(error) });
 					})
 					.finally(() => setSending(false));
@@ -412,6 +686,7 @@ export function InputArea() {
 						setText("");
 						setImages([]);
 						setMenu(null);
+						clearPastes();
 						await hydrateSession();
 					})
 					.catch(error => {
@@ -422,6 +697,86 @@ export function InputArea() {
 				return;
 			}
 
+			// `->` / `=>` yield-queue shorthand (TUI #queueForYield parity): split an
+			// enumerated list into one queue entry per item; first item prompts with
+			// streamingBehavior:"followUp" when idle, everything else followUps;
+			// images ride on the first item only.
+			const queueBody = parseQueueShorthand(expandedMessage);
+			if (queueBody !== undefined) {
+				const payload = images.map(image => image.content);
+				const items = splitQueuedMessages(queueBody);
+				// Bare prefix + no images hits the usage warning, it does NOT enqueue
+				// (input-controller.ts:1186-1190). Images alone queue a single empty item.
+				if (items.length === 0 && payload.length === 0) {
+					toast({ variant: "warning", message: t("input.queue.usage") });
+					return;
+				}
+				useInputHistoryStore.getState().record(message);
+				const previousImages = images;
+				setText("");
+				setImages([]);
+				setMenu(null);
+				const dispatchItems = items.length > 0 ? items : [""];
+				if (dispatchItems.some(item => isGuiOnlyBuiltinCommand(item, commands))) {
+					setText(message);
+					setImages(previousImages);
+					toast({ variant: "warning", message: t("input.queue.guiCommand") });
+					return;
+				}
+				const startImmediately = !isStreaming && queuedMessageCount === 0;
+				// session.followUp throws on extension-command text (agent-session.ts:5508-5510),
+				// so those items go through prompt, whose slash chain executes them.
+				const extensionCommandNames = new Set(
+					commands.filter(command => command.source === "extension").map(command => command.name),
+				);
+				void (async () => {
+					let sent = 0;
+					try {
+						for (let index = 0; index < dispatchItems.length; index++) {
+							const item = dispatchItems[index] ?? "";
+							const itemImages = index === 0 ? payload : undefined;
+							const isExtensionCommand =
+								item.startsWith("/") && extensionCommandNames.has(/^\/([a-z0-9-]+)/i.exec(item)?.[1] ?? "");
+							const response =
+								startImmediately && index === 0
+									? await window.omp.rpc.prompt(item, itemImages, "followUp")
+									: isExtensionCommand
+										? await window.omp.rpc.prompt(item, itemImages)
+										: await window.omp.rpc.followUp(item, itemImages);
+							if (!response.success) throw new Error(response.error ?? "queue dispatch failed");
+							sent += 1;
+						}
+						clearPastes();
+					} catch (error) {
+						if (sent === 0) {
+							// Zero items sent: restore the original draft (markers) and images.
+							setText(current => (current ? `${message}\n${current}` : message));
+							setImages(current => [...previousImages, ...current]);
+						} else {
+							// Partial failure: restore the remainder in the exact shorthand
+							// shape the parser can consume again. Continuation indentation
+							// prevents marker-looking lines inside one item from splitting.
+							const remaining = dispatchItems.slice(sent);
+							setText(
+								remaining.length === 1
+									? `=> ${remaining[0]}`
+									: `=>\n${remaining
+											.map((item, index) => `${index + 1}. ${item.replaceAll("\n", "\n   ")}`)
+											.join("\n")}`,
+							);
+							clearPastes();
+						}
+						toast({
+							variant: "error",
+							title: t("input.sendFailed"),
+							message:
+								sent > 0 ? t("input.queue.partial", { sent, total: dispatchItems.length }) : String(error),
+						});
+					}
+				})();
+				return;
+			}
+
 			useInputHistoryStore.getState().record(message);
 
 			// Routing/guarding/hydration policy lives in lib/composer-submit:
@@ -429,8 +784,38 @@ export function InputArea() {
 			// while streaming), session-replacing commands are blocked while
 			// busy, and local-only resolutions rehydrate the transcript.
 			const payload = images.map(image => image.content);
-			const submit = planComposerSubmit({ message, images: payload, isStreaming, mode });
+			const submit = planComposerSubmit({
+				message: expandedMessage,
+				images: payload,
+				isStreaming,
+				mode: forceMode ?? mode,
+				commands,
+			});
 			if (submit.kind === "blocked") return;
+			if (submit.kind === "handled") {
+				setText("");
+				setImages([]);
+				setMenu(null);
+				clearPastes();
+				return;
+			}
+			// Native /clear: drop context in place via clear_context RPC; the draft
+			// is restored when the server refuses (busy).
+			if (submit.kind === "clear") {
+				const previousImages = images;
+				setText("");
+				setImages([]);
+				setMenu(null);
+				void clearSessionContext().then(cleared => {
+					if (cleared) {
+						clearPastes();
+						return;
+					}
+					setText(current => (current ? `${message}\n${current}` : message));
+					setImages(current => [...previousImages, ...current]);
+				});
+				return;
+			}
 			const previousImages = images;
 			setText("");
 			setImages([]);
@@ -443,6 +828,7 @@ export function InputArea() {
 						toast({ variant: "error", title: t("input.sendFailed"), message: response.error });
 						return;
 					}
+					clearPastes();
 					await settleComposerResponse(response);
 				})
 				.catch(error => {
@@ -451,7 +837,7 @@ export function InputArea() {
 					toast({ variant: "error", title: t("input.sendFailed"), message: String(error) });
 				});
 		},
-		[text, images, sending, status, isStreaming, mode, t],
+		[text, images, sending, status, isStreaming, mode, queuedMessageCount, commands, emojiAutocomplete, t],
 	);
 
 	// Mic dictation (stt.enabled): click starts capture, click again stops and
@@ -507,8 +893,20 @@ export function InputArea() {
 		// composition must never send the message. `isComposing` covers modern
 		// browsers; keyCode 229 is the legacy fallback.
 		if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+		// Pending paste choice: Esc takes the default (paste inline).
+		if (pasteMenu) {
+			if (e.key === "Escape") {
+				e.preventDefault();
+				choosePasteInline();
+			}
+			return;
+		}
+		if (menu && ["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key)) {
+			setMenu(null);
+			return;
+		}
 		if (menu) {
-			const count = menu.kind === "command" ? filteredCommands.length : mentions.length;
+			const count = menu.items.length;
 			if (e.key === "ArrowDown") {
 				e.preventDefault();
 				setMenu({ ...menu, index: (menu.index + 1) % Math.max(1, count) });
@@ -521,13 +919,8 @@ export function InputArea() {
 			}
 			if (e.key === "Tab" || e.key === "Enter") {
 				e.preventDefault();
-				if (menu.kind === "command") {
-					const cmd = filteredCommands[menu.index];
-					if (cmd) insertCompletion(`/${cmd.name} `);
-				} else {
-					const entry = mentions[menu.index];
-					if (entry) insertCompletion(entry.insert);
-				}
+				const item = menu.items[menu.index];
+				if (item) insertCompletion(item);
 				return;
 			}
 			if (e.key === "Escape") {
@@ -540,6 +933,13 @@ export function InputArea() {
 		if (e.key === "r" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
 			e.preventDefault();
 			setHistorySearchOpen(open => !open);
+			return;
+		}
+		// ⌃G: fullscreen editor dialog (TUI app.editor.external parity, GUI-native
+		// form). Opens with the EXPANDED draft (paste markers resolved).
+		if (e.key === "g" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+			e.preventDefault();
+			useUiStore.getState().openComposerEditor(expandPasteMarkers(text));
 			return;
 		}
 		// Up/Down prompt-history recall: Up from the first line cycles to older
@@ -570,15 +970,37 @@ export function InputArea() {
 		}
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
-			send();
+			// ⌃Enter — send as follow-up, queueing behind the current yield (TUI
+			// app.message.followUp). Idle sessions start immediately either way.
+			send(undefined, e.ctrlKey && !e.metaKey && !e.altKey ? "followUp" : undefined);
 		}
 	};
 
 	const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
 		const files = Array.from(e.clipboardData.files).filter(f => f.type.startsWith("image/"));
-		if (files.length === 0) return;
+		if (files.length > 0) {
+			e.preventDefault();
+			void Promise.all(files.map(fileToImage)).then(pasted => setImages(prev => [...prev, ...pasted]));
+			return;
+		}
+		// Large TEXT paste (TUI editor.ts:1996-2044 parity): sanitize, then collapse
+		// to a `[Paste #N]` marker past the marker threshold; past the (separate,
+		// line-count-only) menu threshold, offer the inline/wrapped choice first.
+		const pasted = e.clipboardData.getData("text/plain");
+		if (!pasted) return;
+		const content = pasted
+			.replace(/\r\n?/g, "\n")
+			.normalize("NFC")
+			.replace(/\t/g, "   ")
+			.replace(/[\x00-\x08\x0B-\x1F]/g, "");
+		if (!isMarkerSized(content)) return; // small paste: default textarea behavior
 		e.preventDefault();
-		void Promise.all(files.map(fileToImage)).then(pasted => setImages(prev => [...prev, ...pasted]));
+		const lineCount = content.split("\n").length;
+		if (shouldOfferPasteMenu(lineCount, pasteMenuThreshold)) {
+			setPasteMenu({ content, lineCount });
+			return;
+		}
+		insertPasteBlob(content);
 	};
 
 	const modeLabel = isStreaming
@@ -593,46 +1015,30 @@ export function InputArea() {
 			<div className="relative mx-auto w-full max-w-[900px]">
 				{menu && (
 					<div className="absolute bottom-full left-0 z-10 mb-2 max-h-[60vh] w-[420px] max-w-full overflow-y-auto rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1 shadow-[var(--omp-shadow-lg)]">
-						{menu.kind === "command"
-							? filteredCommands.map((command, index) => (
-									<button
-										key={command.name}
-										type="button"
-										onMouseDown={event => {
-											event.preventDefault();
-											insertCompletion(`/${command.name} `);
-										}}
-										className={cx(
-											"flex w-full items-baseline gap-3 rounded-lg px-3 py-2.5 text-left",
-											index === menu.index ? "bg-[var(--omp-selected-bg)]" : "",
-										)}
-									>
-										<span className="font-mono text-[13px] font-medium text-[var(--omp-accent)]">
-											/{command.name}
-										</span>
-										<span className="truncate text-[12px] text-[var(--omp-muted)]">
-											{command.description}
-										</span>
-									</button>
-								))
-							: mentions.map((entry, index) => (
-									<button
-										key={entry.path}
-										type="button"
-										onMouseDown={event => {
-											event.preventDefault();
-											insertCompletion(entry.insert);
-										}}
-										className={cx(
-											"flex w-full items-center rounded-lg px-3 py-2.5 text-left font-mono text-[13px]",
-											index === menu.index
-												? "bg-[var(--omp-selected-bg)] text-[var(--omp-text)]"
-												: "text-[var(--omp-muted)]",
-										)}
-									>
-										<span className="truncate">{entry.label}</span>
-									</button>
-								))}
+						{menu.items.map((item, index) => (
+							<button
+								key={`${menu.source}:${item.label}`}
+								type="button"
+								onMouseDown={event => {
+									event.preventDefault();
+									insertCompletion(item);
+								}}
+								className={cx(
+									"flex w-full items-baseline gap-3 rounded-lg px-3 py-2.5 text-left",
+									index === menu.index ? "bg-[var(--omp-selected-bg)]" : "",
+								)}
+							>
+								<span className="font-mono text-[13px] font-medium text-[var(--omp-accent)]">{item.label}</span>
+								{item.description && (
+									<span className="truncate text-[12px] text-[var(--omp-muted)]">{item.description}</span>
+								)}
+								{item.hint && (
+									<span className="ml-auto shrink-0 font-mono text-[10.5px] text-[var(--omp-dim)]">
+										{item.hint}
+									</span>
+								)}
+							</button>
+						))}
 					</div>
 				)}
 
@@ -655,6 +1061,59 @@ export function InputArea() {
 					/>
 				)}
 
+				{queueBody !== undefined && (
+					<div
+						className="absolute -top-2 right-5 z-10 flex items-center gap-1.5 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-[10px] font-semibold text-[var(--omp-warning)]"
+						style={{ backgroundColor: "var(--omp-bg-primary)" }}
+						title={t("input.queue.title")}
+					>
+						➤ {t("input.queue.badge")}
+					</div>
+				)}
+
+				{pasteMenu && (
+					<div className="absolute bottom-full left-0 right-0 z-20 mb-2 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-3 shadow-[var(--omp-shadow-lg)]">
+						<div className="flex items-baseline justify-between gap-3">
+							<span className="text-[12.5px] font-medium text-[var(--omp-text)]">
+								{t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
+							</span>
+							<span className="shrink-0 text-[11px] text-[var(--omp-dim)]">{t("input.paste.hint")}</span>
+						</div>
+						<pre className="mt-2 max-h-32 overflow-hidden rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-2.5 py-2 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap break-all text-[var(--omp-muted)]">
+							{(() => {
+								const lines = pasteMenu.content.split("\n");
+								if (lines.length <= 6) return pasteMenu.content;
+								const head = lines.slice(0, 3).join("\n");
+								const tail = lines.slice(-2).join("\n");
+								return `${head}\n${t("input.paste.moreLines", { count: lines.length - 5 })}\n${tail}`;
+							})()}
+						</pre>
+						<div className="mt-2.5 flex gap-2">
+							<button
+								type="button"
+								onClick={choosePasteInline}
+								className="omp-pressable rounded-lg bg-[var(--omp-btn-primary-bg)] px-3 py-1.5 text-[12px] font-medium text-[var(--omp-btn-primary-text)] hover:brightness-110"
+							>
+								{t("input.paste.inline")}
+							</button>
+							<button
+								type="button"
+								onClick={choosePasteWrapped}
+								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-[12px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							>
+								{t("input.paste.wrap")}
+							</button>
+							<button
+								type="button"
+								onClick={choosePasteSaveFile}
+								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-[12px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							>
+								{t("input.paste.saveFile")}
+							</button>
+						</div>
+					</div>
+				)}
+
 				{composerMode && modeColor && (
 					<div
 						className="absolute -top-2 left-5 z-10 flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
@@ -666,12 +1125,7 @@ export function InputArea() {
 					</div>
 				)}
 
-				{queuedMessageCount > 0 && (
-					<div className="mb-2 flex items-center gap-2 px-1 text-[12px] font-medium text-[var(--omp-warning)]">
-						<span className="h-2 w-2 animate-pulse rounded-full bg-[var(--omp-warning)]" />
-						{t("input.queued", { count: queuedMessageCount, plural: queuedMessageCount > 1 ? "s" : "" })}
-					</div>
-				)}
+				<ActivityStrip />
 
 				<div
 					className="overflow-hidden rounded-lg border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)] transition-[border-color] duration-150 focus-within:border-[var(--omp-input-focus-border)]"
@@ -706,9 +1160,42 @@ export function InputArea() {
 							value={text}
 							onChange={event => {
 								useInputHistoryStore.getState().resetNav();
-								setText(event.target.value);
+								const value = event.target.value;
+								// TUI parity (custom-editor.ts:1001-1007): the moment the buffer
+								// becomes exactly the queue prefix, a newline starts the list body.
+								if (value === "->" || value === "=>") {
+									setText(`${value}\n`);
+									return;
+								}
+								setText(value);
+								// Emoji inline replace (TUI parity): `:name:` fires on the closing
+								// colon, emoticons fire on a trailing space/tab/newline.
+								if (emojiAutocomplete) {
+									const caret = event.target.selectionStart ?? value.length;
+									const before = value.slice(0, caret);
+									void tryEmojiInlineReplace(before).then(hit => {
+										if (!hit) return;
+										const el = textareaRef.current;
+										if (!el) return;
+										// Stale-check: the user typed on meanwhile.
+										const currentBefore = el.value.slice(0, el.selectionStart ?? el.value.length);
+										if (currentBefore !== before) return;
+										const nextText =
+											before.slice(0, before.length - hit.replaceLen) +
+											hit.insert +
+											el.value.slice(before.length);
+										setText(nextText);
+										requestAnimationFrame(() => {
+											const target = textareaRef.current;
+											if (!target) return;
+											const nextCaret = before.length - hit.replaceLen + hit.insert.length;
+											target.setSelectionRange(nextCaret, nextCaret);
+										});
+									});
+								}
 							}}
 							onKeyDown={handleKeyDown}
+							onClick={() => setMenu(null)}
 							onPaste={handlePaste}
 							rows={2}
 							placeholder={
@@ -721,6 +1208,8 @@ export function InputArea() {
 							className="max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent text-[14.5px] leading-[1.5] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
 						/>
 					</div>
+
+					{argHint && <div className="px-3.5 pb-1 font-mono text-[11px] text-[var(--omp-dim)]">💡 {argHint}</div>}
 
 					<div className="flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5">
 						<button
@@ -813,6 +1302,12 @@ export function InputArea() {
 								</div>
 								<span>{Math.round(contextUsage.percent)}%</span>
 							</div>
+						)}
+
+						{queueSplitCount > 1 && (
+							<span className="mr-1 shrink-0 rounded-md border border-[var(--omp-warning)] px-2 py-1 text-[11px] font-medium text-[var(--omp-warning)]">
+								{t("input.queue.split", { count: queueSplitCount })}
+							</span>
 						)}
 
 						{isStreaming ? (

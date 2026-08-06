@@ -399,7 +399,15 @@ function VibeTab({ rpc }: { rpc: ModeRpc<RpcVibeModeState> }) {
 							description={t("modesPanel.vibe.toggleDesc")}
 							disabled={rpc.busy}
 							label={t("modesPanel.vibe.toggleLabel")}
-							onChange={next => void rpc.mutate({ enabled: next }, () => window.omp.rpc.setVibeMode(next))}
+							onChange={next =>
+								// set_vibe_mode emits no event — mirror the settled value into
+								// the session store so the footer badge tracks it live.
+								void rpc.mutate({ enabled: next }, async () => {
+									const res = await window.omp.rpc.setVibeMode(next);
+									if (res.success) useSessionStore.setState({ vibeModeEnabled: next });
+									return res;
+								})
+							}
 						/>
 					</div>
 					{!state.enabled && typeof state.killedWorkers === "number" && state.killedWorkers > 0 && (
@@ -588,7 +596,7 @@ function GoalTab({ rpc }: { rpc: ModeRpc<RpcGoalState> }) {
 // Loop tab
 // ---------------------------------------------------------------------------
 
-function loopLimitText(
+export function loopLimitText(
 	t: (key: string, params?: Record<string, string | number>) => string,
 	limit: LoopLimitInfo,
 ): string {

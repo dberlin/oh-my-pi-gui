@@ -109,11 +109,26 @@ export class SidecarPool {
 		sidecar.on("subagentFrame", frame => {
 			forwardToWindow(win, IPC_EVENTS.SUBAGENT_FRAME, { frame });
 		});
+		sidecar.on("liveUpdate", frame => {
+			forwardToWindow(win, IPC_EVENTS.LIVE_UPDATE, frame);
+		});
 		sidecar.on("commandsUpdate", commands => {
 			forwardToWindow(win, IPC_EVENTS.COMMANDS_UPDATE, { commands });
 		});
 		sidecar.on("configUpdate", payload => {
 			forwardToWindow(win, IPC_EVENTS.CONFIG_UPDATE, payload);
+		});
+		sidecar.on("promptResult", frame => {
+			forwardToWindow(win, IPC_EVENTS.PROMPT_RESULT, frame);
+		});
+		sidecar.on("commandOutput", frame => {
+			forwardToWindow(win, IPC_EVENTS.COMMAND_OUTPUT, frame);
+		});
+		sidecar.on("sessionInfoUpdate", frame => {
+			forwardToWindow(win, IPC_EVENTS.SESSION_INFO_UPDATE, frame);
+		});
+		sidecar.on("extensionError", frame => {
+			forwardToWindow(win, IPC_EVENTS.EXTENSION_ERROR, frame);
 		});
 	}
 

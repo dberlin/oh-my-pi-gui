@@ -1,4 +1,12 @@
-import { type ComponentPropsWithoutRef, isValidElement, memo, type ReactNode } from "react";
+import {
+	type ComponentPropsWithoutRef,
+	createContext,
+	isValidElement,
+	memo,
+	type ReactNode,
+	useContext,
+	useSyncExternalStore,
+} from "react";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -7,10 +15,17 @@ import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { LineNumberGutter } from "../components/chat/LineNumberGutter";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
 
 interface MarkdownRendererProps {
 	content: string;
+	/**
+	 * Force the codeLineNumbers pref on/off. When undefined, code blocks follow
+	 * the GUI pref (hydrated from prefs IPC, flips live on Settings changes).
+	 * SSR/tests pass this — the pref store's server snapshot is always off.
+	 */
+	codeLineNumbers?: boolean;
 }
 
 // Hoisted to module scope: stable plugin arrays and component maps keep
@@ -64,6 +79,10 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 		"h5",
 		"h6",
 		"img",
+		// GFM task-list checkboxes. rehype-raw runs BEFORE sanitize, so a raw
+		// `<input>` in model output also survives — the attribute value pin below
+		// is what keeps `type="password"/"file"/"text"` from becoming interactive.
+		"input",
 		"table",
 		"thead",
 		"tbody",
@@ -78,6 +97,9 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 		code: ["className"],
 		span: ["className"],
 		img: ["src", "alt", "title"],
+		// Value-pinned: only type="checkbox" survives; any other type value is
+		// dropped with the attribute. checked/disabled carry the GFM state.
+		input: [["type", "checkbox"], "checked", "disabled"],
 		ol: ["start"],
 		td: ["align"],
 		th: ["align"],
@@ -128,6 +150,66 @@ function StyledTable({ children, ...props }: ComponentPropsWithoutRef<"table">) 
 			</table>
 		</div>
 	);
+}
+
+// ── codeLineNumbers pref (GUI prefs file, NOT zustand) ─────────────────────
+// Module snapshot hydrated lazily from window.omp.prefs when the first code
+// block mounts; Settings writes go through setCodeLineNumbersPref, which
+// flips every mounted block live without re-parsing markdown. SSR never runs
+// subscriptions, so tests drive rendering via the MarkdownRenderer
+// `codeLineNumbers` prop (the server snapshot below is always off).
+let codeLineNumbersSnapshot = false;
+let codeLineNumbersHydrated = false;
+const codeLineNumbersListeners = new Set<() => void>();
+
+function setCodeLineNumbersSnapshot(next: boolean): void {
+	if (codeLineNumbersSnapshot === next) return;
+	codeLineNumbersSnapshot = next;
+	for (const listener of codeLineNumbersListeners) listener();
+}
+
+function subscribeCodeLineNumbers(listener: () => void): () => void {
+	codeLineNumbersListeners.add(listener);
+	if (!codeLineNumbersHydrated) {
+		codeLineNumbersHydrated = true;
+		try {
+			void window.omp.prefs
+				.get("codeLineNumbers")
+				.then(value => {
+					if (value === true) setCodeLineNumbersSnapshot(true);
+				})
+				.catch(() => {});
+		} catch {
+			// prefs IPC unavailable (tests, storybook) — default off.
+		}
+	}
+	return () => {
+		codeLineNumbersListeners.delete(listener);
+	};
+}
+
+/** Settings GUI-tab write path: flip every mounted code block live + persist. */
+export function setCodeLineNumbersPref(next: boolean): void {
+	codeLineNumbersHydrated = true;
+	setCodeLineNumbersSnapshot(next);
+	try {
+		void window.omp.prefs.set("codeLineNumbers", next);
+	} catch {
+		// prefs IPC unavailable (tests, storybook).
+	}
+}
+
+/** MarkdownRenderer prop → Pre, threading around the static components map. */
+const CodeLineNumbersOverride = createContext<boolean | undefined>(undefined);
+
+function useCodeLineNumbers(): boolean {
+	const override = useContext(CodeLineNumbersOverride);
+	const pref = useSyncExternalStore(
+		subscribeCodeLineNumbers,
+		() => codeLineNumbersSnapshot,
+		() => false,
+	);
+	return override ?? pref;
 }
 
 const MERMAID_CLASS = /(?:^|\s)language-mermaid(?:\s|$)/;
@@ -220,17 +302,45 @@ function Li({ children, ...props }: ComponentPropsWithoutRef<"li">) {
 }
 
 function Pre({ children, ...props }: ComponentPropsWithoutRef<"pre">) {
+	const showLineNumbers = useCodeLineNumbers();
 	// A mermaid fence swaps the whole block for a diagram with its own chrome —
 	// skip the <pre> wrapper so the diagram is not boxed like code.
 	if (isMermaidCodeElement(children)) return <>{children}</>;
+	if (!showLineNumbers) {
+		return (
+			<pre
+				{...props}
+				className="p-3 rounded-md bg-[var(--omp-code-bg)] border border-[var(--omp-md-code-block-border)] overflow-x-auto my-2 text-[var(--omp-md-code-block)]"
+			>
+				{children}
+			</pre>
+		);
+	}
+	// Line-number mode mirrors the tool-renderers' CodeBlock: shared sticky
+	// gutter + code pane. Gutter metrics (text size, leading, block padding)
+	// match the code element's text-[0.9em] leading-[1.3] so numbers and lines
+	// stay aligned; a fence's trailing newline never paints a visible line, so
+	// it is stripped before counting.
+	const text = textOf(children).replace(/\n$/, "");
+	let lineCount = 1;
+	for (let i = 0; i < text.length; i++) if (text[i] === "\n") lineCount++;
 	return (
-		<pre
-			{...props}
-			className="p-3 rounded-md bg-[var(--omp-code-bg)] border border-[var(--omp-md-code-block-border)] overflow-x-auto my-2 text-[var(--omp-md-code-block)]"
-		>
-			{children}
-		</pre>
+		<div className="rounded-md bg-[var(--omp-code-bg)] border border-[var(--omp-md-code-block-border)] my-2 text-[var(--omp-md-code-block)]">
+			<div className="flex">
+				<LineNumberGutter lineCount={lineCount} className="py-3 pl-3 pr-2 text-[0.9em] leading-[1.3]" />
+				<pre {...props} className="min-w-0 flex-1 overflow-x-auto p-3">
+					{children}
+				</pre>
+			</div>
+		</div>
 	);
+}
+
+function TaskCheckbox(props: ComponentPropsWithoutRef<"input">) {
+	// The checkbox state comes from model output — there is nowhere a click
+	// could be stored. Force the readonly form regardless of what the input
+	// carried (second layer on top of the sanitize value pin).
+	return <input {...props} type="checkbox" disabled readOnly tabIndex={-1} />;
 }
 
 const COMPONENTS: Components = {
@@ -244,18 +354,21 @@ const COMPONENTS: Components = {
 	hr: Hr,
 	li: Li,
 	pre: Pre,
+	input: TaskCheckbox,
 };
 
 /**
  * Renders markdown content with GFM, a sanitized raw-HTML subset, KaTeX math,
  * and syntax highlighting. Memoized: re-parses only when `content` changes.
  */
-export const MarkdownRenderer = memo(function MarkdownRenderer({ content }: MarkdownRendererProps) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, codeLineNumbers }: MarkdownRendererProps) {
 	return (
 		<div className="markdown-body text-[1em] leading-[1.5]">
-			<ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={COMPONENTS}>
-				{content}
-			</ReactMarkdown>
+			<CodeLineNumbersOverride.Provider value={codeLineNumbers}>
+				<ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={COMPONENTS}>
+					{content}
+				</ReactMarkdown>
+			</CodeLineNumbersOverride.Provider>
 		</div>
 	);
 });

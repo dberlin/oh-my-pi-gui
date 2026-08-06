@@ -6,8 +6,8 @@
 
 import { GitBranch, Search } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { hydrateSession } from "../../hooks/use-rpc-events";
 import { useT } from "../../lib/i18n";
+import { branchSessionFromEntry } from "../../lib/messages";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Modal, Spinner } from "../common";
@@ -83,18 +83,11 @@ export function BranchPickerDialog() {
 		if (branching !== null) return;
 		setBranching(entry.entryId);
 		try {
-			const response = await window.omp.rpc.branch(entry.entryId);
-			if (!response.success) {
-				toast({ variant: "error", title: t("branchPicker.failed"), message: response.error });
-				return;
-			}
-			// Hook veto: success:true with cancelled:true — keep the picker open.
-			const data = response.data as { cancelled?: boolean } | undefined;
-			if (data?.cancelled) {
+			const result = await branchSessionFromEntry(entry.entryId);
+			if (result === "cancelled") {
 				toast({ variant: "info", message: t("branchPicker.cancelled") });
 				return;
 			}
-			await hydrateSession();
 			close();
 		} catch (cause) {
 			toast({ variant: "error", title: t("branchPicker.failed"), message: String(cause) });

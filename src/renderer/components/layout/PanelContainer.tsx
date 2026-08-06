@@ -1,8 +1,9 @@
-import { Bot, ClipboardList, Diff, FolderTree, ListTodo, ScrollText, X } from "lucide-react";
+import { Bot, ClipboardList, Diff, FolderTree, ListOrdered, ListTodo, ScrollText, X } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useRef, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useQueueStore } from "../../stores/queue";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useTodoStore } from "../../stores/todo";
 import type { PanelTab } from "../../stores/ui";
@@ -12,6 +13,7 @@ import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
 import { LogPanel } from "../panels/LogPanel";
 import { PlanPanel } from "../panels/PlanPanel";
+import { QueuePanel } from "../panels/QueuePanel";
 import { SubagentPanel } from "../panels/SubagentPanel";
 import { isLiveSubagentStatus } from "../panels/subagent-graph";
 import { TodoPanel } from "../panels/TodoPanel";
@@ -24,6 +26,7 @@ const TABS: { id: PanelTab; labelKey: string; icon: typeof Bot }[] = [
 	{ id: "todo", labelKey: "panel.tabs.todo", icon: ListTodo },
 	{ id: "plan", labelKey: "panel.tabs.plan", icon: ClipboardList },
 	{ id: "agents", labelKey: "panel.tabs.agents", icon: Bot },
+	{ id: "queue", labelKey: "panel.tabs.queue", icon: ListOrdered },
 	{ id: "diff", labelKey: "panel.tabs.diff", icon: Diff },
 	{ id: "files", labelKey: "panel.tabs.files", icon: FolderTree },
 	{ id: "logs", labelKey: "panel.tabs.logs", icon: ScrollText },
@@ -65,6 +68,7 @@ export function PanelContainer() {
 
 	const runningAgents = [...subagents.values()].filter(s => isLiveSubagentStatus(s.status)).length;
 	const todoTaskCount = (phases ?? []).reduce((n, p) => n + (p.tasks?.length ?? 0), 0);
+	const queuedCount = useQueueStore(s => s.steering.length + s.followUp.length);
 
 	return (
 		<aside
@@ -93,7 +97,9 @@ export function PanelContainer() {
 							? runningAgents
 							: id === "todo" && todoTaskCount > 0
 								? todoTaskCount
-								: null;
+								: id === "queue" && queuedCount > 0
+									? queuedCount
+									: null;
 					return (
 						<button
 							key={id}
@@ -132,6 +138,7 @@ export function PanelContainer() {
 					{panelTab === "todo" && <TodoPanel />}
 					{panelTab === "plan" && <PlanPanel />}
 					{panelTab === "agents" && <SubagentPanel />}
+					{panelTab === "queue" && <QueuePanel />}
 					{panelTab === "diff" && <DiffPanel />}
 					{panelTab === "files" && <FilesPanel />}
 					{panelTab === "logs" && <LogPanel />}

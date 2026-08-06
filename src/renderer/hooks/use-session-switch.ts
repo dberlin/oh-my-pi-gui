@@ -35,7 +35,9 @@ export async function switchSessionNow(session: SessionInfo): Promise<boolean> {
 			toast({ variant: "info", message: translate("sidebar.openCancelled") });
 			return false;
 		}
-		await hydrateSession(session.title ?? session.firstMessage);
+		// `||` not `??`: an empty title slot (auto-title never ran) must fall
+		// through to the first message, not hydrate as an empty name.
+		await hydrateSession(session.title || session.firstMessage);
 		return true;
 	} catch (error) {
 		toast({ variant: "error", title: translate("sidebar.openFailed"), message: String(error) });

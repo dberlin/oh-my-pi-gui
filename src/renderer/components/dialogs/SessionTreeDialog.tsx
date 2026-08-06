@@ -11,20 +11,36 @@
  *
  * Interactions: drag the canvas to pan, wheel to zoom, drag a node to
  * rearrange it visually (cosmetic, kept per session in memory — the wire has
- * no rearrange op). The real operation is "Branch": rpc.branch forks the
- * session at that node and hydrates the new branch. TUI tree-selector parity
- * layers: filter modes (all / current branch / user-only / labeled-only),
- * per-node label editing (set_entry_label RPC), and keyboard navigation
- * (↑/↓ select, Enter branch, L edit label).
+ * no rearrange op). Node actions (corner menu + keyboard): switch the active
+ * leaf in place (switch_leaf → navigateTree; Enter, Shift+Enter summarizes),
+ * branch from a user node (rpc.branch), or open an independent session from
+ * any node in a new window (fork_from → copyBranchToNewSession). TUI
+ * tree-selector parity layers: filter modes (all / current branch /
+ * user-only / labeled-only), per-node label editing (set_entry_label RPC),
+ * and keyboard navigation (↑/↓ select, Enter switch, L edit label).
  */
 
-import { Bot, GitBranch, Info, Maximize, Play, RotateCcw, Tag, User, ZoomIn, ZoomOut } from "lucide-react";
+import {
+	Bot,
+	CornerDownLeft,
+	ExternalLink,
+	GitBranch,
+	Info,
+	Maximize,
+	Play,
+	RotateCcw,
+	Tag,
+	User,
+	ZoomIn,
+	ZoomOut,
+} from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { RpcResponse } from "../../../shared/rpc-types";
+import type { RpcResponse, RpcSwitchLeafResult } from "../../../shared/rpc-types";
 import { hydrateSession } from "../../hooks/use-rpc-events";
 import { cx, formatClock, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
@@ -174,16 +190,20 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 	x,
 	y,
 	branching,
-	onBranch,
+	menuOpen,
+	onToggleMenu,
+	onAction,
 }: {
 	entry: SessionTreeEntry;
 	head: boolean;
 	selected: boolean;
 	x: number;
 	y: number;
-	/** Entry id currently being branched, or null; any non-null value disables every Branch button. */
+	/** Entry id currently running an action, or null; any non-null value disables every action. */
 	branching: string | null;
-	onBranch: (entryId: string) => void;
+	menuOpen: boolean;
+	onToggleMenu: () => void;
+	onAction: (action: "switch" | "branch" | "fork", entryId: string) => void;
 }) {
 	const t = useT();
 	const meta = roleMeta(entry.role);
@@ -223,22 +243,56 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 			<p className="mt-0.5 line-clamp-2 min-h-0 flex-1 text-[10.5px] leading-snug whitespace-pre-wrap text-(--omp-text)">
 				{entry.textPreview}
 			</p>
-			{/* The sidecar only branches from USER entries — no affordance on agent/system nodes. */}
-			{entry.role === "user" && (
-				<button
-					aria-label={t("sessionTree.branchAria")}
-					className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-(--omp-border-muted) bg-(--omp-bg-secondary) text-(--omp-muted) opacity-70 shadow-sm transition-opacity group-hover:opacity-100 hover:border-(--omp-accent) hover:text-(--omp-accent) focus-visible:opacity-100 disabled:opacity-40"
-					disabled={branching !== null}
-					onClick={event => {
-						event.stopPropagation();
-						onBranch(entry.entryId);
-					}}
+			{/* Node actions: switch the active leaf here (any node), branch (user
+			    nodes only, server gate), or open an independent session from here
+			    in a new window (any node). */}
+			<button
+				aria-label={t("sessionTree.branchAria")}
+				className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-(--omp-border-muted) bg-(--omp-bg-secondary) text-(--omp-muted) opacity-70 shadow-sm transition-opacity group-hover:opacity-100 hover:border-(--omp-accent) hover:text-(--omp-accent) focus-visible:opacity-100 disabled:opacity-40"
+				disabled={branching !== null}
+				onClick={event => {
+					event.stopPropagation();
+					onToggleMenu();
+				}}
+				onPointerDown={event => event.stopPropagation()}
+				title={t("sessionTree.actions")}
+				type="button"
+			>
+				{branching === entry.entryId ? <Spinner size="sm" /> : <GitBranch size={10} />}
+			</button>
+			{menuOpen && (
+				<div
+					className="absolute -top-2 right-3 z-30 w-40 overflow-hidden rounded-lg border border-(--omp-border) bg-(--omp-bg-elevated) py-1 shadow-[var(--omp-shadow-lg)]"
+					onClick={event => event.stopPropagation()}
 					onPointerDown={event => event.stopPropagation()}
-					title={head ? t("sessionTree.branchFromLatest") : t("sessionTree.branchFromHere")}
-					type="button"
 				>
-					{branching === entry.entryId ? <Spinner size="sm" /> : <GitBranch size={10} />}
-				</button>
+					<button
+						type="button"
+						className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-(--omp-text) hover:bg-(--omp-selected-bg)"
+						onClick={() => onAction("switch", entry.entryId)}
+					>
+						<CornerDownLeft size={11} className="shrink-0 text-(--omp-dim)" />
+						{t("sessionTree.switchHere")}
+					</button>
+					<button
+						type="button"
+						className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-(--omp-text) hover:bg-(--omp-selected-bg) disabled:cursor-not-allowed disabled:opacity-40"
+						disabled={entry.role !== "user"}
+						title={entry.role !== "user" ? t("sessionTree.branchUserOnly") : undefined}
+						onClick={() => onAction("branch", entry.entryId)}
+					>
+						<GitBranch size={11} className="shrink-0 text-(--omp-dim)" />
+						{t("sessionTree.branchFromHere")}
+					</button>
+					<button
+						type="button"
+						className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-(--omp-text) hover:bg-(--omp-selected-bg)"
+						onClick={() => onAction("fork", entry.entryId)}
+					>
+						<ExternalLink size={11} className="shrink-0 text-(--omp-dim)" />
+						{t("sessionTree.openInNewWindow")}
+					</button>
+				</div>
 			)}
 		</div>
 	);
@@ -292,6 +346,7 @@ export function SessionTreeDialog() {
 	const [model, setModel] = useState<SessionTreeModel | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [branching, setBranching] = useState<string | null>(null);
+	const [menuEntryId, setMenuEntryId] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [filterMode, setFilterMode] = useState<TreeFilterMode>("all");
@@ -554,24 +609,86 @@ export function SessionTreeDialog() {
 		// The sidecar only branches from USER entries — refuse anything else
 		// (Enter key / stale affordances), matching the hidden branch buttons.
 		const entry = model?.entries.find(candidate => candidate.entryId === entryId);
-		if (!entry || entry.role !== "user") return;
+		if (entry?.role !== "user") return;
 		setBranching(entryId);
 		try {
-			const response = await window.omp.rpc.branch(entryId);
-			if (!response.success) {
-				toast({ variant: "error", title: t("sessionTree.branchFailed"), message: response.error });
-				return;
-			}
-			// Hook veto: success:true with cancelled:true — keep the dialog open.
-			const data = response.data as { cancelled?: boolean } | undefined;
-			if (data?.cancelled) {
+			const result = await branchSessionFromEntry(entryId);
+			if (result === "cancelled") {
 				toast({ variant: "info", message: t("sessionTree.branchCancelled") });
 				return;
 			}
-			await hydrateSession();
 			close();
 		} catch (cause) {
 			toast({ variant: "error", title: t("sessionTree.branchFailed"), message: String(cause) });
+		} finally {
+			setBranching(null);
+		}
+	};
+
+	// Move the active leaf to this node in place (switch_leaf → navigateTree,
+	// TUI tree-selector Enter parity). Works on ANY node; the target's draft
+	// text restores into the composer, and a hook veto is not a failure.
+	const switchToLeaf = async (entryId: string, summarize = false) => {
+		if (branching !== null) return;
+		setBranching(entryId);
+		try {
+			const response = await window.omp.rpc.switchLeaf(entryId, summarize ? { summarize: true } : undefined);
+			if (!response.success) {
+				toast({ variant: "error", title: t("sessionTree.switchFailed"), message: response.error });
+				return;
+			}
+			const data = response.data as RpcSwitchLeafResult | undefined;
+			if (!data) return;
+			if (data.cancelled) {
+				toast({ variant: "info", message: t("sessionTree.branchCancelled") });
+				return;
+			}
+			if (data.reopenAsk) {
+				toast({ variant: "warning", message: t("sessionTree.reopenAskUnsupported") });
+				return;
+			}
+			if (data.editorText !== undefined) {
+				window.dispatchEvent(
+					new CustomEvent("omp:fill-composer", { detail: { text: data.editorText, images: data.editorImages } }),
+				);
+			}
+			await hydrateSession();
+			if (data.askReanswerCommitted) {
+				const resume = await window.omp.rpc.resumeAfterAskReanswer();
+				if (!resume.success) {
+					toast({ variant: "error", title: t("sessionTree.reanswerResumeFailed"), message: resume.error });
+				}
+			}
+			close();
+		} catch (cause) {
+			toast({ variant: "error", title: t("sessionTree.switchFailed"), message: String(cause) });
+		} finally {
+			setBranching(null);
+		}
+	};
+
+	// Independent new session from this node (fork_from): writes a new session
+	// file containing only the path to this node and opens it in a NEW WINDOW —
+	// the attached session stays untouched, so the dialog stays open.
+	const forkFromNode = async (entryId: string) => {
+		if (branching !== null) return;
+		setBranching(entryId);
+		try {
+			const response = await window.omp.rpc.forkFrom(entryId);
+			if (!response.success) {
+				toast({ variant: "error", title: t("sessionTree.forkFailed"), message: response.error });
+				return;
+			}
+			const data = response.data as { sessionPath?: string } | undefined;
+			if (!data?.sessionPath) return;
+			const opened = await window.omp.sessions.openInNewWindow({ sessionPath: data.sessionPath });
+			if (!opened) {
+				toast({ variant: "warning", message: t("sidebar.parallelCap") });
+				return;
+			}
+			toast({ variant: "success", message: t("sessionTree.forkedOpened") });
+		} catch (cause) {
+			toast({ variant: "error", title: t("sessionTree.forkFailed"), message: String(cause) });
 		} finally {
 			setBranching(null);
 		}
@@ -628,10 +745,10 @@ export function SessionTreeDialog() {
 
 	// Latest-value refs for the keyboard handler (registered once per open).
 	const keyboardContextRef = useRef({ selectedId, filteredEntries, model, nodeById, branching });
-	const labelActionsRef = useRef({ branchFrom, startLabelEdit });
+	const labelActionsRef = useRef({ switchToLeaf, startLabelEdit });
 	useEffect(() => {
 		keyboardContextRef.current = { selectedId, filteredEntries, model, nodeById, branching };
-		labelActionsRef.current = { branchFrom, startLabelEdit };
+		labelActionsRef.current = { switchToLeaf, startLabelEdit };
 	});
 
 	// Pan the view just enough to keep a node on screen (keyboard navigation).
@@ -658,8 +775,9 @@ export function SessionTreeDialog() {
 	}, []);
 
 	// Keyboard navigation (TUI tree-selector parity): ↑/↓ move the selection
-	// through the visible nodes in wire order (wrapping), Enter branches from
-	// the selection, L opens the label editor. Skips text inputs and native
+	// through the visible nodes in wire order (wrapping), Enter switches the
+	// active leaf to the selection (Shift+Enter summarizes the abandoned branch
+	// first), L opens the label editor. Skips text inputs and native
 	// button activation.
 	useEffect(() => {
 		if (!open || !canvasReady) return;
@@ -683,7 +801,7 @@ export function SessionTreeDialog() {
 			} else if (event.key === "Enter") {
 				if (tag === "BUTTON" || !context.selectedId || context.branching !== null) return;
 				event.preventDefault();
-				void labelActionsRef.current.branchFrom(context.selectedId);
+				void labelActionsRef.current.switchToLeaf(context.selectedId, event.shiftKey);
 			} else if (event.key === "l" || event.key === "L") {
 				if (tag === "BUTTON" || !context.selectedId || context.model?.source !== "tree") return;
 				event.preventDefault();
@@ -873,13 +991,25 @@ export function SessionTreeDialog() {
 								{visibleNodes.map(node => {
 									const pos = positions.get(node.id) ?? { x: node.x, y: node.y };
 									if (node.entry === null) return <SessionRootNode key={node.id} x={pos.x} y={pos.y} />;
+									const nodeEntry = node.entry;
 									return (
 										<SessionTreeNodeCard
 											branching={branching}
-											entry={node.entry}
-											head={isHead(node.entry)}
+											entry={nodeEntry}
+											head={isHead(nodeEntry)}
 											key={node.id}
-											onBranch={entryId => void branchFrom(entryId)}
+											menuOpen={menuEntryId === nodeEntry.entryId}
+											onToggleMenu={() =>
+												setMenuEntryId(current =>
+													current === nodeEntry.entryId ? null : nodeEntry.entryId,
+												)
+											}
+											onAction={(action, entryId) => {
+												setMenuEntryId(null);
+												if (action === "switch") void switchToLeaf(entryId);
+												else if (action === "branch") void branchFrom(entryId);
+												else void forkFromNode(entryId);
+											}}
 											selected={node.id === selectedId}
 											x={pos.x}
 											y={pos.y}

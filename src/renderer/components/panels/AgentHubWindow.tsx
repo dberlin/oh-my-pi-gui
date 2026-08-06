@@ -2,26 +2,23 @@
  * Agent Hub window: TUI parity for the Agent Control Center (agent-dashboard.ts)
  * and the multi-agent hub table (agent-hub.ts).
  *
- * Definitions tab (control center): enable/disable, per-agent model override,
- * and prewalk override, persisted through the set_setting RPC
+ * Definitions tab (control center): every project/user/bundled agent discovered
+ * for the attached workspace, with enable/disable, per-agent model override,
+ * and prewalk override persisted through set_setting RPC
  * (task.disabledAgents / task.agentModelOverrides / task.agentPrewalk — the
- * same settings the TUI dashboard writes). The sidecar exposes no RPC for
- * discovered agent definitions (discoverAgents is filesystem-side), so the
- * list is the union of agents referenced by those settings and agents
- * observed in this session; browsing every definition and the create-agent
- * flow are a noted RPC gap, surfaced inline.
+ * same settings the TUI dashboard writes).
  *
  * Hub tab (multi-agent table): live view of the session's subagents from the
  * subagents store (get_subagents hydration + lifecycle frames) with status,
- * elapsed time, last update, and expandable transcripts. Revive targets
- * parked peer processes in the TUI hub and has no RPC equivalent; the only
- * abort RPC is session-scoped, so the tab offers an honest "abort turn"
- * action and notes per-agent abort as a gap.
+ * elapsed time, model, and transcripts in a slide-over drawer. Per-agent
+ * abort and revive ride the abort_subagent / revive_subagent RPCs (TUI hub
+ * `x`/`r` parity); the session-scoped "abort turn" remains for stopping
+ * everything.
  */
 
-import { ChevronRight, RefreshCw, Square } from "lucide-react";
+import { ArrowLeft, Check, MessageSquare, RefreshCw, Square, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { RpcResponse, SubagentSnapshot } from "../../../shared/rpc-types";
+import type { RpcAgentDefinitionInfo, RpcResponse, SubagentSnapshot } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
@@ -47,18 +44,44 @@ interface AgentSettingsState {
 	disabledAgents: string[];
 	modelOverrides: Record<string, string>;
 	prewalkOverrides: Record<string, string>;
+	definitions: RpcAgentDefinitionInfo[];
 }
 
 const SETTINGS_PATHS = ["task.disabledAgents", "task.agentModelOverrides", "task.agentPrewalk"] as const;
 
-const fetchAgentSettings = (): Promise<RpcResponse> => window.omp.rpc.getSettings([...SETTINGS_PATHS]);
+interface AgentSettingsLoadResult {
+	settings: RpcResponse;
+	definitions: RpcResponse;
+}
+
+const fetchAgentSettings = async (): Promise<AgentSettingsLoadResult> => {
+	const [settings, definitions] = await Promise.all([
+		window.omp.rpc.getSettings([...SETTINGS_PATHS]),
+		window.omp.rpc.getAgentDefinitions(),
+	]);
+	return { settings, definitions };
+};
 
 function isStringRecord(value: unknown): value is Record<string, string> {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	return Object.values(value).every(entry => typeof entry === "string");
 }
 
-function pickAgentSettings(data: unknown): AgentSettingsState {
+function pickAgentDefinitions(data: unknown): RpcAgentDefinitionInfo[] {
+	const agents = (data as { agents?: unknown } | undefined)?.agents;
+	if (!Array.isArray(agents)) return [];
+	return agents.filter((agent): agent is RpcAgentDefinitionInfo => {
+		if (typeof agent !== "object" || agent === null || Array.isArray(agent)) return false;
+		const value = agent as Record<string, unknown>;
+		return (
+			typeof value.name === "string" &&
+			typeof value.description === "string" &&
+			(value.source === "bundled" || value.source === "user" || value.source === "project")
+		);
+	});
+}
+
+function pickAgentSettings(data: unknown, definitions: RpcAgentDefinitionInfo[]): AgentSettingsState {
 	const values = (data as { values?: Record<string, unknown> } | undefined)?.values ?? {};
 	const disabled = values["task.disabledAgents"];
 	const models = values["task.agentModelOverrides"];
@@ -67,6 +90,7 @@ function pickAgentSettings(data: unknown): AgentSettingsState {
 		disabledAgents: Array.isArray(disabled) ? disabled.filter((v): v is string => typeof v === "string") : [],
 		modelOverrides: isStringRecord(models) ? models : {},
 		prewalkOverrides: isStringRecord(prewalk) ? prewalk : {},
+		definitions,
 	};
 }
 
@@ -112,12 +136,14 @@ function useAgentSettings(open: boolean, active: boolean): AgentSettingsRpc {
 				setError(null);
 			}
 			try {
-				const res = await fetchAgentSettings();
-				if (res.success) {
-					setBoth(pickAgentSettings(res.data));
+				const { settings, definitions } = await fetchAgentSettings();
+				if (!settings.success) {
+					if (!silent) setError(settings.error);
+				} else if (!definitions.success) {
+					if (!silent) setError(definitions.error);
+				} else {
+					setBoth(pickAgentSettings(settings.data, pickAgentDefinitions(definitions.data)));
 					if (!silent) setError(null);
-				} else if (!silent) {
-					setError(res.error);
 				}
 			} catch (cause) {
 				if (!silent) setError(String(cause));
@@ -202,10 +228,8 @@ function Toggle({
 	);
 }
 
-interface DefinitionEntry {
+interface DefinitionEntry extends Partial<RpcAgentDefinitionInfo> {
 	name: string;
-	/** Source is only known for agents observed in this session (subagent frames). */
-	source?: string;
 }
 
 const PrewalkState = {
@@ -234,6 +258,78 @@ const KNOWN_SOURCES: Record<string, true> = { project: true, user: true, bundled
 
 function sourceLabel(t: (key: string) => string, source: string): string {
 	return KNOWN_SOURCES[source] ? t(`agentHub.source.${source}`) : source;
+}
+
+function formatAgentOutput(value: unknown): string | undefined {
+	if (value === undefined) return undefined;
+	try {
+		return JSON.stringify(value);
+	} catch {
+		return String(value);
+	}
+}
+
+function DefinitionDetails({
+	entry,
+	override,
+	prewalk,
+}: {
+	entry: DefinitionEntry;
+	override: string | undefined;
+	prewalk: PrewalkState;
+}) {
+	const t = useT();
+	const prewalkProjection = [
+		t(`agentHub.defs.prewalk.${prewalk}`),
+		entry.prewalkPattern,
+		entry.prewalkResolved ? `→ ${entry.prewalkResolved}` : undefined,
+	]
+		.filter(Boolean)
+		.join(" ");
+	const details = [
+		[t("agentHub.defs.detail.path"), entry.filePath],
+		[t("agentHub.defs.detail.defaultPattern"), entry.defaultPatterns?.join(", ") || t("agentHub.defs.modelSession")],
+		[t("agentHub.defs.detail.defaultResolved"), entry.defaultResolved],
+		[
+			t("agentHub.defs.detail.effectivePattern"),
+			override || entry.effectivePatterns?.join(", ") || t("agentHub.defs.modelSession"),
+		],
+		[
+			t("agentHub.defs.detail.effectiveResolved"),
+			[entry.effectiveResolved, entry.effectiveThinkingLevel].filter(Boolean).join(" · ") || undefined,
+		],
+		[t("agentHub.defs.detail.prewalk"), prewalkProjection],
+		[t("agentHub.defs.detail.thinking"), entry.thinkingLevel],
+		[t("agentHub.defs.detail.tools"), entry.tools?.join(", ")],
+		[
+			t("agentHub.defs.detail.spawns"),
+			entry.spawns === "*" ? "*" : Array.isArray(entry.spawns) ? entry.spawns.join(", ") : undefined,
+		],
+		[t("agentHub.defs.detail.skills"), entry.autoloadSkills?.join(", ")],
+		[
+			t("agentHub.defs.detail.blocking"),
+			entry.blocking === undefined ? undefined : entry.blocking ? t("common.yes") : t("common.no"),
+		],
+		[
+			t("agentHub.defs.detail.readSummarize"),
+			entry.readSummarize === undefined ? undefined : entry.readSummarize ? t("common.yes") : t("common.no"),
+		],
+		[t("agentHub.defs.detail.output"), formatAgentOutput(entry.output)],
+	].filter((row): row is [string, string] => typeof row[1] === "string" && row[1].length > 0);
+
+	return (
+		<details className="mt-2 border-t border-(--omp-border-muted) pt-1.5">
+			<summary className="cursor-pointer text-[10.5px] text-(--omp-muted)">{t("agentHub.defs.inspect")}</summary>
+			<div className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[10.5px]">
+				{details.map(([label, value]) => (
+					<div className="contents" key={label}>
+						<span className="text-(--omp-dim)">{label}</span>
+						<span className="break-all font-mono text-(--omp-muted)">{value}</span>
+					</div>
+				))}
+			</div>
+		</details>
+	);
 }
 
 const DefinitionRow = memo(function DefinitionRow({
@@ -290,6 +386,9 @@ const DefinitionRow = memo(function DefinitionRow({
 					onChange={enabled => onToggle(entry.name, !enabled)}
 				/>
 			</div>
+			{entry.description && (
+				<p className="mt-1 text-[10.5px] leading-relaxed text-(--omp-dim)">{entry.description}</p>
+			)}
 			<div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
 				<span className="flex items-center gap-1.5 text-[11px]">
 					<span className="text-(--omp-dim)">{t("agentHub.defs.modelLabel")}</span>
@@ -339,23 +438,31 @@ const DefinitionRow = memo(function DefinitionRow({
 					</button>
 				</span>
 			</div>
+			<DefinitionDetails entry={entry} override={override} prewalk={prewalk} />
 		</div>
 	);
 });
+
+type DefinitionSourceFilter = "all" | RpcAgentDefinitionInfo["source"];
+const DEFINITION_SOURCE_FILTERS: readonly DefinitionSourceFilter[] = ["all", "project", "user", "bundled"];
 
 function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 	const t = useT();
 	const subagents = useSubagentsStore(s => s.subagents);
 	const [query, setQuery] = useState("");
+	const [sourceFilter, setSourceFilter] = useState<DefinitionSourceFilter>("all");
 	const [editingName, setEditingName] = useState<string | null>(null);
 
-	// Union of agents referenced by settings and agents observed this session —
-	// the reachable subset until a definitions RPC exists (noted gap below).
+	// Start with every definition discovered for the workspace, then retain
+	// settings-only and live-session names in case a definition was removed.
 	const entries = useMemo(() => {
 		const state = rpc.state;
 		const byName = new Map<string, DefinitionEntry>();
 		if (state) {
-			for (const name of state.disabledAgents) byName.set(name, { name });
+			for (const definition of state.definitions) byName.set(definition.name, definition);
+			for (const name of state.disabledAgents) {
+				if (!byName.has(name)) byName.set(name, { name });
+			}
 			for (const name of Object.keys(state.modelOverrides)) {
 				if (!byName.has(name)) byName.set(name, { name });
 			}
@@ -373,12 +480,21 @@ function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 		}
 		return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 	}, [rpc.state, subagents]);
+	const sourceCounts = useMemo(() => {
+		const counts: Record<DefinitionSourceFilter, number> = { all: entries.length, project: 0, user: 0, bundled: 0 };
+		for (const entry of entries) {
+			if (entry.source && entry.source in counts) counts[entry.source as RpcAgentDefinitionInfo["source"]]++;
+		}
+		return counts;
+	}, [entries]);
 
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
-		if (!q) return entries;
-		return entries.filter(entry => entry.name.toLowerCase().includes(q));
-	}, [entries, query]);
+		return entries.filter(entry => {
+			if (sourceFilter !== "all" && entry.source !== sourceFilter) return false;
+			return !q || entry.name.toLowerCase().includes(q) || entry.description?.toLowerCase().includes(q);
+		});
+	}, [entries, query, sourceFilter]);
 
 	const toggleAgent = useCallback(
 		(name: string, disabled: boolean) => {
@@ -448,6 +564,24 @@ function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 					{t("agentHub.refresh")}
 				</Button>
 			</div>
+			<div className="flex shrink-0 flex-wrap gap-1">
+				{DEFINITION_SOURCE_FILTERS.map(source => (
+					<button
+						className={cx(
+							"rounded-md px-2 py-1 text-[10.5px]",
+							sourceFilter === source
+								? "bg-(--omp-selected-bg) text-(--omp-text)"
+								: "text-(--omp-dim) hover:text-(--omp-muted)",
+						)}
+						key={source}
+						onClick={() => setSourceFilter(source)}
+						type="button"
+					>
+						{source === "all" ? t("agentHub.source.all") : t(`agentHub.source.${source}`)} ({sourceCounts[source]}
+						)
+					</button>
+				))}
+			</div>
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
 				{!loadedState ? (
 					rpc.loading ? (
@@ -465,9 +599,6 @@ function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 					)
 				) : (
 					<div className="flex flex-col gap-2">
-						<p className="rounded-md border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-3 py-2 text-[10.5px] leading-relaxed text-(--omp-dim)">
-							{t("agentHub.defs.gapNote")}
-						</p>
 						{filtered.length === 0 ? (
 							<div className="px-3 py-8 text-center text-[11px] leading-relaxed text-(--omp-dim)">
 								{t("agentHub.defs.empty")}
@@ -517,67 +648,209 @@ function hubStatusOrder(status: string): number {
 	return 3;
 }
 
+const PRIMARY_LABEL_MAX = 60;
+
+/**
+ * Card title: assignment ?? description ?? task, hard-truncated. Assignment
+ * ranks first because the wire's `task` is the FULL rendered prompt template
+ * for task-tool spawns (renderSubagentUserPrompt, task/index.ts) while
+ * `assignment` carries the raw task text. Truncation keeps runaway texts from
+ * blowing out the card — this label is exactly how two same-type agents are
+ * told apart.
+ */
+function primaryLabel(agent: SubagentSnapshot): string | undefined {
+	const raw = agent.assignment ?? agent.description ?? agent.task;
+	if (!raw) return undefined;
+	const text = raw.trim();
+	return text.length > PRIMARY_LABEL_MAX ? `${text.slice(0, PRIMARY_LABEL_MAX - 1)}…` : text;
+}
+
 const HubRow = memo(function HubRow({
 	agent,
-	expanded,
-	onToggle,
 	now,
+	actionState,
+	onView,
+	onAbort,
+	onRevive,
+	onAbortConfirm,
+	onAbortCancel,
 }: {
 	agent: SubagentSnapshot;
-	expanded: boolean;
-	onToggle: () => void;
 	now: number;
+	/** "confirming" = inline ✓/✕ abort confirm; "working" = RPC in flight. */
+	actionState: "idle" | "confirming" | "working";
+	onView: () => void;
+	onAbort: () => void;
+	onRevive: () => void;
+	onAbortConfirm: () => void;
+	onAbortCancel: () => void;
 }) {
 	const t = useT();
 	const meta = statusMeta(agent.status);
-	const elapsed = isLiveSubagentStatus(agent.status) ? now - noteFirstSeen(agent.id) : null;
-	const subtitle = agent.task ?? agent.description ?? agent.assignment;
-	const lastUpdate = agent.progress?.description ?? agent.lastUpdate;
+	const live = isLiveSubagentStatus(agent.status);
+	// Live rows tick from first-seen; terminal rows fall back to the server's
+	// final duration when a progress payload survived.
+	const elapsed = live ? now - noteFirstSeen(agent.id) : (agent.progress?.durationMs ?? null);
+	const title = primaryLabel(agent);
+	const lastUpdate = agent.progress?.description;
+	const model = agent.progress?.resolvedModel;
+	const parked = agent.status === "parked";
+	const actionableLive = live && agent.kind !== "advisor";
+	const revivable = parked && agent.kind !== "advisor";
 
 	return (
 		<div className="rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary)">
-			<button
-				className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left"
-				onClick={onToggle}
-				type="button"
-			>
-				<ChevronRight
-					className={cx("shrink-0 text-(--omp-dim) transition-transform", expanded && "rotate-90")}
-					size={12}
-				/>
-				<Badge dot pulse={meta.live} variant={meta.variant}>
-					{t(meta.labelKey)}
+			<div className="flex items-center">
+				<button
+					className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-2 text-left"
+					onClick={onView}
+					type="button"
+				>
+					<Badge dot pulse={meta.live} variant={meta.variant}>
+						{t(meta.labelKey)}
+					</Badge>
+					<span className="shrink-0 font-mono text-[10.5px] text-(--omp-dim) tabular-nums">#{agent.index}</span>
+					<span className="min-w-0 truncate text-[12px] font-medium text-(--omp-text)">
+						{title ?? agent.agent}
+					</span>
+					<span className="ml-auto shrink-0 text-[10.5px] text-(--omp-dim) tabular-nums">
+						{elapsed !== null ? formatElapsed(elapsed) : "—"}
+					</span>
+				</button>
+				{/* 查看消息 opens the transcript slide-over; abort/revive are the TUI
+				    hub `x`/`r` parity actions via abort_subagent / revive_subagent.
+				    Abort is inline-confirmed like session deletes. */}
+				<button
+					type="button"
+					title={t("agentHub.hub.viewMessages")}
+					onClick={onView}
+					className="omp-pressable mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-accent)"
+				>
+					<MessageSquare size={11} />
+				</button>
+				{actionableLive && actionState !== "confirming" && (
+					<button
+						type="button"
+						disabled={actionState === "working"}
+						title={t("agentHub.hub.abortAgent")}
+						onClick={onAbort}
+						className="omp-pressable mr-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-error-dim) hover:text-(--omp-error) disabled:opacity-40"
+					>
+						<Square size={10} fill="currentColor" />
+					</button>
+				)}
+				{actionableLive && actionState === "confirming" && (
+					<span className="mr-2 flex shrink-0 items-center gap-0.5">
+						<button
+							type="button"
+							title={t("agentHub.hub.confirmAbort")}
+							onClick={onAbortConfirm}
+							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md bg-(--omp-error-dim) text-(--omp-error)"
+						>
+							<Check size={12} />
+						</button>
+						<button
+							type="button"
+							title={t("agentHub.hub.cancelAbort")}
+							onClick={onAbortCancel}
+							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg)"
+						>
+							<X size={12} />
+						</button>
+					</span>
+				)}
+				{revivable && (
+					<button
+						type="button"
+						disabled={actionState === "working"}
+						title={t("agentHub.hub.reviveAgent")}
+						onClick={onRevive}
+						className="omp-pressable mr-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-accent) disabled:opacity-40"
+					>
+						<RefreshCw size={11} />
+					</button>
+				)}
+			</div>
+			{/* Secondary line: agent type, provenance/kind badges, resolved model,
+			    and the latest progress note. */}
+			<div className="flex items-center gap-2 px-3 pb-2 text-[10.5px]">
+				<span className="shrink-0 font-medium text-(--omp-muted)">{agent.agent}</span>
+				{agent.agentSource && <Badge variant="muted">{sourceLabel(t, agent.agentSource)}</Badge>}
+				<Badge variant="muted">
+					{agent.kind === "advisor" ? t("agentHub.hub.readOnly") : t("agentHub.hub.kind.sub")}
 				</Badge>
-				<span className="shrink-0 font-mono text-[10.5px] text-(--omp-dim) tabular-nums">#{agent.index}</span>
-				<span className="min-w-0 truncate text-[12px] font-medium text-(--omp-text)">{agent.agent}</span>
-				<Badge variant="muted">{sourceLabel(t, agent.agentSource)}</Badge>
-				<span className="ml-auto shrink-0 text-[10.5px] text-(--omp-dim) tabular-nums">
-					{elapsed !== null ? formatElapsed(elapsed) : "—"}
-				</span>
-			</button>
-			{(subtitle || lastUpdate) && (
-				<div className="flex items-center gap-3 px-3 pb-2 pl-9 text-[10.5px]">
-					{subtitle && <span className="min-w-0 flex-1 truncate text-(--omp-muted)">{subtitle}</span>}
-					{lastUpdate && (
-						<span className="ml-auto min-w-0 flex-1 truncate text-right text-(--omp-dim)">{lastUpdate}</span>
-					)}
-				</div>
-			)}
-			{expanded && (
-				<div className="border-t border-(--omp-border-muted) px-3 py-2">
-					<SubagentTranscript agent={agent} />
-				</div>
-			)}
+				{model && (
+					<span className="min-w-0 truncate font-mono text-(--omp-dim)" title={model}>
+						{model}
+					</span>
+				)}
+				{lastUpdate && (
+					<span className="ml-auto min-w-0 flex-1 truncate text-right text-(--omp-dim)">{lastUpdate}</span>
+				)}
+			</div>
 		</div>
 	);
 });
 
+/**
+ * 查看消息 slide-over: covers the hub tab body with the agent's transcript
+ * (get_subagent_messages byte pagination inside SubagentTranscript). Escape
+ * closes the drawer, not the whole hub modal — window-capture runs before the
+ * Modal's document-capture handler (PluginDetailDrawer pattern).
+ */
+function AgentTranscriptDrawer({ agent, onClose }: { agent: SubagentSnapshot; onClose: () => void }) {
+	const t = useT();
+	const meta = statusMeta(agent.status);
+
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			event.stopPropagation();
+			onClose();
+		};
+		window.addEventListener("keydown", onKeyDown, true);
+		return () => window.removeEventListener("keydown", onKeyDown, true);
+	}, [onClose]);
+
+	return (
+		<div className="omp-fade-in absolute inset-0 z-10 flex flex-col bg-(--omp-modal-bg)">
+			<div className="flex shrink-0 items-center gap-2 border-b border-(--omp-border-muted) px-3 py-2">
+				<button
+					aria-label={t("agentHub.hub.backToHub")}
+					className="omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text)"
+					onClick={onClose}
+					type="button"
+				>
+					<ArrowLeft size={13} />
+				</button>
+				<Badge dot pulse={meta.live} variant={meta.variant}>
+					{t(meta.labelKey)}
+				</Badge>
+				<span className="min-w-0 truncate text-[12px] font-medium text-(--omp-text)">
+					{primaryLabel(agent) ?? agent.agent}
+				</span>
+				<span className="shrink-0 text-[10.5px] text-(--omp-dim)">{agent.agent}</span>
+			</div>
+			<div className="min-h-0 flex-1 overflow-y-auto">
+				<SubagentTranscript agent={agent} />
+			</div>
+		</div>
+	);
+}
+
 function HubTab() {
 	const t = useT();
 	const subagents = useSubagentsStore(s => s.subagents);
-	const [expanded, setExpanded] = useState<Set<string>>(new Set());
+	const [viewingId, setViewingId] = useState<string | null>(null);
 	const [now, setNow] = useState(() => Date.now());
 	const [aborting, setAborting] = useState(false);
+
+	// Close the slide-over if its agent leaves the roster (released mid-view).
+	useEffect(() => {
+		if (viewingId !== null && !subagents.has(viewingId)) setViewingId(null);
+	}, [viewingId, subagents]);
+
+	const viewing = viewingId !== null ? (subagents.get(viewingId) ?? null) : null;
 
 	const sorted = useMemo(
 		() =>
@@ -614,17 +887,7 @@ function HubTab() {
 		return () => clearInterval(timer);
 	}, [hasRunning]);
 
-	const toggle = useCallback((id: string) => {
-		setExpanded(prev => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	}, []);
-
-	// Session-scoped abort: the only abort the RPC surface exposes — it stops
-	// the active turn (subagents included). Per-agent abort is a noted gap.
+	// Session-scoped abort: stops the active turn (subagents included).
 	const abortTurn = useCallback(async () => {
 		setAborting(true);
 		try {
@@ -639,8 +902,89 @@ function HubTab() {
 		}
 	}, [t]);
 
+	// Per-agent lifecycle actions (TUI hub `x`/`r` parity). Refetch the list
+	// after each mutation — the release/revival may not emit a lifecycle frame.
+	// The store refresh MERGES, so finished agents survive the fetch.
+	const [rowAction, setRowAction] = useState<{ id: string; state: "confirming" | "working" } | null>(null);
+
+	const refreshSubagents = useCallback(() => useSubagentsStore.getState().refresh(), []);
+
+	const subagentReason = useCallback(
+		(reason: string | undefined): string => {
+			switch (reason) {
+				case "advisor_readonly":
+					return t("agentHub.hub.reason.advisorReadonly");
+				case "main_agent":
+					return t("agentHub.hub.reason.mainAgent");
+				case "not_found":
+					return t("agentHub.hub.reason.notFound");
+				case "not_parked":
+					return t("agentHub.hub.reason.notParked");
+				default:
+					return t("agentHub.hub.reason.abortFailed");
+			}
+		},
+		[t],
+	);
+
+	const abortAgent = useCallback(
+		async (id: string) => {
+			setRowAction({ id, state: "working" });
+			try {
+				const res = await window.omp.rpc.abortSubagent(id);
+				if (!res.success) {
+					toast({ variant: "error", title: t("agentHub.hub.abortAgentFailed"), message: res.error });
+					return;
+				}
+				const data = res.data as { ok?: boolean; reason?: string } | undefined;
+				if (!data?.ok) {
+					toast({
+						variant: "error",
+						title: t("agentHub.hub.abortAgentFailed"),
+						message: subagentReason(data?.reason),
+					});
+					return;
+				}
+				await refreshSubagents();
+			} catch (cause) {
+				toast({ variant: "error", title: t("agentHub.hub.abortAgentFailed"), message: String(cause) });
+			} finally {
+				setRowAction(null);
+			}
+		},
+		[t, subagentReason, refreshSubagents],
+	);
+
+	const reviveAgent = useCallback(
+		async (id: string) => {
+			setRowAction({ id, state: "working" });
+			try {
+				const res = await window.omp.rpc.reviveSubagent(id);
+				if (!res.success) {
+					toast({ variant: "error", title: t("agentHub.hub.reviveFailed"), message: res.error });
+					return;
+				}
+				const data = res.data as { ok?: boolean; reason?: string } | undefined;
+				if (!data?.ok) {
+					toast({
+						variant: "error",
+						title: t("agentHub.hub.reviveFailed"),
+						message: subagentReason(data?.reason),
+					});
+					return;
+				}
+				await refreshSubagents();
+			} catch (cause) {
+				toast({ variant: "error", title: t("agentHub.hub.reviveFailed"), message: String(cause) });
+			} finally {
+				setRowAction(null);
+			}
+		},
+		[t, subagentReason, refreshSubagents],
+	);
+
 	return (
-		<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+		<div className="relative flex min-h-0 flex-1 flex-col gap-3 p-4">
 			<div className="flex shrink-0 flex-wrap items-center gap-2">
 				{[...counts].map(([status, count]) => (
 					<Badge dot key={status} pulse={statusMeta(status).live} variant={statusMeta(status).variant}>
@@ -671,10 +1015,14 @@ function HubTab() {
 					sorted.map(agent => (
 						<HubRow
 							agent={agent}
-							expanded={expanded.has(agent.id)}
 							key={agent.id}
 							now={now}
-							onToggle={() => toggle(agent.id)}
+							onView={() => setViewingId(agent.id)}
+							actionState={rowAction?.id === agent.id ? rowAction.state : "idle"}
+							onAbort={() => setRowAction({ id: agent.id, state: "confirming" })}
+							onAbortConfirm={() => void abortAgent(agent.id)}
+							onAbortCancel={() => setRowAction(null)}
+							onRevive={() => void reviveAgent(agent.id)}
 						/>
 					))
 				)}
@@ -682,6 +1030,7 @@ function HubTab() {
 			<div className="shrink-0 border-t border-(--omp-border-muted) pt-2 text-[10.5px] leading-relaxed text-(--omp-dim)">
 				{t("agentHub.hub.gapNote")}
 			</div>
+			{viewing && <AgentTranscriptDrawer agent={viewing} onClose={() => setViewingId(null)} />}
 		</div>
 	);
 }

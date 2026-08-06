@@ -4,9 +4,11 @@
  * Each tab lazy-loads its RPC on first view and caches until refreshed.
  *
  * The Plugins tab is interactive: rows toggle via set_plugin_enabled
- * (optimistic — revert + error toast on failure, re-fetch on success).
- * Marketplaces, templates, and memory stay read-only (no set_* RPC exists
- * for them).
+ * (optimistic — revert + error toast on failure, re-fetch on success), and
+ * clicking a row opens the detail drawer (features + settings editor, see
+ * inventory/PluginDetailDrawer). The Marketplaces tab manages sources and
+ * catalog installs via marketplace_action (see inventory/MarketplacesSection).
+ * Templates and memory stay read-only (no set_* RPC exists for them).
  *
  * Controlled window — the parent owns open state and wires the trigger:
  *   const [inventoryOpen, setInventoryOpen] = useState(false);
@@ -16,7 +18,6 @@
 import { ChevronDown, ChevronRight, RefreshCw, Search } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-	RpcMarketplaceInfo,
 	RpcMarketplacesResult,
 	RpcMemoryReport,
 	RpcPluginInfo,
@@ -31,7 +32,9 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Modal, Spinner, type TabItem, Tabs } from "../common";
-import { filterMarketplaces, filterPlugins, filterTemplates, shortenSource } from "./inventory-utils";
+import { AddMarketplaceForm, MarketplaceCard } from "./inventory/MarketplacesSection";
+import { PluginDetailDrawer } from "./inventory/PluginDetailDrawer";
+import { filterMarketplaces, filterPlugins, filterTemplates } from "./inventory-utils";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -280,6 +283,7 @@ function PluginRow({
 	busy,
 	disabled,
 	onToggle,
+	onOpenDetail,
 }: {
 	plugin: RpcPluginInfo;
 	t: TFn;
@@ -288,9 +292,26 @@ function PluginRow({
 	busy: boolean;
 	disabled: boolean;
 	onToggle: () => void;
+	/** Open the detail drawer (features + settings editor). */
+	onOpenDetail: () => void;
 }) {
 	return (
-		<Row>
+		<div
+			className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2.5 transition-colors hover:border-(--omp-border-strong) hover:bg-[var(--omp-bg-tertiary)]"
+			onClick={onOpenDetail}
+			onKeyDown={event => {
+				// Only the row itself — keydown bubbling from the toggle button must
+				// not also open the drawer.
+				if (event.target !== event.currentTarget) return;
+				if (event.key === "Enter" || event.key === " ") {
+					event.preventDefault();
+					onOpenDetail();
+				}
+			}}
+			role="button"
+			tabIndex={0}
+			title={t("pluginDetail.openHint")}
+		>
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex flex-wrap items-center gap-1.5">
 					<span className="text-[13px] font-medium text-[var(--omp-text)]">{plugin.name}</span>
@@ -311,12 +332,24 @@ function PluginRow({
 					{plugin.id && plugin.id !== plugin.name && <span className="truncate font-mono">{plugin.id}</span>}
 				</div>
 			</div>
-			<PluginToggle busy={busy} disabled={disabled} enabled={enabled} onToggle={onToggle} />
-		</Row>
+			{/* The toggle keeps its own click target — the row click opens the drawer. */}
+			<span onClick={event => event.stopPropagation()}>
+				<PluginToggle busy={busy} disabled={disabled} enabled={enabled} onToggle={onToggle} />
+			</span>
+			<ChevronRight className="shrink-0 text-(--omp-dim)" size={13} />
+		</div>
 	);
 }
 
-function PluginsTab({ resource, visible }: { resource: RpcResource<RpcPluginsResult>; visible: boolean }) {
+function PluginsTab({
+	resource,
+	visible,
+	onOpenDetail,
+}: {
+	resource: RpcResource<RpcPluginsResult>;
+	visible: boolean;
+	onOpenDetail: (plugin: RpcPluginInfo) => void;
+}) {
 	const t = useT();
 	const [query, setQuery] = useState("");
 	const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -382,6 +415,7 @@ function PluginsTab({ resource, visible }: { resource: RpcResource<RpcPluginsRes
 										disabled={busyKey !== null}
 										enabled={overrides[key] ?? p.enabled}
 										key={key}
+										onOpenDetail={() => onOpenDetail(p)}
 										onToggle={() => void handleToggle(p)}
 										plugin={p}
 										t={t}
@@ -399,30 +433,6 @@ function PluginsTab({ resource, visible }: { resource: RpcResource<RpcPluginsRes
 // ============================================================================
 // Marketplaces tab
 // ============================================================================
-
-function MarketplaceRow({ marketplace, t }: { marketplace: RpcMarketplaceInfo; t: TFn }) {
-	return (
-		<Row>
-			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-				<div className="flex flex-wrap items-center gap-1.5">
-					<span className="text-[13px] font-medium text-[var(--omp-text)]">{marketplace.name}</span>
-					{marketplace.pluginCount !== undefined ? (
-						<Badge variant="default">
-							{t("invPanel.marketplaces.pluginCount", { count: marketplace.pluginCount })}
-						</Badge>
-					) : (
-						<Badge variant="muted">{t("invPanel.marketplaces.notFetched")}</Badge>
-					)}
-				</div>
-				<div className="flex items-center gap-3 text-[11px] text-[var(--omp-dim)]">
-					<span className="truncate font-mono" title={marketplace.source}>
-						{shortenSource(marketplace.source)}
-					</span>
-				</div>
-			</div>
-		</Row>
-	);
-}
 
 function MarketplacesTab({ resource, visible }: { resource: RpcResource<RpcMarketplacesResult>; visible: boolean }) {
 	const t = useT();
@@ -446,17 +456,20 @@ function MarketplacesTab({ resource, visible }: { resource: RpcResource<RpcMarke
 				t={t}
 			/>
 			<ResourceGate resource={resource}>
-				{() =>
-					marketplaces.length === 0 ? (
-						<EmptyNote>{t(total === 0 ? "invPanel.marketplaces.empty" : "invPanel.noMatch")}</EmptyNote>
-					) : (
-						<div className="flex flex-col gap-2">
-							{marketplaces.map(m => (
-								<MarketplaceRow key={m.name} marketplace={m} t={t} />
-							))}
-						</div>
-					)
-				}
+				{() => (
+					<>
+						<AddMarketplaceForm onAdded={resource.reload} />
+						{marketplaces.length === 0 ? (
+							<EmptyNote>{t(total === 0 ? "invPanel.marketplaces.empty" : "invPanel.noMatch")}</EmptyNote>
+						) : (
+							<div className="flex flex-col gap-2">
+								{marketplaces.map(m => (
+									<MarketplaceCard key={m.name} marketplace={m} reload={resource.reload} />
+								))}
+							</div>
+						)}
+					</>
+				)}
 			</ResourceGate>
 		</TabPanel>
 	);
@@ -658,14 +671,18 @@ export interface InventoryPanelProps {
 export function InventoryPanel({ open, onClose, initialTab = "plugins" }: InventoryPanelProps) {
 	const t = useT();
 	const [tab, setTab] = useState<TabId>(initialTab);
+	const [detailPlugin, setDetailPlugin] = useState<RpcPluginInfo | null>(null);
 	const plugins = useRpcResource<RpcPluginsResult>(() => window.omp.rpc.getPlugins());
 	const marketplaces = useRpcResource<RpcMarketplacesResult>(() => window.omp.rpc.getMarketplaces());
 	const templates = useRpcResource<RpcPromptTemplatesResult>(() => window.omp.rpc.getPromptTemplates());
 	const memory = useRpcResource<RpcMemoryReport>(() => window.omp.rpc.getMemoryReport());
 
-	// Reopening deep-links to the requested tab.
+	// Reopening deep-links to the requested tab and drops any open detail drawer.
 	useEffect(() => {
-		if (open) setTab(initialTab);
+		if (open) {
+			setTab(initialTab);
+			setDetailPlugin(null);
+		}
 	}, [open, initialTab]);
 
 	const tabs = useMemo<TabItem[]>(
@@ -678,9 +695,16 @@ export function InventoryPanel({ open, onClose, initialTab = "plugins" }: Invent
 		[t, plugins.data, marketplaces.data, templates.data],
 	);
 
+	const footer =
+		tab === "plugins"
+			? t("invPanel.footer.plugins")
+			: tab === "marketplaces"
+				? t("marketplace.footerNote")
+				: t("invPanel.readonlyNote");
+
 	return (
 		<Modal bodyClassName="p-0" open={open} onClose={onClose} title={t("invPanel.title")} size="lg">
-			<div className="flex h-[72vh] flex-col">
+			<div className="relative flex h-[72vh] flex-col">
 				<Tabs
 					tabs={tabs}
 					activeId={tab}
@@ -689,14 +713,23 @@ export function InventoryPanel({ open, onClose, initialTab = "plugins" }: Invent
 					ariaLabel={t("invPanel.title")}
 				/>
 				<div className="min-h-0 flex-1 overflow-y-auto">
-					<PluginsTab resource={plugins} visible={tab === "plugins"} />
+					<PluginsTab resource={plugins} visible={tab === "plugins"} onOpenDetail={setDetailPlugin} />
 					<MarketplacesTab resource={marketplaces} visible={tab === "marketplaces"} />
 					<TemplatesTab resource={templates} visible={tab === "templates"} />
 					<MemoryTab resource={memory} visible={tab === "memory"} />
 				</div>
 				<div className="shrink-0 border-t border-(--omp-border-muted) px-4 py-2 text-[10px] leading-relaxed text-(--omp-dim)">
-					{tab === "plugins" ? t("invPanel.footer.plugins") : t("invPanel.readonlyNote")}
+					{footer}
 				</div>
+				{/* Drill-in detail drawer — covers the window body until dismissed. */}
+				{detailPlugin && (
+					<PluginDetailDrawer
+						key={detailPlugin.id ?? detailPlugin.name}
+						onChanged={plugins.reload}
+						onClose={() => setDetailPlugin(null)}
+						plugin={detailPlugin}
+					/>
+				)}
 			</div>
 		</Modal>
 	);

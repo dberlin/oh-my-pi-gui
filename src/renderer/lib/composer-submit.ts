@@ -1,19 +1,17 @@
 /**
- * Composer message submission policy. Typed slash commands ("/compact",
- * "/model", …) execute server-side via the prompt RPC's builtin-command
- * parse — even while streaming, where steer/followUp would inject the text
- * as a user steer instead. Session-replacing commands (/new, /clear) are
- * blocked while a turn runs so they cannot silently kill it (same busy
- * guard as the menu/deep-link/WorkspaceDialog paths). Local-only slash
- * commands resolve with agentInvoked:false and emit no agent events, so
- * settling rehydrates — hydration is the only way the transcript
- * (compaction summary, model change) and the context bar learn about the
- * mutation, same as the TUI re-render.
+ * Composer message submission policy. Text-mode slash commands execute
+ * server-side through the prompt RPC. Builtins that require an interactive
+ * surface are resolved through the same GUI affordance registry as the
+ * command palette, so they can never leak into model context as literal text.
+ * Session-replacing commands are blocked while a turn runs. Local-only
+ * server commands rehydrate after settlement so transcript/context state
+ * reflects the mutation.
  */
 
-import type { ImageContent, RpcResponse } from "../../shared/rpc-types";
+import type { AvailableCommand, ImageContent, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession } from "../hooks/use-rpc-events";
 import { toast } from "../stores/toast";
+import { buildCurrentCommandMenu, type CommandAffordance } from "./command-registry";
 import { translate } from "./i18n";
 
 export type ComposerSendMode = "prompt" | "steer" | "followUp";
@@ -24,16 +22,79 @@ const SESSION_REPLACING_COMMANDS: Record<string, true> = { new: true, clear: tru
 export type ComposerSubmit =
 	/** Session-replacing command while busy — draft stays, warning toasted. */
 	| { kind: "blocked" }
+	/** Exact `/clear` — native clear_context RPC path (lib/messages.clearSessionContext). */
+	| { kind: "clear" }
+	/** A GUI-native command opened/executed its affordance synchronously. */
+	| { kind: "handled" }
 	/** Dispatch this request; on success call {@link settleComposerResponse}. */
 	| { kind: "send"; request: Promise<RpcResponse> };
+
+function runGuiAffordance(affordance: CommandAffordance, args?: string): boolean {
+	const reportFailure = (cause: unknown): void => {
+		toast({ variant: "error", title: translate("palette.failed"), message: String(cause) });
+	};
+	switch (affordance.kind) {
+		case "action":
+			void Promise.resolve(affordance.run(args)).catch(reportFailure);
+			return true;
+		case "toggle":
+			void Promise.resolve(affordance.set(!affordance.get())).catch(reportFailure);
+			return true;
+		case "picker":
+		case "window":
+			affordance.open();
+			return true;
+		case "unavailable":
+			toast({ variant: "warning", message: affordance.reason || translate("unavailable.tuiOnly") });
+			return false;
+		case "prompt":
+		case "submenu":
+			toast({ variant: "warning", message: translate("unavailable.tuiOnly") });
+			return false;
+	}
+}
+
+function findGuiOnlyBuiltin(message: string, commands: AvailableCommand[]): AvailableCommand | undefined {
+	const name = /^\/([a-z0-9-]+)/i.exec(message)?.[1]?.toLowerCase();
+	if (!name) return undefined;
+	return commands.find(
+		command =>
+			command.source === "builtin" &&
+			command.textModeExecutable === false &&
+			(command.name.toLowerCase() === name || command.aliases?.some(alias => alias.toLowerCase() === name)),
+	);
+}
+
+export function isGuiOnlyBuiltinCommand(message: string, commands: AvailableCommand[]): boolean {
+	return findGuiOnlyBuiltin(message, commands) !== undefined;
+}
+
+function runGuiOnlyBuiltin(message: string, commands: AvailableCommand[]): boolean | undefined {
+	const wireCommand = findGuiOnlyBuiltin(message, commands);
+	if (!wireCommand) return undefined;
+	const match = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/i.exec(message.trim());
+	const name = match?.[1]?.toLowerCase() ?? wireCommand.name.toLowerCase();
+	const args = match?.[2]?.trim() || undefined;
+	const item = buildCurrentCommandMenu(commands).find(
+		candidate =>
+			candidate.name.toLowerCase() === wireCommand.name.toLowerCase() ||
+			candidate.aliases?.some(alias => alias.toLowerCase() === name),
+	);
+	if (!item) {
+		toast({ variant: "warning", message: translate("unavailable.tuiOnly") });
+		return false;
+	}
+	return runGuiAffordance(item.affordance, args);
+}
 
 export function planComposerSubmit(input: {
 	message: string;
 	images: ImageContent[];
 	isStreaming: boolean;
 	mode: ComposerSendMode;
+	commands: AvailableCommand[];
 }): ComposerSubmit {
-	const { message, images, isStreaming, mode } = input;
+	const { message, images, isStreaming, mode, commands } = input;
 	const isSlashCommand = message.startsWith("/");
 	if (isSlashCommand && isStreaming) {
 		const commandName = /^\/([a-z-]+)/i.exec(message)?.[1]?.toLowerCase();
@@ -42,6 +103,14 @@ export function planComposerSubmit(input: {
 			return { kind: "blocked" };
 		}
 	}
+	// Typed `/clear` (no args) takes the native clear_context RPC — forwarding it
+	// as prompt text would fall through the TUI-only builtin and reach the model
+	// as a literal user message.
+	if (isSlashCommand && message.trim() === "/clear") {
+		return { kind: "clear" };
+	}
+	const guiHandled = isSlashCommand ? runGuiOnlyBuiltin(message, commands) : undefined;
+	if (guiHandled !== undefined) return { kind: guiHandled ? "handled" : "blocked" };
 	if (!isSlashCommand && isStreaming) {
 		return {
 			kind: "send",

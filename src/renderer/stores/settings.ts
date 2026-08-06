@@ -39,6 +39,10 @@ interface SettingsStore {
 	tuiTight: boolean;
 	/** Agent `colorBlindMode` setting: color-blind-safe palette. */
 	colorBlindMode: boolean;
+	/** Agent `paste.largeMenuThreshold` setting: line count at which a paste offers the menu (0 = never). */
+	pasteMenuThreshold: number;
+	/** Agent `emojiAutocomplete` setting: `:name:`/emoticon completion and expansion in the composer. */
+	emojiAutocomplete: boolean;
 	setFromState: (state: RpcSessionState) => void;
 	setApprovalMode: (mode: ApprovalMode) => void;
 	/** Re-read the live display settings via get_settings. */
@@ -78,6 +82,10 @@ const initialState = {
 	sttEnabled: false,
 	tuiTight: false,
 	colorBlindMode: false,
+	// Schema default (settings-schema.ts paste.largeMenuThreshold): menu at 100 lines.
+	pasteMenuThreshold: 100,
+	// Schema default (settings-schema.ts emojiAutocomplete): on.
+	emojiAutocomplete: true,
 };
 
 /** Read the live tools.approvalMode config setting into the store. */
@@ -114,6 +122,7 @@ const DISPLAY_BOOL_MAP: Record<
 	| "sttEnabled"
 	| "tuiTight"
 	| "colorBlindMode"
+	| "emojiAutocomplete"
 > = {
 	hideThinkingBlock: "hideThinkingBlock",
 	proseOnlyThinking: "proseOnlyThinking",
@@ -127,8 +136,15 @@ const DISPLAY_BOOL_MAP: Record<
 	"stt.enabled": "sttEnabled",
 	"tui.tight": "tuiTight",
 	colorBlindMode: "colorBlindMode",
+	emojiAutocomplete: "emojiAutocomplete",
 };
 const DISPLAY_SYNC_KEYS = Object.keys(DISPLAY_BOOL_MAP);
+
+/** Setting path → store field for numeric display keys. */
+const DISPLAY_NUM_MAP: Record<string, "pasteMenuThreshold"> = {
+	"paste.largeMenuThreshold": "pasteMenuThreshold",
+};
+const DISPLAY_NUM_KEYS = Object.keys(DISPLAY_NUM_MAP);
 
 /**
  * Read the live display config settings into the store. Re-run on session
@@ -137,13 +153,17 @@ const DISPLAY_SYNC_KEYS = Object.keys(DISPLAY_BOOL_MAP);
  */
 async function syncDisplaySettings(set: (partial: Partial<SettingsStore>) => void): Promise<void> {
 	try {
-		const res = await window.omp.rpc.getSettings(DISPLAY_SYNC_KEYS);
+		const res = await window.omp.rpc.getSettings([...DISPLAY_SYNC_KEYS, ...DISPLAY_NUM_KEYS]);
 		if (res.success) {
 			const values = (res.data as { values?: Record<string, unknown> } | undefined)?.values;
 			const partial: Partial<SettingsStore> = {};
 			for (const [path, field] of Object.entries(DISPLAY_BOOL_MAP)) {
 				const value = values?.[path];
 				if (typeof value === "boolean") partial[field] = value;
+			}
+			for (const [path, field] of Object.entries(DISPLAY_NUM_MAP)) {
+				const value = values?.[path];
+				if (typeof value === "number") partial[field] = value;
 			}
 			if (Object.keys(partial).length > 0) set(partial);
 		}

@@ -61,7 +61,7 @@ interface ResolvedPlanPath {
  */
 function resolvePlanFsPath(planFilePath: string, sessionFile: string | null, cwd: string): ResolvedPlanPath | null {
 	if (planFilePath.startsWith("local:")) {
-		if (!sessionFile || !sessionFile.endsWith(".jsonl")) return null;
+		if (!sessionFile?.endsWith(".jsonl")) return null;
 		const name = planFilePath.replace(/^local:\/+/, "");
 		if (!name) return null;
 		const localRoot = `${sessionFile.slice(0, -".jsonl".length)}/local`;

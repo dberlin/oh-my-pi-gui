@@ -89,7 +89,7 @@ export class LogWatcher {
 	#watchDirectory(): void {
 		try {
 			const watcher = watch(this.#logsDir, (_eventType, filename) => {
-				if (!filename || !filename.startsWith("omp.") || !filename.endsWith(".log")) return;
+				if (!filename?.startsWith("omp.") || !filename.endsWith(".log")) return;
 				const fullPath = join(this.#logsDir, filename);
 				if (!this.#files.has(fullPath)) {
 					void this.#watchFile(fullPath);

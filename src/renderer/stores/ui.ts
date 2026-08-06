@@ -1,10 +1,11 @@
 import { create } from "zustand";
 import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
+import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
 import type { ThemeMode } from "../lib/theme";
 
 export type { ThemeMode };
 
-export type PanelTab = "todo" | "agents" | "diff" | "files" | "logs" | "plan";
+export type PanelTab = "todo" | "agents" | "diff" | "files" | "logs" | "plan" | "queue";
 export type TranscriptDetail = "compact" | "full";
 
 interface UiStore {
@@ -28,6 +29,23 @@ interface UiStore {
 	modesTab: "vibe" | "goal" | "loop";
 	agentHubOpen: boolean;
 	agentHubTab: "definitions" | "hub";
+	hotkeysOpen: boolean;
+	importDialogOpen: boolean;
+	copySelectorOpen: boolean;
+	changelogOpen: boolean;
+	contextReportOpen: boolean;
+	activeToolsOpen: boolean;
+	shareSessionOpen: boolean;
+	jobsOpen: boolean;
+	workspaceDirsOpen: boolean;
+	forceToolOpen: boolean;
+	btwRequest: string | null;
+	collabOpen: boolean;
+	collabJoinLink: string | null;
+	debugOpen: boolean;
+	liveOpen: boolean;
+	composerEditorOpen: boolean;
+	composerEditorInitial: string | null;
 	providerConfigOpen: boolean;
 	providerConfigEdit: CustomProviderView | null;
 	renameDialogOpen: boolean;
@@ -80,6 +98,36 @@ interface UiStore {
 	closeModes: () => void;
 	openAgentHub: (tab?: "definitions" | "hub") => void;
 	closeAgentHub: () => void;
+	openHotkeys: () => void;
+	closeHotkeys: () => void;
+	openImportDialog: () => void;
+	closeImportDialog: () => void;
+	openCopySelector: () => void;
+	closeCopySelector: () => void;
+	openChangelog: () => void;
+	closeChangelog: () => void;
+	openContextReport: () => void;
+	closeContextReport: () => void;
+	openActiveTools: () => void;
+	closeActiveTools: () => void;
+	openShareSession: () => void;
+	closeShareSession: () => void;
+	openJobs: () => void;
+	closeJobs: () => void;
+	openWorkspaceDirs: () => void;
+	closeWorkspaceDirs: () => void;
+	openForceTool: () => void;
+	closeForceTool: () => void;
+	openBtw: (question: string) => void;
+	closeBtw: () => void;
+	openCollab: (joinLink?: string) => void;
+	closeCollab: () => void;
+	openDebug: () => void;
+	closeDebug: () => void;
+	openLive: () => void;
+	closeLive: () => void;
+	openComposerEditor: (initial: string) => void;
+	closeComposerEditor: () => void;
 	openProviderConfig: (editProvider?: CustomProviderView | null) => void;
 	closeProviderConfig: () => void;
 	openRenameDialog: () => void;
@@ -101,6 +149,18 @@ interface UiStore {
 	setNotifications: (enabled: boolean) => void;
 	setThinkingExpanded: (enabled: boolean) => void;
 	setTranscriptDetail: (detail: TranscriptDetail) => void;
+	/**
+	 * User keybinding overrides (B3 remap layer): actionId → replacement chord
+	 * list, compiled with the defaults in lib/keymap.ts into the keydown
+	 * dispatch map. GUI-local only — never synced to the TUI's keybindings.yml.
+	 */
+	keymapOverrides: KeymapOverrides;
+	/** One-shot boot hydration guard for keymapOverrides (input-history pattern). */
+	keymapHydrated: boolean;
+	hydrateKeymap: () => Promise<void>;
+	/** Replace one action's chords; an empty list removes the override (reset to default). */
+	setKeymapOverride: (actionId: string, chords: string[]) => void;
+	resetKeymapOverrides: () => void;
 }
 
 export const useUiStore = create<UiStore>()((set, get) => ({
@@ -161,6 +221,53 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	agentHubTab: "definitions" as const,
 	openAgentHub: tab => set({ agentHubOpen: true, agentHubTab: tab ?? "definitions" }),
 	closeAgentHub: () => set({ agentHubOpen: false }),
+	hotkeysOpen: false,
+	openHotkeys: () => set({ hotkeysOpen: true }),
+	closeHotkeys: () => set({ hotkeysOpen: false }),
+	importDialogOpen: false,
+	openImportDialog: () => set({ importDialogOpen: true }),
+	closeImportDialog: () => set({ importDialogOpen: false }),
+	copySelectorOpen: false,
+	openCopySelector: () => set({ copySelectorOpen: true }),
+	closeCopySelector: () => set({ copySelectorOpen: false }),
+	changelogOpen: false,
+	openChangelog: () => set({ changelogOpen: true }),
+	closeChangelog: () => set({ changelogOpen: false }),
+	contextReportOpen: false,
+	openContextReport: () => set({ contextReportOpen: true }),
+	closeContextReport: () => set({ contextReportOpen: false }),
+	activeToolsOpen: false,
+	openActiveTools: () => set({ activeToolsOpen: true }),
+	closeActiveTools: () => set({ activeToolsOpen: false }),
+	shareSessionOpen: false,
+	openShareSession: () => set({ shareSessionOpen: true }),
+	closeShareSession: () => set({ shareSessionOpen: false }),
+	jobsOpen: false,
+	openJobs: () => set({ jobsOpen: true }),
+	closeJobs: () => set({ jobsOpen: false }),
+	workspaceDirsOpen: false,
+	openWorkspaceDirs: () => set({ workspaceDirsOpen: true }),
+	closeWorkspaceDirs: () => set({ workspaceDirsOpen: false }),
+	forceToolOpen: false,
+	openForceTool: () => set({ forceToolOpen: true }),
+	closeForceTool: () => set({ forceToolOpen: false }),
+	btwRequest: null,
+	openBtw: question => set({ btwRequest: question }),
+	closeBtw: () => set({ btwRequest: null }),
+	collabOpen: false,
+	collabJoinLink: null as string | null,
+	openCollab: joinLink => set({ collabOpen: true, collabJoinLink: joinLink ?? null }),
+	closeCollab: () => set({ collabOpen: false, collabJoinLink: null }),
+	debugOpen: false,
+	openDebug: () => set({ debugOpen: true }),
+	closeDebug: () => set({ debugOpen: false }),
+	liveOpen: false,
+	openLive: () => set({ liveOpen: true }),
+	closeLive: () => set({ liveOpen: false }),
+	composerEditorOpen: false,
+	composerEditorInitial: null,
+	openComposerEditor: initial => set({ composerEditorOpen: true, composerEditorInitial: initial }),
+	closeComposerEditor: () => set({ composerEditorOpen: false, composerEditorInitial: null }),
 	providerConfigOpen: false,
 	providerConfigEdit: null as CustomProviderView | null,
 	openProviderConfig: editProvider => set({ providerConfigOpen: true, providerConfigEdit: editProvider ?? null }),
@@ -191,4 +298,29 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setNotifications: enabled => set({ notifications: enabled }),
 	setThinkingExpanded: enabled => set({ thinkingExpanded: enabled }),
 	setTranscriptDetail: detail => set({ transcriptDetail: detail }),
+	keymapOverrides: {} as KeymapOverrides,
+	keymapHydrated: false,
+	hydrateKeymap: async () => {
+		if (get().keymapHydrated) return;
+		try {
+			const raw = await window.omp.prefs.get("keymapOverrides");
+			set({ keymapOverrides: sanitizeOverrides(KEYMAP_ACTIONS, raw), keymapHydrated: true });
+		} catch {
+			// prefs IPC unavailable (tests, storybook) — defaults stay in effect.
+			set({ keymapHydrated: true });
+		}
+	},
+	setKeymapOverride: (actionId, chords) => {
+		// Fresh object per mutation so subscribers (and App's compiled-map memo)
+		// see a new reference; untouched overrides keep their identity.
+		const next = { ...get().keymapOverrides };
+		if (chords.length === 0) delete next[actionId];
+		else next[actionId] = chords;
+		set({ keymapOverrides: next });
+		void window.omp.prefs.set("keymapOverrides", next).catch(() => {});
+	},
+	resetKeymapOverrides: () => {
+		set({ keymapOverrides: {} });
+		void window.omp.prefs.set("keymapOverrides", {}).catch(() => {});
+	},
 }));

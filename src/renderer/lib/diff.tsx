@@ -207,49 +207,70 @@ function indentGlyphs(content: string): { glyphs: string; width: number } {
 
 const HIGHLIGHT_CHAR_CAP = 20_000;
 
+interface HighlightToken {
+	className: string | null;
+	text: string;
+}
+
+const HIGHLIGHT_ENTITY_RE = /&(amp|lt|gt|quot|#x27);/g;
+const HIGHLIGHT_ENTITIES: Readonly<Record<string, string>> = {
+	amp: "&",
+	lt: "<",
+	gt: ">",
+	quot: '"',
+	"#x27": "'",
+};
+
+function decodeHighlightedText(text: string): string {
+	return text.replace(HIGHLIGHT_ENTITY_RE, entity => HIGHLIGHT_ENTITIES[entity.slice(1, -1)] ?? entity);
+}
+
 /**
- * Split flat-span hljs HTML into per-line HTML. hljs output never nests spans
- * and never contains a bare `<` in text, so closing the open span at a line
- * break and reopening it on the next line is lossless.
+ * Split flat-span hljs HTML into per-line React tokens. hljs output never
+ * nests spans and escapes every text node, so decoding its five fixed
+ * entities here preserves the original source without injecting HTML.
  */
-function splitHighlightedLines(html: string): string[] {
-	const lines: string[] = [];
-	let current = "";
+function splitHighlightedLines(html: string): HighlightToken[][] {
+	const lines: HighlightToken[][] = [[]];
 	let openClass: string | null = null;
 	const tokenRe = /<span class="([^"]*)">|<\/span>|[^<]+/g;
-	let match: RegExpExecArray | null;
-	while ((match = tokenRe.exec(html)) !== null) {
+	const pushText = (raw: string): void => {
+		if (raw.length === 0) return;
+		const text = decodeHighlightedText(raw);
+		const line = lines[lines.length - 1]!;
+		const previous = line[line.length - 1];
+		if (previous?.className === openClass) {
+			previous.text += text;
+		} else {
+			line.push({ className: openClass, text });
+		}
+	};
+
+	let match = tokenRe.exec(html);
+	while (match !== null) {
 		const [token, spanClass] = match;
 		if (spanClass !== undefined) {
-			current += token;
 			openClass = spanClass;
-			continue;
-		}
-		if (token === "</span>") {
-			current += token;
+		} else if (token === "</span>") {
 			openClass = null;
-			continue;
-		}
-		const parts = token.split("\n");
-		for (let i = 0; i < parts.length; i++) {
-			if (i > 0) {
-				if (openClass !== null) current += "</span>";
-				lines.push(current);
-				current = openClass !== null ? `<span class="${openClass}">` : "";
+		} else {
+			const parts = token.split("\n");
+			for (let i = 0; i < parts.length; i++) {
+				if (i > 0) lines.push([]);
+				pushText(parts[i]!);
 			}
-			current += parts[i];
 		}
+		match = tokenRe.exec(html);
 	}
-	lines.push(current);
 	return lines;
 }
 
 /**
  * Batch-highlight runs of consecutive context rows so multi-line constructs
- * (block comments, template strings) tokenize correctly. Row index → HTML.
+ * (block comments, template strings) tokenize correctly. Row index → tokens.
  */
-function highlightContextRows(rows: DiffRow[], hljs: HLJSApi, lang: string): Map<number, string> {
-	const map = new Map<number, string>();
+function highlightContextRows(rows: DiffRow[], hljs: HLJSApi, lang: string): Map<number, HighlightToken[]> {
+	const map = new Map<number, HighlightToken[]>();
 	if (!hljs.getLanguage(lang)) return map;
 	let runIndices: number[] = [];
 	let runContents: string[] = [];
@@ -382,10 +403,21 @@ export function DiffView({ diff, filePath, className }: DiffViewProps) {
 	}, [rows]);
 
 	const renderContent = (index: number, row: ViewRow): ReactNode => {
-		const html = highlights?.get(index);
-		if (html !== undefined) {
-			// hljs output is pre-escaped; spans were split per line above.
-			return <span dangerouslySetInnerHTML={{ __html: html }} />;
+		const tokens = highlights?.get(index);
+		if (tokens !== undefined) {
+			return (
+				<span>
+					{tokens.map((token, tokenIndex) =>
+						token.className === null ? (
+							token.text
+						) : (
+							<span key={tokenIndex} className={token.className}>
+								{token.text}
+							</span>
+						),
+					)}
+				</span>
+			);
 		}
 		const { glyphs, width: indentWidth } = indentGlyphs(row.content);
 		const segments = intra.get(index) ?? [{ text: row.content, changed: false }];

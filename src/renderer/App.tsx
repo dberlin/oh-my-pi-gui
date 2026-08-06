@@ -1,11 +1,24 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useMemo } from "react";
 import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
 import { ChatStream } from "./components/chat/ChatStream";
 import { ToastStack } from "./components/common";
+import { ActiveToolsDialog } from "./components/dialogs/ActiveToolsDialog";
 import { BranchPickerDialog } from "./components/dialogs/BranchPickerDialog";
+import { BtwDialog } from "./components/dialogs/BtwDialog";
+import { ChangelogDialog } from "./components/dialogs/ChangelogDialog";
+import { CollabDialog } from "./components/dialogs/CollabDialog";
 import { CommandPalette } from "./components/dialogs/CommandPalette";
+import { ComposerEditorDialog } from "./components/dialogs/ComposerEditorDialog";
+import { ContextReportDialog } from "./components/dialogs/ContextReportDialog";
+import { CopySelectorDialog } from "./components/dialogs/CopySelectorDialog";
+import { DebugConsoleDialog } from "./components/dialogs/DebugConsoleDialog";
 import { ExtensionDialog } from "./components/dialogs/ExtensionDialog";
+import { ForceToolDialog } from "./components/dialogs/ForceToolDialog";
 import { HandoffDialog } from "./components/dialogs/HandoffDialog";
+import { HotkeysDialog } from "./components/dialogs/HotkeysDialog";
+import { ImportForeignDialog } from "./components/dialogs/ImportForeignDialog";
+import { JobsDialog } from "./components/dialogs/JobsDialog";
+import { LiveVoiceDialog } from "./components/dialogs/LiveVoiceDialog";
 import { ModelPicker } from "./components/dialogs/ModelPicker";
 import { PlanApprovalDialog } from "./components/dialogs/PlanApprovalDialog";
 import { RenameSessionDialog } from "./components/dialogs/RenameSessionDialog";
@@ -13,7 +26,9 @@ import { SessionInfoDialog } from "./components/dialogs/SessionInfoDialog";
 import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
 import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
 import { SessionTreeDialog } from "./components/dialogs/SessionTreeDialog";
+import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
 import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
+import { WorkspaceDirsDialog } from "./components/dialogs/WorkspaceDirsDialog";
 import { InputArea } from "./components/layout/InputArea";
 import { PanelContainer } from "./components/layout/PanelContainer";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -27,7 +42,8 @@ import { requestSessionSwitch } from "./hooks/use-session-switch";
 import { useTraySync } from "./hooks/use-tray-sync";
 import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
-import { restoreQueuedMessages, retryLastTurn } from "./lib/messages";
+import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
+import { restoreQueuedMessages } from "./lib/messages";
 import { applyFontSize, applyTheme, watchSystemTheme } from "./lib/theme";
 import { applyThemeByName, getPersistedThemeSelection, initAgentThemeSync } from "./lib/themes";
 import { startVoiceAutoSpeak } from "./lib/voice";
@@ -95,6 +111,9 @@ export function App() {
 	const agentHubOpen = useUiStore(s => s.agentHubOpen);
 	const agentHubTab = useUiStore(s => s.agentHubTab);
 	const closeAgentHub = useUiStore(s => s.closeAgentHub);
+	const hotkeysOpen = useUiStore(s => s.hotkeysOpen);
+	const importDialogOpen = useUiStore(s => s.importDialogOpen);
+	const composerEditorOpen = useUiStore(s => s.composerEditorOpen);
 	const providerConfigOpen = useUiStore(s => s.providerConfigOpen);
 	const providerConfigEdit = useUiStore(s => s.providerConfigEdit);
 	const closeProviderConfig = useUiStore(s => s.closeProviderConfig);
@@ -248,71 +267,58 @@ export function App() {
 		};
 		return window.omp.events.onDeepLink(link => void handle(link));
 	}, [t]);
-	useEffect(() => {
-		const onKey = (event: KeyboardEvent) => {
-			const ui = useUiStore.getState();
-			const overlayOpen =
-				ui.commandPaletteOpen ||
-				ui.modelPickerOpen ||
-				ui.settingsOpen ||
-				ui.statsDashboardOpen ||
-				ui.sessionPickerOpen ||
-				ui.branchPickerOpen;
-			if (event.key === "Escape") {
-				// Don't abort when an overlay/dropdown already consumed this Escape to
-				// dismiss itself (its handler ran first + preventDefault).
-				if (!event.defaultPrevented && !overlayOpen && !document.querySelector('[role="dialog"]'))
-					void window.omp.rpc.abort();
-				return;
-			}
+	// User keybinding overrides → precompiled chord → actionId lookup (B3,
+	// plan/15 §3.5): keydown dispatch is an O(1) map hit, never a config walk.
+	// The memo recomputes only when the overrides object identity changes.
+	const keymapOverrides = useUiStore(s => s.keymapOverrides);
+	const keymap = useMemo(() => compileKeymap(KEYMAP_ACTIONS, keymapOverrides), [keymapOverrides]);
 
-			// TUI-parity chords the ⌘/⌃ gate below would exclude. All are suppressed
-			// while an overlay/dialog owns the keyboard, and when a focused control
-			// (e.g. the composer's autocomplete menu) already consumed the key.
-			if (!overlayOpen && !event.defaultPrevented && !document.querySelector('[role="dialog"]')) {
-				// ⇧Tab — cycle thinking level (TUI app.thinking.cycle). In the TUI the
-				// binding lives in the editor, so hijack it only while a textarea (the
-				// composer) owns focus; elsewhere Shift+Tab keeps its focus-traversal role.
-				if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-					if (document.activeElement instanceof HTMLTextAreaElement) {
-						event.preventDefault();
-						void window.omp.rpc.cycleThinkingLevel();
-					}
-					return;
-				}
-				// ⇧⌃P — cycle model backward (TUI app.model.cycleBackward).
-				// TODO(rpc-gap): the cycle_model wire command has no direction arg
-				// (rpc-mode.ts calls session.cycleModel() forward-only), so this rides
-				// the forward cycle until the RPC grows a direction field.
-				if (event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "p") {
-					event.preventDefault();
+	useEffect(() => {
+		// Boot hydration of user keybinding overrides (prefs key "keymapOverrides").
+		void useUiStore.getState().hydrateKeymap();
+
+		// One dispatch switch keyed by actionId: the compiled-map lookup below and
+		// the default chords share these handlers (they were the hardcoded chains).
+		const dispatchKeymapAction = (actionId: KeymapActionId) => {
+			const ui = useUiStore.getState();
+			switch (actionId) {
+				case "model.cycleForward":
+					// ⌃P — cycle to the next model (TUI parity).
 					void window.omp.rpc.cycleModel();
 					return;
-				}
-				// ⌥R — retry last turn (TUI app.retry).
-				if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.code === "KeyR") {
-					event.preventDefault();
-					void retryLastTurn(() =>
-						toast({
-							variant: "warning",
-							title: t("palette.retryNothing"),
-							message: t("palette.retryNothingDesc"),
-						}),
-					).catch(error => toast({ variant: "error", title: t("palette.failed"), message: String(error) }));
+				case "model.cycleBackward":
+					// ⇧⌃P — cycle model backward (TUI app.model.cycleBackward), via the
+					// cycle_model direction arg (A1 RPC).
+					void window.omp.rpc.cycleModel("backward");
 					return;
-				}
-				// ⌥↑ — restore queued messages to the composer (TUI app.message.dequeue):
-				// newest queued steer/follow-up back into the composer, rest re-queued.
-				if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.code === "ArrowUp") {
-					event.preventDefault();
+				case "retry":
+					// ⌥R — retry the last failed turn (TUI app.retry) via the retry RPC.
+					// Distinct from the palette's re-send-last-message action: this knows
+					// what "failed turn" means server-side.
+					void window.omp.rpc.retry().then(response => {
+						if (!response.success) {
+							toast({ variant: "error", title: t("palette.failed"), message: response.error });
+							return;
+						}
+						const data = response.data as { retried?: boolean } | undefined;
+						if (!data?.retried) {
+							toast({
+								variant: "warning",
+								title: t("palette.retryNothing"),
+								message: t("palette.retryNothingDesc"),
+							});
+						}
+					});
+					return;
+				case "dequeue":
+					// ⌥↑ — restore queued messages to the composer (TUI app.message.dequeue):
+					// newest queued steer/follow-up back into the composer, rest re-queued.
 					void restoreQueuedMessages(() => toast({ variant: "info", message: t("input.dequeueEmpty") })).catch(
 						error => toast({ variant: "error", title: t("palette.failed"), message: String(error) }),
 					);
 					return;
-				}
-				// ⌥⇧P — toggle plan mode (TUI app.plan.toggle).
-				if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === "KeyP") {
-					event.preventDefault();
+				case "plan.toggle": {
+					// ⌥⇧P — toggle plan mode (TUI app.plan.toggle).
 					const enabled = !useSessionStore.getState().planModeEnabled;
 					void window.omp.rpc.setPlanMode(enabled).then(response => {
 						if (response.success) {
@@ -324,37 +330,105 @@ export function App() {
 					});
 					return;
 				}
-				// ⌃O — expand/collapse all tool cards (TUI app.tools.expand).
-				if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key === "o") {
-					event.preventDefault();
+				case "tools.expand":
+					// ⌃O — expand/collapse all tool cards (TUI app.tools.expand).
 					ui.toggleToolsExpandAll();
 					return;
+				case "thinking.toggle": {
+					// ⌃T — show/hide thinking blocks (TUI app.thinking.toggle).
+					const hidden = !useSettingsStore.getState().hideThinkingBlock;
+					void window.omp.rpc.setSetting("hideThinkingBlock", hidden).then(response => {
+						if (response.success) useSettingsStore.setState({ hideThinkingBlock: hidden });
+						else toast({ variant: "error", title: t("palette.failed"), message: response.error });
+					});
+					return;
 				}
+				case "model.select":
+					// ⌥M — model picker (TUI app.model.select).
+					ui.openModelPicker();
+					return;
+				case "agents.hub":
+					// ⌥A — agent hub (TUI app.agents.hub).
+					ui.openAgentHub("hub");
+					return;
+				case "palette":
+					if (ui.commandPaletteOpen) ui.closeCommandPalette();
+					else ui.openCommandPalette();
+					return;
+				case "settings":
+					ui.openSettings();
+					return;
+				case "sidebar.toggle":
+					ui.toggleSidebar();
+					return;
+				case "panel.toggle":
+					ui.togglePanel();
+					return;
+				case "hotkeys":
+					// ⌘/ or ⌃/ — keyboard shortcuts panel (/hotkeys parity).
+					if (ui.hotkeysOpen) ui.closeHotkeys();
+					else ui.openHotkeys();
+					return;
+			}
+		};
+
+		const onKey = (event: KeyboardEvent) => {
+			const ui = useUiStore.getState();
+			const overlayOpen =
+				ui.commandPaletteOpen ||
+				ui.modelPickerOpen ||
+				ui.settingsOpen ||
+				ui.statsDashboardOpen ||
+				ui.sessionPickerOpen ||
+				ui.branchPickerOpen ||
+				ui.hotkeysOpen;
+			if (event.key === "Escape") {
+				// Don't abort when an overlay/dropdown already consumed this Escape to
+				// dismiss itself (its handler ran first + preventDefault).
+				if (!event.defaultPrevented && !overlayOpen && !document.querySelector('[role="dialog"]'))
+					void window.omp.rpc.abort();
+				return;
 			}
 
-			if (!(event.metaKey || event.ctrlKey)) return;
-			if (event.key === "k") {
+			// ⇧Tab — cycle thinking level (TUI app.thinking.cycle). In the TUI the
+			// binding lives in the editor, so hijack it only while a textarea (the
+			// composer) owns focus; elsewhere Shift+Tab keeps its focus-traversal
+			// role. Focus-gated and NOT remappable.
+			if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+				if (
+					!overlayOpen &&
+					!event.defaultPrevented &&
+					!document.querySelector('[role="dialog"]') &&
+					document.activeElement instanceof HTMLTextAreaElement
+				) {
+					event.preventDefault();
+					void window.omp.rpc.cycleThinkingLevel();
+				}
+				return;
+			}
+
+			// Remappable chords (B3): one O(1) lookup in the compiled keymap. The
+			// overlayOpen / defaultPrevented / [role=dialog] guards apply exactly
+			// as the pre-B3 hardcoded chains — overlay-safe actions (the old
+			// unguarded ⌘ block: palette, settings, sidebar, panel, hotkeys, ⌃P)
+			// still fire anywhere, the rest stay suppressed.
+			const chord = chordFromEvent(event);
+			if (!chord) return;
+			const actionId = keymap.get(chord);
+			if (!actionId) return;
+			if (KEYMAP_ACTION_BY_ID[actionId].overlaySafe) {
 				event.preventDefault();
-				if (ui.commandPaletteOpen) ui.closeCommandPalette();
-				else ui.openCommandPalette();
-			} else if (event.key === ",") {
+				dispatchKeymapAction(actionId);
+				return;
+			}
+			if (!overlayOpen && !event.defaultPrevented && !document.querySelector('[role="dialog"]')) {
 				event.preventDefault();
-				ui.openSettings();
-			} else if (event.key === "b") {
-				event.preventDefault();
-				ui.toggleSidebar();
-			} else if (event.key === "p" && event.ctrlKey && !event.metaKey) {
-				// ⌃P — cycle to the next model (TUI parity).
-				event.preventDefault();
-				void window.omp.rpc.cycleModel();
-			} else if (event.key === "j") {
-				event.preventDefault();
-				ui.togglePanel();
+				dispatchKeymapAction(actionId);
 			}
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [t]);
+	}, [t, keymap]);
 
 	useEffect(() => {
 		const run = async (action: MenuAction, payload?: MenuActionPayload) => {
@@ -448,6 +522,18 @@ export function App() {
 			<SessionPickerDialog />
 			<SessionSwitchDialog />
 			<BranchPickerDialog />
+			<BtwDialog />
+			<CollabDialog />
+			<DebugConsoleDialog />
+			<LiveVoiceDialog />
+			<CopySelectorDialog />
+			<ContextReportDialog />
+			<ActiveToolsDialog />
+			<ShareSessionDialog />
+			<JobsDialog />
+			<ChangelogDialog />
+			<WorkspaceDirsDialog />
+			<ForceToolDialog />
 			<SessionTreeDialog />
 			<SessionInfoDialog />
 			<HandoffDialog />
@@ -469,6 +555,9 @@ export function App() {
 			</Suspense>
 			<ThemePickerDialog />
 			<PlanApprovalDialog />
+			{hotkeysOpen && <HotkeysDialog />}
+			{importDialogOpen && <ImportForeignDialog />}
+			{composerEditorOpen && <ComposerEditorDialog />}
 			<Suspense fallback={null}>
 				<StatsDashboard open={statsDashboardOpen} onClose={closeStatsDashboard} />
 			</Suspense>

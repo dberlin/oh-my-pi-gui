@@ -22,6 +22,8 @@ export interface RecordKvEditorProps {
 	valueKind?: "model";
 	keyPlaceholder?: string;
 	valuePlaceholder?: string;
+	/** Render free-text value cells as password inputs (secret env vars / headers). */
+	maskValues?: boolean;
 }
 
 function toPrimitive(input: string): Primitive {
@@ -43,6 +45,7 @@ export function RecordKvEditor({
 	valueKind,
 	keyPlaceholder,
 	valuePlaceholder,
+	maskValues,
 }: RecordKvEditorProps) {
 	const t = useT();
 	const entries = Object.entries(value);
@@ -123,6 +126,7 @@ export function RecordKvEditor({
 							onChange={() => {}}
 							placeholder={valuePlaceholder ?? t("settings.editors.kvValue")}
 							spellCheck={false}
+							type={maskValues ? "password" : "text"}
 						/>
 					)}
 					{!disabled && (

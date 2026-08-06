@@ -328,14 +328,13 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 					const entryOp = asOp(entry.op);
 					const entryRename = asString(entry.rename) ?? asString(entry.move);
 					const key = `${index}:${entryPath ?? ""}`;
-					const pathLabel =
-						entryPath && (multiFileArgs || entryPath !== rawPath) ? (
-							<div className="truncate font-mono text-[10.5px] text-[var(--omp-dim)]">{entryPath}</div>
-						) : null;
+					const showPathLabel = entryPath !== undefined && (multiFileArgs || entryPath !== rawPath);
 					if (entryDiff) {
 						return (
 							<div key={key} className="flex flex-col gap-1">
-								{pathLabel}
+								{showPathLabel && (
+									<div className="truncate font-mono text-[10.5px] text-[var(--omp-dim)]">{entryPath}</div>
+								)}
 								<DiffView
 									diff={entryDiff}
 									filePath={entryPath ?? rawPath}
@@ -347,7 +346,9 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 					if (entryOld != null || entryNew != null) {
 						return (
 							<div key={key} className="flex flex-col gap-1">
-								{pathLabel}
+								{showPathLabel && (
+									<div className="truncate font-mono text-[10.5px] text-[var(--omp-dim)]">{entryPath}</div>
+								)}
 								<DiffView
 									diff={oldNewDiff(entryOld, entryNew)}
 									filePath={entryPath ?? rawPath}

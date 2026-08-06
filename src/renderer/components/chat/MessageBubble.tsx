@@ -5,7 +5,9 @@ import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from
 import { copyText, cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
-import { isRenderableMessageText } from "../../lib/messages";
+import { branchSessionFromEntry, isRenderableMessageText } from "../../lib/messages";
+import { toast } from "../../stores/toast";
+import { toolEntryKey } from "../../stores/tools";
 import { ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -76,7 +78,7 @@ function InlineImage({ image }: { image: ImageContent }) {
 function ToolCardWithResult({ call }: { call: ToolCallContent }) {
 	return (
 		<ToolCard
-			toolCallId={call.id}
+			toolCallId={toolEntryKey(call)}
 			toolName={call.name}
 			args={call.arguments}
 			summary={toolSummary(call.name, call.arguments)}
@@ -212,6 +214,7 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 export const MessageBubble = memo(function MessageBubble({ message, compact = false }: MessageBubbleProps) {
 	const t = useT();
 	const [copied, setCopied] = useState(false);
+	const [branching, setBranching] = useState(false);
 	if (message.role === "bashExecution" || message.role === "pythonExecution") {
 		return <ExecutionBubble message={message} />;
 	}
@@ -254,9 +257,19 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 		});
 	};
 
-	const handleBranch = () => {
-		if (!entryId) return;
-		void window.omp.rpc.branch(entryId);
+	const handleBranch = async () => {
+		if (!entryId || branching) return;
+		setBranching(true);
+		try {
+			const result = await branchSessionFromEntry(entryId);
+			if (result === "cancelled") {
+				toast({ variant: "info", message: t("branchPicker.cancelled") });
+			}
+		} catch (cause) {
+			toast({ variant: "error", title: t("branchPicker.failed"), message: String(cause) });
+		} finally {
+			setBranching(false);
+		}
 	};
 
 	if (isUser) {
@@ -275,8 +288,8 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 					{content.map((block, i) => {
 						if (block.type === "text") {
 							return (
-								<div key={i} className="whitespace-pre-wrap text-[14.5px] leading-[1.6] text-[var(--omp-text)]">
-									{block.text}
+								<div key={i} className="text-[14.5px] leading-[1.6] text-[var(--omp-text)]">
+									<MarkdownRenderer content={block.text} />
 								</div>
 							);
 						}
@@ -285,11 +298,28 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 						}
 						return null;
 					})}
-					{timestamp && (
-						<div className="mt-2 text-right font-mono text-[10.5px] tabular-nums text-[var(--omp-dim)]">
-							{timestamp}
-						</div>
-					)}
+					<div className="mt-2 flex items-center justify-end gap-1.5 text-[10.5px] tabular-nums text-[var(--omp-dim)]">
+						{timestamp && <span className="font-mono">{timestamp}</span>}
+						<button
+							type="button"
+							onClick={handleCopy}
+							title={t("chat.copyMessage")}
+							className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+						>
+							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
+						</button>
+						{entryId && (
+							<button
+								type="button"
+								onClick={() => void handleBranch()}
+								disabled={branching}
+								title={t("chat.branchFromHere")}
+								className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-wait disabled:opacity-50"
+							>
+								<GitBranch size={13} />
+							</button>
+						)}
+					</div>
 				</div>
 			</div>
 		);
@@ -308,14 +338,14 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 				break;
 			}
 			case "thinking": {
-				if (block.thinking.trim()) {
+				if (isRenderableMessageText(block.thinking)) {
 					blocks.push(<ThinkingBlock key={blocks.length} text={block.thinking} />);
 					sawNonToolBlock = true;
 				}
 				break;
 			}
 			case "toolCall": {
-				blocks.push(<ToolCardWithResult key={block.id} call={block} />);
+				blocks.push(<ToolCardWithResult key={toolEntryKey(block)} call={block} />);
 				break;
 			}
 			case "image": {
@@ -365,16 +395,6 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 						>
 							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
 						</button>
-						{entryId && (
-							<button
-								type="button"
-								onClick={handleBranch}
-								title={t("chat.branchFromHere")}
-								className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								<GitBranch size={13} />
-							</button>
-						)}
 					</div>
 				)}
 			</div>

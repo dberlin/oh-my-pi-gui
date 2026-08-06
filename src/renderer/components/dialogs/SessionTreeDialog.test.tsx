@@ -18,12 +18,13 @@ import { useUiStore } from "../../stores/ui";
 import { SessionTreeDialog } from "./SessionTreeDialog";
 import type { SessionTreeResult } from "./session-tree-layout";
 
-const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 
 const globals = globalThis as Record<string, unknown>;
 globals.document = document;
 globals.window = window;
 globals.Event = Event;
+globals.CustomEvent = CustomEvent;
 globals.HTMLElement = HTMLElement;
 globals.Element = Element;
 globals.Node = Node;
@@ -58,6 +59,10 @@ interface MockRpc {
 	getBranchMessages: Mock<() => Promise<RpcResponse>>;
 	branch: Mock<(entryId: string) => Promise<RpcResponse>>;
 	getState: Mock<() => Promise<RpcResponse>>;
+	switchLeaf: Mock<
+		(entryId: string, options?: { summarize?: boolean; customInstructions?: string }) => Promise<RpcResponse>
+	>;
+	resumeAfterAskReanswer: Mock<() => Promise<RpcResponse>>;
 	getMessages: Mock<() => Promise<RpcResponse>>;
 	getTranscript: Mock<() => Promise<RpcResponse>>;
 	getSubagents: Mock<() => Promise<RpcResponse>>;
@@ -69,6 +74,8 @@ function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
 		getBranchMessages: vi.fn(async () => success({ messages: [] })),
 		branch: vi.fn(async () => success({ text: "", cancelled: false })),
 		getState: vi.fn(async () => success({ sessionId: "s2", todoPhases: [], messageCount: 3, queuedMessageCount: 0 })),
+		switchLeaf: vi.fn(async () => success({ cancelled: false, activeLeafId: "m1" })),
+		resumeAfterAskReanswer: vi.fn(async () => success(undefined)),
 		getMessages: vi.fn(async () => success({ messages: [] })),
 		getTranscript: vi.fn(async () => success({ messages: [] })),
 		getSubagents: vi.fn(async () => success({ subagents: [] })),
@@ -332,9 +339,18 @@ describe("SessionTreeDialog", () => {
 					],
 				}),
 			),
+			branch: vi.fn(async () => success({ text: "restored branch draft", cancelled: false })),
 		});
 		seedSession("tree-branch");
 		await mount(<SessionTreeDialog />);
+		let restoredDraft: string | undefined;
+		window.addEventListener(
+			"omp:fill-composer",
+			(event: Event) => {
+				restoredDraft = (event as CustomEvent<{ text?: string }>).detail.text;
+			},
+			{ once: true },
+		);
 		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
 		if (!card) throw new Error("card m1 not found");
 		// Click (pointerdown+up without movement) selects the node and shows the detail footer.
@@ -352,12 +368,13 @@ describe("SessionTreeDialog", () => {
 		await flush();
 		await flush();
 		expect(rpc.branch).toHaveBeenCalledWith("m1");
+		expect(restoredDraft).toBe("restored branch draft");
 		expect(rpc.getState).toHaveBeenCalled();
 		expect(useUiStore.getState().sessionTreeOpen).toBe(false);
 	});
 
 	it("surfaces a branch failure as a toast and stays open", async () => {
-		installMockOmp({
+		const rpc = installMockOmp({
 			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
 			branch: vi.fn(async () => failure("nope")),
 		});
@@ -366,10 +383,44 @@ describe("SessionTreeDialog", () => {
 		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
 		if (!card) throw new Error("card m1 not found");
 		const circleButton = card.querySelector("button");
-		if (!circleButton) throw new Error("node branch button not found");
+		if (!circleButton) throw new Error("node action button not found");
+		// The corner button opens the node-action menu; branch is a menu item.
 		await click(circleButton);
 		await flush();
+		const branchItem = queryAll("button").find(button => button.textContent?.includes("Branch from here"));
+		if (!branchItem) throw new Error("branch menu item not found");
+		await click(branchItem);
+		await flush();
+		expect(rpc.branch).toHaveBeenCalledWith("m1");
 		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
 		expect(useUiStore.getState().sessionTreeOpen).toBe(true);
+	});
+	it("hydrates the committed ask re-answer before resuming the agent", async () => {
+		const rpc = installMockOmp({
+			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "choose again" }] })),
+			switchLeaf: vi.fn(async () =>
+				success({ cancelled: false, activeLeafId: "answer-2", askReanswerCommitted: true }),
+			),
+		});
+		seedSession("tree-reanswer");
+		await mount(<SessionTreeDialog />);
+		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
+		if (!card) throw new Error("card m1 not found");
+		const actionButton = card.querySelector("button");
+		if (!actionButton) throw new Error("node action button not found");
+		await click(actionButton);
+		const switchItem = queryAll("button").find(button => button.textContent?.includes("Switch to this point"));
+		if (!switchItem) throw new Error("switch action not found");
+		await click(switchItem);
+		await flush();
+		await flush();
+
+		expect(rpc.switchLeaf).toHaveBeenCalledWith("m1", undefined);
+		expect(rpc.getState).toHaveBeenCalled();
+		expect(rpc.resumeAfterAskReanswer).toHaveBeenCalledTimes(1);
+		expect(rpc.getState.mock.invocationCallOrder[0]).toBeLessThan(
+			rpc.resumeAfterAskReanswer.mock.invocationCallOrder[0]!,
+		);
+		expect(useUiStore.getState().sessionTreeOpen).toBe(false);
 	});
 });

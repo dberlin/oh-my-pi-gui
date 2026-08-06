@@ -1,25 +1,48 @@
 import { create } from "zustand";
-import type { SubagentFrame, SubagentLifecycleFrame, SubagentSnapshot } from "../../shared/rpc-types";
+import type { SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
 
-/**
- * GUI-local snapshot extension: `parentSubagentId` is on the wire
- * (RpcSubagentSnapshot) but not yet mirrored into shared/rpc-types.ts.
- * Drop this interface once the mirror lands.
- */
-export interface SubagentNode extends SubagentSnapshot {
-	parentSubagentId?: string;
-}
-
-/** Structural read of the wire field until shared/rpc-types.ts declares it. */
-function parentSubagentIdFromFrame(frame: SubagentLifecycleFrame): string | undefined {
-	return (frame.payload as SubagentLifecycleFrame["payload"] & { parentSubagentId?: string }).parentSubagentId;
-}
+export type SubagentNode = SubagentSnapshot;
 
 interface SubagentsStore {
 	subagents: Map<string, SubagentNode>;
 	applyFrame: (frame: SubagentFrame) => void;
 	setSnapshots: (snapshots: SubagentNode[]) => void;
+	/**
+	 * Pull the full roster over get_subagents and MERGE it. Unlike
+	 * setSnapshots this keeps local terminal rows: the RPC registry deletes
+	 * completed/failed agents on their terminal lifecycle frame (AgentRegistry
+	 * retains only parked/aborted refs), so a wholesale replace would make
+	 * finished agents vanish from the UI on every poll. Best-effort — a
+	 * failed fetch leaves frame-driven state untouched.
+	 */
+	refresh: () => Promise<void>;
 	reset: () => void;
+}
+
+/**
+ * Live (non-terminal) wire statuses, mirror of statusMeta().live in
+ * components/panels/subagent-graph (component layer — not importable here).
+ * Rows absent from a refresh fetch are dropped when live (released) but kept
+ * when terminal (the server forgets them; the user is still looking at them).
+ */
+const LIVE_STATUSES: Record<string, true> = { started: true, running: true, pending: true, idle: true, parked: true };
+
+/**
+ * Merge one fetched row over the local one: the fetch wins EXCEPT it may never
+ * blank a populated label/progress field. Server rows discovered late (bare
+ * AgentRegistry refs) can lack task/assignment/description/progress/sessionFile
+ * that a progress frame already delivered — replacing wholesale would blank
+ * the card and lose durationMs mid-poll.
+ */
+function mergeFetchedSnapshot(fresh: SubagentNode, prev: SubagentNode): SubagentNode {
+	return {
+		...fresh,
+		task: fresh.task ?? prev.task,
+		assignment: fresh.assignment ?? prev.assignment,
+		description: fresh.description ?? prev.description,
+		progress: fresh.progress ?? prev.progress,
+		sessionFile: fresh.sessionFile ?? prev.sessionFile,
+	};
 }
 
 export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
@@ -40,30 +63,42 @@ export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
 					agent: p.agent,
 					agentSource: p.agentSource,
 					description: p.description ?? existing?.description,
-					status: p.status,
-					task: p.task ?? existing?.task,
-					assignment: p.assignment ?? existing?.assignment,
+					status: p.status === "started" ? "running" : p.status,
+					task: existing?.task,
+					assignment: existing?.assignment,
 					sessionFile: p.sessionFile ?? existing?.sessionFile,
+					lastUpdate: Date.now(),
 					parentToolCallId: p.parentToolCallId ?? existing?.parentToolCallId,
-					// ?? existing: follow-up frames that lack the field keep the spawn-time value.
-					parentSubagentId: parentSubagentIdFromFrame(frame) ?? existing?.parentSubagentId,
+					parentSubagentId: p.parentSubagentId ?? existing?.parentSubagentId,
+					progress: existing?.progress,
+					kind: existing?.kind ?? "sub",
 				});
 				break;
 			}
 			case "subagent_progress": {
-				// Attribute by the subagent id on the wire — `index` is the
-				// per-batch spawn ordinal and repeats across task batches.
-				const id = frame.payload.progress?.id;
-				if (!id) break;
-				const existing = get().subagents.get(id);
-				if (existing) {
-					subagents = new Map(get().subagents);
-					subagents.set(id, {
-						...existing,
-						progress: frame.payload.progress,
-						lastUpdate: frame.payload.progress?.description,
-					});
-				}
+				// Attribute by stable id, not the per-batch index. A progress
+				// frame can be the first frame observed after a late subscription,
+				// so materialize the row instead of silently dropping it.
+				const progress = frame.payload.progress;
+				if (!progress?.id) break;
+				const existing = get().subagents.get(progress.id);
+				subagents = new Map(get().subagents);
+				subagents.set(progress.id, {
+					id: progress.id,
+					index: frame.payload.index,
+					agent: frame.payload.agent,
+					agentSource: frame.payload.agentSource,
+					description: progress.description ?? existing?.description,
+					status: progress.status,
+					task: frame.payload.task,
+					assignment: frame.payload.assignment ?? existing?.assignment,
+					sessionFile: frame.payload.sessionFile ?? existing?.sessionFile,
+					lastUpdate: Date.now(),
+					parentToolCallId: frame.payload.parentToolCallId ?? existing?.parentToolCallId,
+					parentSubagentId: frame.payload.parentSubagentId ?? existing?.parentSubagentId,
+					kind: existing?.kind ?? "sub",
+					progress,
+				});
 				break;
 			}
 			case "subagent_event": {
@@ -85,6 +120,30 @@ export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
 			subagents.set(snap.id, snap);
 		}
 		set({ subagents });
+	},
+	refresh: async () => {
+		try {
+			const res = await window.omp.rpc.getSubagents();
+			if (!res.success) return;
+			const data = res.data as { subagents?: SubagentNode[] } | undefined;
+			if (!data?.subagents) return;
+			const current = get().subagents;
+			const fetched = new Set<string>();
+			const subagents = new Map<string, SubagentNode>();
+			for (const snap of data.subagents) {
+				fetched.add(snap.id);
+				const prev = current.get(snap.id);
+				subagents.set(snap.id, prev ? mergeFetchedSnapshot(snap, prev) : snap);
+			}
+			// Terminal rows the server has forgotten survive the merge — see the
+			// refresh docstring (RPC registry deletes completed/failed agents).
+			for (const [id, node] of current) {
+				if (!fetched.has(id) && !LIVE_STATUSES[node.status]) subagents.set(id, node);
+			}
+			set({ subagents });
+		} catch {
+			// Best-effort poll: frames + hydration remain authoritative.
+		}
 	},
 	reset: () => set({ subagents: new Map() }),
 }));

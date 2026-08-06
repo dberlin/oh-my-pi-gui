@@ -19,8 +19,8 @@ import {
 	hookPhase,
 	hookTool,
 	isCustomCommand,
-	MCP_STATUS_VARIANT,
 } from "./ExtensionsPanel";
+import { MCP_STATUS_VARIANT } from "./mcp/McpServerCard";
 
 function skill(partial: Partial<RpcSkillInfo> & { name: string }): RpcSkillInfo {
 	return { description: "", source: "native:project", enabled: true, location: "/tmp/x", ...partial };

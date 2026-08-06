@@ -67,7 +67,17 @@ describe("compact transcript rows", () => {
 	});
 
 	it("omits punctuation filler instead of allocating an invisible virtual row", () => {
-		expect(buildHistoryRows([assistant([{ type: "text", text: "." }])], "compact")).toEqual([]);
+		expect(
+			buildHistoryRows(
+				[
+					assistant([
+						{ type: "thinking", thinking: "." },
+						{ type: "text", text: "." },
+					]),
+				],
+				"compact",
+			),
+		).toEqual([]);
 	});
 });
 

@@ -374,6 +374,8 @@ function DiffTimeline({ candidates }: { candidates: DiffCandidate[] }) {
 
 	// Expanding/collapsing a diff changes row heights without changing the count.
 	useEffect(() => {
+		// The virtualizer reads expandedId indirectly through estimateSize.
+		void expandedId;
 		virtualizer.measure();
 	}, [virtualizer, expandedId]);
 

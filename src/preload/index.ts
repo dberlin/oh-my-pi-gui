@@ -25,7 +25,9 @@ import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import type {
 	AgentSessionEvent,
 	AvailableCommand,
+	CommandOutputFrame,
 	ConfigUpdateFrame,
+	ExtensionErrorFrame,
 	ExtensionUIRequest,
 	ExtensionUIResponse,
 	HostToolCallRequest,
@@ -34,8 +36,13 @@ import type {
 	HostUriRequest,
 	HostUriResult,
 	ImageContent,
+	PromptResultFrame,
 	RpcCommand,
+	RpcDebugParams,
+	RpcLiveUpdateFrame,
+	RpcMcpServerInput,
 	RpcResponse,
+	SessionInfoUpdateFrame,
 	SubagentFrame,
 	ThinkingLevel,
 	TodoPhase,
@@ -49,17 +56,21 @@ function rpcCommand(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
 }
 
 /**
- * The sidecar only answers `bash`/`eval`/`compact`/`export_html` after the
- * work finishes (rpc-mode awaits each), and big transcripts make the
- * transcript/message commands slow too. The 8s default would surface a
- * spurious "RPC timeout" while the command keeps running server-side, so
- * these get generous windows. Fast commands keep the default.
+ * Commands below resolve only after long-running model, OAuth, transcript, or
+ * human-interaction work finishes. The 8s default would report a false
+ * timeout while the sidecar keeps mutating state, so these get windows at
+ * least as large as their server-side budgets. Fast commands keep the default.
  */
 const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
-	bash: 120_000,
-	eval: 120_000,
-	compact: 120_000,
+	bash: 660_000,
+	eval: 660_000,
+	compact: 660_000,
 	export_html: 120_000,
+	handoff: 660_000,
+	reload_plugins: 120_000,
+	plan_approval: 660_000,
+	switch_leaf: 660_000,
+	login: 660_000,
 	get_transcript: 30_000,
 	get_messages: 30_000,
 	get_messages_page: 30_000,
@@ -81,12 +92,14 @@ const api: OmpApi = {
 	rpc: {
 		command: (cmd: RpcCommand, timeoutMs?: number) => rpcCommand(cmd, timeoutMs),
 		getState: () => ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, { command: { type: "get_state" } }),
-		prompt: (message: string, images?: ImageContent[]) => rpcCommand({ type: "prompt", message, images }),
+		prompt: (message: string, images?: ImageContent[], streamingBehavior?: "steer" | "followUp") =>
+			rpcCommand({ type: "prompt", message, images, streamingBehavior }),
 		steer: (message: string, images?: ImageContent[]) => rpcCommand({ type: "steer", message, images }),
 		followUp: (message: string, images?: ImageContent[]) => rpcCommand({ type: "follow_up", message, images }),
 		abort: () => rpcCommand({ type: "abort" }),
 		abortAndPrompt: (message: string) => rpcCommand({ type: "abort_and_prompt", message }),
 		newSession: (parentSession?: string) => rpcCommand({ type: "new_session", parentSession }),
+		dropSession: () => rpcCommand({ type: "drop_session" }),
 		switchSession: (sessionPath: string) => rpcCommand({ type: "switch_session", sessionPath }),
 		branch: (entryId: string) => rpcCommand({ type: "branch", entryId }),
 		fork: () => rpcCommand({ type: "fork" }),
@@ -94,8 +107,66 @@ const api: OmpApi = {
 			rpcCommand({ type: "eval", code, language, excluded }),
 		abortEval: () => rpcCommand({ type: "abort_eval" }),
 		dequeue: () => rpcCommand({ type: "dequeue" }),
+		getQueue: () => rpcCommand({ type: "get_queue" }),
+		queueRemove: (queueId: string) => rpcCommand({ type: "queue_remove", queueId }),
+		queueMove: (queueId: string, toIndex: number) => rpcCommand({ type: "queue_move", queueId, toIndex }),
+		queueClear: (lane?: "steering" | "followUp") => rpcCommand({ type: "queue_clear", lane }),
 		setModel: (provider: string, modelId: string) => rpcCommand({ type: "set_model", provider, modelId }),
-		cycleModel: () => rpcCommand({ type: "cycle_model" }),
+		cycleModel: (direction?: "forward" | "backward") => rpcCommand({ type: "cycle_model", direction }),
+		retry: () => rpcCommand({ type: "retry" }),
+		clearContext: () => rpcCommand({ type: "clear_context" }),
+		abortSubagent: (agentId: string) => rpcCommand({ type: "abort_subagent", agentId }),
+		reviveSubagent: (agentId: string) => rpcCommand({ type: "revive_subagent", agentId }),
+		writeLocalPaste: (content: string) => rpcCommand({ type: "write_local_paste", content }),
+		getActiveTools: () => rpcCommand({ type: "get_active_tools" }),
+		setPrewalk: (enabled: boolean) => rpcCommand({ type: "set_prewalk", enabled }),
+		fresh: () => rpcCommand({ type: "fresh" }),
+		shakeContext: (mode: "elide" | "images") => rpcCommand({ type: "shake_context", mode }),
+		reloadPlugins: () => rpcCommand({ type: "reload_plugins" }),
+		setForceTool: (payload: { tool: string } | { clear: true }) => rpcCommand({ type: "set_force_tool", ...payload }),
+		getForceTool: () => rpcCommand({ type: "get_force_tool" }),
+		listForeignSessions: (source: "claude" | "codex") =>
+			rpcCommand({ type: "list_foreign_sessions", source }, 60_000),
+		importForeignSession: (source: "claude" | "codex", foreignId: string) =>
+			rpcCommand({ type: "import_foreign_session", source, foreignId }, 120_000),
+		forkFrom: (entryId: string) => rpcCommand({ type: "fork_from", entryId }),
+		switchLeaf: (entryId: string, options?: { summarize?: boolean; customInstructions?: string }) =>
+			rpcCommand({ type: "switch_leaf", entryId, ...options }),
+		resumeAfterAskReanswer: () => rpcCommand({ type: "resume_after_ask_reanswer" }),
+		getCommandArgCompletions: (command: string, prefix: string) =>
+			rpcCommand({ type: "get_command_arg_completions", command, prefix }),
+		mcpAdd: (name: string, config: RpcMcpServerInput, scope?: "user" | "project") =>
+			rpcCommand({ type: "mcp_add", name, config, scope }, 60_000),
+		mcpTest: (probe: { name?: string; config?: RpcMcpServerInput }) =>
+			rpcCommand({ type: "mcp_test", ...probe }, 60_000),
+		mcpReauth: (name: string) => rpcCommand({ type: "mcp_reauth", name }, 360_000),
+		mcpReauthCancel: (name: string) => rpcCommand({ type: "mcp_reauth_cancel", name }, 10_000),
+		marketplaceAction: (payload: {
+			action: "add" | "remove" | "update" | "install" | "uninstall" | "upgrade" | "list_available";
+			marketplace?: string;
+			plugin?: string;
+			source?: string;
+		}) => rpcCommand({ type: "marketplace_action", ...payload }, 180_000),
+		getPluginDetail: (pluginId: string) => rpcCommand({ type: "get_plugin_detail", pluginId }, 30_000),
+		setPluginFeatures: (pluginId: string, features: string[]) =>
+			rpcCommand({ type: "set_plugin_features", pluginId, features }),
+		setPluginSetting: (pluginId: string, key: string, value: unknown) =>
+			rpcCommand({ type: "set_plugin_setting", pluginId, key, value }),
+		deletePluginSetting: (pluginId: string, key: string) =>
+			rpcCommand({ type: "delete_plugin_setting", pluginId, key }),
+		getDirectories: () => rpcCommand({ type: "get_directories" }),
+		addDirectory: (path: string) => rpcCommand({ type: "add_directory", path }),
+		removeDirectory: (path: string) => rpcCommand({ type: "remove_directory", path }),
+		moveSession: (path: string) => rpcCommand({ type: "move_session", path }, 30_000),
+		liveStart: (voice?: string) => rpcCommand({ type: "live_start", voice }, 60_000),
+		liveToggleMute: () => rpcCommand({ type: "live_toggle_mute" }),
+		liveStop: () => rpcCommand({ type: "live_stop" }, 30_000),
+		getLiveState: () => rpcCommand({ type: "get_live_state" }),
+		debug: (params: RpcDebugParams) => rpcCommand({ type: "debug", params }, 120_000),
+		collabStart: (relayUrl?: string, view?: boolean) => rpcCommand({ type: "collab_start", relayUrl, view }, 60_000),
+		collabJoin: (link: string) => rpcCommand({ type: "collab_join", link }, 120_000),
+		collabLeave: () => rpcCommand({ type: "collab_leave" }, 60_000),
+		getCollabState: () => rpcCommand({ type: "get_collab_state" }),
 		getAvailableModels: () => rpcCommand({ type: "get_available_models" }),
 		setThinkingLevel: (level: ThinkingLevel | "auto") => rpcCommand({ type: "set_thinking_level", level }),
 		cycleThinkingLevel: () => rpcCommand({ type: "cycle_thinking_level" }),
@@ -107,12 +178,13 @@ const api: OmpApi = {
 		setAutoCompaction: (enabled: boolean) => rpcCommand({ type: "set_auto_compaction", enabled }),
 		setAutoRetry: (enabled: boolean) => rpcCommand({ type: "set_auto_retry", enabled }),
 		abortRetry: () => rpcCommand({ type: "abort_retry" }),
-		bash: (command: string) => rpcCommand({ type: "bash", command }),
+		bash: (command: string, excluded?: boolean) => rpcCommand({ type: "bash", command, excluded }),
 		abortBash: () => rpcCommand({ type: "abort_bash" }),
 		getSessionStats: () => rpcCommand({ type: "get_session_stats" }),
 		exportHtml: (outputPath?: string) => rpcCommand({ type: "export_html", outputPath }),
 		getBranchMessages: () => rpcCommand({ type: "get_branch_messages" }),
 		getLastAssistantText: () => rpcCommand({ type: "get_last_assistant_text" }),
+		getCopyTargets: () => rpcCommand({ type: "get_copy_targets" }),
 		setSessionName: (name: string) => rpcCommand({ type: "set_session_name", name }),
 		setEntryLabel: (entryId: string, label?: string) => rpcCommand({ type: "set_entry_label", entryId, label }),
 		handoff: (customInstructions?: string) => rpcCommand({ type: "handoff", customInstructions }),
@@ -133,12 +205,17 @@ const api: OmpApi = {
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
 		getAvailableCommands: () => rpcCommand({ type: "get_available_commands" }),
 		getSkills: () => rpcCommand({ type: "get_skills" }),
+		getAgentDefinitions: () => rpcCommand({ type: "get_agent_definitions" }),
 		getHooks: () => rpcCommand({ type: "get_hooks" }),
 		getMcpServers: () => rpcCommand({ type: "get_mcp_servers" }),
 		getPlugins: () => rpcCommand({ type: "get_plugins" }),
 		getMarketplaces: () => rpcCommand({ type: "get_marketplaces" }),
 		getPromptTemplates: () => rpcCommand({ type: "get_prompt_templates" }),
 		getMemoryReport: () => rpcCommand({ type: "get_memory_report" }),
+		getContextReport: () => rpcCommand({ type: "get_context_report" }),
+		// Uploads + seals the session snapshot to the share server — network-bound.
+		shareSession: () => rpcCommand({ type: "share_session" }, 120_000),
+		getJobs: () => rpcCommand({ type: "get_jobs" }),
 		getSessionTree: () => rpcCommand({ type: "get_session_tree" }),
 		getThemes: () => rpcCommand({ type: "get_themes" }),
 		getThemeColors: (name: string) => rpcCommand({ type: "get_theme_colors", name }),
@@ -148,8 +225,14 @@ const api: OmpApi = {
 		getVibeMode: () => rpcCommand({ type: "get_vibe_mode" }),
 		setVibeMode: (enabled: boolean) => rpcCommand({ type: "set_vibe_mode", enabled }),
 		getGoal: () => rpcCommand({ type: "get_goal" }),
+		guidedGoal: (initial?: string) => rpcCommand({ type: "guided_goal", initial }),
+		setAgentsPaused: (enabled: boolean) => rpcCommand({ type: "set_agents_paused", enabled }),
 		setGoal: (args: { objective?: string; tokenBudget?: number | null; action?: "pause" | "resume" | "drop" }) =>
 			rpcCommand({ type: "set_goal", ...args }),
+		btw: (question: string) => rpcCommand({ type: "btw", question }),
+		btwBranch: () => rpcCommand({ type: "btw_branch" }),
+		tan: (work: string) => rpcCommand({ type: "tan", work }),
+		omfg: (complaint: string) => rpcCommand({ type: "omfg", complaint }),
 		getLoopMode: () => rpcCommand({ type: "get_loop_mode" }),
 		setLoopMode: (enabled: boolean, args?: string) => rpcCommand({ type: "set_loop_mode", enabled, args }),
 		setSkillEnabled: (name: string, enabled: boolean) => rpcCommand({ type: "set_skill_enabled", name, enabled }),
@@ -188,12 +271,22 @@ const api: OmpApi = {
 			subscribe<{ request: HostUriRequest }>(IPC_EVENTS.HOST_URI_REQUEST, data => callback(data.request)),
 		onSubagentFrame: (callback: (frame: SubagentFrame) => void) =>
 			subscribe<{ frame: SubagentFrame }>(IPC_EVENTS.SUBAGENT_FRAME, data => callback(data.frame)),
+		onLiveUpdate: (callback: (frame: RpcLiveUpdateFrame) => void) =>
+			subscribe<RpcLiveUpdateFrame>(IPC_EVENTS.LIVE_UPDATE, callback),
 		onCommandsUpdate: (callback: (commands: AvailableCommand[]) => void) =>
 			subscribe<{ commands: AvailableCommand[] }>(IPC_EVENTS.COMMANDS_UPDATE, data => callback(data.commands)),
 		onConfigUpdate: (callback: (payload: ConfigUpdateFrame) => void) =>
 			subscribe<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, data => callback(data)),
 		onSessionsChanged: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.SESSIONS_CHANGED, () => callback()),
 		onLogLines: (callback: (lines: string[]) => void) => subscribe<string[]>(IPC_EVENTS.LOG_LINE, callback),
+		onPromptResult: (callback: (frame: PromptResultFrame) => void) =>
+			subscribe<PromptResultFrame>(IPC_EVENTS.PROMPT_RESULT, callback),
+		onCommandOutput: (callback: (frame: CommandOutputFrame) => void) =>
+			subscribe<CommandOutputFrame>(IPC_EVENTS.COMMAND_OUTPUT, callback),
+		onSessionInfoUpdate: (callback: (frame: SessionInfoUpdateFrame) => void) =>
+			subscribe<SessionInfoUpdateFrame>(IPC_EVENTS.SESSION_INFO_UPDATE, callback),
+		onExtensionError: (callback: (frame: ExtensionErrorFrame) => void) =>
+			subscribe<ExtensionErrorFrame>(IPC_EVENTS.EXTENSION_ERROR, callback),
 		onMenuAction: (callback: (action: MenuAction, payload?: MenuActionPayload) => void) =>
 			subscribe<{ action: MenuAction } & MenuActionPayload>(IPC_EVENTS.MENU_ACTION, data =>
 				callback(data.action, data),
@@ -237,8 +330,8 @@ const api: OmpApi = {
 	system: {
 		openExternal: (url: string) => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_EXTERNAL, url),
 		showSaveDialog: (defaultPath?: string) => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_SAVE_DIALOG, defaultPath),
-		showOpenDialog: (filters?: { name: string; extensions: string[] }[]) =>
-			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_DIALOG, filters),
+		showOpenDialog: (filters?: { name: string; extensions: string[] }[], options?: { directory?: boolean }) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_DIALOG, filters, options),
 		clipboardRead: () => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_CLIPBOARD_READ),
 		notify: (title: string, body?: string) => {
 			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_NOTIFY, { title, body });
@@ -281,6 +374,16 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ, { path, maxBytes }) as Promise<IpcFsReadResult>,
 		readPlan: (payload: IpcFsReadPlanPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ_PLAN, payload) as Promise<IpcFsReadPlanResult>,
+	},
+
+	editor: {
+		openExternal: (content: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.EDITOR_OPEN_EXTERNAL, { content }) as Promise<{
+				ok: boolean;
+				unavailable: boolean;
+				text: string | null;
+				error?: string;
+			}>,
 	},
 };
 

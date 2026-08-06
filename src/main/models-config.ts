@@ -125,7 +125,7 @@ export function upsertModelsProvider(input: CustomProviderInput): void {
 		throw new Error(`"${input.id}" is a built-in provider id; choose a distinct custom id.`);
 	}
 	const data = readFile();
-	const existing = toView(input.id, (data.providers ?? {})[input.id]);
+	const existing = toView(input.id, data.providers?.[input.id]);
 	const apiKey = input.apiKey && input.apiKey.trim().length > 0 ? input.apiKey.trim() : existing.apiKey;
 	const entry: Record<string, unknown> = {
 		baseUrl: input.baseUrl,

@@ -1,6 +1,9 @@
 import type { AgentMessage, ImageContent } from "../../shared/rpc-types";
+import { hydrateSession } from "../hooks/use-rpc-events";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
+import { toast } from "../stores/toast";
+import { translate } from "./i18n";
 
 /**
  * Message-level actions shared between the command palette and the global
@@ -46,20 +49,34 @@ export async function retryLastTurn(onEmpty: () => void): Promise<void> {
 	if (!response.success) throw new Error(response.error);
 }
 
+/** Branch from a user entry, restoring its draft and refreshing the session. */
+export async function branchSessionFromEntry(entryId: string): Promise<"branched" | "cancelled"> {
+	const response = await window.omp.rpc.branch(entryId);
+	if (!response.success) throw new Error(response.error);
+	const data = response.data as { cancelled?: boolean; text?: string } | undefined;
+	if (data?.cancelled) return "cancelled";
+	if (data?.text !== undefined) {
+		window.dispatchEvent(new CustomEvent("omp:fill-composer", { detail: { text: data.text } }));
+	}
+	await hydrateSession();
+	return "branched";
+}
+
 /** One queued steer/follow-up message pulled back by the dequeue RPC. */
 interface DequeuedMessage {
 	text: string;
 	images?: ImageContent[];
+	mode: "steer" | "followUp";
 }
 
 /**
  * Restore queued messages into the composer (TUI app.message.dequeue / Alt+Up
- * parity): the RPC drains every user-authored queued steer/follow-up in queue
- * order (oldest first); the last (newest) goes back into the composer for
- * editing — text prepended ahead of any draft, images appended to the image
- * strip — and the earlier ones are re-queued as follow-ups in their original
- * order so nothing is lost. `onEmpty` fires when nothing was queued; RPC
- * failures throw for the caller to surface.
+ * parity): the RPC drains every user-authored queued steer/follow-up in their
+ * cross-lane enqueue order (oldest first); the last (newest) goes back into
+ * the composer for editing — text prepended ahead of any draft, images
+ * appended to the image strip — and earlier messages are re-queued through
+ * their original delivery lane, in order. `onEmpty` fires when nothing was
+ * queued; RPC failures throw for the caller to surface.
  */
 export async function restoreQueuedMessages(onEmpty: () => void): Promise<void> {
 	const response = await window.omp.rpc.dequeue();
@@ -78,9 +95,31 @@ export async function restoreQueuedMessages(onEmpty: () => void): Promise<void> 
 			detail: { text: restored.text, images: restored.images, prepend: true },
 		}),
 	);
-	// Re-queue sequentially: follow_up appends, so await each to keep order.
+	// Re-queue sequentially through each message's original delivery lane.
 	for (const queued of messages.slice(0, -1)) {
-		const requeue = await window.omp.rpc.followUp(queued.text, queued.images);
+		const requeue =
+			queued.mode === "steer"
+				? await window.omp.rpc.steer(queued.text, queued.images)
+				: await window.omp.rpc.followUp(queued.text, queued.images);
 		if (!requeue.success) throw new Error(requeue.error);
 	}
+}
+
+/**
+ * Clear the conversation context in place (TUI /clear parity via the
+ * clear_context RPC): drops the context, keeps the session id and transcript
+ * file. Refused with a warning while streaming / a foreground execution runs
+ * (server code "busy"); on success rehydrates the transcript + context bar
+ * and reports the dropped count. Returns whether the context was cleared.
+ */
+export async function clearSessionContext(): Promise<boolean> {
+	const response = await window.omp.rpc.clearContext();
+	if (!response.success) {
+		toast({ variant: "warning", message: response.error });
+		return false;
+	}
+	const data = response.data as { droppedCount?: number } | undefined;
+	toast({ variant: "success", message: translate("input.clear.done", { count: data?.droppedCount ?? 0 }) });
+	await hydrateSession();
+	return true;
 }

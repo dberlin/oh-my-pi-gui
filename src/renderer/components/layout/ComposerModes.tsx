@@ -6,7 +6,7 @@
  * state stays consistent.
  */
 
-import { ChevronDown, Flag, ListChecks, Repeat, Users } from "lucide-react";
+import { Check, ChevronDown, Flag, Infinity as InfinityIcon, ListChecks, Repeat, Users } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
@@ -14,17 +14,26 @@ import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { useUiStore } from "../../stores/ui";
+import { loopLimitText, parseLoopLimit } from "../panels/ModesPanel";
 
+// ON state = accent background + a check beside the mode icon, so an active
+// mode reads at a glance; the transparent border keeps the box stable across
+// toggles (no 1px layout shift).
 const chip = (active: boolean) =>
 	cx(
-		"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-medium hover:bg-[var(--omp-selected-bg)]",
-		active ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
+		"omp-pressable flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[12px] font-medium",
+		active
+			? "border-[var(--omp-border-accent)] bg-[var(--omp-accent-dim)] text-[var(--omp-accent)]"
+			: "border-transparent text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)]",
 	);
 
 export function ComposerModes() {
 	const t = useT();
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const goalActive = useSessionStore(s => s.goalState?.status === "active" || !!s.goal);
+	const goalObjective = useSessionStore(s => s.goal?.objective ?? null);
+	const loopMode = useSessionStore(s => s.loopMode);
+	const loopActive = loopMode?.enabled === true;
 	// Shared `goal.statusInFooter` setting: off hides the composer's goal chip
 	// (the goal panel stays reachable via Modes/command palette).
 	const goalStatusInFooter = useSettingsStore(s => s.goalStatusInFooter);
@@ -74,22 +83,43 @@ export function ComposerModes() {
 		void set(next);
 	};
 
+	// Loop chip tooltip carries the live limit/args (e.g. "7 of 10 iterations
+	// left", "Unbounded" when none) — same formatting as the Modes window's loop tab.
+	const loopLimit = loopMode ? parseLoopLimit(loopMode.limit) : null;
+	const loopArgs = loopLimit ? loopLimitText(t, loopLimit) : t("modesPanel.loop.noLimit");
+
 	return (
 		<>
 			<button type="button" onClick={togglePlan} title={t("input.plan.title")} className={chip(planModeEnabled)}>
 				<ListChecks size={14} />
+				{planModeEnabled && <Check size={11} strokeWidth={3} />}
 			</button>
 
 			{goalStatusInFooter && (
 				<button
 					type="button"
 					onClick={() => openModes("goal")}
-					title={t("input.goal.title")}
+					title={
+						goalActive && goalObjective
+							? t("input.goal.activeTitle", { objective: goalObjective })
+							: t("input.goal.title")
+					}
 					className={chip(goalActive)}
 				>
 					<Flag size={14} />
+					{goalActive && <Check size={11} strokeWidth={3} />}
 				</button>
 			)}
+
+			<button
+				type="button"
+				onClick={() => openModes("loop")}
+				title={loopActive ? t("input.loop.activeTitle", { args: loopArgs }) : t("input.loop.title")}
+				className={chip(loopActive)}
+			>
+				<InfinityIcon size={14} />
+				{loopActive && <Check size={11} strokeWidth={3} />}
+			</button>
 
 			<button type="button" onClick={openModelRoles} title={t("input.roles.title")} className={chip(false)}>
 				<Users size={14} />

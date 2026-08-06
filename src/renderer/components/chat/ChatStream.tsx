@@ -1,16 +1,20 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, Bug, ChevronRight, Code2, Loader2, SearchCode, Sparkles } from "lucide-react";
+import { ArrowDown, Bug, ChevronRight, Code2, Loader2, SearchCode, Sparkles, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentMessage, MessageContent } from "../../../shared/rpc-types";
+import type { AgentMessage, MessageContent, RpcQueuedMessage } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isRenderableMessageText } from "../../lib/messages";
+import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry, type ReadGroupUsage } from "../../lib/read-group";
 import { useMessagesStore } from "../../stores/messages";
+import { type QueueLane, useQueuedMessages } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
-import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { toast } from "../../stores/toast";
+import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
 import { PiLogo } from "../common";
+import { ReadGroupCard } from "../tools/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
@@ -24,10 +28,16 @@ interface ProcessMeta {
 
 export type HistoryRow =
 	| { kind: "message"; message: AgentMessage }
+	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] }
 	| ({ kind: "process"; messages: AgentMessage[] } & ProcessMeta);
 
 /** Virtualized row: finalized history or one of the live streaming rows. */
-type Row = HistoryRow | { kind: "streaming" } | { kind: "pending" } | { kind: "expander"; count: number };
+type Row =
+	| HistoryRow
+	| { kind: "streaming" }
+	| { kind: "pending" }
+	| { kind: "expander"; count: number }
+	| { kind: "queued"; item: RpcQueuedMessage; lane: QueueLane };
 
 function messageContent(message: AgentMessage): MessageContent[] {
 	if (Array.isArray(message.content)) return message.content;
@@ -61,7 +71,7 @@ function isVisibleTranscriptMessage(message: AgentMessage): boolean {
 			case "text":
 				return isRenderableMessageText(block.text);
 			case "thinking":
-				return block.thinking.trim().length > 0;
+				return isRenderableMessageText(block.thinking);
 			case "toolCall":
 			case "image":
 				return true;
@@ -76,9 +86,9 @@ function summarizeProcess(messages: AgentMessage[]): ProcessMeta {
 	const toolNames: string[] = [];
 	for (const message of messages) {
 		for (const block of messageContent(message)) {
-			if (block.type === "thinking" && block.thinking.trim()) thinkingCount++;
+			if (block.type === "thinking" && isRenderableMessageText(block.thinking)) thinkingCount++;
 			if (block.type !== "toolCall") continue;
-			toolCallIds.push(block.id);
+			toolCallIds.push(toolEntryKey(block));
 			toolNames.push(block.name);
 		}
 	}
@@ -125,7 +135,9 @@ export function buildHistoryRows(messages: AgentMessage[], detail: TranscriptDet
 			continue;
 		}
 
-		const thinking = message.content.filter(block => block.type === "thinking" && block.thinking.trim());
+		const thinking = message.content.filter(
+			block => block.type === "thinking" && isRenderableMessageText(block.thinking),
+		);
 		if (thinking.length > 0) {
 			processMessages.push({ ...message, content: thinking });
 			const coreMessage: AgentMessage = {
@@ -177,10 +189,13 @@ export function ChatStream() {
 
 	const lastCompactionIndex = messages.findLastIndex(message => message.role === "compactionSummary");
 	const hiddenCount = collapseCompacted && !preCompactionOpen && lastCompactionIndex > 0 ? lastCompactionIndex : 0;
-	const historyRows = useMemo(
-		() => buildHistoryRows(hiddenCount > 0 ? messages.slice(hiddenCount) : messages, transcriptDetail),
-		[messages, hiddenCount, transcriptDetail],
-	);
+	const historyRows = useMemo(() => {
+		const built = buildHistoryRows(hiddenCount > 0 ? messages.slice(hiddenCount) : messages, transcriptDetail);
+		// Read-tool grouping (TUI parity) folds consecutive collapsible reads into
+		// one card — only in full mode; compact mode's ProcessGroup already folds
+		// ALL consecutive tool work, so a second fold would nest redundantly.
+		return transcriptDetail === "compact" ? built : groupReadRows(built);
+	}, [messages, hiddenCount, transcriptDetail]);
 
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the
@@ -200,11 +215,18 @@ export function ChatStream() {
 	const showStatusRow =
 		retryInfo != null || compactionInfo != null || (isStreaming && awaitingModelSince != null && !hasStreamedContent);
 
+	// Pending queue bubbles tail the stream in delivery order (steering
+	// interrupts first, follow-ups after) — the future user turns, deletable
+	// in place via queue_remove.
+	const queued = useQueuedMessages();
+
 	const rows: Row[] = [];
 	if (hiddenCount > 0) rows.push({ kind: "expander", count: hiddenCount });
 	rows.push(...historyRows);
 	if (hasStreamedContent) rows.push({ kind: "streaming" });
 	if (showStatusRow) rows.push({ kind: "pending" });
+	for (const item of queued.steering) rows.push({ kind: "queued", item, lane: "steering" });
+	for (const item of queued.followUp) rows.push({ kind: "queued", item, lane: "followUp" });
 
 	const parentRef = useRef<HTMLDivElement>(null);
 	const [pinned, setPinned] = useState(true);
@@ -222,7 +244,7 @@ export function ChatStream() {
 		estimateSize: i =>
 			rows[i]?.kind === "streaming"
 				? 96
-				: rows[i]?.kind === "pending"
+				: rows[i]?.kind === "pending" || rows[i]?.kind === "queued"
 					? 56
 					: rows[i]?.kind === "expander" || rows[i]?.kind === "process"
 						? 44
@@ -310,7 +332,13 @@ export function ChatStream() {
 						if (!row) return null;
 						return (
 							<div
-								key={row.kind === "message" ? `msg-${item.index}` : `${row.kind}-${item.index}`}
+								key={
+									row.kind === "queued"
+										? `queued-${row.item.id}`
+										: row.kind === "message"
+											? `msg-${item.index}`
+											: `${row.kind}-${item.index}`
+								}
 								data-index={item.index}
 								ref={virtualizer.measureElement}
 								style={{
@@ -324,10 +352,14 @@ export function ChatStream() {
 								<div className="mx-auto w-full max-w-[900px]">
 									{row.kind === "message" ? (
 										<MessageBubble message={row.message} />
+									) : row.kind === "readGroup" ? (
+										<ReadGroupCard entries={row.entries} usage={row.usage} />
 									) : row.kind === "process" ? (
 										<ProcessGroup row={row} />
 									) : row.kind === "streaming" ? (
 										<StreamingRows />
+									) : row.kind === "queued" ? (
+										<QueuedMessageBubble item={row.item} lane={row.lane} />
 									) : row.kind === "expander" ? (
 										<button
 											type="button"
@@ -469,7 +501,7 @@ function StreamingRows() {
 	const ts = streamingMessage.timestamp;
 	const parsed = typeof ts === "number" ? ts : typeof ts === "string" ? Date.parse(ts) : Number.NaN;
 	const streamStart = Number.isFinite(parsed) ? parsed : 0;
-	const contentIds = new Set(toolCalls.map(block => block.id));
+	const contentIds = new Set(toolCalls.map(block => toolEntryKey(block)));
 	const liveTools: Array<{ id: string; entry: ToolEntry }> = [];
 	for (const [id, entry] of activeTools) {
 		if (contentIds.has(id)) continue;
@@ -478,14 +510,64 @@ function StreamingRows() {
 		liveTools.push({ id, entry });
 	}
 
-	const hasThinking = streamingThinking.trim().length > 0;
+	const hasThinking = isRenderableMessageText(streamingThinking);
 	const hasProcess = hasThinking || toolCalls.length > 0 || liveTools.length > 0;
 	const processMeta: ProcessMeta = {
 		stepCount: (hasThinking ? 1 : 0) + toolCalls.length + liveTools.length,
-		toolCallIds: [...toolCalls.map(block => block.id), ...liveTools.map(({ id }) => id)],
+		toolCallIds: [...toolCalls.map(block => toolEntryKey(block)), ...liveTools.map(({ id }) => id)],
 		toolNames: [...toolCalls.map(block => block.name), ...liveTools.map(({ entry }) => entry.toolName)],
 	};
-	const toolCards = (
+
+	// Live read grouping (same predicate as the finalized path): consecutive
+	// collapsible reads fold into one ReadGroupCard even mid-turn. Compact
+	// detail keeps plain cards — ProcessDisclosure already folds them.
+	const allCards: Array<{ id: string; name: string; args: Record<string, unknown> }> = [
+		...toolCalls.map(block => ({
+			id: toolEntryKey(block),
+			name: block.name,
+			args: block.arguments as Record<string, unknown>,
+		})),
+		...liveTools.map(({ id, entry }) => ({ id, name: entry.toolName, args: entry.args as Record<string, unknown> })),
+	];
+	const groupedLiveCards = (() => {
+		if (transcriptDetail === "compact") return null;
+		const segments: Array<
+			{ type: "group"; entries: ReadGroupEntry[] } | { type: "card"; card: (typeof allCards)[number] }
+		> = [];
+		let run: ReadGroupEntry[] = [];
+		const flush = () => {
+			if (run.length > 0) {
+				segments.push({ type: "group", entries: run });
+				run = [];
+			}
+		};
+		for (const card of allCards) {
+			const read = card.name === "read" ? collapsibleReadTarget(card.args) : null;
+			if (read) {
+				run.push({ callId: card.id, toolKey: card.id, ...read, args: card.args });
+				continue;
+			}
+			flush();
+			segments.push({ type: "card", card });
+		}
+		flush();
+		// Grouping only pays when at least one group holds 2+ reads.
+		if (!segments.some(segment => segment.type === "group" && segment.entries.length > 1)) return null;
+		return segments.map((segment, index) =>
+			segment.type === "group" ? (
+				<ReadGroupCard inset key={`rg-${segment.entries[0]?.callId ?? index}`} entries={segment.entries} />
+			) : (
+				<ToolCard
+					key={segment.card.id}
+					toolCallId={segment.card.id}
+					toolName={segment.card.name}
+					args={segment.card.args}
+				/>
+			),
+		);
+	})();
+
+	const toolCards = groupedLiveCards ?? (
 		<>
 			{toolCalls.map(block => (
 				<ToolCard key={block.id} toolCallId={block.id} toolName={block.name} args={block.arguments} />
@@ -625,6 +707,51 @@ export function TurnStatusRow() {
 					{detail}
 				</div>
 			) : null}
+		</div>
+	);
+}
+
+/**
+ * Grey pending bubble for one queued steer/follow-up message (queue_update
+ * data source), rendered at the message-stream tail in delivery order —
+ * steering (mid-run interrupt) first, then follow-ups. The × deletes the
+ * entry via queue_remove; the queue_update frame the removal emits confirms
+ * it (failure toasts and keeps the bubble).
+ */
+function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: QueueLane }) {
+	const t = useT();
+	const [removing, setRemoving] = useState(false);
+
+	const remove = async () => {
+		setRemoving(true);
+		const response = await window.omp.rpc.queueRemove(item.id);
+		if (!response.success) {
+			setRemoving(false);
+			toast({ variant: "error", title: t("pendingBubble.removeFailed"), message: response.error });
+		}
+	};
+
+	return (
+		<div className="group flex justify-end px-6 py-1.5">
+			<div className="flex max-w-[75%] items-start gap-2 rounded-xl border border-dashed border-[var(--omp-border)] bg-[var(--omp-bg-secondary)] px-3.5 py-2.5">
+				<div className="min-w-0 flex-1">
+					<div className="mb-0.5 text-[10px] font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
+						{t(lane === "steering" ? "pendingBubble.steering" : "pendingBubble.followUp")}
+					</div>
+					<div className="whitespace-pre-wrap break-words text-[13px] leading-snug text-[var(--omp-muted)]">
+						{item.text || "…"}
+					</div>
+				</div>
+				<button
+					type="button"
+					onClick={() => void remove()}
+					disabled={removing}
+					title={t("pendingBubble.remove")}
+					className="omp-pressable -mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-error)] disabled:opacity-50"
+				>
+					<X size={13} />
+				</button>
+			</div>
 		</div>
 	);
 }

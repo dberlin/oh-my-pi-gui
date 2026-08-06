@@ -16,6 +16,7 @@ export type RpcCommand =
 	| { id?: string; type: "abort" }
 	| { id?: string; type: "abort_and_prompt"; message: string; images?: ImageContent[] }
 	| { id?: string; type: "new_session"; parentSession?: string }
+	| { id?: string; type: "drop_session" }
 	| { id?: string; type: "get_state" }
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
 	| { id?: string; type: "get_available_commands" }
@@ -26,7 +27,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_subagents" }
 	| { id?: string; type: "get_subagent_messages"; subagentId?: string; sessionFile?: string; fromByte?: number }
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
-	| { id?: string; type: "cycle_model" }
+	| { id?: string; type: "cycle_model"; direction?: "forward" | "backward" }
 	| { id?: string; type: "get_available_models" }
 	| { id?: string; type: "set_thinking_level"; level: ThinkingLevel | "auto" }
 	| { id?: string; type: "cycle_thinking_level" }
@@ -37,11 +38,18 @@ export type RpcCommand =
 	| { id?: string; type: "set_auto_compaction"; enabled: boolean }
 	| { id?: string; type: "set_auto_retry"; enabled: boolean }
 	| { id?: string; type: "abort_retry" }
-	| { id?: string; type: "bash"; command: string }
+	| { id?: string; type: "bash"; command: string; excluded?: boolean }
 	| { id?: string; type: "abort_bash" }
 	| { id?: string; type: "eval"; language?: "python" | "js" | "ruby" | "julia"; code: string; excluded?: boolean }
 	| { id?: string; type: "abort_eval" }
 	| { id?: string; type: "dequeue" }
+	// Queue management: stable per-entry ids (never array indices). queueId is
+	// the entry id surfaced by get_queue; queue_move is a same-lane reorder
+	// with clamped target; queue_clear drops user-restorable entries only.
+	| { id?: string; type: "get_queue" }
+	| { id?: string; type: "queue_remove"; queueId: string }
+	| { id?: string; type: "queue_move"; queueId: string; toIndex: number }
+	| { id?: string; type: "queue_clear"; lane?: "steering" | "followUp" }
 	| { id?: string; type: "get_session_stats" }
 	| { id?: string; type: "export_html"; outputPath?: string }
 	| { id?: string; type: "switch_session"; sessionPath: string }
@@ -70,16 +78,34 @@ export type RpcCommand =
 
 	// Domain inspection (read-only)
 	| { id?: string; type: "get_skills" }
+	| { id?: string; type: "get_agent_definitions" }
 	| { id?: string; type: "get_hooks" }
 	| { id?: string; type: "get_mcp_servers" }
 	| { id?: string; type: "get_plugins" }
 	| { id?: string; type: "get_marketplaces" }
 	| { id?: string; type: "get_prompt_templates" }
 	| { id?: string; type: "get_memory_report" }
+
+	// Session reports (structured TUI /context /share /jobs parity; /tools rides get_active_tools)
+	| { id?: string; type: "get_context_report" }
+	| { id?: string; type: "get_active_tools" }
+	| { id?: string; type: "share_session" }
+	| { id?: string; type: "get_jobs" }
+
+	// One-shot session actions (TUI /prewalk /fresh /shake /reload-plugins
+	// /force parity). set_force_tool takes exactly one of `tool` or
+	// `clear: true`; fresh is refused with code "busy" while streaming.
+	| { id?: string; type: "set_prewalk"; enabled: boolean }
+	| { id?: string; type: "fresh" }
+	| { id?: string; type: "shake_context"; mode: "elide" | "images" }
+	| { id?: string; type: "reload_plugins" }
+	| { id?: string; type: "set_force_tool"; tool?: string; clear?: boolean }
+	| { id?: string; type: "get_force_tool" }
 	| { id?: string; type: "get_session_tree" }
 	| { id?: string; type: "get_themes" }
 	| { id?: string; type: "get_theme_colors"; name: string }
 	| { id?: string; type: "get_transcript" }
+	| { id?: string; type: "get_copy_targets" }
 
 	// Plan approval (structured)
 	| {
@@ -94,6 +120,12 @@ export type RpcCommand =
 	| { id?: string; type: "get_vibe_mode" }
 	| { id?: string; type: "set_vibe_mode"; enabled: boolean }
 	| { id?: string; type: "get_goal" }
+	| { id?: string; type: "guided_goal"; initial?: string }
+	| { id?: string; type: "set_agents_paused"; enabled: boolean }
+	| { id?: string; type: "btw"; question: string }
+	| { id?: string; type: "btw_branch" }
+	| { id?: string; type: "tan"; work: string }
+	| { id?: string; type: "omfg"; complaint: string }
 	| {
 			id?: string;
 			type: "set_goal";
@@ -120,7 +152,52 @@ export type RpcCommand =
 	// RIFF/WAVE buffer — PCM16, mono, 16 kHz (the STT pipeline's native rate);
 	// `mimeType` is informational ("audio/wav").
 	| { id?: string; type: "transcribe_audio"; audioBase64: string; mimeType: string }
-	| { id?: string; type: "synthesize_speech"; text: string };
+	| { id?: string; type: "synthesize_speech"; text: string }
+	| { id?: string; type: "retry" }
+	| { id?: string; type: "clear_context" }
+	| { id?: string; type: "abort_subagent"; agentId: string }
+	| { id?: string; type: "revive_subagent"; agentId: string }
+	| { id?: string; type: "write_local_paste"; content: string }
+	| { id?: string; type: "list_foreign_sessions"; source: "claude" | "codex" }
+	| { id?: string; type: "import_foreign_session"; source: "claude" | "codex"; foreignId: string }
+	| { id?: string; type: "fork_from"; entryId: string }
+	| { id?: string; type: "switch_leaf"; entryId: string; summarize?: boolean; customInstructions?: string }
+	| { id?: string; type: "resume_after_ask_reanswer" }
+	| { id?: string; type: "get_command_arg_completions"; command: string; prefix: string }
+	| { id?: string; type: "mcp_add"; name: string; config: RpcMcpServerInput; scope?: "user" | "project" }
+	| { id?: string; type: "mcp_test"; name?: string; config?: RpcMcpServerInput }
+	| { id?: string; type: "mcp_reauth"; name: string }
+	| { id?: string; type: "mcp_reauth_cancel"; name: string }
+	| {
+			id?: string;
+			type: "marketplace_action";
+			action: "add" | "remove" | "update" | "install" | "uninstall" | "upgrade" | "list_available";
+			marketplace?: string;
+			plugin?: string;
+			source?: string;
+	  }
+	| { id?: string; type: "get_plugin_detail"; pluginId: string }
+	| { id?: string; type: "set_plugin_features"; pluginId: string; features: string[] }
+	| { id?: string; type: "set_plugin_setting"; pluginId: string; key: string; value: unknown }
+	| { id?: string; type: "delete_plugin_setting"; pluginId: string; key: string }
+	| { id?: string; type: "live_start"; voice?: string }
+	| { id?: string; type: "live_toggle_mute" }
+	| { id?: string; type: "live_stop" }
+	| { id?: string; type: "get_live_state" }
+	| { id?: string; type: "debug"; params: RpcDebugParams }
+	| { id?: string; type: "collab_start"; relayUrl?: string; view?: boolean }
+	| { id?: string; type: "collab_join"; link: string }
+	| { id?: string; type: "collab_leave" }
+	| { id?: string; type: "get_collab_state" }
+
+	// Workspace directories (TUI /dirs /add-dir /remove-dir /move parity).
+	// add_directory/remove_directory return the post-mutation directory list;
+	// remove_directory refuses the primary (cwd) directory; move_session
+	// relocates the session file's cwd association on disk.
+	| { id?: string; type: "get_directories" }
+	| { id?: string; type: "add_directory"; path: string }
+	| { id?: string; type: "remove_directory"; path: string }
+	| { id?: string; type: "move_session"; path: string };
 
 // ============================================================================
 // RPC Responses (omp stdout → GUI)
@@ -143,7 +220,229 @@ export interface RpcResponseError {
 	code?: string;
 }
 
+// ============================================================================
+// Session Report Results (/context /share /jobs parity)
+// ============================================================================
+
+/** Provider-anchored token breakdown, mirroring the agent's ContextUsageBreakdown. */
+export interface RpcContextUsageBreakdown {
+	contextWindow: number;
+	anchored: boolean;
+	usedTokens: number;
+	systemPromptTokens: number;
+	systemToolsTokens: number;
+	systemContextTokens: number;
+	skillsTokens: number;
+	messagesTokens: number;
+}
+
+/** get_context_report result. `contextWindow` 0 (and `model` empty) = no model selected. */
+export interface RpcContextReportResult {
+	breakdown?: RpcContextUsageBreakdown;
+	contextWindow: number;
+	model: string;
+}
+
+/** share_session result. `truncated` rides only when content was trimmed to fit the share budget. */
+export interface RpcShareSessionResult {
+	url: string;
+	truncated?: boolean;
+}
+
+/** Provenance of one active tool (get_active_tools). Plugin-shipped tools surface as `extension`. */
+export type RpcToolSource = "builtin" | "mcp" | "extension" | "plugin";
+
+export interface RpcActiveTool {
+	name: string;
+	description?: string;
+	source: RpcToolSource;
+}
+
+/** Result of get_active_tools: active top-level tools, then xd:// mounted entries. */
+export interface RpcActiveToolsResult {
+	tools: RpcActiveTool[];
+}
+
+/** Result of set_prewalk: the armed state after the toggle. */
+export interface RpcPrewalkState {
+	enabled: boolean;
+}
+
+/** Result of shake_context. `removed` is the one-line operator summary (TUI formatShakeSummary). */
+export interface RpcShakeContextResult {
+	removed: string;
+}
+
+/** Result of reload_plugins: post-reload inventory counts. */
+export interface RpcReloadPluginsResult {
+	plugins: number;
+	skills: number;
+	commands: number;
+}
+
+/** Result of set_force_tool / get_force_tool: the pending forced tool, or null. */
+export interface RpcForceToolState {
+	tool: string | null;
+}
+
+/** One async background job, as carried by the agent's job snapshot. */
+export interface RpcAsyncJobItem {
+	id: string;
+	type: "bash" | "task";
+	status: "running" | "completed" | "failed" | "cancelled";
+	label: string;
+	/** Epoch ms when the job started. */
+	startTime: number;
+}
+
+/** get_jobs result: running jobs first, then recent (TUI /jobs ordering). */
+export interface RpcJobsResult {
+	jobs: RpcAsyncJobItem[];
+}
+
 export type RpcResponse = RpcResponseSuccess | RpcResponseError;
+
+export type RpcDebugAction =
+	| "launch"
+	| "attach"
+	| "set_breakpoint"
+	| "remove_breakpoint"
+	| "set_instruction_breakpoint"
+	| "remove_instruction_breakpoint"
+	| "data_breakpoint_info"
+	| "set_data_breakpoint"
+	| "remove_data_breakpoint"
+	| "continue"
+	| "step_over"
+	| "step_in"
+	| "step_out"
+	| "pause"
+	| "evaluate"
+	| "stack_trace"
+	| "threads"
+	| "scopes"
+	| "variables"
+	| "disassemble"
+	| "read_memory"
+	| "write_memory"
+	| "modules"
+	| "loaded_sources"
+	| "custom_request"
+	| "output"
+	| "terminate"
+	| "sessions";
+
+export interface RpcDebugParams {
+	action: RpcDebugAction;
+	program?: string;
+	args?: string[];
+	adapter?: string;
+	cwd?: string;
+	file?: string;
+	line?: number;
+	function?: string;
+	name?: string;
+	condition?: string;
+	hit_condition?: string;
+	expression?: string;
+	context?: string;
+	frame_id?: number;
+	scope_id?: number;
+	variable_ref?: number;
+	pid?: number;
+	port?: number;
+	host?: string;
+	levels?: number;
+	memory_reference?: string;
+	instruction_reference?: string;
+	instruction_count?: number;
+	instruction_offset?: number;
+	count?: number;
+	data?: string;
+	data_id?: string;
+	access_type?: "read" | "write" | "readWrite";
+	command?: string;
+	arguments?: Record<string, unknown>;
+	offset?: number;
+	resolve_symbols?: boolean;
+	allow_partial?: boolean;
+	start_module?: number;
+	module_count?: number;
+	timeout?: number;
+}
+
+export interface RpcLiveTranscript {
+	role: "user" | "assistant";
+	text: string;
+	turn: number;
+	final: boolean;
+}
+
+export interface RpcLiveState {
+	active: boolean;
+	phase: "connecting" | "listening" | "working" | "speaking" | "muted" | "error";
+	muted: boolean;
+	inputLevel: number;
+	outputLevel: number;
+	transcript?: RpcLiveTranscript;
+	error?: string;
+}
+
+export interface RpcLiveUpdateFrame {
+	type: "live_update";
+	state: RpcLiveState;
+}
+
+export interface RpcCollabParticipant {
+	name: string;
+	role: "host" | "guest";
+	readOnly?: boolean;
+}
+
+export interface RpcCollabState {
+	role: "host" | "guest" | null;
+	readOnly: boolean;
+	link?: string;
+	viewLink?: string;
+	webLink?: string;
+	webViewLink?: string;
+	participants: RpcCollabParticipant[];
+}
+
+// ============================================================================
+// Queue Management (get_queue / queue_remove / queue_move / queue_clear)
+// ============================================================================
+
+/**
+ * One user-restorable queued message surfaced by get_queue. `id` is the
+ * stable per-entry queue id assigned at enqueue time (lane-prefixed counter
+ * like `s1`/`f1`), valid for queue_remove/queue_move until the entry is
+ * consumed or removed. Advisor cards, hidden companions, and internal steers
+ * never appear here.
+ */
+export interface RpcQueuedMessage {
+	id: string;
+	text: string;
+	images?: ImageContent[];
+	timestamp: number;
+}
+
+/** get_queue result: both lanes in insertion order. */
+export interface RpcGetQueueResult {
+	steering: RpcQueuedMessage[];
+	followUp: RpcQueuedMessage[];
+}
+
+/** queue_move result: the entry's lane and its final (clamped) index. */
+export interface RpcQueueMoveResult {
+	lane: "steering" | "followUp";
+	index: number;
+}
+
+/** queue_clear result: count of user-restorable messages removed. */
+export interface RpcQueueClearResult {
+	removed: number;
+}
 
 // ============================================================================
 // Domain inspection results (read-only)
@@ -185,9 +484,47 @@ export interface RpcMcpServerInfo {
 	toolCount: number;
 	enabled: boolean;
 	authed: boolean;
+	/** Config provenance (C1). */
+	scope?: "user" | "project";
+	/** stdio only. */
+	command?: string;
+	/** http/sse only. */
+	url?: string;
+	lastError?: string;
+	authState?: "none" | "authorized" | "expired" | "required";
 }
 export interface RpcMcpServersResult {
 	servers: RpcMcpServerInfo[];
+}
+
+/** Input for adding an MCP server (C1 wizard). */
+export interface RpcMcpServerInput {
+	transport: "stdio" | "http" | "sse";
+	command?: string;
+	args?: string[];
+	env?: Record<string, string>;
+	url?: string;
+	headers?: Record<string, string>;
+	timeoutMs?: number;
+}
+
+/** One plugin listed by marketplace_action list_available (cache-backed). */
+export interface RpcMarketplacePluginInfo {
+	name: string;
+	description?: string;
+	version?: string;
+	installed: boolean;
+}
+
+/** Plugin detail for the config editor (C1). Secret values are never included in `values`. */
+export interface RpcPluginDetail {
+	id: string;
+	enabled: boolean;
+	features: Array<{ id: string; description?: string; enabled: boolean }>;
+	settingsSchema?: unknown;
+	values: Record<string, unknown>;
+	/** Keys with persisted values, including write-only secret settings. */
+	configuredKeys: string[];
 }
 
 /** An installed plugin (npm package or marketplace install). */
@@ -202,6 +539,20 @@ export interface RpcPluginInfo {
 }
 export interface RpcPluginsResult {
 	plugins: RpcPluginInfo[];
+}
+
+/** One session workspace root. Exactly one entry — the session cwd — is primary. */
+export interface RpcWorkspaceDirectory {
+	path: string;
+	primary: boolean;
+}
+
+/**
+ * Result of get_directories / add_directory / remove_directory: the session's
+ * workspace roots, primary (cwd) first, additional directories in order.
+ */
+export interface RpcWorkspaceDirectoriesResult {
+	directories: RpcWorkspaceDirectory[];
 }
 
 /** A configured marketplace source. */
@@ -375,12 +726,27 @@ export interface RpcSessionState {
 	dumpTools: ToolDump[];
 	contextUsage: ContextUsage | null;
 	planModeEnabled: boolean;
+	/** Whether a prewalk model switch is armed and waiting for the first edit/write. */
+	prewalkArmed?: boolean;
+	agentsPaused: boolean;
+	agentsPausedAt?: number;
 }
 
 export interface ToolDump {
 	name: string;
 	description: string;
 	parameters: Record<string, unknown>;
+}
+
+export interface CopyTarget {
+	id: string;
+	label: string;
+	hint?: string;
+	preview: string;
+	language?: string;
+	content?: string;
+	copyMessage?: string;
+	children?: CopyTarget[];
 }
 
 // ============================================================================
@@ -390,6 +756,7 @@ export interface ToolDump {
 export interface ExtensionAskDialogOption {
 	label: string;
 	description?: string;
+	preview?: string;
 }
 export interface ExtensionAskDialogQuestion {
 	id: string;
@@ -409,9 +776,14 @@ export interface ExtensionAskDialogResultItem {
 	note?: string;
 	timedOut?: boolean;
 }
-export interface ExtensionAskDialogResult {
+export interface ExtensionAskDialogSubmitResult {
+	kind: "submit";
 	results: ExtensionAskDialogResultItem[];
 }
+export interface ExtensionAskDialogChatResult {
+	kind: "chat";
+}
+export type ExtensionAskDialogResult = ExtensionAskDialogSubmitResult | ExtensionAskDialogChatResult;
 
 export type ExtensionUIRequest =
 	| { type: "extension_ui_request"; id: string; method: "select"; title: string; options: string[]; timeout?: number }
@@ -547,49 +919,126 @@ export interface HostUriResult {
 // ============================================================================
 // Subagents
 // ============================================================================
-
+export type AgentSource = "bundled" | "user" | "project";
 export type SubagentSubscriptionLevel = "off" | "progress" | "events";
 
 export interface SubagentSnapshot {
 	id: string;
 	index: number;
 	agent: string;
-	agentSource: string;
+	agentSource?: AgentSource;
 	description?: string;
-	/**
-	 * Free-form on the wire: lifecycle statuses ("started"→"running",
-	 * "completed", "failed", "aborted") AND arbitrary progress payloads
-	 * ("pending", "idle", "parked", agent-emitted values). Consumers must go
-	 * through statusMeta()/isLiveSubagentStatus() — never index a lookup with
-	 * this raw value (that was the agents-tab white screen).
-	 */
 	status: string;
 	task?: string;
 	assignment?: string;
 	sessionFile?: string;
-	lastUpdate?: string;
+	lastUpdate: number;
 	progress?: AgentProgress;
 	parentToolCallId?: string;
 	/** Present when spawned by another subagent (absent = root spawn from main session). */
 	parentSubagentId?: string;
+	kind?: "sub" | "advisor";
+}
+
+export interface RpcAgentDefinitionInfo {
+	name: string;
+	description: string;
+	source: "bundled" | "user" | "project";
+	filePath?: string;
+	model?: string[];
+	thinkingLevel?: string;
+	tools?: string[];
+	spawns?: string[] | "*";
+	autoloadSkills?: string[];
+	output?: unknown;
+	blocking?: boolean;
+	readSummarize?: boolean;
+	prewalk?: boolean | string;
+	defaultPatterns: string[];
+	defaultResolved?: string;
+	effectivePatterns: string[];
+	effectiveResolved?: string;
+	effectiveThinkingLevel?: string;
+	prewalkPattern?: string;
+	prewalkResolved?: string;
+}
+
+export interface RpcAgentDefinitionsResult {
+	agents: RpcAgentDefinitionInfo[];
 }
 
 export interface AgentProgress {
-	/** Subagent registry id — progress frames are attributed by this, not by index. */
+	index: number;
 	id: string;
-	status: string;
+	agent: string;
+	agentSource: AgentSource;
+	status: "pending" | "running" | "completed" | "failed" | "aborted";
+	task: string;
+	assignment?: string;
 	description?: string;
+	lastIntent?: string;
+	currentTool?: string;
+	currentToolArgs?: string;
+	currentToolStartMs?: number;
+	recentTools: Array<{ tool: string; args: string; endMs: number }>;
+	recentOutput: string[];
+	toolCount: number;
+	requests: number;
+	tokens: number;
+	contextTokens?: number;
+	contextWindow?: number;
+	cost: number;
+	durationMs: number;
+	modelOverride?: string | string[];
+	modelRole?: string;
+	resolvedModel?: string;
+	resolvedModelIsFallback?: boolean;
+	extractedToolData?: Record<string, unknown[]>;
+	retryState?: {
+		attempt: number;
+		maxAttempts: number;
+		delayMs: number;
+		errorMessage: string;
+		startedAtMs: number;
+	};
+	retryFailure?: { attempt: number; errorMessage: string };
+	inflightTaskDetails?: unknown;
+}
+
+export interface SubagentLifecyclePayload {
+	id: string;
+	agent: string;
+	agentSource: AgentSource;
+	description?: string;
+	status: "started" | "completed" | "failed" | "aborted";
+	sessionFile?: string;
+	parentToolCallId?: string;
+	parentSubagentId?: string;
+	index: number;
+	detached?: boolean;
+}
+
+export interface SubagentProgressPayload {
+	index: number;
+	agent: string;
+	agentSource: AgentSource;
+	task: string;
+	parentToolCallId?: string;
+	parentSubagentId?: string;
+	assignment?: string;
+	progress: AgentProgress;
+	sessionFile?: string;
+	detached?: boolean;
 }
 
 export interface SubagentLifecycleFrame {
 	type: "subagent_lifecycle";
-	/** Wire shape is nested under `payload` (see RpcSubagentRegistry). */
-	payload: Omit<SubagentSnapshot, "status"> & { status: "started" | "completed" | "failed" | "aborted" };
+	payload: SubagentLifecyclePayload;
 }
 
 export interface SubagentProgressFrame {
 	type: "subagent_progress";
-	payload: Omit<SubagentSnapshot, "status"> & { status: "running" };
+	payload: SubagentProgressPayload;
 }
 
 export interface SubagentEventFrame {
@@ -685,6 +1134,8 @@ export interface AgentMessage {
 	details?: unknown;
 	isError?: boolean;
 	excludeFromContext?: boolean;
+	/** Time to first token (ms), sibling of `duration` on assistant messages — rides the wire via event passthrough (event-controller.ts:1258). */
+	ttft?: number;
 	customType?: string;
 	display?: boolean;
 	summary?: string;
@@ -747,6 +1198,12 @@ export interface AvailableCommand {
 	subcommands?: Array<{ name: string; description?: string; usage?: string }>;
 	/** Where the command came from (builtin, skill, extension, custom, mcp_prompt, file). */
 	source?: string;
+	/** Whether the command consumes text after its name (drives post-space completion). */
+	allowArgs?: boolean;
+	/** Whether dynamic candidates exist via get_command_arg_completions. */
+	hasDynamicArgCompletion?: boolean;
+	/** False for builtins that require a native GUI/TUI surface. */
+	textModeExecutable?: boolean;
 }
 
 // ============================================================================
@@ -952,11 +1409,35 @@ export type OutboundFrame =
 	| CommandOutputFrame
 	| SessionInfoUpdateFrame
 	| ConfigUpdateFrame
+	| RpcLiveUpdateFrame
 	| ExtensionErrorFrame;
 
 export interface AvailableCommandsUpdateFrame {
 	type: "available_commands_update";
 	commands: AvailableCommand[];
+}
+
+/** Result of switch_leaf (session.navigateTree passthrough + the leaf after the move). */
+export interface RpcSwitchLeafResult {
+	cancelled: boolean;
+	aborted?: boolean;
+	reopenAsk?: { toolCallId: string; questions: unknown };
+	editorText?: string;
+	editorImages?: ImageContent[];
+	activeLeafId?: string;
+	askReanswerCommitted?: boolean;
+}
+
+/** Lightweight metadata of one Claude/Codex session offered for import. */
+export interface RpcForeignSessionInfo {
+	id: string;
+	path: string;
+	cwd: string;
+	title?: string;
+	created: string;
+	modified: string;
+	messageCount?: number;
+	firstMessage?: string;
 }
 
 export interface PromptResultFrame {
@@ -967,12 +1448,13 @@ export interface PromptResultFrame {
 
 export interface CommandOutputFrame {
 	type: "command_output";
-	[key: string]: unknown;
+	text: string;
 }
 
 export interface SessionInfoUpdateFrame {
 	type: "session_info_update";
-	[key: string]: unknown;
+	title?: string;
+	sessionId?: string;
 }
 
 export interface ConfigUpdateFrame {
@@ -1049,7 +1531,11 @@ export type AgentSessionEvent =
 	  }
 	| { type: "goal_updated"; goal: unknown; state?: unknown }
 	| { type: "plan_proposal"; planFilePath: string; title?: string; planContent: string; options: string[] }
-	| { type: "loop_mode_update"; state: RpcLoopModeState };
+	| { type: "loop_mode_update"; state: RpcLoopModeState }
+	// Authoritative queue snapshot after every queue mutation (enqueue,
+	// drain/consume, remove, move, clear, dequeue restore). The queue store
+	// treats this as the update channel; get_queue is only a hydrate fallback.
+	| { type: "queue_update"; steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] };
 
 export type AssistantMessageEvent =
 	| { type: "text_delta"; contentIndex: number; delta: string; partial: AgentMessage }

@@ -12,7 +12,15 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { AgentMessage, AgentSessionEvent, RpcResponse } from "../../shared/rpc-types";
+import type {
+	AgentMessage,
+	AgentSessionEvent,
+	CommandOutputFrame,
+	ExtensionErrorFrame,
+	PromptResultFrame,
+	RpcResponse,
+	SessionInfoUpdateFrame,
+} from "../../shared/rpc-types";
 import { TurnStatusRow } from "../components/chat/ChatStream";
 import { I18nProvider } from "../lib/i18n";
 import { useMessagesStore } from "../stores/messages";
@@ -45,6 +53,8 @@ function success(data: unknown): RpcResponse {
 }
 
 type BatchHandler = (events: AgentSessionEvent[]) => void;
+type CommandOutputHandler = (frame: CommandOutputFrame) => void;
+type PromptResultHandler = (frame: PromptResultFrame) => void;
 
 interface MockOmp {
 	rpc: {
@@ -52,6 +62,9 @@ interface MockOmp {
 		getTranscript: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		getGoal: Mock<() => Promise<RpcResponse>>;
+		getLoopMode: Mock<() => Promise<RpcResponse>>;
+		getVibeMode: Mock<() => Promise<RpcResponse>>;
+		getQueue: Mock<() => Promise<RpcResponse>>;
 		getSettings: Mock<(keys: string[]) => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	};
@@ -61,14 +74,25 @@ interface MockOmp {
 		onSubagentFrame: Mock<() => () => void>;
 		onConfigUpdate: Mock<() => () => void>;
 		onExtensionUi: Mock<() => () => void>;
+		onPromptResult: Mock<(callback: PromptResultHandler) => () => void>;
+		onCommandOutput: Mock<(callback: CommandOutputHandler) => () => void>;
+		onSessionInfoUpdate: Mock<(callback: (frame: SessionInfoUpdateFrame) => void) => () => void>;
+		onExtensionError: Mock<(callback: (frame: ExtensionErrorFrame) => void) => () => void>;
 	};
 	sidecar: { getStatus: Mock<() => Promise<unknown>> };
 	sessions: { consumePendingOpen: Mock<() => Promise<unknown>> };
 	system: { notify: Mock<(title: string, body: string) => void> };
 }
 
-function installMockOmp(): { omp: MockOmp; emitBatch: BatchHandler } {
+function installMockOmp(): {
+	omp: MockOmp;
+	emitBatch: BatchHandler;
+	emitCommandOutput: CommandOutputHandler;
+	emitPromptResult: PromptResultHandler;
+} {
 	let batchHandler: BatchHandler = () => {};
+	let commandOutputHandler: CommandOutputHandler = () => {};
+	let promptResultHandler: PromptResultHandler = () => {};
 	// Mirror the real server: get_state reports isStreaming=true mid-run, and
 	// agent_start triggers refreshSessionState — a static mock would overwrite
 	// the event-set flag with stale state and test a race production never has.
@@ -93,6 +117,9 @@ function installMockOmp(): { omp: MockOmp; emitBatch: BatchHandler } {
 			getTranscript: vi.fn(async () => success({ messages: [] })),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
 			getGoal: vi.fn(async () => success({ enabled: false })),
+			getLoopMode: vi.fn(async () => success({ enabled: false, state: "off" })),
+			getVibeMode: vi.fn(async () => success({ enabled: false })),
+			getQueue: vi.fn(async () => success({ steering: [], followUp: [] })),
 			getSettings: vi.fn(async () => success({ values: {} })),
 			setSubagentSubscription: vi.fn(async () => success({})),
 		},
@@ -105,6 +132,16 @@ function installMockOmp(): { omp: MockOmp; emitBatch: BatchHandler } {
 			onSubagentFrame: vi.fn(() => () => {}),
 			onConfigUpdate: vi.fn(() => () => {}),
 			onExtensionUi: vi.fn(() => () => {}),
+			onPromptResult: vi.fn((callback: PromptResultHandler) => {
+				promptResultHandler = callback;
+				return () => {};
+			}),
+			onCommandOutput: vi.fn((callback: CommandOutputHandler) => {
+				commandOutputHandler = callback;
+				return () => {};
+			}),
+			onSessionInfoUpdate: vi.fn(() => () => {}),
+			onExtensionError: vi.fn(() => () => {}),
 		},
 		sidecar: { getStatus: vi.fn(async () => ({ status: "ready", cwd: "/tmp" })) },
 		// Boot pulls the pending "open in new window" session before hydrating;
@@ -121,7 +158,12 @@ function installMockOmp(): { omp: MockOmp; emitBatch: BatchHandler } {
 		}
 		batchHandler(events);
 	};
-	return { omp, emitBatch };
+	return {
+		omp,
+		emitBatch,
+		emitCommandOutput: frame => commandOutputHandler(frame),
+		emitPromptResult: frame => promptResultHandler(frame),
+	};
 }
 
 let container: TestElement;
@@ -325,6 +367,93 @@ describe("useRpcEvents awaiting-model marker", () => {
 		await mount(<RpcEventsProbe />);
 		expect(useSessionStore.getState().isStreaming).toBe(true);
 		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+	});
+});
+
+describe("useRpcEvents non-transcript frames", () => {
+	it("surfaces text-mode slash-command output as a local custom message", async () => {
+		const { emitCommandOutput } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+
+		await act(async () => {
+			emitCommandOutput({ type: "command_output", text: "Enabled models: gpt-5.6" });
+		});
+
+		expect(useMessagesStore.getState().messages).toContainEqual(
+			expect.objectContaining({
+				role: "custom",
+				customType: "command",
+				content: [{ type: "text", text: "Enabled models: gpt-5.6" }],
+			}),
+		);
+	});
+
+	it("rehydrates when a deferred prompt result reports a local-only extension command", async () => {
+		const { omp, emitPromptResult } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		const stateCallsBefore = omp.rpc.getState.mock.calls.length;
+		const transcriptCallsBefore = omp.rpc.getTranscript.mock.calls.length;
+
+		await act(async () => {
+			emitPromptResult({ type: "prompt_result", id: "extension-command", agentInvoked: false });
+			await Promise.resolve();
+		});
+		await flush();
+
+		expect(omp.rpc.getState.mock.calls.length).toBeGreaterThan(stateCallsBefore);
+		expect(omp.rpc.getTranscript.mock.calls.length).toBeGreaterThan(transcriptCallsBefore);
+	});
+});
+
+describe("useRpcEvents mode-state sync", () => {
+	it("hydrates loop and vibe mode into the session store", async () => {
+		const { omp } = installMockOmp();
+		// Loop/vibe aren't on the get_state wire — hydration must pull the
+		// dedicated RPCs so composer chips and footer badges are right at boot.
+		omp.rpc.getLoopMode.mockImplementation(async () =>
+			success({
+				enabled: true,
+				state: "running",
+				prompt: "keep going",
+				limit: { kind: "iterations", initial: 10, remaining: 7 },
+			}),
+		);
+		omp.rpc.getVibeMode.mockImplementation(async () => success({ enabled: true }));
+		await mount(<RpcEventsProbe />);
+
+		expect(useSessionStore.getState().loopMode).toEqual({
+			enabled: true,
+			state: "running",
+			prompt: "keep going",
+			limit: { kind: "iterations", initial: 10, remaining: 7 },
+		});
+		expect(useSessionStore.getState().vibeModeEnabled).toBe(true);
+	});
+
+	it("applies loop_mode_update frames to the session store, including disable", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		expect(useSessionStore.getState().loopMode).toEqual({ enabled: false, state: "off" });
+
+		await act(async () => {
+			emitBatch([
+				{
+					type: "loop_mode_update",
+					state: { enabled: true, state: "waiting", prompt: "poll the queue" },
+				},
+			]);
+		});
+		expect(useSessionStore.getState().loopMode).toEqual({
+			enabled: true,
+			state: "waiting",
+			prompt: "poll the queue",
+		});
+
+		// Auto-disable arrives as a frame too — the chip/badge must clear.
+		await act(async () => {
+			emitBatch([{ type: "loop_mode_update", state: { enabled: false, state: "off" } }]);
+		});
+		expect(useSessionStore.getState().loopMode).toEqual({ enabled: false, state: "off" });
 	});
 });
 

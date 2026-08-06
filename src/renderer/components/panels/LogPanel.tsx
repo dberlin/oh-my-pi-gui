@@ -74,7 +74,7 @@ export function LogPanel() {
 	useEffect(() => {
 		if (!pinned) return;
 		const el = scrollRef.current;
-		if (el) el.scrollTop = el.scrollHeight;
+		if (el) el.scrollTop = filtered.length === 0 ? 0 : el.scrollHeight;
 	}, [pinned, filtered]);
 
 	const onScroll = () => {

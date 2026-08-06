@@ -70,11 +70,15 @@ describe("LangSwitcher", () => {
 		const button = document.querySelector("button") as unknown as TestElement;
 		expect(button.textContent).toContain("EN");
 
-		button.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		await act(async () => {
+			button.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
 		await flush();
 		expect(button.textContent).toContain("中文");
 
-		button.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		await act(async () => {
+			button.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
 		await flush();
 		expect(button.textContent).toContain("EN");
 	});

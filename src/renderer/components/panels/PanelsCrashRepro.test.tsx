@@ -152,8 +152,8 @@ describe("panels under running state", () => {
 			description: "read-only research",
 			status: "started",
 			index: 0,
-			progress: { status: "working", description: "grepping" },
-		} as SubagentSnapshot;
+			lastUpdate: Date.now(),
+		};
 		useSubagentsStore.getState().setSnapshots([snapshot]);
 		await mount(<SubagentPanel />);
 		expect(document.body.textContent).toContain("scout");

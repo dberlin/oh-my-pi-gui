@@ -28,13 +28,13 @@ export interface ToolCardProps {
  */
 export function ToolCard({ toolCallId, toolName, args, summary }: ToolCardProps) {
 	const entry = useToolsStore(s => s.activeTools.get(toolCallId));
-	const [expanded, setExpanded] = useState(() => useUiStore.getState().toolsExpandAll.expanded);
+	const expandAll = useUiStore(s => s.toolsExpandAll);
+	const [expanded, setExpanded] = useState(expandAll.expanded);
 
-	// ⌃O expand/collapse-all: every card snaps to the store's target on each seq bump.
-	const expandAllSeq = useUiStore(s => s.toolsExpandAll.seq);
+	// ⌃O expand/collapse-all: every card snaps to the latest shared target.
 	useEffect(() => {
-		setExpanded(useUiStore.getState().toolsExpandAll.expanded);
-	}, [expandAllSeq]);
+		setExpanded(expandAll.expanded);
+	}, [expandAll]);
 
 	const entryStatus = entry?.status ?? "running";
 	// "pending" (args still streaming) is a live sub-state: spinner, not a check.

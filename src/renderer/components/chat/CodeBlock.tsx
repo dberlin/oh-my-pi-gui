@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { copyText, cx, escapeHtml, escapeRegExp } from "../../lib/format";
 import { getLoadedHljs, loadHljs } from "../../lib/highlight";
 import { useT } from "../../lib/i18n";
+import { LineNumberGutter } from "./LineNumberGutter";
 
 export interface CodeBlockProps {
 	/** Raw source code (highlighted client-side). */
@@ -150,14 +151,7 @@ export function CodeBlock({
 			<div className={cx("overflow-auto", maxHeightClass)}>
 				{showLineNumbers && lineCount > 0 ? (
 					<div className="flex">
-						<div
-							aria-hidden
-							className="sticky left-0 shrink-0 select-none border-r border-[var(--omp-border-muted)]/50 bg-[var(--omp-code-bg)] px-2.5 py-3 text-right font-mono text-[11px] leading-[1.5] text-[var(--omp-dim)]"
-						>
-							{Array.from({ length: lineCount }, (_, i) => (
-								<div key={i}>{i + 1}</div>
-							))}
-						</div>
+						<LineNumberGutter lineCount={lineCount} className="px-2.5 py-3 text-[12.5px] leading-[1.5]" />
 						<pre className="min-w-0 flex-1 overflow-x-auto px-3 py-3 font-mono text-[12.5px] leading-[1.5]">
 							{codeElement}
 						</pre>

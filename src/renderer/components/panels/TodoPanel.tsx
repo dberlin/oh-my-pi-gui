@@ -317,7 +317,7 @@ export function TodoPanel() {
 					<div className="min-w-0 flex-1 text-[11px] leading-snug text-(--omp-warning)">
 						<span className="font-semibold">{t("todoPanel.reminder")}</span>
 						<span className="text-(--omp-muted)">
-							{" — " + t("todoPanel.reminderCount", { count: reminderTodos.length })}
+							{` — ${t("todoPanel.reminderCount", { count: reminderTodos.length })}`}
 						</span>
 					</div>
 					<button

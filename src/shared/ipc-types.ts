@@ -6,7 +6,9 @@
 import type {
 	AgentSessionEvent,
 	AvailableCommand,
+	CommandOutputFrame,
 	ConfigUpdateFrame,
+	ExtensionErrorFrame,
 	ExtensionUIRequest,
 	ExtensionUIResponse,
 	HostToolCallRequest,
@@ -15,8 +17,13 @@ import type {
 	HostUriRequest,
 	HostUriResult,
 	ImageContent,
+	PromptResultFrame,
 	RpcCommand,
+	RpcDebugParams,
+	RpcLiveUpdateFrame,
+	RpcMcpServerInput,
 	RpcResponse,
+	SessionInfoUpdateFrame,
 	SubagentFrame,
 	ThinkingLevel,
 	TodoPhase,
@@ -43,6 +50,16 @@ export const IPC_EVENTS = {
 	COMMANDS_UPDATE: "commands:update",
 	/** Agent config changed (set_setting, slash-command config edits) */
 	CONFIG_UPDATE: "config:update",
+	/** Deferred result for locally handled extension slash commands */
+	PROMPT_RESULT: "prompt:result",
+	/** Text emitted by text-mode slash commands */
+	COMMAND_OUTPUT: "command:output",
+	/** Current session title/id changed */
+	SESSION_INFO_UPDATE: "session-info:update",
+	/** Extension runtime hook failed */
+	EXTENSION_ERROR: "extension:error",
+	/** Realtime voice session state/levels/transcript update. */
+	LIVE_UPDATE: "live:update",
 	/** Session list changed */
 	SESSIONS_CHANGED: "sessions:changed",
 	/** Log line appended */
@@ -121,6 +138,8 @@ export const IPC_COMMANDS = {
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
 	SESSION_CONSUME_PENDING: "session:consume-pending",
+	/** Round-trip a draft through the user's $VISUAL/$EDITOR (temp file, exit-0 read-back) */
+	EDITOR_OPEN_EXTERNAL: "editor:open-external",
 } as const;
 
 export type MenuAction =
@@ -382,20 +401,70 @@ export interface OmpApi {
 	rpc: {
 		command(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
 		getState(): Promise<RpcResponse>;
-		prompt(message: string, images?: ImageContent[]): Promise<RpcResponse>;
+		prompt(message: string, images?: ImageContent[], streamingBehavior?: "steer" | "followUp"): Promise<RpcResponse>;
 		steer(message: string, images?: ImageContent[]): Promise<RpcResponse>;
 		followUp(message: string, images?: ImageContent[]): Promise<RpcResponse>;
 		abort(): Promise<RpcResponse>;
 		abortAndPrompt(message: string): Promise<RpcResponse>;
 		newSession(parentSession?: string): Promise<RpcResponse>;
+		dropSession(): Promise<RpcResponse>;
 		switchSession(sessionPath: string): Promise<RpcResponse>;
 		branch(entryId: string): Promise<RpcResponse>;
 		fork(): Promise<RpcResponse>;
 		eval(code: string, language?: "python" | "js" | "ruby" | "julia", excluded?: boolean): Promise<RpcResponse>;
 		abortEval(): Promise<RpcResponse>;
 		dequeue(): Promise<RpcResponse>;
+		getQueue(): Promise<RpcResponse>;
+		queueRemove(queueId: string): Promise<RpcResponse>;
+		queueMove(queueId: string, toIndex: number): Promise<RpcResponse>;
+		queueClear(lane?: "steering" | "followUp"): Promise<RpcResponse>;
 		setModel(provider: string, modelId: string): Promise<RpcResponse>;
-		cycleModel(): Promise<RpcResponse>;
+		cycleModel(direction?: "forward" | "backward"): Promise<RpcResponse>;
+		retry(): Promise<RpcResponse>;
+		clearContext(): Promise<RpcResponse>;
+		abortSubagent(agentId: string): Promise<RpcResponse>;
+		reviveSubagent(agentId: string): Promise<RpcResponse>;
+		writeLocalPaste(content: string): Promise<RpcResponse>;
+		getActiveTools(): Promise<RpcResponse>;
+		setPrewalk(enabled: boolean): Promise<RpcResponse>;
+		fresh(): Promise<RpcResponse>;
+		shakeContext(mode: "elide" | "images"): Promise<RpcResponse>;
+		reloadPlugins(): Promise<RpcResponse>;
+		setForceTool(payload: { tool: string } | { clear: true }): Promise<RpcResponse>;
+		getForceTool(): Promise<RpcResponse>;
+		listForeignSessions(source: "claude" | "codex"): Promise<RpcResponse>;
+		importForeignSession(source: "claude" | "codex", foreignId: string): Promise<RpcResponse>;
+		forkFrom(entryId: string): Promise<RpcResponse>;
+		switchLeaf(entryId: string, options?: { summarize?: boolean; customInstructions?: string }): Promise<RpcResponse>;
+		resumeAfterAskReanswer(): Promise<RpcResponse>;
+		getCommandArgCompletions(command: string, prefix: string): Promise<RpcResponse>;
+		mcpAdd(name: string, config: RpcMcpServerInput, scope?: "user" | "project"): Promise<RpcResponse>;
+		mcpTest(probe: { name?: string; config?: RpcMcpServerInput }): Promise<RpcResponse>;
+		mcpReauth(name: string): Promise<RpcResponse>;
+		mcpReauthCancel(name: string): Promise<RpcResponse>;
+		marketplaceAction(payload: {
+			action: "add" | "remove" | "update" | "install" | "uninstall" | "upgrade" | "list_available";
+			marketplace?: string;
+			plugin?: string;
+			source?: string;
+		}): Promise<RpcResponse>;
+		getPluginDetail(pluginId: string): Promise<RpcResponse>;
+		setPluginFeatures(pluginId: string, features: string[]): Promise<RpcResponse>;
+		setPluginSetting(pluginId: string, key: string, value: unknown): Promise<RpcResponse>;
+		deletePluginSetting(pluginId: string, key: string): Promise<RpcResponse>;
+		getDirectories(): Promise<RpcResponse>;
+		addDirectory(path: string): Promise<RpcResponse>;
+		removeDirectory(path: string): Promise<RpcResponse>;
+		moveSession(path: string): Promise<RpcResponse>;
+		liveStart(voice?: string): Promise<RpcResponse>;
+		liveToggleMute(): Promise<RpcResponse>;
+		liveStop(): Promise<RpcResponse>;
+		getLiveState(): Promise<RpcResponse>;
+		debug(params: RpcDebugParams): Promise<RpcResponse>;
+		collabStart(relayUrl?: string, view?: boolean): Promise<RpcResponse>;
+		collabJoin(link: string): Promise<RpcResponse>;
+		collabLeave(): Promise<RpcResponse>;
+		getCollabState(): Promise<RpcResponse>;
 		getAvailableModels(): Promise<RpcResponse>;
 		setThinkingLevel(level: ThinkingLevel | "auto"): Promise<RpcResponse>;
 		cycleThinkingLevel(): Promise<RpcResponse>;
@@ -407,12 +476,13 @@ export interface OmpApi {
 		setAutoCompaction(enabled: boolean): Promise<RpcResponse>;
 		setAutoRetry(enabled: boolean): Promise<RpcResponse>;
 		abortRetry(): Promise<RpcResponse>;
-		bash(command: string): Promise<RpcResponse>;
+		bash(command: string, excluded?: boolean): Promise<RpcResponse>;
 		abortBash(): Promise<RpcResponse>;
 		getSessionStats(): Promise<RpcResponse>;
 		exportHtml(outputPath?: string): Promise<RpcResponse>;
 		getBranchMessages(): Promise<RpcResponse>;
 		getLastAssistantText(): Promise<RpcResponse>;
+		getCopyTargets(): Promise<RpcResponse>;
 		setSessionName(name: string): Promise<RpcResponse>;
 		setEntryLabel(entryId: string, label?: string): Promise<RpcResponse>;
 		handoff(customInstructions?: string): Promise<RpcResponse>;
@@ -433,12 +503,16 @@ export interface OmpApi {
 		getModelRoleMetadata(): Promise<RpcResponse>;
 		getAvailableCommands(): Promise<RpcResponse>;
 		getSkills(): Promise<RpcResponse>;
+		getAgentDefinitions(): Promise<RpcResponse>;
 		getHooks(): Promise<RpcResponse>;
 		getMcpServers(): Promise<RpcResponse>;
 		getPlugins(): Promise<RpcResponse>;
 		getMarketplaces(): Promise<RpcResponse>;
 		getPromptTemplates(): Promise<RpcResponse>;
 		getMemoryReport(): Promise<RpcResponse>;
+		getContextReport(): Promise<RpcResponse>;
+		shareSession(): Promise<RpcResponse>;
+		getJobs(): Promise<RpcResponse>;
 		getSessionTree(): Promise<RpcResponse>;
 		getThemes(): Promise<RpcResponse>;
 		getThemeColors(name: string): Promise<RpcResponse>;
@@ -451,11 +525,17 @@ export interface OmpApi {
 		getVibeMode(): Promise<RpcResponse>;
 		setVibeMode(enabled: boolean): Promise<RpcResponse>;
 		getGoal(): Promise<RpcResponse>;
+		guidedGoal(initial?: string): Promise<RpcResponse>;
+		setAgentsPaused(enabled: boolean): Promise<RpcResponse>;
 		setGoal(args: {
 			objective?: string;
 			tokenBudget?: number | null;
 			action?: "pause" | "resume" | "drop";
 		}): Promise<RpcResponse>;
+		btw(question: string): Promise<RpcResponse>;
+		btwBranch(): Promise<RpcResponse>;
+		tan(work: string): Promise<RpcResponse>;
+		omfg(complaint: string): Promise<RpcResponse>;
 		getLoopMode(): Promise<RpcResponse>;
 		setLoopMode(enabled: boolean, args?: string): Promise<RpcResponse>;
 		setSkillEnabled(name: string, enabled: boolean): Promise<RpcResponse>;
@@ -482,9 +562,14 @@ export interface OmpApi {
 		onExtensionUi(callback: (request: ExtensionUIRequest) => void): () => void;
 		onHostToolCall(callback: (request: HostToolCallRequest) => void): () => void;
 		onHostUriRequest(callback: (request: HostUriRequest) => void): () => void;
+		onLiveUpdate(callback: (frame: RpcLiveUpdateFrame) => void): () => void;
 		onSubagentFrame(callback: (frame: SubagentFrame) => void): () => void;
 		onCommandsUpdate(callback: (commands: AvailableCommand[]) => void): () => void;
 		onConfigUpdate(callback: (payload: ConfigUpdateFrame) => void): () => void;
+		onPromptResult(callback: (frame: PromptResultFrame) => void): () => void;
+		onCommandOutput(callback: (frame: CommandOutputFrame) => void): () => void;
+		onSessionInfoUpdate(callback: (frame: SessionInfoUpdateFrame) => void): () => void;
+		onExtensionError(callback: (frame: ExtensionErrorFrame) => void): () => void;
 		onSessionsChanged(callback: () => void): () => void;
 		onLogLines(callback: (lines: string[]) => void): () => void;
 		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
@@ -511,7 +596,10 @@ export interface OmpApi {
 	system: {
 		openExternal(url: string): Promise<void>;
 		showSaveDialog(defaultPath?: string): Promise<string | null>;
-		showOpenDialog(filters?: { name: string; extensions: string[] }[]): Promise<string[] | null>;
+		showOpenDialog(
+			filters?: { name: string; extensions: string[] }[],
+			options?: { directory?: boolean },
+		): Promise<string[] | null>;
 		clipboardRead(): Promise<string>;
 		notify(title: string, body?: string): void;
 	};
@@ -541,5 +629,13 @@ export interface OmpApi {
 		list(path?: string, maxDepth?: number, maxEntries?: number): Promise<IpcFsListResult>;
 		read(path: string, maxBytes?: number): Promise<IpcFsReadResult>;
 		readPlan(payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult>;
+	};
+	editor: {
+		openExternal(content: string): Promise<{
+			ok: boolean;
+			unavailable: boolean;
+			text: string | null;
+			error?: string;
+		}>;
 	};
 }

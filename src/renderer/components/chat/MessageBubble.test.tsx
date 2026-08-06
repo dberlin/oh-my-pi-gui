@@ -1,9 +1,23 @@
+import { parseHTML } from "linkedom";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useToolsStore } from "../../stores/tools";
+
 import { MessageBubble } from "./MessageBubble";
+
+const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+const globals = globalThis as Record<string, unknown>;
+globals.document = document;
+globals.window = window;
+globals.Event = Event;
+globals.HTMLElement = HTMLElement;
+globals.Element = Element;
+globals.Node = Node;
+globals.IS_REACT_ACT_ENVIRONMENT = true;
 
 const toolCallId = "call_read_package";
 const assistantMessage: AgentMessage = {
@@ -58,21 +72,102 @@ describe("MessageBubble tool messages", () => {
 			),
 		).toBe("");
 	});
+
+	it("keeps repeated provider call ids paired with their own historical results", async () => {
+		const firstCall: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "read:0", name: "read", arguments: { path: "first.txt" } }],
+			timestamp: "2026-08-02T12:00:02.000Z",
+		};
+		const firstResult: AgentMessage = {
+			role: "toolResult",
+			toolCallId: "read:0",
+			toolName: "read",
+			content: [{ type: "text", text: "FIRST_RESULT" }],
+			timestamp: "2026-08-02T12:00:03.000Z",
+		};
+		const secondCall: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "read:0", name: "read", arguments: { path: "second.txt" } }],
+			timestamp: "2026-08-02T12:00:04.000Z",
+		};
+		const secondResult: AgentMessage = {
+			role: "toolResult",
+			toolCallId: "read:0",
+			toolName: "read",
+			content: [{ type: "text", text: "SECOND_RESULT" }],
+			timestamp: "2026-08-02T12:00:05.000Z",
+		};
+		useToolsStore.getState().hydrateMessages([firstCall, firstResult, secondCall, secondResult]);
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		try {
+			await act(async () => {
+				root.render(
+					<I18nProvider>
+						<div id="first-call">
+							<MessageBubble message={firstCall} />
+						</div>
+						<div id="second-call">
+							<MessageBubble message={secondCall} />
+						</div>
+					</I18nProvider>,
+				);
+			});
+			const firstNode = container.querySelector("#first-call");
+			const secondNode = container.querySelector("#second-call");
+			const firstButton = firstNode?.querySelector("button");
+			const secondButton = secondNode?.querySelector("button");
+			if (!firstNode || !secondNode || !firstButton || !secondButton) throw new Error("tool cards did not render");
+			await act(async () => firstButton.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+			await act(async () => secondButton.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+			expect(firstNode.textContent).toContain("FIRST_RESULT");
+			expect(firstNode.textContent).not.toContain("SECOND_RESULT");
+			expect(secondNode.textContent).toContain("SECOND_RESULT");
+			expect(secondNode.textContent).not.toContain("FIRST_RESULT");
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+		}
+	});
+});
+
+describe("MessageBubble user content", () => {
+	it("renders user text through the same Markdown pipeline as assistant text", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "user",
+						content: [{ type: "text", text: "**bold** and `code`" }],
+						timestamp: "2026-08-06T00:00:00.000Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("<strong>bold</strong>");
+		expect(html).toContain("<code");
+	});
 });
 
 describe("MessageBubble noise filtering", () => {
 	const at = "2026-08-02T12:00:00.000Z";
 
-	it('renders nothing for punctuation-only text blocks (model filler like ".")', () => {
+	it('renders nothing for punctuation-only text or thinking blocks (model filler like ".")', () => {
 		for (const text of [".", "…", "---", " ", "***"]) {
-			const message: AgentMessage = { role: "assistant", content: [{ type: "text", text }], timestamp: at };
-			expect(
-				renderToStaticMarkup(
-					<I18nProvider>
-						<MessageBubble message={message} />
-					</I18nProvider>,
-				),
-			).toBe("");
+			for (const message of [
+				{ role: "assistant" as const, content: [{ type: "text" as const, text }], timestamp: at },
+				{ role: "assistant" as const, content: [{ type: "thinking" as const, thinking: text }], timestamp: at },
+			]) {
+				expect(
+					renderToStaticMarkup(
+						<I18nProvider>
+							<MessageBubble message={message} />
+						</I18nProvider>,
+					),
+				).toBe("");
+			}
 		}
 	});
 
@@ -119,6 +214,30 @@ describe("MessageBubble noise filtering", () => {
 		expect(html).toContain("Fixed.");
 		expect(html).toContain("Copy message text");
 		expect(html).toContain("py-3");
+	});
+
+	it("offers branch-from-here only on user entries accepted by the branch RPC", () => {
+		const user: AgentMessage = {
+			role: "user",
+			id: "user-entry",
+			content: [{ type: "text", text: "branch point" }],
+			timestamp: at,
+		};
+		const assistant: AgentMessage = {
+			role: "assistant",
+			id: "assistant-entry",
+			content: [{ type: "text", text: "answer" }],
+			timestamp: at,
+		};
+		const render = (message: AgentMessage) =>
+			renderToStaticMarkup(
+				<I18nProvider>
+					<MessageBubble message={message} />
+				</I18nProvider>,
+			);
+
+		expect(render(user)).toContain("Branch conversation from here");
+		expect(render(assistant)).not.toContain("Branch conversation from here");
 	});
 
 	it("uses compact chrome for expanded process details containing reasoning and tools", () => {

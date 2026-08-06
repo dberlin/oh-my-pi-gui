@@ -4,6 +4,8 @@ import { shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
+import { Badge, type BadgeVariant } from "../common";
+import { loopLimitText, parseLoopLimit } from "../panels/ModesPanel";
 
 /**
  * GUI status footer — the analog of the TUI status line, honoring
@@ -14,6 +16,12 @@ import { useSessionStore } from "../../stores/session";
  *   path (cwd)                useSessionStore.cwd
  *   context_pct               useSessionStore.contextUsage
  *   session_name              useSessionStore.sessionName
+ *
+ * Mode badges (计划/目标/循环/vibe/暂停) sit beside the segments whenever the
+ * matching session-store mode is active — they are mode-state indicators, not
+ * statusLine segments, so presets don't govern them (minimal still hides them
+ * with the other optional segments). Tooltips carry detail: goal objective,
+ * loop limit/args.
  *
  * TUI segments deliberately NOT rendered (no live GUI data source, and
  * faking them would lie): pi, mode, collab, git, pr, subagents, hostname,
@@ -55,6 +63,12 @@ export function StatusFooter() {
 	const sessionName = useSessionStore(s => s.sessionName);
 	const cwd = useSessionStore(s => s.cwd);
 	const contextUsage = useSessionStore(s => s.contextUsage);
+	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
+	const goalActive = useSessionStore(s => s.goalState?.status === "active" || !!s.goal);
+	const goalObjective = useSessionStore(s => s.goal?.objective ?? null);
+	const loopMode = useSessionStore(s => s.loopMode);
+	const vibeModeEnabled = useSessionStore(s => s.vibeModeEnabled);
+	const agentsPaused = useSessionStore(s => s.agentsPaused);
 	const [preset, setPreset] = useState<StatusLinePreset>("default");
 
 	// Read the preset at mount, then re-read on every config_update push
@@ -93,6 +107,56 @@ export function StatusFooter() {
 					: ""
 			: "";
 
+	// Active session modes as small badges beside the model segment. Loop's
+	// tooltip reuses the Modes window's limit/args formatting; paused is the
+	// `set_agents_paused` gate (command palette "Pause All Agents").
+	const loopActive = loopMode?.enabled === true;
+	const loopLimit = loopMode ? parseLoopLimit(loopMode.limit) : null;
+	const loopArgs = loopLimit ? loopLimitText(t, loopLimit) : t("modesPanel.loop.noLimit");
+	const modeBadges: { key: string; label: string; tooltip: string; variant: BadgeVariant }[] = [];
+	if (planModeEnabled) {
+		modeBadges.push({
+			key: "plan",
+			label: t("statusFooter.mode.plan"),
+			tooltip: t("statusFooter.mode.planTooltip"),
+			variant: "info",
+		});
+	}
+	if (goalActive) {
+		modeBadges.push({
+			key: "goal",
+			label: t("statusFooter.mode.goal"),
+			tooltip: goalObjective
+				? t("statusFooter.mode.goalTooltipObjective", { objective: goalObjective })
+				: t("statusFooter.mode.goalTooltip"),
+			variant: "success",
+		});
+	}
+	if (loopActive) {
+		modeBadges.push({
+			key: "loop",
+			label: t("statusFooter.mode.loop"),
+			tooltip: t("statusFooter.mode.loopTooltip", { args: loopArgs }),
+			variant: "info",
+		});
+	}
+	if (vibeModeEnabled) {
+		modeBadges.push({
+			key: "vibe",
+			label: t("statusFooter.mode.vibe"),
+			tooltip: t("statusFooter.mode.vibeTooltip"),
+			variant: "default",
+		});
+	}
+	if (agentsPaused) {
+		modeBadges.push({
+			key: "paused",
+			label: t("statusFooter.mode.paused"),
+			tooltip: t("statusFooter.mode.pausedTooltip"),
+			variant: "warning",
+		});
+	}
+
 	return (
 		<footer className="flex h-7 shrink-0 items-center overflow-hidden border-t border-[var(--omp-border-muted)] px-3 whitespace-nowrap text-[11px] text-[var(--omp-muted)]">
 			<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
@@ -114,6 +178,19 @@ export function StatusFooter() {
 						</span>
 					)}
 				</span>
+
+				{!minimal && modeBadges.length > 0 && (
+					<>
+						<Sep />
+						<span className="flex shrink-0 items-center gap-1">
+							{modeBadges.map(badge => (
+								<span key={badge.key} title={badge.tooltip} className="flex shrink-0 cursor-default">
+									<Badge variant={badge.variant}>{badge.label}</Badge>
+								</span>
+							))}
+						</span>
+					</>
+				)}
 
 				{!minimal && cwd && (
 					<>

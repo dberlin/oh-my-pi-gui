@@ -59,6 +59,16 @@ const TRANSLATED_NAMESPACES = [
 	"providers.",
 	"modelValue.",
 	"tree.",
+	// Parity-closeout waves (B1/A1/B2) and C1/B3 slices.
+	"hotkeys.",
+	"import.",
+	"editor.",
+	"readGroup.",
+	"mcp.",
+	"marketplace.",
+	"pluginDetail.",
+	"settings.launch.",
+	"codeblock.",
 ];
 
 /** Proper nouns, acronyms, and symbols legitimately identical across locales. */

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ContextUsage, RpcSessionState, SidecarStatus } from "../../shared/rpc-types";
+import type { ContextUsage, RpcLoopModeState, RpcSessionState, SidecarStatus } from "../../shared/rpc-types";
 
 interface SessionStore {
 	sessionId: string;
@@ -24,8 +24,18 @@ interface SessionStore {
 	messageCount: number;
 	queuedMessageCount: number;
 	planModeEnabled: boolean;
+	/** Whether a prewalk model switch is armed and waiting for the first edit/write. */
+	prewalkArmed: boolean;
+	agentsPaused: boolean;
+	agentsPausedAt: number | null;
 	goal: { objective?: string } | null;
 	goalState: { status?: string } | null;
+	/** Live loop-mode state: loop_mode_update frames, hydrated via get_loop_mode
+	 * (not on the get_state wire). null = not yet fetched; chips treat as off. */
+	loopMode: RpcLoopModeState | null;
+	/** Vibe mode emits no event — hydrated via get_vibe_mode and mirrored when
+	 * the Modes window toggles it. */
+	vibeModeEnabled: boolean;
 	setFromState: (state: RpcSessionState) => void;
 	setStatus: (status: SidecarStatus, cwd: string) => void;
 	reset: () => void;
@@ -46,8 +56,13 @@ const initialState = {
 	messageCount: 0,
 	queuedMessageCount: 0,
 	planModeEnabled: false,
+	prewalkArmed: false,
+	agentsPaused: false,
+	agentsPausedAt: null,
 	goal: null,
 	goalState: null,
+	loopMode: null,
+	vibeModeEnabled: false,
 };
 
 export const useSessionStore = create<SessionStore>()(set => ({
@@ -55,7 +70,10 @@ export const useSessionStore = create<SessionStore>()(set => ({
 	setFromState: state =>
 		set({
 			sessionId: state.sessionId,
-			sessionName: state.sessionName,
+			// Sessions whose auto-title never ran carry an empty title slot on
+			// disk; normalize "" to null so the TitleBar falls through to the
+			// session-list title/first message instead of rendering blank.
+			sessionName: state.sessionName || null,
 			sessionFile: state.sessionFile,
 			cwd: state.cwd,
 			isStreaming: state.isStreaming,
@@ -64,6 +82,9 @@ export const useSessionStore = create<SessionStore>()(set => ({
 			messageCount: state.messageCount,
 			queuedMessageCount: state.queuedMessageCount,
 			planModeEnabled: state.planModeEnabled ?? false,
+			prewalkArmed: state.prewalkArmed ?? false,
+			agentsPaused: state.agentsPaused ?? false,
+			agentsPausedAt: state.agentsPausedAt ?? null,
 		}),
 	setStatus: (status, cwd) => set({ status, cwd }),
 	reset: () => set(initialState),

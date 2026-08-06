@@ -8,8 +8,11 @@
  *
  * Rows are interactive where a mutation RPC exists: skills/hooks toggle via
  * set_skill_enabled / set_hook_enabled and MCP servers carry an action menu
- * (enable / disable / reconnect / remove via mcp_action). The commands tab is
- * read-only — the sidecar exposes no slash-command management RPC. Toggles
+ * (enable / disable / reconnect / remove via mcp_action, plus test connection
+ * via mcp_test and re-authorize via mcp_reauth / mcp_reauth_cancel). New MCP
+ * servers are added through the wizard dialog (mcp_add) from the tab toolbar.
+ * The commands tab is read-only — the sidecar exposes no slash-command
+ * management RPC. Toggles
  * are optimistic — the row reverts and an error toast fires on failure, and
  * a successful mutation re-fetches the tab. Hook toggles persist but only
  * bind at startup, so the footer flags them as next-session.
@@ -19,7 +22,7 @@
  *   <ExtensionsPanel open={extensionsOpen} onClose={closeExtensions} />
  */
 
-import { Lock, MoreVertical, Power, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Search } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	AvailableCommand,
@@ -36,6 +39,9 @@ import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { Badge, type BadgeVariant, Button, Modal, Spinner, type TabItem, Tabs } from "../common";
+import { type McpTestView, summarizeMcpTestData } from "./mcp/McpFeedback";
+import { type McpCardAction, type McpReauthPhase, McpServerCard } from "./mcp/McpServerCard";
+import { McpServerWizard } from "./mcp/McpServerWizard";
 
 export interface ExtensionsPanelProps {
 	open: boolean;
@@ -177,26 +183,7 @@ export function groupCommandsBySource(commands: AvailableCommand[]): Array<[stri
 	return [...bySource.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-/** MCP connection status → badge color (connected / connecting pulse / dim). */
-export const MCP_STATUS_VARIANT: Record<RpcMcpServerInfo["status"], BadgeVariant> = {
-	connected: "success",
-	connecting: "info",
-	disconnected: "muted",
-};
-
-/** MCP enabled-state display; mutations go through the row's action menu. */
-function EnabledBadge({ enabled }: { enabled: boolean }) {
-	const t = useT();
-	return enabled ? (
-		<Badge dot variant="success">
-			{t("extPanel.enabled")}
-		</Badge>
-	) : (
-		<Badge dot variant="muted">
-			{t("extPanel.disabled")}
-		</Badge>
-	);
-}
+/** MCP status/auth badge variant maps live beside the card in mcp/McpServerCard. */
 
 /** Row-sized enable/disable switch (Settings-window styling); spinner while its mutation is in flight. */
 function EnableToggle({
@@ -316,6 +303,8 @@ interface TabFrameProps {
 	onQueryChange: (query: string) => void;
 	total: number;
 	visible: number;
+	/** Extra toolbar buttons between the count and Refresh (e.g. MCP add-server). */
+	actions?: ReactNode;
 	children: ReactNode;
 }
 
@@ -329,6 +318,7 @@ function TabFrame({
 	onQueryChange,
 	total,
 	visible,
+	actions,
 	children,
 }: TabFrameProps) {
 	const t = useT();
@@ -385,6 +375,7 @@ function TabFrame({
 					/>
 				</div>
 				{countText && <span className="shrink-0 text-[11px] tabular-nums text-(--omp-dim)">{countText}</span>}
+				{actions}
 				<Button icon={<RefreshCw size={12} />} loading={loading} onClick={onRefresh} size="sm" variant="ghost">
 					{t("extPanel.refresh")}
 				</Button>
@@ -594,145 +585,12 @@ function HooksTab({
 // MCP tab
 // ---------------------------------------------------------------------------
 
-type McpActionName = "enable" | "disable" | "reconnect" | "remove";
-
-const MCP_MENU_ITEM_CLASS =
-	"flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-(--omp-text) transition-colors hover:bg-(--omp-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-50";
-
-function McpRow({
-	server,
-	enabled,
-	busy,
-	disabled,
-	menuOpen,
-	onMenuToggle,
-	onMenuClose,
-	onMenuAction,
-	confirmingRemove,
-	onConfirmRemove,
-	onCancelRemove,
-}: {
-	server: RpcMcpServerInfo;
-	/** Enable state with the optimistic overlay applied. */
-	enabled: boolean;
-	busy: boolean;
-	/** Another row's mutation is in flight (one at a time). */
-	disabled: boolean;
-	menuOpen: boolean;
-	onMenuToggle: () => void;
-	/** Stable closer for the outside-click / Escape effect. */
-	onMenuClose: () => void;
-	onMenuAction: (action: McpActionName) => void;
-	confirmingRemove: boolean;
-	onConfirmRemove: () => void;
-	onCancelRemove: () => void;
-}) {
-	const t = useT();
-	const menuRef = useRef<HTMLDivElement>(null);
-
-	// Close the action menu on outside pointer-down or Escape.
-	useEffect(() => {
-		if (!menuOpen) return;
-		const onPointerDown = (event: PointerEvent): void => {
-			if (menuRef.current && !menuRef.current.contains(event.target as Node)) onMenuClose();
-		};
-		const onKeyDown = (event: KeyboardEvent): void => {
-			if (event.key === "Escape") onMenuClose();
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [menuOpen, onMenuClose]);
-
-	return (
-		<div className="flex flex-col rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2.5">
-			<div className="flex items-center gap-3">
-				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-					<span className="font-mono text-[12px] font-medium text-(--omp-text)">{server.name}</span>
-					<Badge variant="default">{server.transport}</Badge>
-					<EnabledBadge enabled={enabled} />
-					{server.authed && (
-						<span className="inline-flex shrink-0 text-(--omp-dim)" title={t("extPanel.authed")}>
-							<Lock aria-hidden="true" size={11} />
-						</span>
-					)}
-				</div>
-				<span className="shrink-0 text-[11px] tabular-nums text-(--omp-dim)">
-					{t("extPanel.tools", { count: server.toolCount })}
-				</span>
-				<Badge dot pulse={server.status === "connecting"} variant={MCP_STATUS_VARIANT[server.status]}>
-					{t(`extPanel.status.${server.status}`)}
-				</Badge>
-				<div className="relative flex shrink-0 items-center" ref={menuRef}>
-					<button
-						aria-expanded={menuOpen}
-						aria-haspopup="menu"
-						aria-label={t("extPanel.mcp.menu")}
-						className="flex h-6 w-6 items-center justify-center rounded-md text-(--omp-muted) transition-colors hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text) disabled:cursor-not-allowed disabled:opacity-50"
-						disabled={disabled}
-						onClick={onMenuToggle}
-						title={t("extPanel.mcp.menu")}
-						type="button"
-					>
-						{busy ? <Spinner size="sm" /> : <MoreVertical size={14} />}
-					</button>
-					{menuOpen && !busy && (
-						<div
-							className="absolute right-0 top-full z-20 mt-1 flex w-36 flex-col rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) py-1 shadow-lg"
-							role="menu"
-						>
-							<button
-								className={MCP_MENU_ITEM_CLASS}
-								onClick={() => onMenuAction(enabled ? "disable" : "enable")}
-								role="menuitem"
-								type="button"
-							>
-								<Power size={11} />
-								{enabled ? t("extPanel.action.disable") : t("extPanel.action.enable")}
-							</button>
-							<button
-								className={MCP_MENU_ITEM_CLASS}
-								disabled={!enabled || server.status === "connecting"}
-								onClick={() => onMenuAction("reconnect")}
-								role="menuitem"
-								type="button"
-							>
-								<RefreshCw size={11} />
-								{t("extPanel.action.reconnect")}
-							</button>
-							<button
-								className={cx(MCP_MENU_ITEM_CLASS, "text-(--omp-error)")}
-								onClick={() => onMenuAction("remove")}
-								role="menuitem"
-								type="button"
-							>
-								<Trash2 size={11} />
-								{t("extPanel.action.remove")}
-							</button>
-						</div>
-					)}
-				</div>
-			</div>
-			{confirmingRemove && (
-				<div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-(--omp-tool-error-bg) px-2.5 py-1.5">
-					<span className="min-w-0 flex-1 text-[11px] text-(--omp-error)">
-						{t("extPanel.mcp.removeConfirm", { name: server.name })}
-					</span>
-					<Button disabled={busy} onClick={onConfirmRemove} size="sm" variant="danger">
-						{t("extPanel.action.remove")}
-					</Button>
-					<Button disabled={busy} onClick={onCancelRemove} size="sm" variant="ghost">
-						{t("common.cancel")}
-					</Button>
-				</div>
-			)}
-		</div>
-	);
-}
-
+/**
+ * MCP tab: server cards (mcp/McpServerCard) + the add-server wizard. Test and
+ * re-auth state is tracked per server name in local maps — never derived from
+ * the server list, and a successful mutation re-fetches the tab (no
+ * optimistic auth/tool-count derivation).
+ */
 function McpTab({
 	rpc,
 	query,
@@ -746,17 +604,147 @@ function McpTab({
 	const mutation = useRowMutation(rpc.refresh);
 	const [menuFor, setMenuFor] = useState<string | null>(null);
 	const [confirmRemoveFor, setConfirmRemoveFor] = useState<string | null>(null);
+	const [wizardOpen, setWizardOpen] = useState(false);
+	const [tests, setTests] = useState<Readonly<Record<string, { testing: boolean; view: McpTestView | null }>>>({});
+	const [reauths, setReauths] = useState<Readonly<Record<string, McpReauthPhase>>>({});
+	// Mirrors `reauths` so the async reauth body can tell an intentional cancel
+	// (suppress its failure toast) from a genuine one after the await.
+	const reauthPhaseRef = useRef<Record<string, McpReauthPhase>>({});
+	// Prune stale per-server test/reauth entries whenever the server set
+	// changes: a removed server's result must not leak onto a same-name
+	// re-add after the next refetch (state is keyed by name, not identity).
+	useEffect(() => {
+		const names = new Set((rpc.data ?? []).map(s => s.name));
+		let phaseDirty = false;
+		for (const n of Object.keys(reauthPhaseRef.current)) {
+			if (!names.has(n)) {
+				delete reauthPhaseRef.current[n];
+				phaseDirty = true;
+			}
+		}
+		if (phaseDirty) setReauths({ ...reauthPhaseRef.current });
+		setTests(prev => {
+			const stale = Object.keys(prev).filter(n => !names.has(n));
+			if (stale.length === 0) return prev;
+			const rest = { ...prev };
+			for (const n of stale) delete rest[n];
+			return rest;
+		});
+	}, [rpc.data]);
 	const closeMenu = useCallback(() => setMenuFor(null), []);
 	const visible = useMemo(
-		() => filterList(rpc.data, query, server => [server.name, server.transport, server.status]),
+		() =>
+			filterList(rpc.data, query, server => [
+				server.name,
+				server.transport,
+				server.status,
+				server.scope ?? "",
+				server.command ?? "",
+				server.url ?? "",
+			]),
 		[rpc.data, query],
 	);
 
-	const handleMenuAction = (server: RpcMcpServerInfo, action: McpActionName): void => {
+	const setReauthPhase = (name: string, phase: McpReauthPhase | null): void => {
+		if (phase === null) {
+			const rest = { ...reauthPhaseRef.current };
+			delete rest[name];
+			reauthPhaseRef.current = rest;
+			setReauths(rest);
+		} else {
+			reauthPhaseRef.current = { ...reauthPhaseRef.current, [name]: phase };
+			setReauths(reauthPhaseRef.current);
+		}
+	};
+
+	const runTest = async (server: RpcMcpServerInfo): Promise<void> => {
+		setTests(prev => ({ ...prev, [server.name]: { testing: true, view: null } }));
+		let view: McpTestView;
+		try {
+			const res = await window.omp.rpc.mcpTest({ name: server.name });
+			view = res.success ? summarizeMcpTestData(res.data) : { kind: "error", error: res.error };
+		} catch (cause) {
+			view = { kind: "error", error: cause instanceof Error ? cause.message : String(cause) };
+		}
+		setTests(prev => ({ ...prev, [server.name]: { testing: false, view } }));
+	};
+
+	const runReauth = async (server: RpcMcpServerInfo): Promise<void> => {
+		setReauthPhase(server.name, "running");
+		try {
+			// Long-timeout call; the extension_ui open_url/input dialogs render the
+			// OAuth flow while this is in flight.
+			const res = await window.omp.rpc.mcpReauth(server.name);
+			const cancelling = reauthPhaseRef.current[server.name] === "cancelling";
+			if (!res.success) {
+				if (cancelling) return;
+				if (res.code === "oauth_busy") {
+					toast({ variant: "info", message: t("mcp.reauth.busy") });
+				} else {
+					toast({ variant: "error", title: t("mcp.reauth.failed"), message: res.error });
+				}
+				return;
+			}
+			const data = res.data as { ok?: boolean; error?: string } | undefined;
+			if (data?.ok === false) {
+				if (!cancelling) {
+					toast({ variant: "error", title: t("mcp.reauth.failed"), message: data.error ?? "" });
+				}
+				return;
+			}
+			if (!cancelling) toast({ variant: "success", message: t("mcp.reauth.ok", { name: server.name }) });
+			// Reload can change authState/toolCount — refetch rather than derive.
+			await rpc.refresh();
+		} catch (cause) {
+			if (reauthPhaseRef.current[server.name] !== "cancelling") {
+				toast({ variant: "error", title: t("mcp.reauth.failed"), message: String(cause) });
+			}
+		} finally {
+			setReauthPhase(server.name, null);
+		}
+	};
+
+	const runReauthCancel = async (server: RpcMcpServerInfo): Promise<void> => {
+		setReauthPhase(server.name, "cancelling");
+		const restore = (): void => {
+			// Cancel failed: the flow is presumably still alive — re-arm the button.
+			if (reauthPhaseRef.current[server.name] === "cancelling") setReauthPhase(server.name, "running");
+		};
+		try {
+			const res = await window.omp.rpc.mcpReauthCancel(server.name);
+			// On success the pending mcpReauth settles and runReauth clears the phase.
+			if (!res.success) {
+				toast({ variant: "error", title: t("mcp.reauth.cancelFailed"), message: res.error });
+				restore();
+			}
+		} catch (cause) {
+			toast({ variant: "error", title: t("mcp.reauth.cancelFailed"), message: String(cause) });
+			restore();
+		}
+	};
+
+	const dismissTest = (name: string): void => {
+		setTests(prev => {
+			if (!(name in prev)) return prev;
+			const rest = { ...prev };
+			delete rest[name];
+			return rest;
+		});
+	};
+
+	const handleMenuAction = (server: RpcMcpServerInfo, action: McpCardAction): void => {
 		setMenuFor(null);
 		if (action === "remove") {
-			// Destructive: confirm inline inside the row before dispatching.
+			// Destructive: confirm inline inside the card before dispatching.
 			setConfirmRemoveFor(server.name);
+			return;
+		}
+		if (action === "test") {
+			void runTest(server);
+			return;
+		}
+		if (action === "reauth") {
+			void runReauth(server);
 			return;
 		}
 		const next = action === "reconnect" ? null : action === "enable";
@@ -770,45 +758,74 @@ function McpTab({
 
 	const handleConfirmRemove = (server: RpcMcpServerInfo): void => {
 		setConfirmRemoveFor(null);
+		// Drop any inline test/reauth state so nothing survives onto a re-add.
+		setTests(prev => {
+			if (!(server.name in prev)) return prev;
+			const rest = { ...prev };
+			delete rest[server.name];
+			return rest;
+		});
+		delete reauthPhaseRef.current[server.name];
 		void mutation.run(
 			server.name,
 			null,
-			() => window.omp.rpc.mcpAction(server.name, "remove"),
+			() => window.omp.rpc.mcpAction(server.name, "remove", server.scope),
 			t("extPanel.mcpActionFailed"),
 		);
 	};
 
 	return (
-		<TabFrame
-			error={rpc.error}
-			loaded={rpc.data !== null}
-			loading={rpc.loading}
-			onQueryChange={onQueryChange}
-			onRefresh={rpc.refresh}
-			query={query}
-			tabId="mcp"
-			total={rpc.data?.length ?? 0}
-			visible={visible.length}
-		>
-			<div className="flex flex-col gap-2">
-				{visible.map(server => (
-					<McpRow
-						busy={mutation.busyKey === server.name}
-						confirmingRemove={confirmRemoveFor === server.name}
-						disabled={mutation.busyKey !== null}
-						enabled={mutation.effective(server.name, server.enabled)}
-						key={server.name}
-						menuOpen={menuFor === server.name}
-						onCancelRemove={() => setConfirmRemoveFor(null)}
-						onConfirmRemove={() => handleConfirmRemove(server)}
-						onMenuAction={action => handleMenuAction(server, action)}
-						onMenuClose={closeMenu}
-						onMenuToggle={() => setMenuFor(prev => (prev === server.name ? null : server.name))}
-						server={server}
-					/>
-				))}
-			</div>
-		</TabFrame>
+		<>
+			<TabFrame
+				actions={
+					<Button icon={<Plus size={12} />} onClick={() => setWizardOpen(true)} size="sm" variant="secondary">
+						{t("mcp.add")}
+					</Button>
+				}
+				error={rpc.error}
+				loaded={rpc.data !== null}
+				loading={rpc.loading}
+				onQueryChange={onQueryChange}
+				onRefresh={rpc.refresh}
+				query={query}
+				tabId="mcp"
+				total={rpc.data?.length ?? 0}
+				visible={visible.length}
+			>
+				<div className="flex flex-col gap-2">
+					{visible.map(server => (
+						<McpServerCard
+							busy={mutation.busyKey === server.name}
+							confirmingRemove={confirmRemoveFor === server.name}
+							disabled={mutation.busyKey !== null}
+							enabled={mutation.effective(server.name, server.enabled)}
+							key={server.name}
+							menuOpen={menuFor === server.name}
+							onCancelRemove={() => setConfirmRemoveFor(null)}
+							onConfirmRemove={() => handleConfirmRemove(server)}
+							onDismissTest={() => dismissTest(server.name)}
+							onMenuAction={action => handleMenuAction(server, action)}
+							onMenuClose={closeMenu}
+							onMenuToggle={() => setMenuFor(prev => (prev === server.name ? null : server.name))}
+							onReauthCancel={() => void runReauthCancel(server)}
+							reauth={reauths[server.name] ?? null}
+							server={server}
+							testing={tests[server.name]?.testing ?? false}
+							testView={tests[server.name]?.view ?? null}
+						/>
+					))}
+				</div>
+			</TabFrame>
+			<McpServerWizard
+				onAdded={() => {
+					setWizardOpen(false);
+					// Add triggers a reload — tool counts/auth come back with the refetch.
+					void rpc.refresh();
+				}}
+				onClose={() => setWizardOpen(false)}
+				open={wizardOpen}
+			/>
+		</>
 	);
 }
 

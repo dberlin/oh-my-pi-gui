@@ -129,6 +129,17 @@ function useResolvedTheme(): ResolvedTheme {
 	return theme;
 }
 
+interface MermaidImageProps {
+	svg: string;
+	alt: string;
+}
+
+function MermaidImage({ svg, alt }: MermaidImageProps) {
+	const [url] = useState(() => URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })));
+	useEffect(() => () => URL.revokeObjectURL(url), [url]);
+	return <img src={url} alt={alt} className="mx-auto block h-auto max-w-full" />;
+}
+
 export interface MermaidBlockProps {
 	/** Mermaid diagram source. */
 	code: string;
@@ -196,11 +207,11 @@ export const MermaidBlock = memo(function MermaidBlock({ code, className }: Merm
 	return (
 		<div
 			className={cx(
-				"my-1 overflow-x-auto rounded-lg border border-[var(--omp-border)] bg-[var(--omp-code-bg)] p-3 [&>svg]:mx-auto",
+				"my-1 overflow-x-auto rounded-lg border border-[var(--omp-border)] bg-[var(--omp-code-bg)] p-3",
 				className,
 			)}
-			// Sanitized by mermaid strict mode + sanitizeSvg above.
-			dangerouslySetInnerHTML={{ __html: current.svg }}
-		/>
+		>
+			<MermaidImage key={cacheKey} svg={current.svg} alt={t("chat.diagram")} />
+		</div>
 	);
 });

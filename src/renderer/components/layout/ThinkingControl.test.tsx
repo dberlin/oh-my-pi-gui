@@ -29,6 +29,18 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
+elementPrototype.getBoundingClientRect = () => ({
+	bottom: 0,
+	height: 0,
+	left: 0,
+	right: 0,
+	top: 0,
+	width: 0,
+	x: 0,
+	y: 0,
+	toJSON: () => ({}),
+});
+Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
 
 interface TestElement {
 	textContent: string | null;

@@ -56,7 +56,9 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 	}, [editingName]);
 
 	const current = sessions.find(s => s.id === sessionId);
-	const displayName = sessionName ?? current?.title ?? t("sidebar.newSession");
+	// `||` everywhere: empty-string titles (never-generated auto-title slot)
+	// fall through like null, ending at the "New Session" placeholder.
+	const displayName = sessionName || current?.title || t("sidebar.newSession");
 
 	const commitName = () => {
 		const name = draft.trim();
