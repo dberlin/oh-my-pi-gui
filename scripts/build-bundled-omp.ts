@@ -23,10 +23,11 @@
  *      packages/natives/native/ — downloads the published leaf package
  *      (@oh-my-pi/pi-natives-<tag>@<version>) on a cache miss, and replaces
  *      stale addons whose version sentinel doesn't match the package version.
- *   3. Re-embeds the addon (natives gen:native) for the target arch.
+ *   3. Generates the stats dashboard archive, collab tool views, native addon,
+ *      and MuPDF WASM assets required by a self-contained compiled binary.
  *   4. Compiles the coding-agent entrypoint into a single executable.
- *   5. Restores embedded-addon.js to the stub and undoes addon staging, so the
- *      monorepo tree is exactly as it was before the build.
+ *   5. Restores temporary generated assets and addon staging, so the monorepo
+ *      tree is left in its normal development state.
  *
  * Usage (from packages/gui):
  *   bun run build:omp                                       # host arch → resources/omp
@@ -43,9 +44,12 @@ import * as path from "node:path";
 
 const guiRoot = path.join(import.meta.dir, "..");
 const repoRoot = path.join(guiRoot, "..", "..");
+const codingAgentDir = path.join(repoRoot, "packages", "coding-agent");
+const statsDir = path.join(repoRoot, "packages", "stats");
+const collabWebDir = path.join(repoRoot, "packages", "collab-web");
 const nativesDir = path.join(repoRoot, "packages", "natives");
 const nativesNativeDir = path.join(nativesDir, "native");
-const compileBinaryModulePath = path.join(repoRoot, "packages", "coding-agent", "scripts", "compile-binary.ts");
+const compileBinaryModulePath = path.join(codingAgentDir, "scripts", "compile-binary.ts");
 
 // ---------------------------------------------------------------------------
 // Prerequisite — actionable failure, not a module-resolution stack trace
@@ -233,27 +237,35 @@ async function restoreStagedAddons(): Promise<void> {
 // Embed → compile → restore stub
 // ---------------------------------------------------------------------------
 
+async function runPackageScript(cwd: string, script: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+	const proc = Bun.spawn([process.execPath, "run", script], {
+		cwd,
+		env,
+		stdout: "inherit",
+		stderr: "inherit",
+	});
+	const exitCode = await proc.exited;
+	if (exitCode !== 0) throw new Error(`${script} failed with exit code ${exitCode}`);
+}
+
 async function embedNativeForTarget(target: SidecarTarget): Promise<void> {
 	const env =
 		target.platformTag === `${process.platform}-${process.arch}`
-			? undefined
-			: { TARGET_PLATFORM: target.platformTag.split("-")[0]!, TARGET_ARCH: target.platformTag.split("-")[1]! };
-	const proc = Bun.spawn([process.execPath, "run", "gen:native"], {
-		cwd: nativesDir,
-		stdout: "inherit",
-		stderr: "inherit",
-		...(env ? { env: { ...process.env, ...env } } : {}),
-	});
-	if ((await proc.exited) !== 0) throw new Error("natives gen:native failed");
+			? process.env
+			: {
+					...process.env,
+					TARGET_PLATFORM: target.platformTag.split("-")[0]!,
+					TARGET_ARCH: target.platformTag.split("-")[1]!,
+				};
+	await runPackageScript(nativesDir, "gen:native", env);
 }
 
-async function restoreEmbeddedStub(): Promise<void> {
-	const proc = Bun.spawn([process.execPath, "run", "gen:native:reset"], {
-		cwd: nativesDir,
-		stdout: "inherit",
-		stderr: "inherit",
-	});
-	if ((await proc.exited) !== 0) throw new Error("natives gen:native:reset failed");
+async function restoreGeneratedAssets(): Promise<void> {
+	await Promise.all([
+		runPackageScript(codingAgentDir, "gen:mupdf:reset"),
+		runPackageScript(nativesDir, "gen:native:reset"),
+		runPackageScript(statsDir, "gen:stats:reset"),
+	]);
 }
 
 // ---------------------------------------------------------------------------
@@ -266,20 +278,28 @@ const transformersVersion = (require("@huggingface/transformers/package.json") a
 if (!transformersVersion) throw new Error("@huggingface/transformers package.json has no version");
 
 await stageNativeAddon(target);
-await embedNativeForTarget(target);
 try {
-	await compileCodingAgent({
-		repoRoot,
-		entrypoint: path.join(repoRoot, "packages", "coding-agent", "src", "cli.ts"),
-		outfile: out,
-		transformersVersion,
-		...(target.target ? { target: target.target } : {}),
-	});
+	try {
+		await runPackageScript(statsDir, "gen:stats");
+		await runPackageScript(collabWebDir, "gen:tool-views");
+		await embedNativeForTarget(target);
+		await runPackageScript(codingAgentDir, "gen:mupdf");
+		await compileCodingAgent({
+			repoRoot,
+			entrypoint: path.join(codingAgentDir, "src", "cli.ts"),
+			outfile: out,
+			transformersVersion,
+			...(target.target ? { target: target.target } : {}),
+		});
+	} finally {
+		// Compiled assets are temporary source substitutions. Reset every family
+		// even when generation or compilation fails; Promise.all starts all three
+		// cleanups before surfacing an individual failure.
+		await restoreGeneratedAssets();
+	}
 } finally {
-	// embedded-addon.js is tracked; leave the checkout in the stub state so the
-	// archive never shows up as a monorepo diff. Staged .node files are
-	// untracked artifacts too — remove the ones we added, restore the rest.
-	await restoreEmbeddedStub();
+	// Staged .node files are untracked artifacts: remove files we added and
+	// restore any local matching-path addon that predated this build.
 	await restoreStagedAddons();
 }
 

@@ -28,9 +28,11 @@ import type {
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
 import type { RpcCommand } from "../shared/rpc-types";
+import { openInExternalEditor } from "./editor";
 import type { LogWatcher } from "./log-watcher";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
 import type { SessionIndex } from "./session-index";
+import { resolveEditorCommand } from "./shell-env";
 import type { SidecarManager } from "./sidecar";
 import type { SidecarPool } from "./sidecar-pool";
 import type { StatsClient } from "./stats-client";
@@ -499,11 +501,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	ipcMain.handle(
 		IPC_COMMANDS.SYSTEM_OPEN_DIALOG,
-		async (event, filters?: { name: string; extensions: string[] }[]) => {
+		async (event, filters?: { name: string; extensions: string[] }[], options?: { directory?: boolean }) => {
 			const win = BrowserWindow.fromWebContents(event.sender);
 			if (!win) return null;
 			const result = await dialog.showOpenDialog(win, {
-				properties: ["openFile", "multiSelections"],
+				properties: options?.directory ? ["openDirectory", "createDirectory"] : ["openFile", "multiSelections"],
 				filters: filters ?? [],
 			});
 			return result.canceled ? null : result.filePaths;
@@ -733,6 +735,31 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_STATUS_GET, event => {
 		const sidecar = sidecarFor(deps, event);
 		return { status: sidecar?.status ?? "starting", cwd: cwdFor(deps, event) ?? "" };
+	});
+
+	// External-editor round trip ($VISUAL/$EDITOR, temp file, exit-0 read-back)
+	// for the composer editor dialog. Result shape carries availability +
+	// cancellation so the renderer never has to catch.
+	ipcMain.handle(IPC_COMMANDS.EDITOR_OPEN_EXTERNAL, async (_event, payload: { content?: string }) => {
+		if (!(await resolveEditorCommand())) {
+			return {
+				ok: false,
+				unavailable: true as const,
+				text: null,
+				error: "Set $VISUAL or $EDITOR to use an external editor",
+			};
+		}
+		try {
+			const { text } = await openInExternalEditor(typeof payload?.content === "string" ? payload.content : "");
+			return { ok: true, unavailable: false as const, text };
+		} catch (err) {
+			return {
+				ok: false,
+				unavailable: false as const,
+				text: null,
+				error: err instanceof Error ? err.message : String(err),
+			};
+		}
 	});
 }
 

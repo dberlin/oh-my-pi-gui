@@ -334,7 +334,9 @@ export class SessionIndex {
 			const info: SessionInfo = {
 				path: filePath,
 				id,
-				title: title ?? header?.title ?? null,
+				// `||` not `??`: an empty title slot (auto-title never ran) is
+				// missing data, so fall back to the header line's title.
+				title: title || header?.title || null,
 				cwd: header?.cwd ?? "",
 				created: header?.timestamp ?? new Date(fileStat.birthtimeMs).toISOString(),
 				modified: new Date(fileStat.mtimeMs).toISOString(),

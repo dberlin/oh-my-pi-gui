@@ -13,6 +13,7 @@ import { registerIpcHandlers } from "./ipc";
 import { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
 import { SessionIndex } from "./session-index";
+import { shellSpawnEnv } from "./shell-env";
 import { SidecarManager } from "./sidecar";
 import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
@@ -205,6 +206,7 @@ app.whenReady().then(() => {
 			sourceCli: sourceCli ?? undefined,
 			cwd,
 			proxyEnv: resolveProxyEnvForSpawn,
+			shellEnv: shellSpawnEnv,
 		});
 		// Ready-health-check applies to every pooled sidecar, not just the first.
 		sc.on("status", ({ status }) => {

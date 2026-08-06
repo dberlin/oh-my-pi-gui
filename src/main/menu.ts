@@ -147,7 +147,7 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 				},
 				{
 					label: "Documentation",
-					click: () => void shell.openExternal("https://github.com/can1357/oh-my-pi"),
+					click: () => void shell.openExternal("https://github.com/nornzach/oh-my-pi-gui"),
 				},
 			],
 		},

@@ -68,8 +68,8 @@ linux:
 
 publish:
   provider: github
-  owner: can1357
-  repo: oh-my-pi
+  owner: nornzach
+  repo: oh-my-pi-gui
 
 electronLanguages:
   - en

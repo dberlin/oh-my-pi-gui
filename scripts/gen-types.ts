@@ -68,8 +68,8 @@ interface InterfaceShape {
 function extractInterfaceShapes(source: string): InterfaceShape[] {
 	const shapes: InterfaceShape[] = [];
 	const declRe = /export\s+interface\s+(\w+)\s*\{/g;
-	let match: RegExpExecArray | null;
-	while ((match = declRe.exec(source)) !== null) {
+	let match = declRe.exec(source);
+	while (match !== null) {
 		const name = match[1];
 		let depth = 1;
 		let i = match.index + match[0].length;
@@ -82,6 +82,7 @@ function extractInterfaceShapes(source: string): InterfaceShape[] {
 		}
 		const body = source.slice(bodyStart, i - 1);
 		shapes.push({ name, fields: extractFieldNames(body) });
+		match = declRe.exec(source);
 	}
 	return shapes;
 }
@@ -159,6 +160,12 @@ const IGNORED_SOURCE_INTERFACES = new Set([
 	"RpcLoopModeUpdateFrame", // GUI mirrors as LoopModeUpdateFrame (subset)
 	"RpcPluginSetEnabledResult", // GUI reads result structurally
 	"RpcMcpActionResult", // same
+	"RpcMcpAddResult", // same (C1)
+	"RpcMcpTestResult", // same (C1)
+	"RpcMcpReauthResult", // same (C1)
+	"RpcMcpReauthCancelResult", // same (C1)
+	"RpcMarketplaceActionResult", // same (C1)
+	"RpcPluginMutationResult", // same (C1)
 	// GUI mirrors these inline rather than as standalone interfaces:
 	"RpcAvailableSlashCommand", // its fields live inline on GUI's AvailableCommand.subcommands
 	"RpcPlanProposalFrame", // its fields live inline on GUI's AgentSessionEvent plan_proposal variant
