@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-06
+
 ### Fixed
 
 - **Session-tabs hardening pass** (full architecture audit + click-through repro): session-file ownership is now tracked pool-wide and duplicate attaches are refused/redirected on every open path — spawn-tab, sidebar/session-picker switch, session-tree "switch to this point", and "open in new window" (a foreign owner's window is focused instead) — closing the double-attach that silently forked transcripts when two sidecars shared one session file. Extension-UI/approval and host tool/URI responses now route to the sidecar that RAISED the request (never the currently-active tab), so answering an approval while viewing another tab can no longer approve the wrong session. Resuming a session into a new tab skips the redundant `switch_session` when the sidecar already holds it, removing an unconditional-abort hazard for the first typed message. Closing a tab whose sidecar is mid-run now inline-confirms (✓/✕, 3s auto-cancel) instead of silently killing the work; `retryPending` clears on tab switch; a failed `SET_ACTIVE_TAB` surfaces an error toast and re-converges from `GET_TABS`; hydrate clears the zombie streaming bubble when returning to a background-settled tab and re-asserts the subagent subscription; tab chips label by session title with an `#n` suffix for untitled duplicates.
