@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-06
+
 ### Added
 
 - **Activity Dock — execution state is now visible**. A persistent ActivityStrip above the composer shows `➤ 队列 N · 引导 M` while messages are queued and `🤖 N 个子代理 ▾` while subagents run, each jumping to its drawer tab; queued messages also render as grey pending bubbles at the stream tail with one-click removal. A new **队列** drawer tab (riding the new `get_queue`/`queue_remove`/`queue_move`/`queue_clear` RPCs with stable per-lane queue ids) manages both lanes: dnd-kit reorder plus hover-revealed ▲/▼ move buttons and per-item × delete, per-lane clear, count badges. Queue state is pushed live over a new `queue_update` frame emitted on every queue mutation (enqueue/drain/remove/move/clear), so the strip, panel, and bubbles track drains instantly instead of going stale until the next prompt. Composer mode chips are now stateful (accent + check + live tooltips: plan state, goal objective, loop limit) and the footer gains active-mode badges (计划/目标/循环/vibe/暂停). The agents tab's instance cards are labeled by task/assignment instead of bare type names, with status badges, elapsed time, model, and view-messages/abort/revive actions.
