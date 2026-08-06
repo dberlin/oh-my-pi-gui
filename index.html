@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>omp GUI — The desktop GUI for the omp coding agent</title>
-<meta name="description" content="A fast Electron desktop GUI for the omp coding agent. Multi-window parallel sessions, every slash command as a menu, full-fidelity rendering." />
+<title>omp GUI — 一个窗口,所有会话并行</title>
+<meta name="description" content="omp 编码 agent 的桌面 GUI:会话 Tab 单窗并行、队列与模式可视、语音协作调试原生界面、自动更新。macOS arm64 / Intel。" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
 		--bg: #060709;
 		--bg-2: #0b0d10;
 		--panel: rgba(255,255,255,0.03);
-		--panel-border: rgba(255,255,255,0.07);
+		--panel-border: rgba(255,255,255,0.08);
 		--text: #eef2f6;
 		--muted: #8a97a5;
 		--accent: #14b8a6;
@@ -36,9 +36,9 @@
 		overflow-x: hidden;
 	}
 	a { color: var(--accent-2); text-decoration: none; }
+	a:hover { text-decoration: underline; }
 	::selection { background: var(--accent-dim); color: var(--accent-2); }
 
-	/* ---------- background layers ---------- */
 	.bg-grid {
 		position: fixed; inset: 0; z-index: 0; pointer-events: none;
 		background-image:
@@ -48,406 +48,333 @@
 		mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 20%, transparent 75%);
 	}
 	.glow {
-		position: fixed; border-radius: 50%; filter: blur(110px); z-index: 0;
-		pointer-events: none; opacity: 0.55;
-		animation: drift 18s ease-in-out infinite alternate;
+		position: fixed; width: 900px; height: 500px; top: -220px; left: 50%;
+		transform: translateX(-50%); z-index: 0; pointer-events: none;
+		background: radial-gradient(ellipse at center, rgba(20,184,166,0.14), transparent 65%);
+		filter: blur(40px);
 	}
-	.glow-1 { width: 560px; height: 560px; background: rgba(20,184,166,0.16); top: -180px; left: -120px; }
-	.glow-2 { width: 480px; height: 480px; background: rgba(139,124,246,0.13); top: 20%; right: -160px; animation-delay: -6s; }
-	.glow-3 { width: 420px; height: 420px; background: rgba(20,184,166,0.1); bottom: -160px; left: 30%; animation-delay: -12s; }
-	@keyframes drift {
-		from { transform: translate(0,0) scale(1); }
-		to { transform: translate(60px, 40px) scale(1.15); }
-	}
-
-	.wrap { max-width: 1160px; margin: 0 auto; padding: 0 28px; position: relative; z-index: 1; }
+	.wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 0 28px; }
 
 	/* ---------- nav ---------- */
 	nav {
-		position: fixed; top: 0; left: 0; right: 0; z-index: 50;
-		backdrop-filter: blur(16px) saturate(1.4);
-		background: rgba(6,7,9,0.6);
-		border-bottom: 1px solid transparent;
-		transition: border-color .4s, background .4s;
+		position: sticky; top: 0; z-index: 20;
+		backdrop-filter: blur(14px);
+		background: rgba(6,7,9,0.72);
+		border-bottom: 1px solid var(--panel-border);
 	}
-	nav.scrolled { border-color: var(--panel-border); background: rgba(6,7,9,0.85); }
-	.nav-inner { max-width: 1160px; margin: 0 auto; padding: 16px 28px; display: flex; align-items: center; gap: 12px; }
-	.nav-logo { display: flex; align-items: center; gap: 11px; font-weight: 700; font-size: 16px; letter-spacing: -0.02em; }
-	.nav-logo svg { display: block; border-radius: 8px; }
-	.nav-links { margin-left: auto; display: flex; align-items: center; gap: 26px; font-size: 14px; }
-	.nav-links a { color: var(--muted); transition: color .2s; }
-	.nav-links a:hover { color: var(--text); }
+	.nav-inner {
+		max-width: 1120px; margin: 0 auto; padding: 14px 28px;
+		display: flex; align-items: center; gap: 28px;
+	}
+	.logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: 0.01em; }
+	.logo-badge {
+		width: 26px; height: 26px; border-radius: 7px;
+		background: linear-gradient(135deg, var(--accent), #0d8a7c);
+		display: grid; place-items: center;
+		font-family: var(--mono); font-size: 12px; color: #04100e; font-weight: 600;
+		box-shadow: var(--glow);
+	}
+	.nav-links { display: flex; gap: 22px; margin-left: auto; font-size: 13.5px; }
+	.nav-links a { color: var(--muted); }
+	.nav-links a:hover { color: var(--text); text-decoration: none; }
 	.nav-cta {
-		padding: 8px 18px; border-radius: 9px; font-weight: 600; font-size: 13.5px;
-		background: var(--accent-dim); color: var(--accent-2);
-		border: 1px solid rgba(20,184,166,0.25); transition: all .25s var(--ease);
+		padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+		background: var(--accent); color: #04100e !important;
 	}
-	.nav-cta:hover { background: rgba(20,184,166,0.2); box-shadow: var(--glow); color: var(--accent-2); }
-
-	/* ---------- reveal animation ---------- */
-	.reveal { opacity: 0; transform: translateY(28px); transition: opacity .9s var(--ease), transform .9s var(--ease); }
-	.reveal.in { opacity: 1; transform: translateY(0); }
-	.reveal-d1 { transition-delay: .08s; } .reveal-d2 { transition-delay: .16s; }
-	.reveal-d3 { transition-delay: .24s; } .reveal-d4 { transition-delay: .32s; }
+	.nav-cta:hover { background: var(--accent-2); text-decoration: none; }
 
 	/* ---------- hero ---------- */
-	header.hero { padding: 172px 0 90px; text-align: center; position: relative; }
-	.badge {
+	.hero { padding: 96px 0 60px; text-align: center; }
+	.version-pill {
 		display: inline-flex; align-items: center; gap: 8px;
-		padding: 6px 16px; border-radius: 100px; font-size: 12.5px; font-weight: 500;
-		background: var(--panel); border: 1px solid var(--panel-border); color: var(--muted);
-		animation: fadeDown 1s var(--ease) both;
+		padding: 5px 14px; border-radius: 999px; font-size: 12.5px;
+		border: 1px solid rgba(20,184,166,0.35); color: var(--accent-2);
+		background: var(--accent-dim); margin-bottom: 26px;
 	}
-	.badge .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 12px var(--accent-2); animation: pulse 2s infinite; }
-	@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
-	@keyframes fadeDown { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: translateY(0); } }
-
+	.version-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
 	h1 {
-		margin-top: 30px;
-		font-size: clamp(48px, 7.5vw, 92px);
-		font-weight: 800; letter-spacing: -0.045em; line-height: 1.02;
-		animation: heroUp 1.1s var(--ease) .1s both;
+		font-size: clamp(34px, 5.4vw, 58px); font-weight: 800; line-height: 1.12;
+		letter-spacing: -0.025em; margin-bottom: 20px;
 	}
 	h1 .grad {
-		background: linear-gradient(120deg, #2dd4bf 0%, #14b8a6 45%, #8b7cf6 100%);
+		background: linear-gradient(92deg, var(--accent-2), #7ce8d8 55%, var(--violet));
 		-webkit-background-clip: text; background-clip: text; color: transparent;
-		background-size: 200% auto;
-		animation: heroUp 1.1s var(--ease) .1s both, gradShift 8s ease-in-out infinite alternate;
 	}
-	@keyframes gradShift { from { background-position: 0% center; } to { background-position: 100% center; } }
-	@keyframes heroUp { from { opacity: 0; transform: translateY(36px); } to { opacity: 1; transform: translateY(0); } }
-
-	.tagline {
-		margin: 26px auto 0; max-width: 620px;
-		font-size: clamp(16px, 2vw, 19px); font-weight: 400; color: var(--muted);
-		animation: heroUp 1.1s var(--ease) .25s both;
+	.hero p.sub {
+		max-width: 640px; margin: 0 auto 36px;
+		font-size: 17px; color: var(--muted);
 	}
-	.tagline code { font-family: var(--mono); font-size: .9em; color: var(--accent-2); background: var(--accent-dim); padding: 2px 7px; border-radius: 6px; }
-
-	.cta { margin-top: 42px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; animation: heroUp 1.1s var(--ease) .4s both; }
+	.hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 	.btn {
-		position: relative; display: inline-flex; align-items: center; gap: 9px;
-		padding: 15px 30px; border-radius: 13px; font-weight: 600; font-size: 15.5px;
-		transition: all .3s var(--ease); overflow: hidden;
+		display: inline-flex; align-items: center; gap: 9px;
+		padding: 13px 24px; border-radius: 12px; font-size: 14.5px; font-weight: 600;
+		border: 1px solid var(--panel-border);
+		transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease), background 0.18s;
 	}
-	.btn-primary {
-		background: linear-gradient(135deg, #14b8a6, #0d9488); color: #fff;
-		box-shadow: 0 8px 28px rgba(20,184,166,0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+	.btn:hover { transform: translateY(-2px); text-decoration: none; }
+	.btn-primary { background: var(--accent); color: #04100e; box-shadow: var(--glow); }
+	.btn-primary:hover { background: var(--accent-2); }
+	.btn-ghost { color: var(--text); background: var(--panel); }
+	.btn-ghost:hover { border-color: rgba(255,255,255,0.2); }
+	.btn small { font-weight: 400; opacity: 0.72; font-size: 12px; }
+	.hero-note { margin-top: 18px; font-size: 12.5px; color: var(--muted); }
+	.hero-shot {
+		margin: 64px auto 0; max-width: 1020px; border-radius: 16px; overflow: hidden;
+		border: 1px solid var(--panel-border);
+		box-shadow: 0 30px 90px rgba(0,0,0,0.55), 0 0 60px rgba(20,184,166,0.07);
 	}
-	.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 14px 40px rgba(20,184,166,0.5), inset 0 1px 0 rgba(255,255,255,0.2); }
-	.btn-primary::after {
-		content: ""; position: absolute; inset: 0;
-		background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%);
-		transform: translateX(-120%); transition: transform .7s var(--ease);
-	}
-	.btn-primary:hover::after { transform: translateX(120%); }
-	.btn-ghost { background: var(--panel); color: var(--text); border: 1px solid var(--panel-border); backdrop-filter: blur(8px); }
-	.btn-ghost:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); transform: translateY(-2px); }
-	.btn svg { transition: transform .3s var(--ease); }
-	.btn:hover svg { transform: translateX(3px); }
+	.hero-shot img, .shot img { display: block; width: 100%; }
 
-	/* hero visual */
-	.hero-visual { margin: 84px auto 0; max-width: 1020px; position: relative; animation: heroUp 1.2s var(--ease) .55s both; }
-	.hero-visual::before {
-		content: ""; position: absolute; inset: -1px; border-radius: 20px; z-index: 0;
-		background: linear-gradient(135deg, rgba(20,184,166,0.5), rgba(139,124,246,0.3), rgba(20,184,166,0.15));
-		filter: blur(1px); opacity: .6;
+	/* ---------- sections ---------- */
+	section { padding: 88px 0; }
+	.eyebrow {
+		font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
+		color: var(--accent-2); text-transform: uppercase; margin-bottom: 14px;
 	}
-	.frame {
-		position: relative; border-radius: 20px; overflow: hidden;
-		border: 1px solid rgba(255,255,255,0.1);
-		box-shadow: 0 40px 100px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04);
-		background: var(--bg-2);
-		transform-style: preserve-3d; transition: transform .5s var(--ease);
-	}
-	.frame-bar { display: flex; align-items: center; gap: 7px; padding: 12px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--panel-border); }
-	.frame-bar i { width: 11px; height: 11px; border-radius: 50%; display: block; }
-	.frame-bar i:nth-child(1){background:#ff5f57} .frame-bar i:nth-child(2){background:#febc2e} .frame-bar i:nth-child(3){background:#28c840}
-	.frame-bar span { margin-left: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
-	.frame img { display: block; width: 100%; height: auto; }
-
-	/* ---------- section base ---------- */
-	section { padding: 110px 0; position: relative; }
-	.eyebrow { font-family: var(--mono); font-size: 12.5px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--accent-2); text-align: center; }
-	h2 { margin-top: 14px; font-size: clamp(30px, 4vw, 46px); font-weight: 750; letter-spacing: -0.03em; text-align: center; }
-	.sub { text-align: center; color: var(--muted); margin: 16px auto 0; max-width: 560px; font-size: 16.5px; }
-
-	/* ---------- feature cards ---------- */
-	.grid { margin-top: 60px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-	.card {
-		position: relative; background: var(--panel); border: 1px solid var(--panel-border);
-		border-radius: 18px; padding: 30px; overflow: hidden;
-		transition: transform .4s var(--ease), border-color .4s, box-shadow .4s;
-	}
-	.card::before {
-		content: ""; position: absolute; inset: 0; border-radius: 18px; opacity: 0;
-		background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 0%), rgba(20,184,166,0.14), transparent 65%);
-		transition: opacity .4s;
-	}
-	.card:hover { transform: translateY(-5px); border-color: rgba(20,184,166,0.3); box-shadow: 0 20px 50px rgba(0,0,0,0.4); }
-	.card:hover::before { opacity: 1; }
-	.card .icon {
-		width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
-		background: var(--accent-dim); color: var(--accent-2); font-size: 20px; margin-bottom: 18px;
-		border: 1px solid rgba(20,184,166,0.2); transition: transform .4s var(--ease);
-	}
-	.card:hover .icon { transform: scale(1.08) rotate(-4deg); }
-	.card h3 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; margin-bottom: 9px; position: relative; }
-	.card p { font-size: 14.5px; color: var(--muted); line-height: 1.65; position: relative; }
-
-	/* ---------- parallel spotlight ---------- */
-	.spotlight { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
-	@media (max-width: 860px) { .spotlight { grid-template-columns: 1fr; } }
-	.spot-text .eyebrow, .spot-text h2 { text-align: left; }
-	.spot-text h2 { margin-top: 12px; }
-	.spot-text p { color: var(--muted); margin-top: 18px; font-size: 16px; }
-	.spot-list { margin-top: 28px; display: flex; flex-direction: column; gap: 14px; }
-	.spot-item { display: flex; gap: 14px; align-items: flex-start; }
-	.spot-item .n {
-		flex-shrink: 0; width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
-		font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--accent-2);
+	h2 { font-size: clamp(26px, 3.6vw, 38px); font-weight: 800; letter-spacing: -0.02em; margin-bottom: 16px; }
+	.lead { color: var(--muted); font-size: 16px; max-width: 680px; margin-bottom: 40px; }
+	.split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+	.split.reverse > .shot { order: -1; }
+	@media (max-width: 880px) { .split { grid-template-columns: 1fr; gap: 32px; } .split.reverse > .shot { order: 0; } }
+	.feat-list { display: flex; flex-direction: column; gap: 18px; }
+	.feat-item { display: flex; gap: 14px; }
+	.feat-item .ic {
+		flex-shrink: 0; width: 34px; height: 34px; border-radius: 9px;
+		display: grid; place-items: center; font-size: 16px;
 		background: var(--accent-dim); border: 1px solid rgba(20,184,166,0.25);
 	}
-	.spot-item div { font-size: 14.5px; color: var(--muted); padding-top: 2px; }
-	.spot-item strong { color: var(--text); font-weight: 600; }
-
-	.term {
-		background: #0a0c0f; border: 1px solid var(--panel-border); border-radius: 16px; overflow: hidden;
-		box-shadow: 0 24px 60px rgba(0,0,0,0.5); font-family: var(--mono); font-size: 13px;
+	.feat-item h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 3px; }
+	.feat-item p { font-size: 14px; color: var(--muted); }
+	.shot {
+		border-radius: 14px; overflow: hidden; border: 1px solid var(--panel-border);
+		box-shadow: 0 24px 70px rgba(0,0,0,0.5);
 	}
-	.term-body { padding: 20px 22px; line-height: 1.9; }
-	.term-body .c-dim { color: #5b6771; }
-	.term-body .c-acc { color: var(--accent-2); }
-	.term-body .c-vio { color: var(--violet); }
-	.term-body .c-ok { color: #34d399; }
-	.cursor { display: inline-block; width: 8px; height: 15px; background: var(--accent-2); vertical-align: -2px; animation: blink 1.1s step-end infinite; }
-	@keyframes blink { 50% { opacity: 0; } }
+	.shot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+	@media (max-width: 880px) { .shot-grid { grid-template-columns: 1fr; } }
+	.shot-cap { font-size: 12.5px; color: var(--muted); text-align: center; margin-top: 10px; }
 
-	/* ---------- gallery ---------- */
-	.gallery { margin-top: 60px; display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 22px; }
-	.g-item {
-		position: relative; border-radius: 16px; overflow: hidden; border: 1px solid var(--panel-border);
-		background: var(--bg-2); transition: transform .45s var(--ease), border-color .45s, box-shadow .45s;
+	.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+	.card {
+		background: var(--panel); border: 1px solid var(--panel-border);
+		border-radius: 14px; overflow: hidden;
+		transition: transform 0.2s var(--ease), border-color 0.2s;
 	}
-	.g-item img { display: block; width: 100%; height: auto; transition: transform .6s var(--ease); }
-	.g-item:hover { transform: translateY(-6px); border-color: rgba(20,184,166,0.3); box-shadow: 0 24px 60px rgba(0,0,0,0.5); }
-	.g-item:hover img { transform: scale(1.03); }
-	.g-cap {
-		position: absolute; inset: auto 0 0 0; padding: 40px 20px 16px;
-		background: linear-gradient(transparent, rgba(6,7,9,0.92) 60%);
-		font-size: 13.5px; color: #cdd6de; transform: translateY(8px); opacity: 0;
-		transition: transform .45s var(--ease), opacity .45s;
+	.card:hover { transform: translateY(-3px); border-color: rgba(20,184,166,0.4); }
+	.card img { display: block; width: 100%; border-bottom: 1px solid var(--panel-border); }
+	.card .body { padding: 18px 20px 20px; }
+	.card h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 6px; }
+	.card p { font-size: 13.5px; color: var(--muted); }
+
+	.pill-list { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 26px; }
+	.pill {
+		font-family: var(--mono); font-size: 12px; padding: 5px 12px; border-radius: 999px;
+		background: var(--panel); border: 1px solid var(--panel-border); color: var(--muted);
 	}
-	.g-item:hover .g-cap { transform: translateY(0); opacity: 1; }
+	.pill b { color: var(--accent-2); font-weight: 500; }
 
-	/* ---------- stats strip ---------- */
-	.strip { margin-top: 90px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; background: var(--panel-border); border: 1px solid var(--panel-border); border-radius: 18px; overflow: hidden; }
-	.stat { background: var(--bg-2); padding: 34px 24px; text-align: center; }
-	.stat .num { font-size: clamp(30px, 3.6vw, 42px); font-weight: 800; letter-spacing: -0.03em; background: linear-gradient(120deg, #2dd4bf, #8b7cf6); -webkit-background-clip: text; background-clip: text; color: transparent; }
-	.stat .lbl { margin-top: 6px; font-size: 13px; color: var(--muted); }
-
-	/* ---------- download ---------- */
-	.download { text-align: center; }
-	.dl-btns { margin-top: 44px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
-	.kb { margin: 56px auto 0; display: inline-grid; grid-template-columns: repeat(2, auto); gap: 10px 40px; text-align: left; }
-	.kb div { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--muted); }
-	kbd {
-		font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--text);
-		background: var(--panel); border: 1px solid var(--panel-border); border-bottom-width: 2px;
-		padding: 3px 8px; border-radius: 6px;
+	.update-flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 34px; }
+	@media (max-width: 760px) { .update-flow { grid-template-columns: 1fr; } }
+	.step {
+		background: var(--panel); border: 1px solid var(--panel-border); border-radius: 14px; padding: 22px;
+	}
+	.step .n {
+		font-family: var(--mono); font-size: 12px; color: var(--accent-2);
+		display: inline-block; padding: 3px 10px; border-radius: 999px;
+		border: 1px solid rgba(20,184,166,0.3); margin-bottom: 12px;
+	}
+	.step h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+	.step p { font-size: 13.5px; color: var(--muted); }
+	.step code {
+		font-family: var(--mono); font-size: 11.5px; color: var(--accent-2);
+		background: rgba(20,184,166,0.08); padding: 1px 6px; border-radius: 5px;
 	}
 
-	footer { padding: 60px 0 70px; text-align: center; color: var(--muted); font-size: 14px; border-top: 1px solid var(--panel-border); margin-top: 60px; }
-	footer .links { margin-top: 12px; display: flex; gap: 22px; justify-content: center; }
-	footer a { color: var(--muted); transition: color .2s; }
-	footer a:hover { color: var(--accent-2); }
+	.install { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 40px; align-items: start; }
+	@media (max-width: 880px) { .install { grid-template-columns: 1fr; } }
+	pre {
+		font-family: var(--mono); font-size: 12.5px; line-height: 1.75;
+		background: #0a0c0f; border: 1px solid var(--panel-border); border-radius: 12px;
+		padding: 18px 20px; overflow-x: auto; color: #c9d4de;
+	}
+	pre .c { color: #5b6b7a; }
+	pre .p { color: var(--accent-2); }
+	.warn {
+		border: 1px solid rgba(234,179,8,0.3); background: rgba(234,179,8,0.07);
+		border-radius: 12px; padding: 14px 18px; font-size: 13px; color: #d8c47a;
+		margin-top: 18px;
+	}
+	.warn b { color: #f0d98c; }
+
+	footer {
+		border-top: 1px solid var(--panel-border); padding: 42px 0 54px;
+		color: var(--muted); font-size: 13px;
+	}
+	.foot-inner { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; align-items: center; }
+	.foot-links { display: flex; gap: 20px; flex-wrap: wrap; }
 
 	@media (max-width: 640px) {
-		.nav-links a:not(.nav-cta) { display: none; }
-		.spotlight { gap: 36px; }
-		.kb { grid-template-columns: 1fr; }
-	}
-	@media (prefers-reduced-motion: reduce) {
-		*, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
-		.reveal { opacity: 1; transform: none; }
+		.hero { padding: 64px 0 40px; }
+		section { padding: 56px 0; }
+		.nav-links { display: none; }
 	}
 </style>
 </head>
 <body>
-	<div class="bg-grid"></div>
-	<div class="glow glow-1"></div><div class="glow glow-2"></div><div class="glow glow-3"></div>
+<div class="bg-grid"></div>
+<div class="glow"></div>
 
-	<nav id="nav">
-		<div class="nav-inner">
-			<a class="nav-logo" href="#">
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="26" height="26"><rect width="512" height="512" rx="104" fill="#21262c"/><g stroke="#0d9488" stroke-width="52" stroke-linecap="round" fill="none"><path d="M118 156 H394"/><path d="M190 156 V392"/><path d="M322 156 V326 C322 366 286 392 246 392"/></g></svg>
-				omp GUI
-			</a>
-			<div class="nav-links">
-				<a href="#features">Features</a>
-				<a href="#parallel">Parallel</a>
-				<a href="#gallery">Gallery</a>
-				<a href="#download">Download</a>
-				<a class="nav-cta" href="https://github.com/nornzach/oh-my-pi-gui">GitHub →</a>
-			</div>
-		</div>
-	</nav>
-
-	<header class="hero wrap">
-		<span class="badge"><span class="pulse"></span> v0.3.0 — multi-window parallel sessions</span>
-		<h1>The omp agent,<br /><span class="grad">beautifully</span> at home<br />on your desktop.</h1>
-		<p class="tagline">A fast Electron GUI for the <a href="https://github.com/can1357/oh-my-pi">omp</a> coding agent. Every slash command as a menu, full-fidelity rendering, and true parallel sessions — with the agent bundled, <code>no install required</code>.</p>
-		<div class="cta">
-			<a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/latest">Download for macOS
-				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-			</a>
-			<a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui">View on GitHub</a>
-		</div>
-
-		<div class="hero-visual">
-			<div class="frame" id="tilt">
-				<div class="frame-bar"><i></i><i></i><i></i><span>omp — chat</span></div>
-				<img src="docs/screenshots/01-chat-main.webp" alt="omp GUI chat" />
-			</div>
-		</div>
-	</header>
-
-	<section class="wrap" id="features">
-		<p class="eyebrow reveal">Features</p>
-		<h2 class="reveal">Built for how you actually work</h2>
-		<p class="sub reveal">The agent runs as a bundled sidecar over a typed NDJSON RPC bridge — fast, isolated, self-contained.</p>
-		<div class="grid">
-			<div class="card reveal"><div class="icon">⧉</div><h3>Parallel sessions</h3><p>Up to 10 windows, each with its own independent agent sidecar. Switch or create sessions in one window without ever disturbing a session running in another.</p></div>
-			<div class="card reveal reveal-d1"><div class="icon">⌘</div><h3>Every command, as a menu</h3><p>Slash commands become grouped, searchable menus. The Command Palette (⌘K) gives fuzzy access to everything — sub-menus, prompts, toggles, all real RPC.</p></div>
-			<div class="card reveal reveal-d2"><div class="icon">▤</div><h3>Full-fidelity rendering</h3><p>Streaming text, collapsible thinking blocks, live tool cards with real diffs, KaTeX math, mermaid diagrams, syntax-highlighted code — token by token.</p></div>
-			<div class="card reveal"><div class="icon">⚿</div><h3>Providers &amp; login</h3><p>Sign in with OAuth or API keys, add third-party providers, edit models.json, and see auth status at a glance.</p></div>
-			<div class="card reveal reveal-d1"><div class="icon">◔</div><h3>Usage &amp; quotas</h3><p>A full stats dashboard — requests, tokens, cost, cache-hit, speed, errors, per-agent breakdown — with time ranges and charts.</p></div>
-			<div class="card reveal reveal-d2"><div class="icon">☰</div><h3>Workspace panels</h3><p>Todo, Plan, Subagents, Diff, Files, and Logs in a collapsible side panel, kept in sync with the agent in real time.</p></div>
-		</div>
-
-		<div class="strip reveal">
-			<div class="stat"><div class="num" data-count="10">0</div><div class="lbl">parallel windows</div></div>
-			<div class="stat"><div class="num" data-count="100" data-suffix="+">0</div><div class="lbl">slash commands as menus</div></div>
-			<div class="stat"><div class="num" data-count="42">0</div><div class="lbl">typed RPC commands</div></div>
-			<div class="stat"><div class="num" data-count="0">0</div><div class="lbl">separate installs needed</div></div>
-		</div>
-	</section>
-
-	<section class="wrap" id="parallel">
-		<div class="spotlight">
-			<div class="spot-text">
-				<p class="eyebrow reveal">Parallel sessions</p>
-				<h2 class="reveal">Ten agents.<br />Zero interference.</h2>
-				<p class="reveal">Each window owns its own independent sidecar process. Open a session in a new window and it keeps running while you switch, create, or close sessions anywhere else.</p>
-				<div class="spot-list">
-					<div class="spot-item reveal"><span class="n">1</span><div><strong>Window ↔ sidecar pool</strong> — every window gets a dedicated agent process, capped at 10.</div></div>
-					<div class="spot-item reveal reveal-d1"><span class="n">2</span><div><strong>True isolation</strong> — events route per-window; a streaming turn in one never touches another.</div></div>
-					<div class="spot-item reveal reveal-d2"><span class="n">3</span><div><strong>No lost work</strong> — switching sessions elsewhere never aborts what's already running.</div></div>
-				</div>
-			</div>
-			<div class="term reveal reveal-d1">
-				<div class="frame-bar"><i></i><i></i><i></i><span>parallel</span></div>
-				<div class="term-body">
-					<div><span class="c-dim"># window 1 — working</span></div>
-					<div><span class="c-acc">●</span> session-a <span class="c-dim">streaming…</span> <span class="c-vio">turn 12</span></div>
-					<div><span class="c-dim"># window 2 — independent</span></div>
-					<div><span class="c-ok">●</span> session-b <span class="c-dim">idle — unaffected</span></div>
-					<div><span class="c-dim"># up to 10 sidecars, isolated</span></div>
-					<div><span class="c-acc">$</span> omp <span class="c-dim">--mode rpc-ui</span> × N <span class="cursor"></span></div>
-				</div>
-			</div>
-		</div>
-	</section>
-
-	<section class="wrap" id="gallery">
-		<p class="eyebrow reveal">Gallery</p>
-		<h2 class="reveal">See it in action</h2>
-		<div class="gallery">
-			<figure class="g-item reveal"><img src="docs/screenshots/02-command-palette.webp" alt="Command palette" loading="lazy" /><figcaption class="g-cap">Command Palette (⌘K) — every slash command as a grouped, searchable menu</figcaption></figure>
-			<figure class="g-item reveal reveal-d1"><img src="docs/screenshots/03-workspace-files.webp" alt="Workspace" loading="lazy" /><figcaption class="g-cap">Workspace panel — Todo / Plan / Agents / Diff / Files / Logs beside the chat</figcaption></figure>
-			<figure class="g-item reveal"><img src="docs/screenshots/05-settings.webp" alt="Settings" loading="lazy" /><figcaption class="g-cap">Settings — runtime, model, context, tools, providers, GUI in one window</figcaption></figure>
-			<figure class="g-item reveal reveal-d1"><img src="docs/screenshots/06-model-picker.webp" alt="Model picker" loading="lazy" /><figcaption class="g-cap">Model picker — grouped by provider with auth status</figcaption></figure>
-			<figure class="g-item reveal"><img src="docs/screenshots/07-session-stats.webp" alt="Stats" loading="lazy" /><figcaption class="g-cap">Usage &amp; stats — requests, tokens, cost, cache-hit, speed over time</figcaption></figure>
-			<figure class="g-item reveal reveal-d1"><img src="docs/screenshots/08-providers-login.webp" alt="Providers" loading="lazy" /><figcaption class="g-cap">Providers &amp; login — OAuth / API-key sign-in, third-party providers</figcaption></figure>
-		</div>
-	</section>
-
-	<section class="wrap download" id="download">
-		<p class="eyebrow reveal">Download</p>
-		<h2 class="reveal">Free &amp; open source</h2>
-		<p class="sub reveal">The bundled agent sidecar means no separate omp / bun / Node install. Unsigned build — first launch: right-click → Open.</p>
-		<div class="dl-btns reveal">
-			<a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/latest">Apple Silicon
-				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-			</a>
-			<a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/latest">Intel Mac</a>
-		</div>
-		<div class="kb reveal">
-			<div><span><kbd>⌘K</kbd></span> Command palette</div>
-			<div><span><kbd>⌘P</kbd></span> Session search</div>
-			<div><span><kbd>⌘N</kbd></span> New session</div>
-			<div><span><kbd>⌘⇧N</kbd></span> New parallel window</div>
-			<div><span><kbd>⌘,</kbd></span> Settings</div>
-			<div><span><kbd>Esc</kbd></span> Abort turn</div>
-		</div>
-	</section>
-
-	<footer class="wrap">
-		<p>Built on the <a href="https://github.com/can1357/oh-my-pi">oh-my-pi</a> agent. The TUI and GUI coexist and share <code style="font-family:var(--mono)">~/.omp</code>.</p>
-		<div class="links">
+<nav>
+	<div class="nav-inner">
+		<div class="logo"><span class="logo-badge">›_</span> omp GUI</div>
+		<div class="nav-links">
+			<a href="#tabs">会话 Tab</a>
+			<a href="#dock">活动坞</a>
+			<a href="#surfaces">原生界面</a>
+			<a href="#update">自动更新</a>
+			<a href="#install">安装</a>
 			<a href="https://github.com/nornzach/oh-my-pi-gui">GitHub</a>
-			<a href="https://github.com/nornzach/oh-my-pi-gui/releases">Releases</a>
-			<a href="https://github.com/nornzach/oh-my-pi-gui/issues">Issues</a>
 		</div>
-	</footer>
+		<a class="nav-cta" href="#install">下载 v0.5.1</a>
+	</div>
+</nav>
 
-<script>
-	// Nav scroll state
-	const nav = document.getElementById("nav");
-	addEventListener("scroll", () => nav.classList.toggle("scrolled", scrollY > 24), { passive: true });
+<header class="hero wrap">
+	<div class="version-pill"><span class="dot"></span> v0.5.1 · 2026-08-06 · 新增会话 Tab 与架构加固</div>
+	<h1>一个窗口,<br /><span class="grad">所有会话并行。</span></h1>
+	<p class="sub">omp 编码 agent 的桌面 GUI。每个会话 Tab 都有独立的 agent 进程——任务在后台自主推进,你只管切换。TUI 的全部能力,原生的桌面体验。</p>
+	<div class="hero-actions">
+		<a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp-0.5.1-arm64.dmg">下载 macOS 版 <small>Apple Silicon</small></a>
+		<a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp-0.5.1.dmg">下载 Intel 版 <small>macOS x64</small></a>
+	</div>
+	<p class="hero-note">免安装 agent / bun / Node——应用自带 sidecar 二进制 · <a href="https://github.com/nornzach/oh-my-pi-gui/releases">全部版本</a> · <a href="#install">从源码构建</a></p>
+	<div class="hero-shot"><img src="docs/screenshots/01-session-tabs.webp" alt="三个会话 Tab 并行,第二个正在流式输出" /></div>
+</header>
 
-	// Scroll-triggered reveal
-	const io = new IntersectionObserver(entries => {
-		for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
-	}, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
-	document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+<section id="tabs" class="wrap">
+	<div class="split">
+		<div>
+			<p class="eyebrow">Session Tabs</p>
+			<h2>不再"开新软件"。<br />开新 Tab 就行。</h2>
+			<div class="feat-list">
+				<div class="feat-item"><span class="ic">⚡</span><div><h3>每 Tab 一个独立 agent 进程</h3><p>会话、回合、队列、子代理完全隔离——和 Claude Code / Codex 一样的单程序多会话模型。</p></div></div>
+				<div class="feat-item"><span class="ic">▶</span><div><h3>后台 Tab 自主执行</h3><p>切走不暂停:绿点表示仍在运行,完成时亮起徽章,回来接着看结果。</p></div></div>
+				<div class="feat-item"><span class="ic">⇄</span><div><h3>切换零损耗</h3><p>转录、待办、子代理、队列、模型状态、输入草稿按 Tab 快照恢复,事件监听原子迁移。</p></div></div>
+				<div class="feat-item"><span class="ic">⛨</span><div><h3>会话文件所有权守卫</h3><p>同一会话在任何入口重复打开都会被重定向到持有它的 Tab——永远不会出现两个进程盲写同一份转录。</p></div></div>
+			</div>
+		</div>
+		<div class="shot"><img src="docs/screenshots/01-session-tabs.webp" alt="会话 Tab 栏" loading="lazy" /></div>
+	</div>
+</section>
 
-	// Number count-up
-	const countIO = new IntersectionObserver(entries => {
-		for (const e of entries) {
-			if (!e.isIntersecting) continue;
-			countIO.unobserve(e.target);
-			const el = e.target, end = +el.dataset.count, suffix = el.dataset.suffix || "";
-			const t0 = performance.now(), dur = 1400;
-			(function tick(now) {
-				const p = Math.min(1, (now - t0) / dur), ease = 1 - Math.pow(1 - p, 3);
-				el.textContent = Math.round(end * ease) + suffix;
-				if (p < 1) requestAnimationFrame(tick);
-			})(t0);
-		}
-	}, { threshold: 0.6 });
-	document.querySelectorAll(".stat .num").forEach(el => countIO.observe(el));
+<section id="dock" class="wrap" style="background: var(--bg-2); border-block: 1px solid var(--panel-border);">
+	<p class="eyebrow">Activity Dock</p>
+	<h2>执行中的一切,都看得见、管得着。</h2>
+	<p class="lead">队列不再是一行计数:双泳道面板支持拖拽与按钮排序、单项删除、分泳道清空;子代理按任务命名,状态、时长、模型、消息一目了然;计划/目标/循环模式在 composer 和底栏常驻可见。</p>
+	<div class="shot-grid">
+		<div>
+			<div class="shot"><img src="docs/screenshots/02-queue-panel.webp" alt="队列面板:两条消息排队,活动条显示 队列 2·引导 0" loading="lazy" /></div>
+			<p class="shot-cap">队列面板:排序 / 删除 / 清空,活动条与待发送气泡实时联动</p>
+		</div>
+		<div>
+			<div class="shot"><img src="docs/screenshots/03-agents-hub.webp" alt="子代理面板:ReadPackageJson 与 ReadTsconfig 两个任务命名的 scout 卡片" loading="lazy" /></div>
+			<p class="shot-cap">子代理按任务命名,不再是清一色的 "task"——可查看消息、中止、复活</p>
+		</div>
+	</div>
+</section>
 
-	// Hero tilt (subtle, pointer-driven)
-	const tilt = document.getElementById("tilt");
-	if (tilt && matchMedia("(pointer:fine)").matches) {
-		const hero = document.querySelector(".hero-visual");
-		hero.addEventListener("pointermove", e => {
-			const r = hero.getBoundingClientRect();
-			const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
-			tilt.style.transform = `perspective(1100px) rotateY(${x * 4}deg) rotateX(${-y * 4}deg) translateZ(0)`;
-		});
-		hero.addEventListener("pointerleave", () => { tilt.style.transform = "perspective(1100px) rotateY(0) rotateX(0)"; });
-	}
+<section id="surfaces" class="wrap">
+	<p class="eyebrow">Native Surfaces</p>
+	<h2>TUI 的能力,桌面的形态。</h2>
+	<p class="lead">不是把终端命令包一层壳——每个功能都是原生界面,背后是 50+ 个专用 RPC 命令打通 agent 运行时。</p>
+	<div class="cards">
+		<div class="card"><img src="docs/screenshots/04-voice.webp" alt="实时语音对话框" loading="lazy" /><div class="body"><h3>实时语音</h3><p>原生语音会话:状态、麦克风电平、实时转写、静音与挂断。</p></div></div>
+		<div class="card"><img src="docs/screenshots/05-collab.webp" alt="实时协作对话框" loading="lazy" /><div class="body"><h3>实时协作</h3><p>主持或加入协作会话:可编辑/只读链接、参与者列表、浏览器直达。</p></div></div>
+		<div class="card"><img src="docs/screenshots/06-debug.webp" alt="结构化调试控制台" loading="lazy" /><div class="body"><h3>调试控制台</h3><p>完整 DAP 调试:会话列表、线程/调用栈/单步/输出,结构化结果而不是手写 JSON。</p></div></div>
+		<div class="card"><img src="docs/screenshots/07-command-palette.webp" alt="中文命令面板" loading="lazy" /><div class="body"><h3>全中文命令面板</h3><p>159 个命令全部本地化,⌘K 唤起,中文搜索直达一切功能。</p></div></div>
+	</div>
+	<div class="pill-list">
+		<span class="pill"><b>对话框</b> 工作目录</span>
+		<span class="pill"><b>对话框</b> 分享会话</span>
+		<span class="pill"><b>对话框</b> 强制工具</span>
+		<span class="pill"><b>对话框</b> 后台任务</span>
+		<span class="pill"><b>对话框</b> 更新日志</span>
+		<span class="pill"><b>对话框</b> 外源会话导入</span>
+		<span class="pill"><b>面板</b> MCP 服务器</span>
+		<span class="pill"><b>面板</b> 插件市场</span>
+		<span class="pill"><b>面板</b> 会话树</span>
+		<span class="pill"><b>面板</b> Agent Hub</span>
+		<span class="pill"><b>设置</b> 启动配置</span>
+		<span class="pill"><b>设置</b> 键位重映射</span>
+	</div>
+</section>
 
-	// Card spotlight follows pointer
-	document.querySelectorAll(".card").forEach(card => {
-		card.addEventListener("pointermove", e => {
-			const r = card.getBoundingClientRect();
-			card.style.setProperty("--mx", ((e.clientX - r.left) / r.width * 100) + "%");
-			card.style.setProperty("--my", ((e.clientY - r.top) / r.height * 100) + "%");
-		});
-	});
-</script>
+<section class="wrap" style="background: var(--bg-2); border-block: 1px solid var(--panel-border);">
+	<div class="split reverse">
+		<div>
+			<p class="eyebrow">Context & Control</p>
+			<h2>上下文花在哪,一眼看清。</h2>
+			<p class="lead" style="margin-bottom: 22px;">上下文报告按类别拆分 token 占用;压缩、清理、手动/自动重试都有明确的结果反馈。Mermaid、KaTeX、代码行号、GFM 任务列表、read 分组折叠——渲染保真度与 TUI 对齐。</p>
+			<div class="feat-list">
+				<div class="feat-item"><span class="ic">☰</span><div><h3>50+ 专用 RPC,不是命令转发</h3><p>GUI 与 agent 运行时之间是类型化的 NDJSON RPC 桥:队列管理、上下文报告、工具清单、分享、任务……每一个都是结构化的。</p></div></div>
+				<div class="feat-item"><span class="ic">⚙</span><div><h3>环境自适应</h3><p>GUI 启动自动合并 login-shell 环境:MCP 服务器、shell 导出的 API key、代理设置,在 Finder 启动的应用里一样工作。</p></div></div>
+			</div>
+		</div>
+		<div class="shot"><img src="docs/screenshots/08-context-report.webp" alt="上下文报告:按类别拆分的 token 占用条" loading="lazy" /></div>
+	</div>
+</section>
+
+<section id="update" class="wrap">
+	<p class="eyebrow">Auto Update</p>
+	<h2>更新自己找上门。</h2>
+	<p class="lead">应用启动与每四小时检查 GitHub Releases。看到横幅,点两下,重启即新版——增量块下载,不占满带宽。</p>
+	<div class="update-flow">
+		<div class="step"><span class="n">1</span><h3>发现</h3><p>横幅提示"新版本 x.y.z 已发布",可按版本忽略;设置页随时手动检查。</p></div>
+		<div class="step"><span class="n">2</span><h3>暂存</h3><p>点击下载,blockmap 增量只拉差异块,实时进度;下载在后台完成,不打断工作。</p></div>
+		<div class="step"><span class="n">3</span><h3>重启生效</h3><p>"重启安装"一键完成替换。更新服务器就是 GitHub Releases,零额外运维。</p></div>
+	</div>
+</section>
+
+<section id="install" class="wrap" style="background: var(--bg-2); border-block: 1px solid var(--panel-border);">
+	<p class="eyebrow">Install</p>
+	<h2>两种装法,都只要一分钟。</h2>
+	<div class="install">
+		<div>
+			<h3 style="font-size:17px; margin-bottom:14px;">下载即用(推荐)</h3>
+			<p style="color: var(--muted); font-size:14px; margin-bottom:16px;">macOS 13+,Apple Silicon 或 Intel。拖入 /Applications 即可——agent、运行时、原生插件全部内置。</p>
+			<div class="hero-actions" style="justify-content:flex-start;">
+				<a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp-0.5.1-arm64.dmg">Apple Silicon <small>150 MB</small></a>
+				<a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp-0.5.1.dmg">Intel <small>166 MB</small></a>
+			</div>
+			<div class="warn"><b>未签名构建:</b>首次打开如被 Gatekeeper 拦截,右键 → 打开,或执行 <code style="font-family:var(--mono);">xattr -dr com.apple.quarantine /Applications/omp.app</code>。签名与公证在路上。</div>
+		</div>
+		<div>
+			<h3 style="font-size:17px; margin-bottom:14px;">从源码构建</h3>
+			<pre><span class="c"># 1. monorepo(fork,含 GUI 使能改动)</span>
+<span class="p">git clone</span> https://github.com/nornzach/oh-my-pi.git omp-monorepo
+<span class="p">cd</span> omp-monorepo && <span class="p">bun install</span> && <span class="p">cd</span> ..
+
+<span class="c"># 2. GUI 仓库,嵌套到 packages/gui</span>
+<span class="p">cd</span> omp-monorepo/packages
+<span class="p">git clone</span> https://github.com/nornzach/oh-my-pi-gui.git gui
+<span class="p">cd</span> gui && <span class="p">bun install</span>
+
+<span class="c"># 3. 编译 sidecar 并打包</span>
+<span class="p">bun run</span> build:omp
+<span class="p">bun run</span> package:mac:arm64</pre>
+		</div>
+	</div>
+</section>
+
+<footer class="wrap">
+	<div class="foot-inner">
+		<div>omp GUI · 桌面版 omp 编码 agent · MIT License</div>
+		<div class="foot-links">
+			<a href="https://github.com/nornzach/oh-my-pi-gui">GUI 仓库</a>
+			<a href="https://github.com/nornzach/oh-my-pi-gui/releases">全部版本</a>
+			<a href="https://github.com/nornzach/oh-my-pi">monorepo fork</a>
+			<a href="https://github.com/can1357/oh-my-pi">上游 omp</a>
+		</div>
+	</div>
+</footer>
 </body>
 </html>
