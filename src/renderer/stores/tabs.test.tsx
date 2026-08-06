@@ -1,0 +1,531 @@
+/**
+ * tabs store contract tests:
+ * - boot GET_TABS reconciliation (initial sidecar = tab 0, never duplicated)
+ * - switchTab snapshots the current tab's session-scoped slices (messages,
+ *   session meta, todos, subagents, queue, model, composer draft), restores
+ *   the target's bundle for instant paint, fires SET_ACTIVE_TAB BEFORE
+ *   hydrate, then hydrates from the target sidecar
+ * - closeTab keeps ≥1 tab and activates a neighbor when the active tab closes
+ * - applyTabStatus stamps unreadDone on background run completion
+ * - useSessionTabs completes the open-in-new-tab flow (pending session path
+ *   applied on the tab's first ready push while active)
+ *
+ * Harness: linkedom + react-dom (same as use-rpc-events.test.tsx) — the hook
+ * test needs React; store tests just reuse the globals.
+ */
+
+import { parseHTML } from "linkedom";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { IpcSpawnTabPayload, IpcTabInfo, IpcTabStatusPayload } from "../../shared/ipc-types";
+import type {
+	AgentMessage,
+	ModelInfo,
+	RpcResponse,
+	RpcSessionState,
+	SubagentSnapshot,
+	TodoPhase,
+} from "../../shared/rpc-types";
+import { useComposerStore } from "./composer";
+import { useMessagesStore } from "./messages";
+import { useModelStore } from "./model";
+import { useQueueStore } from "./queue";
+import { useSessionStore } from "./session";
+import { useSubagentsStore } from "./subagents";
+import { useSessionTabs, useTabsStore } from "./tabs";
+import { useTodoStore } from "./todo";
+import { useToolsStore } from "./tools";
+
+const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+const globals = globalThis as Record<string, unknown>;
+globals.document = document;
+globals.window = window;
+globals.Event = Event;
+globals.HTMLElement = HTMLElement;
+globals.Node = Node;
+globals.IS_REACT_ACT_ENVIRONMENT = true;
+globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+
+function ok(data: unknown): RpcResponse {
+	return { type: "response", command: "test", success: true, data };
+}
+
+function serverState(overrides: Partial<RpcSessionState> = {}): RpcSessionState {
+	return {
+		sessionId: "srv",
+		sessionName: null,
+		sessionFile: null,
+		cwd: "/srv",
+		isStreaming: false,
+		isCompacting: false,
+		contextUsage: null,
+		messageCount: 0,
+		queuedMessageCount: 0,
+		planModeEnabled: false,
+		todoPhases: [],
+		...overrides,
+	} as RpcSessionState;
+}
+
+function msg(text: string): AgentMessage {
+	return { role: "user", content: [{ type: "text", text }], timestamp: 1 } as AgentMessage;
+}
+
+function tabInfo(tabId: string, cwd: string, status: IpcTabInfo["status"] = "ready"): IpcTabInfo {
+	return { tabId, cwd, status };
+}
+
+interface MockOmp {
+	tabs: {
+		list: Mock<() => Promise<IpcTabInfo[]>>;
+		spawn: Mock<(payload: IpcSpawnTabPayload) => Promise<{ tabId: string } | null>>;
+		close: Mock<(tabId: string) => Promise<boolean>>;
+		setActive: Mock<(tabId: string) => Promise<boolean>>;
+	};
+	events: {
+		onTabStatus: Mock<(callback: (payload: IpcTabStatusPayload) => void) => () => void>;
+	};
+	rpc: {
+		getState: Mock<() => Promise<RpcResponse>>;
+		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getSubagents: Mock<() => Promise<RpcResponse>>;
+		getGoal: Mock<() => Promise<RpcResponse>>;
+		getLoopMode: Mock<() => Promise<RpcResponse>>;
+		getVibeMode: Mock<() => Promise<RpcResponse>>;
+		getQueue: Mock<() => Promise<RpcResponse>>;
+		switchSession: Mock<(sessionPath: string) => Promise<RpcResponse>>;
+	};
+}
+
+type TabStatusHandler = (payload: IpcTabStatusPayload) => void;
+
+function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
+	let tabStatusHandler: TabStatusHandler = () => {};
+	const omp: MockOmp = {
+		tabs: {
+			list: vi.fn(async () => []),
+			spawn: vi.fn(async () => null),
+			close: vi.fn(async () => true),
+			setActive: vi.fn(async () => true),
+		},
+		events: {
+			onTabStatus: vi.fn((callback: TabStatusHandler) => {
+				tabStatusHandler = callback;
+				return () => {};
+			}),
+		},
+		rpc: {
+			getState: vi.fn(async () => ok(serverState())),
+			getTranscript: vi.fn(async () => ok({ messages: [] })),
+			getSubagents: vi.fn(async () => ok({ subagents: [] })),
+			getGoal: vi.fn(async () => ok({ enabled: false })),
+			getLoopMode: vi.fn(async () => ok({ enabled: false, state: "off" })),
+			getVibeMode: vi.fn(async () => ok({ enabled: false })),
+			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
+			switchSession: vi.fn(async () => ok({})),
+		},
+	};
+	(window as unknown as { omp: MockOmp }).omp = omp;
+	return { omp, emitTabStatus: payload => tabStatusHandler(payload) };
+}
+
+/** Seed two tabs without going through spawn: t0 active, t1 background. */
+function seedTabs(active: "t0" | "t1" | "t2" = "t0"): void {
+	useTabsStore.setState({
+		tabs: [
+			{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+			{ id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+			{ id: "t2", cwd: "/gamma", status: "ready", unreadDone: false },
+		],
+		activeTabId: active,
+		bundles: new Map(),
+	});
+}
+
+/** Fill the live stores with t0's recognizable session state. */
+function fillLiveStores(tag: string): void {
+	useSessionStore.setState({
+		sessionId: `s-${tag}`,
+		sessionName: `Session ${tag}`,
+		cwd: `/${tag}`,
+		isStreaming: false,
+		status: "ready",
+		planModeEnabled: true,
+		goal: { objective: `goal-${tag}` },
+	});
+	useMessagesStore.setState({ messages: [msg(`hello-${tag}`)], totalMessages: 1 });
+	useTodoStore.getState().setPhases([{ name: `phase-${tag}`, tasks: [] } as TodoPhase]);
+	useQueueStore.setState({ steering: [{ id: `q-${tag}`, text: `steer-${tag}`, timestamp: 1 }], followUp: [] });
+	useSubagentsStore.setState({
+		subagents: new Map<string, SubagentSnapshot>([
+			[`a-${tag}`, { id: `a-${tag}`, index: 1, agent: "worker", status: "running", lastUpdate: 1, kind: "sub" }],
+		]),
+	});
+	useModelStore.setState({
+		model: { provider: "p", id: `m-${tag}` } as ModelInfo,
+		fastModeEnabled: true,
+	});
+	useComposerStore.getState().setDraft(`draft-${tag}`);
+}
+
+let omp: MockOmp;
+let emitTabStatus: TabStatusHandler;
+
+function resetAll(): void {
+	useTabsStore.getState().reset();
+	useComposerStore.getState().reset();
+	useSessionStore.getState().reset();
+	useMessagesStore.getState().reset();
+	useTodoStore.getState().reset();
+	useQueueStore.setState({ steering: [], followUp: [] });
+	useSubagentsStore.getState().reset();
+	useModelStore.getState().reset();
+	useToolsStore.getState().reset();
+}
+
+afterEach(() => {
+	resetAll();
+	vi.restoreAllMocks();
+	({ omp, emitTabStatus } = installMockOmp());
+});
+
+({ omp, emitTabStatus } = installMockOmp());
+
+describe("tabs store boot reconciliation", () => {
+	it("adopts the window's initial sidecar as tab 0 and never duplicates it", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
+
+		await useTabsStore.getState().reconcileTabs();
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0"]);
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+
+		// Reconcile again (and after a status push that pre-created the entry):
+		// merge is by tabId, so the initial sidecar appears exactly once.
+		await useTabsStore.getState().reconcileTabs();
+		expect(useTabsStore.getState().tabs).toHaveLength(1);
+
+		useTabsStore.getState().applyTabStatus({ tabId: "t0", cwd: "/alpha", status: "ready", title: "Alpha" });
+		await useTabsStore.getState().reconcileTabs();
+		const tabs = useTabsStore.getState().tabs;
+		expect(tabs).toHaveLength(1);
+		expect(tabs[0]?.title).toBe("Alpha");
+	});
+
+	it("keeps renderer-known tabs the reply misses and re-converges active on reload", async () => {
+		seedTabs("t1");
+		// Main knows only two of three tabs (the third spawned mid-reply).
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha"), tabInfo("t1", "/beta")]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1", "t2"]);
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		// >1 tabs after a renderer reload: main re-converges to the renderer's pick.
+		expect(omp.tabs.setActive).toHaveBeenCalledWith("t1");
+	});
+});
+
+describe("tabs store switch", () => {
+	it("openTab spawns in the current cwd, registers the tab, and switches to it", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
+		await useTabsStore.getState().reconcileTabs();
+		useSessionStore.setState({ cwd: "/alpha" });
+		omp.tabs.spawn.mockResolvedValue({ tabId: "t1" });
+
+		const tabId = await useTabsStore.getState().openTab();
+
+		expect(tabId).toBe("t1");
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/alpha", sessionPath: undefined });
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1"]);
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+	});
+
+	it("reports the pool cap without mutating the tab list", async () => {
+		seedTabs();
+		omp.tabs.spawn.mockResolvedValue(null);
+
+		const tabId = await useTabsStore.getState().openTab();
+
+		expect(tabId).toBeNull();
+		expect(useTabsStore.getState().tabs).toHaveLength(3);
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+	});
+
+	it("fires SET_ACTIVE_TAB before hydrating from the target sidecar", async () => {
+		seedTabs();
+
+		await useTabsStore.getState().switchTab("t1");
+
+		expect(omp.tabs.setActive).toHaveBeenCalledWith("t1");
+		expect(omp.rpc.getState).toHaveBeenCalled();
+		const setActiveOrder = omp.tabs.setActive.mock.invocationCallOrder[0];
+		const getStateOrder = omp.rpc.getState.mock.invocationCallOrder[0];
+		expect(setActiveOrder).toBeDefined();
+		expect(getStateOrder).toBeDefined();
+		expect(setActiveOrder!).toBeLessThan(getStateOrder!);
+	});
+
+	it("snapshots the current tab's slices and restores the target's — draft included", async () => {
+		seedTabs();
+		fillLiveStores("t0");
+
+		// Gate the transcript so the restored (pre-hydrate) state is observable.
+		const gate = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getTranscript.mockReturnValueOnce(gate.promise);
+		const firstSwitch = useTabsStore.getState().switchTab("t1");
+
+		// t1 has no bundle: stores reset to empty instantly, before any RPC settles.
+		expect(useComposerStore.getState().draft).toBe("");
+		expect(useMessagesStore.getState().messages).toEqual([]);
+		expect(useSessionStore.getState().sessionId).toBe("");
+
+		gate.resolve(ok({ messages: [msg("server-t1")] }));
+		await firstSwitch;
+
+		// Hydrate applied the target sidecar's state; the (empty) draft is untouched.
+		expect(useSessionStore.getState().sessionId).toBe("srv");
+		expect(useMessagesStore.getState().messages.map(m => messageText(m))).toEqual(["server-t1"]);
+
+		// t0's bundle is parked; t1 now gets its own recognizable live state.
+		fillLiveStores("t1");
+		const gate2 = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getTranscript.mockReturnValueOnce(gate2.promise);
+		const secondSwitch = useTabsStore.getState().switchTab("t0");
+
+		// Instant restore of t0's parked bundle — every slice, before hydrate.
+		expect(useComposerStore.getState().draft).toBe("draft-t0");
+		expect(useMessagesStore.getState().messages.map(m => messageText(m))).toEqual(["hello-t0"]);
+		expect(useSessionStore.getState().sessionId).toBe("s-t0");
+		expect(useSessionStore.getState().sessionName).toBe("Session t0");
+		expect(useSessionStore.getState().planModeEnabled).toBe(true);
+		expect(useSessionStore.getState().goal?.objective).toBe("goal-t0");
+		expect(useTodoStore.getState().phases.map(phase => phase.name)).toEqual(["phase-t0"]);
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["q-t0"]);
+		expect(useSubagentsStore.getState().subagents.has("a-t0")).toBe(true);
+		expect(useModelStore.getState().model?.id).toBe("m-t0");
+		expect(useModelStore.getState().fastModeEnabled).toBe(true);
+
+		gate2.resolve(ok({ messages: [msg("hello-t0")] }));
+		await secondSwitch;
+
+		// Hydrate never touches the composer draft: t0's draft survives the switch.
+		expect(useComposerStore.getState().draft).toBe("draft-t0");
+
+		// …and t1's bundle parked its own draft, restored on the way back.
+		await useTabsStore.getState().switchTab("t1");
+		expect(useComposerStore.getState().draft).toBe("draft-t1");
+	});
+
+	it("derives run state from the tab entry when restoring a background-running tab", async () => {
+		seedTabs();
+		// t1's run kept going in the background; the pool reported it.
+		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/beta", status: "running" });
+
+		// Gate the hydrate so the restored (pre-hydrate) state is observable.
+		const gate = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getTranscript.mockReturnValueOnce(gate.promise);
+		const switching = useTabsStore.getState().switchTab("t1");
+
+		// Restore paints the run live before hydrate's get_state confirms it.
+		expect(useSessionStore.getState().isStreaming).toBe(true);
+		expect(useSessionStore.getState().status).toBe("ready");
+
+		gate.resolve(ok({ messages: [] }));
+		await switching;
+		// Hydrate's get_state (mock: not streaming) is authoritative afterwards.
+		expect(useSessionStore.getState().isStreaming).toBe(false);
+	});
+
+	it("stamps the outgoing tab's chip when it was streaming in the foreground", async () => {
+		seedTabs();
+		useSessionStore.setState({ isStreaming: true });
+
+		await useTabsStore.getState().switchTab("t1");
+
+		const t0 = useTabsStore.getState().tabs.find(tab => tab.id === "t0");
+		expect(t0?.status).toBe("running");
+	});
+});
+
+describe("tabs store close", () => {
+	it("keeps the last tab open", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
+		await useTabsStore.getState().reconcileTabs();
+
+		await useTabsStore.getState().closeTab("t0");
+
+		expect(useTabsStore.getState().tabs).toHaveLength(1);
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+	});
+
+	it("closing the active tab activates its right neighbor first, then releases", async () => {
+		seedTabs("t1");
+
+		await useTabsStore.getState().closeTab("t1");
+
+		const state = useTabsStore.getState();
+		expect(state.tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+		expect(state.activeTabId).toBe("t2");
+		// Neighbor was activated BEFORE the release hit main.
+		expect(omp.tabs.setActive).toHaveBeenCalledWith("t2");
+		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
+		const setActiveOrder = omp.tabs.setActive.mock.invocationCallOrder[0];
+		const closeOrder = omp.tabs.close.mock.invocationCallOrder[0];
+		expect(setActiveOrder!).toBeLessThan(closeOrder!);
+		// The closed tab's parked bundle is gone.
+		expect(state.bundles.has("t1")).toBe(false);
+	});
+
+	it("closing the last tab in the strip activates its left neighbor", async () => {
+		seedTabs("t2");
+
+		await useTabsStore.getState().closeTab("t2");
+
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1"]);
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+	});
+
+	it("closing a background tab leaves the active tab attached", async () => {
+		seedTabs("t0");
+
+		await useTabsStore.getState().closeTab("t1");
+
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
+	});
+});
+
+describe("tabs store applyTabStatus", () => {
+	it("sets unreadDone when a background run settles, cleared on visit", async () => {
+		seedTabs();
+
+		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/beta", status: "running" });
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
+
+		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(true);
+
+		await useTabsStore.getState().switchTab("t1");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
+	});
+
+	it("does not badge the active tab's own run settling", () => {
+		seedTabs();
+		useTabsStore.getState().applyTabStatus({ tabId: "t0", cwd: "/alpha", status: "running" });
+		useTabsStore.getState().applyTabStatus({ tabId: "t0", cwd: "/alpha", status: "ready" });
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t0")?.unreadDone).toBe(false);
+	});
+
+	it("upserts unknown tabs and preserves title/sessionId across pushes", () => {
+		seedTabs();
+		useTabsStore.getState().applyTabStatus({ tabId: "t9", cwd: "/new", status: "starting" });
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toContain("t9");
+
+		useTabsStore
+			.getState()
+			.applyTabStatus({ tabId: "t1", cwd: "/beta", status: "ready", title: "Beta", sessionId: "s9" });
+		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+		const t1 = useTabsStore.getState().tabs.find(tab => tab.id === "t1");
+		expect(t1?.title).toBe("Beta");
+		expect(t1?.sessionId).toBe("s9");
+	});
+});
+
+describe("useSessionTabs hook", () => {
+	let container: { remove(): void };
+	let root: Root;
+
+	async function mount(): Promise<void> {
+		const element = document.createElement("div") as unknown as { remove(): void };
+		container = element;
+		document.body.appendChild(element as never);
+		root = createRoot(container as unknown as Element);
+		await act(async () => {
+			root.render(<Probe />);
+		});
+	}
+
+	function Probe(): null {
+		useSessionTabs();
+		return null;
+	}
+
+	afterEach(async () => {
+		if (root) {
+			await act(async () => {
+				root.unmount();
+			});
+		}
+		container?.remove();
+	});
+
+	it("reconciles on mount and subscribes to TAB_STATUS", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
+
+		await mount();
+
+		expect(omp.tabs.list).toHaveBeenCalled();
+		expect(omp.events.onTabStatus).toHaveBeenCalled();
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0"]);
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+	});
+
+	it("applies a tab's pending session path on its first ready push while active", async () => {
+		useTabsStore.setState({
+			tabs: [{ id: "t1", cwd: "/beta", status: "starting", unreadDone: false, pendingSessionPath: "/s.json" }],
+			activeTabId: "t1",
+			bundles: new Map(),
+		});
+		await mount();
+
+		await act(async () => {
+			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+		});
+		// The switch + hydrate run in a trailing microtask chain.
+		await act(async () => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 0);
+			await promise;
+		});
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/s.json");
+		expect(omp.rpc.getState).toHaveBeenCalled();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+
+		// A duplicate ready push must not re-enter the flow.
+		await act(async () => {
+			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+		});
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not switch the session for a background tab's pending path", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ id: "t1", cwd: "/beta", status: "starting", unreadDone: false, pendingSessionPath: "/s.json" },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount();
+
+		await act(async () => {
+			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+		});
+
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		// Pending path survives for when the user actually switches to t1.
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.pendingSessionPath).toBe("/s.json");
+	});
+});
+
+function messageText(message: AgentMessage): string {
+	const content = message.content;
+	if (!Array.isArray(content)) return "";
+	return content.map(part => (part && typeof part === "object" && "text" in part ? String(part.text) : "")).join("");
+}

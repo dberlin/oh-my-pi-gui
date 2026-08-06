@@ -3,8 +3,9 @@
  * aborts the in-flight turn on `switch_session` (TUI parity) — so while the
  * attached session is busy (streaming / compacting), callers route through
  * {@link requestSessionSwitch}, which opens the SessionSwitchDialog offering
- * "open in a new window" (a parallel sidecar, the non-destructive path)
- * instead of silently killing the run. Sidebar, ⌘P picker, deep links, and
+ * "open in a new tab" (a pooled parallel sidecar in this window, the
+ * recommended non-destructive path) or a new window instead of silently
+ * killing the run. Sidebar, ⌘P picker, deep links, and
  * the dialog itself all funnel through here so the switch flow — RPC, hook
  * veto, hydrate, toasts — exists exactly once.
  */
@@ -48,8 +49,8 @@ export async function switchSessionNow(session: SessionInfo): Promise<boolean> {
 /**
  * Switch to `session` unless the attached session is busy. Streaming /
  * compacting means the switch would abort the run server-side, so ask first
- * via the SessionSwitchDialog (new window vs abort-and-switch). Idle sessions
- * switch straight through.
+ * via the SessionSwitchDialog (new tab / new window vs abort-and-switch).
+ * Idle sessions switch straight through.
  */
 export function requestSessionSwitch(session: SessionInfo): void {
 	const { isStreaming, isCompacting, sessionId } = useSessionStore.getState();

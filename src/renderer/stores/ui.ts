@@ -55,7 +55,7 @@ interface UiStore {
 	sessionInfoOpen: boolean;
 	/** Session the user tried to open while the attached session was busy
 	 * (streaming/compacting). Non-null shows the SessionSwitchDialog offering
-	 * a parallel new window vs abort-and-switch. */
+	 * a parallel new tab (recommended) / new window vs abort-and-switch. */
 	sessionSwitchPrompt: SessionInfo | null;
 	sidecarError: string | null;
 	theme: ThemeMode;

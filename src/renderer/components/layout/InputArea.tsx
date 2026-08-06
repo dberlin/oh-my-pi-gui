@@ -27,6 +27,7 @@ import {
 	recordAndTranscribe,
 	stopVoiceRecording,
 } from "../../lib/voice";
+import { useComposerStore } from "../../stores/composer";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
@@ -169,7 +170,11 @@ export function InputArea() {
 	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
 	const emojiAutocomplete = useSettingsStore(s => s.emojiAutocomplete);
 
-	const [text, setText] = useState("");
+	// Draft lives in the composer store (not local state) so session-tab
+	// switches snapshot/restore it per tab. Value + updater-form setter are
+	// drop-in for the old useState pair.
+	const text = useComposerStore(s => s.draft);
+	const setText = useComposerStore(s => s.setDraft);
 	const [images, setImages] = useState<PastedImage[]>([]);
 	const [mode, setMode] = useState<SendMode>("prompt");
 	const [menu, setMenu] = useState<CompletionMenu | null>(null);
@@ -472,7 +477,7 @@ export function InputArea() {
 		};
 		window.addEventListener("omp:insert-mention", onInsertMention);
 		return () => window.removeEventListener("omp:insert-mention", onInsertMention);
-	}, []);
+	}, [setText]);
 
 	useEffect(() => {
 		const fillComposer = (event: Event) => {
@@ -508,7 +513,11 @@ export function InputArea() {
 		};
 		window.addEventListener("omp:fill-composer", fillComposer);
 		return () => window.removeEventListener("omp:fill-composer", fillComposer);
-	}, []);
+	}, [
+		// prepend (dequeue restore): queued text goes ahead of any draft, TUI-style;
+		// otherwise replace (starter cards, history recall).
+		setText,
+	]);
 
 	const insertCompletion = useCallback(
 		(item: CompletionItem) => {
@@ -528,7 +537,7 @@ export function InputArea() {
 				el.setSelectionRange(newPos, newPos);
 			});
 		},
-		[text, menu],
+		[text, menu, setText],
 	);
 
 	// Collapse a large paste into a `[Paste #N]` marker with the blob held in
@@ -550,7 +559,7 @@ export function InputArea() {
 				target.setSelectionRange(caret, caret);
 			});
 		},
-		[text],
+		[text, setText],
 	);
 
 	// Paste menu actions — the paste always inserts something; the menu only
@@ -603,7 +612,7 @@ export function InputArea() {
 				insertPasteBlob(pendingPaste.content);
 			}
 		})();
-	}, [insertPasteBlob, pasteMenu, text, t]);
+	}, [insertPasteBlob, pasteMenu, text, t, setText]);
 
 	const send = useCallback(
 		// `overrideText` sends a freshly computed value (voice dictation submit
@@ -837,7 +846,7 @@ export function InputArea() {
 					toast({ variant: "error", title: t("input.sendFailed"), message: String(error) });
 				});
 		},
-		[text, images, sending, status, isStreaming, mode, queuedMessageCount, commands, emojiAutocomplete, t],
+		[text, images, sending, status, isStreaming, mode, queuedMessageCount, commands, emojiAutocomplete, t, setText],
 	);
 
 	// Mic dictation (stt.enabled): click starts capture, click again stops and
@@ -885,7 +894,7 @@ export function InputArea() {
 			});
 			if (evaluation.submit) send(next);
 		});
-	}, [recording, send, t]);
+	}, [recording, send, t, setText]);
 
 	const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
 		// IME composition (Chinese/Japanese/Korean input): while the candidate

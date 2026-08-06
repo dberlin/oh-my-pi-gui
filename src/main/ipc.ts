@@ -8,6 +8,7 @@ import Store from "electron-store";
 import type {
 	CustomProviderInput,
 	FsTreeEntry,
+	IpcCloseTabPayload,
 	IpcExtensionUiRespondPayload,
 	IpcFsListPayload,
 	IpcFsReadPayload,
@@ -24,6 +25,8 @@ import type {
 	IpcSessionsDeletePayload,
 	IpcSessionsListPayload,
 	IpcSessionsSearchPayload,
+	IpcSetActiveTabPayload,
+	IpcSpawnTabPayload,
 	IpcStatsFetchPayload,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
@@ -35,6 +38,7 @@ import type { SessionIndex } from "./session-index";
 import { resolveEditorCommand } from "./shell-env";
 import type { SidecarManager } from "./sidecar";
 import type { SidecarPool } from "./sidecar-pool";
+import { nextSnowflake } from "./snowflake";
 import type { StatsClient } from "./stats-client";
 import { setTrayState } from "./tray";
 import type { SpawnWindow, WindowManager } from "./window";
@@ -455,6 +459,52 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.SESSION_CONSUME_PENDING, event => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		return win ? (deps.windowManager.consumePendingSession(win) ?? null) : null;
+	});
+
+	// ========================================================================
+	// Session tabs — in-window parallel sessions. Each tab owns a pooled
+	// sidecar bound to the CALLING window (no new BrowserWindow); the pool
+	// moves full event forwarding to the window's active tab. Routing derives
+	// from event.sender, so a renderer can only touch its own window's tabs.
+	// ========================================================================
+
+	// Spawn a background tab. Null at the pool cap; the renderer decides
+	// whether to activate it (SET_ACTIVE_TAB) — spawn itself never switches.
+	ipcMain.handle(IPC_COMMANDS.SPAWN_TAB, (event, payload: IpcSpawnTabPayload) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || deps.sidecarPool.atCap) return null;
+		const cwd =
+			typeof payload?.cwd === "string" && payload.cwd.length > 0
+				? payload.cwd
+				: (cwdFor(deps, event) ?? process.cwd());
+		const sessionPath =
+			typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
+		const tabId = nextSnowflake();
+		return deps.sidecarPool.acquire(cwd, win, tabId, sessionPath) ? { tabId } : null;
+	});
+
+	// Release a tab's sidecar. The window falls back to its initial no-tab
+	// state when its last tab closes (welcome screen; handlers tolerate null).
+	ipcMain.handle(IPC_COMMANDS.CLOSE_TAB, (event, payload: IpcCloseTabPayload) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || typeof payload?.tabId !== "string") return false;
+		if (!deps.sidecarPool.sidecarForTab(win, payload.tabId)) return false;
+		return deps.sidecarPool.releaseTab(payload.tabId);
+	});
+
+	// Move full event forwarding to the window's active tab (listeners move,
+	// never duplicate). The renderer calls this before hydrateSession().
+	ipcMain.handle(IPC_COMMANDS.SET_ACTIVE_TAB, (event, payload: IpcSetActiveTabPayload) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || typeof payload?.tabId !== "string") return false;
+		return deps.sidecarPool.setActiveTab(win, payload.tabId);
+	});
+
+	// Boot reconciliation: the window's tabs in acquisition order (the initial
+	// sidecar is tab 0 — main minted its tabId at acquire).
+	ipcMain.handle(IPC_COMMANDS.GET_TABS, event => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		return win ? deps.sidecarPool.tabsForWindow(win) : [];
 	});
 
 	// Full-content search over session files (raw JSONL grep in main, scoped to

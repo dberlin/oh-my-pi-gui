@@ -19,6 +19,14 @@ export const en: Record<string, string> = {
 	"titlebar.openProjectFailed": "Could not open project",
 	"titlebar.renameFailed": "Rename failed",
 
+	// Session tab strip (TabBar)
+	"tabs.strip": "Session tabs",
+	"tabs.new": "New tab",
+	"tabs.close": "Close tab",
+	"tabs.done": "Run completed",
+	"tabs.newFailed": "Could not open tab",
+	"tabs.parallelCap": "Parallel limit reached (10) — close a tab or window first",
+
 	// InputArea
 	"input.placeholder.connecting": "Connecting to omp…",
 	"input.placeholder.streaming": "Add guidance while omp is working…",
@@ -1550,14 +1558,14 @@ export const en: Record<string, string> = {
 	"modelPicker.compactFailed": "Compaction failed",
 	"modelPicker.compactedSwitching": "Context compacted — switching model",
 
-	// Busy-session switch dialog (new window vs abort-and-switch)
+	// Busy-session switch dialog (new tab / new window vs abort-and-switch)
 	"sessionSwitch.title": "Session is running",
 	"sessionSwitch.body":
-		'The current session is still running. Switching to "{name}" in this window will abort it — or open it in a new window instead.',
+		'The current session is still running. Switching to "{name}" here will abort it — or open it in a new tab instead.',
+	"sessionSwitch.openNewTab": "Open in new tab",
 	"sessionSwitch.openNewWindow": "Open in new window",
 	"sessionSwitch.switchAnyway": "Abort & switch",
-	"sessionSwitch.busyBlocked":
-		"A turn is still running — abort it first (Esc), or use a new window (⌘⇧N) for parallel work.",
+	"sessionSwitch.busyBlocked": "A turn is still running — abort it first (Esc), or use a new tab for parallel work.",
 
 	// Command palette additions
 	"palette.failed": "Command failed",

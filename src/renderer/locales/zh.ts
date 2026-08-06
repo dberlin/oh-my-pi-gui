@@ -19,6 +19,14 @@ export const zh: Record<string, string> = {
 	"titlebar.openProjectFailed": "无法打开项目",
 	"titlebar.renameFailed": "重命名失败",
 
+	// 会话标签页栏(TabBar)
+	"tabs.strip": "会话标签页",
+	"tabs.new": "新建标签页",
+	"tabs.close": "关闭标签页",
+	"tabs.done": "运行已完成",
+	"tabs.newFailed": "无法打开标签页",
+	"tabs.parallelCap": "已达并行上限(10)——请先关闭一个标签页或窗口",
+
 	// InputArea
 	"input.placeholder.connecting": "正在连接 omp…",
 	"input.placeholder.streaming": "在 omp 工作时添加指导…",
@@ -1530,12 +1538,13 @@ export const zh: Record<string, string> = {
 	"modelPicker.compactFailed": "压缩失败",
 	"modelPicker.compactedSwitching": "上下文已压缩 —— 正在切换模型",
 
-	// 会话运行中切换对话框(新窗口 vs 中断切换)
+	// 会话运行中切换对话框(新标签页 / 新窗口 vs 中断切换)
 	"sessionSwitch.title": "会话正在运行",
-	"sessionSwitch.body": "当前会话仍在运行。在此窗口切换到“{name}”将中断当前运行 —— 也可以在新窗口中打开。",
+	"sessionSwitch.body": "当前会话仍在运行。在此处切换到“{name}”将中断当前运行 —— 也可以在新标签页中打开。",
+	"sessionSwitch.openNewTab": "在新标签页打开",
 	"sessionSwitch.openNewWindow": "在新窗口打开",
 	"sessionSwitch.switchAnyway": "中断并切换",
-	"sessionSwitch.busyBlocked": "当前会话仍在运行——请先中止（Esc），或使用新窗口（⌘⇧N）并行操作。",
+	"sessionSwitch.busyBlocked": "当前会话仍在运行——请先中止（Esc），或使用新标签页并行操作。",
 
 	// Command palette additions
 	"palette.failed": "命令执行失败",

@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
@@ -136,6 +137,7 @@ afterEach(async () => {
 	container.remove();
 	useSessionStore.getState().reset();
 	useMessagesStore.getState().reset();
+	useComposerStore.getState().reset();
 	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
 	useUiStore.getState().closeComposerEditor();
 	vi.restoreAllMocks();

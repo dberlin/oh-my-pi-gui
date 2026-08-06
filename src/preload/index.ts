@@ -14,6 +14,10 @@ import type {
 	IpcFsReadResult,
 	IpcSessionOpenNewWindowPayload,
 	IpcSidecarStatusPayload,
+	IpcSpawnTabPayload,
+	IpcSpawnTabResult,
+	IpcTabInfo,
+	IpcTabStatusPayload,
 	MenuAction,
 	MenuActionPayload,
 	OmpApi,
@@ -264,6 +268,8 @@ const api: OmpApi = {
 			subscribe<{ events: AgentSessionEvent[] }>(IPC_EVENTS.EVENTS_BATCH, data => callback(data.events)),
 		onSidecarStatus: (callback: (status: IpcSidecarStatusPayload) => void) =>
 			subscribe<IpcSidecarStatusPayload>(IPC_EVENTS.SIDECAR_STATUS, callback),
+		onTabStatus: (callback: (payload: IpcTabStatusPayload) => void) =>
+			subscribe<IpcTabStatusPayload>(IPC_EVENTS.TAB_STATUS, callback),
 		onExtensionUi: (callback: (request: ExtensionUIRequest) => void) =>
 			subscribe<{ request: ExtensionUIRequest }>(IPC_EVENTS.EXTENSION_UI, data => callback(data.request)),
 		onHostToolCall: (callback: (request: HostToolCallRequest) => void) =>
@@ -331,6 +337,14 @@ const api: OmpApi = {
 		openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 		consumePendingOpen: () => ipcRenderer.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
+	},
+
+	tabs: {
+		list: () => ipcRenderer.invoke(IPC_COMMANDS.GET_TABS) as Promise<IpcTabInfo[]>,
+		spawn: (payload: IpcSpawnTabPayload) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SPAWN_TAB, payload) as Promise<IpcSpawnTabResult | null>,
+		close: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.CLOSE_TAB, { tabId }) as Promise<boolean>,
+		setActive: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.SET_ACTIVE_TAB, { tabId }) as Promise<boolean>,
 	},
 
 	stats: {

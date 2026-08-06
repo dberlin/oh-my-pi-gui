@@ -24,6 +24,7 @@ import type {
 	RpcMcpServerInput,
 	RpcResponse,
 	SessionInfoUpdateFrame,
+	SidecarStatus,
 	SubagentFrame,
 	ThinkingLevel,
 	TodoPhase,
@@ -38,6 +39,8 @@ export const IPC_EVENTS = {
 	EVENTS_BATCH: "rpc:events",
 	/** Sidecar connection status change */
 	SIDECAR_STATUS: "sidecar:status",
+	/** Per-tab sidecar status push (every tab of the window, foreground or background) */
+	TAB_STATUS: "tab:status",
 	/** Extension UI request from agent */
 	EXTENSION_UI: "extension-ui:request",
 	/** Host tool call request */
@@ -140,6 +143,14 @@ export const IPC_COMMANDS = {
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
 	SESSION_CONSUME_PENDING: "session:consume-pending",
+	/** Spawn a tab (own sidecar) bound to the calling window */
+	SPAWN_TAB: "tab:spawn",
+	/** Close a tab: release its sidecar; last tab leaves the window tab-less */
+	CLOSE_TAB: "tab:close",
+	/** Move full event forwarding to the window's active tab */
+	SET_ACTIVE_TAB: "tab:set-active",
+	/** List the calling window's tabs (boot reconciliation) */
+	GET_TABS: "tab:get-all",
 	/** Round-trip a draft through the user's $VISUAL/$EDITOR (temp file, exit-0 read-back) */
 	EDITOR_OPEN_EXTERNAL: "editor:open-external",
 	/** Manual update check */
@@ -404,6 +415,48 @@ export interface IpcSessionOpenNewWindowPayload {
 	cwd?: string;
 }
 
+// ============================================================================
+// Session Tab Types (in-window parallel sessions, one sidecar per tab)
+// ============================================================================
+
+/**
+ * Tab chip status: the sidecar's connection status plus a main-synthesized
+ * "running" (connection ready + agent run in flight, from the event stream).
+ */
+export type TabStatus = SidecarStatus | "running";
+
+/** One tab of a window: its sidecar's cwd, last status, and cached session meta. */
+export interface IpcTabInfo {
+	/** Opaque snowflake id minted by main at acquire. */
+	tabId: string;
+	cwd: string;
+	status: TabStatus;
+	/** Present once the tab's sidecar reported session_info_update. */
+	sessionId?: string;
+	title?: string;
+}
+
+/** TAB_STATUS push payload — a full tab snapshot from any tab, active or background. */
+export type IpcTabStatusPayload = IpcTabInfo;
+
+/** Spawn a tab bound to the calling window. Defaults: caller's cwd, fresh session. */
+export interface IpcSpawnTabPayload {
+	cwd?: string;
+	sessionPath?: string;
+}
+
+export interface IpcSpawnTabResult {
+	tabId: string;
+}
+
+export interface IpcCloseTabPayload {
+	tabId: string;
+}
+
+export interface IpcSetActiveTabPayload {
+	tabId: string;
+}
+
 export interface SessionInfo {
 	path: string;
 	id: string;
@@ -584,6 +637,7 @@ export interface OmpApi {
 	events: {
 		onBatch(callback: (events: AgentSessionEvent[]) => void): () => void;
 		onSidecarStatus(callback: (status: IpcSidecarStatusPayload) => void): () => void;
+		onTabStatus(callback: (payload: IpcTabStatusPayload) => void): () => void;
 		onExtensionUi(callback: (request: ExtensionUIRequest) => void): () => void;
 		onHostToolCall(callback: (request: HostToolCallRequest) => void): () => void;
 		onHostUriRequest(callback: (request: HostUriRequest) => void): () => void;
@@ -622,6 +676,16 @@ export interface OmpApi {
 		openInNewWindow(payload: IpcSessionOpenNewWindowPayload): Promise<boolean>;
 		/** One-shot: the session this window was opened to display, if any. */
 		consumePendingOpen(): Promise<string | null>;
+	};
+	tabs: {
+		/** The calling window's tabs in acquisition order (boot reconciliation). */
+		list(): Promise<IpcTabInfo[]>;
+		/** Spawn a background tab bound to this window. Null at the pool cap. */
+		spawn(payload: IpcSpawnTabPayload): Promise<IpcSpawnTabResult | null>;
+		/** Release a tab's sidecar. False when the tab is unknown or foreign. */
+		close(tabId: string): Promise<boolean>;
+		/** Move full event forwarding to this tab. False when unknown or foreign. */
+		setActive(tabId: string): Promise<boolean>;
 	};
 	stats: {
 		fetch(path: string, params?: Record<string, string>): Promise<unknown>;

@@ -1,6 +1,26 @@
 import { create } from "zustand";
 import type { AgentMessage, AgentSessionEvent, MessagesPage } from "../../shared/rpc-types";
 
+/**
+ * Session-tab snapshot of the message stream: the zustand fields PLUS the
+ * module-level streaming buffers and run-dedupe set. Without the buffers a
+ * mid-stream switch-away would lose the already-streamed prefix — deltas
+ * landing after switch-back join onto whatever the chunks still hold.
+ */
+export interface MessagesSnapshot {
+	messages: AgentMessage[];
+	lastAppended: AgentMessage[];
+	streamingMessage: AgentMessage | null;
+	streamingText: string;
+	streamingThinking: string;
+	totalMessages: number;
+	nextCursor: string | undefined;
+	isLoadingPage: boolean;
+	textChunks: string[];
+	thinkingChunks: string[];
+	deliveredKeys: string[];
+}
+
 interface MessagesStore {
 	messages: AgentMessage[];
 	/**
@@ -20,6 +40,10 @@ interface MessagesStore {
 	loadPage: (page: MessagesPage) => void;
 	appendMessage: (message: AgentMessage) => void;
 	removeMessage: (message: AgentMessage) => void;
+	/** Capture the full stream state (fields + buffers) for a session-tab switch. */
+	snapshot: () => MessagesSnapshot;
+	/** Restore a captured snapshot; null resets to the empty initial state. */
+	restoreSnapshot: (snapshot: MessagesSnapshot | null) => void;
 	reset: () => void;
 }
 
@@ -226,6 +250,41 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 			if (removed === 0) return s;
 			return { messages, totalMessages: Math.max(0, s.totalMessages - removed) };
 		}),
+	snapshot: () => {
+		const state = get();
+		return {
+			messages: state.messages,
+			lastAppended: state.lastAppended,
+			streamingMessage: state.streamingMessage,
+			streamingText: state.streamingText,
+			streamingThinking: state.streamingThinking,
+			totalMessages: state.totalMessages,
+			nextCursor: state.nextCursor,
+			isLoadingPage: state.isLoadingPage,
+			textChunks: [...streamTextChunks],
+			thinkingChunks: [...streamThinkingChunks],
+			deliveredKeys: [...deliveredThisRun],
+		};
+	},
+	restoreSnapshot: snapshot => {
+		if (!snapshot) {
+			get().reset();
+			return;
+		}
+		streamTextChunks = [...snapshot.textChunks];
+		streamThinkingChunks = [...snapshot.thinkingChunks];
+		deliveredThisRun = new Set(snapshot.deliveredKeys);
+		set({
+			messages: snapshot.messages,
+			lastAppended: snapshot.lastAppended,
+			streamingMessage: snapshot.streamingMessage,
+			streamingText: snapshot.streamingText,
+			streamingThinking: snapshot.streamingThinking,
+			totalMessages: snapshot.totalMessages,
+			nextCursor: snapshot.nextCursor,
+			isLoadingPage: snapshot.isLoadingPage,
+		});
+	},
 	reset: () => {
 		resetStreamingBuffers();
 		deliveredThisRun = new Set();

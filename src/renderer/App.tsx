@@ -34,6 +34,7 @@ import { PanelContainer } from "./components/layout/PanelContainer";
 import { Sidebar } from "./components/layout/Sidebar";
 import { SidecarBanner } from "./components/layout/SidecarBanner";
 import { StatusFooter } from "./components/layout/StatusFooter";
+import { TabBar } from "./components/layout/TabBar";
 import { TitleBar } from "./components/layout/TitleBar";
 import { UpdateBanner } from "./components/layout/UpdateBanner";
 import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
@@ -51,6 +52,7 @@ import { startVoiceAutoSpeak } from "./lib/voice";
 import { useModelStore } from "./stores/model";
 import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
+import { useSessionTabs } from "./stores/tabs";
 import { toast } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
 import { subscribeUpdaterStatus } from "./stores/updater";
@@ -93,6 +95,8 @@ const ProvidersWindow = lazy(() =>
 export function App() {
 	useRpcEvents();
 	useExtensionUi();
+	// Session tabs: GET_TABS boot reconciliation + TAB_STATUS subscription.
+	useSessionTabs();
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const panelVisible = useUiStore(s => s.panelVisible);
 	const theme = useUiStore(s => s.theme);
@@ -512,6 +516,7 @@ export function App() {
 
 			<main className="relative flex min-w-0 flex-1 flex-col">
 				<TitleBar onToggleStats={() => useUiStore.getState().openStatsDashboard()} />
+				<TabBar />
 				<SidecarBanner />
 				<UpdateBanner />
 				<ChatStream />
