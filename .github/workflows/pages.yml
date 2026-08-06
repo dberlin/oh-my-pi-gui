@@ -35,8 +35,3 @@ jobs:
           path: .
       - id: deployment
         uses: actions/deploy-pages@v4
-        with:
-          # A stuck legacy-Jekyll build (commit b8816c4, 2026-08-06) has no
-          # public cancel API and blocks every new deployment — cancel
-          # in-progress deployments from other SHAs before deploying.
-          cancel: true
