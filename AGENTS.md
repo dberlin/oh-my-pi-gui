@@ -75,3 +75,100 @@ The GUI runs the agent as a **bundled sidecar** (`resources/omp`, a compiled `Bu
 - Rendering model output: sanitize through `MarkdownRenderer` (rehype-sanitize schema in `src/renderer/lib/markdown.tsx`) — never `dangerouslySetInnerHTML` with raw model text.
 - Tool-rendered text follows the monorepo's TUI sanitization rules (tabs, truncation, path shortening) via the helpers in `src/renderer/lib/format.ts`.
 - Tests use the linkedom harness pattern (see `src/renderer/components/chat/ThinkingBlock.test.tsx`); zustand stores are reset in `afterEach` via their `reset()`/setters — never `mock.module()`.
+
+## Examples
+
+### Everyday GUI change — commits land in the right repo
+
+```bash
+# cwd: packages/gui/ — every git command here acts on the GUI repo
+bun run dev                              # HMR against resources/omp
+# …edit src/renderer/…
+bunx vitest run && bun run check:types
+bunx biome check <touched files>         # whole-repo check has legacy diagnostics
+git commit -am "Add X to the settings window"   # → nornzach/oh-my-pi-gui
+git push origin main
+```
+
+The same edit one level up (`packages/coding-agent/…`) belongs to the **monorepo**: commit at the monorepo root (`packages/gui/../..`) and push to the `nornzach/oh-my-pi` fork — never from here.
+
+### Upstream sync with a merge conflict
+
+```bash
+bash packages/gui/scripts/sync-upstream.sh
+# merge stops: CONFLICT in packages/coding-agent/src/…
+# resolve the markers, then from the MONOREPO ROOT (git there = fork):
+git add -A && git commit
+SKIP_MERGE=1 bash packages/gui/scripts/sync-upstream.sh   # resumes after the merge step
+git push origin main                       # monorepo root → nornzach/oh-my-pi
+# GUI-side changes (if any) commit and push separately from packages/gui/
+```
+
+### Adding a user-visible string (i18n)
+
+```ts
+// src/renderer/locales/en.ts
+"settings.proxy.enabled": "Proxy enabled",
+// src/renderer/locales/zh.ts — identical key, translated value
+"settings.proxy.enabled": "已启用代理",
+```
+
+```tsx
+// component
+import { useT } from "../../lib/i18n";
+
+const t = useT();
+<span>{t("settings.proxy.enabled")}</span>
+// interpolation: t("input.thinking", { level }) fills "Thinking: {level} — click to change"
+```
+
+Add the key to both locale files in the same commit — `locales.test.ts` fails the suite if the key sets diverge.
+
+### Rendering model or tool text
+
+```tsx
+import { MarkdownRenderer } from "../../lib/markdown";
+
+<MarkdownRenderer content={modelText} />
+```
+
+Never `dangerouslySetInnerHTML` with model output, and never build a second markdown path — extend the sanitize schema in `src/renderer/lib/markdown.tsx` if a construct is missing.
+
+### Writing a component test (linkedom harness)
+
+Follow `ThinkingBlock.test.tsx`: set up linkedom globals once, mount through `I18nProvider`, and reset stores in `afterEach`:
+
+```tsx
+import { parseHTML } from "linkedom";
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it } from "vitest";
+import { I18nProvider } from "../../lib/i18n";
+import { useSettingsStore } from "../../stores/settings";
+
+const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+const globals = globalThis as Record<string, unknown>;
+Object.assign(globals, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
+globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+
+let container: Element;
+let root: Root;
+
+async function mount(element: ReactElement): Promise<void> {
+	// linkedom's types don't match React's — cast as in ThinkingBlock.test.tsx
+	container = document.createElement("div") as unknown as Element;
+	document.body.appendChild(container as never);
+	root = createRoot(container);
+	await act(async () => {
+		root.render(<I18nProvider>{element}</I18nProvider>);
+	});
+}
+
+afterEach(async () => {
+	await act(async () => {
+		root.unmount();
+	});
+	container.remove();
+	useSettingsStore.getState().reset();   // setters/reset() — never mock.module()
+});
+```

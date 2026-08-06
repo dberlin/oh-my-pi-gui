@@ -19,6 +19,16 @@ Every slash command as a menu · full-fidelity rendering · providers, models & 
 
 `omp GUI` wraps the omp agent (`omp --mode rpc-ui`) in a fast Electron shell. The agent runs as a bundled sidecar — **no separate omp / bun / Node install is required**; the app ships its own binary and talks to it over a typed NDJSON RPC bridge.
 
+**Contents**
+
+- [Highlights](#highlights)
+- [Screenshots](#screenshots)
+- [Install](#install)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Development](#development) — [repository layout](#repository-layout-read-this-first) · [build from source](#build-from-source) · [dev commands](#dev-commands)
+- [Troubleshooting](#troubleshooting)
+- [Release process (maintainers)](#release-process-maintainers)
+
 ### Highlights
 
 - **Every `/` command, as a menu.** Commands aren't just text you type — they're grouped, searchable menus. Open the **Command Palette (`⌘K`)** for fuzzy access to everything, or browse grouped categories (Workspace, Providers, Model, Session…). Sub-menus, argument prompts, and toggles all run the underlying RPC — never a fake input box.
@@ -61,7 +71,17 @@ Current release: [**v0.5.1**](https://github.com/nornzach/oh-my-pi-gui/releases/
 
 Open the `.dmg` and drag **omp** into **Applications**. The build is unsigned, so on first launch macOS may block it: **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*).
 
-### Repository layout (read this first)
+### Keyboard shortcuts
+
+`⌘K` command palette · `⌘P` session search · `⌘N` new session · `⌘,` settings · `⌘B`/`⌘J` toggle sidebars · `Esc` abort turn
+
+---
+
+### Development
+
+*Everything below is for building and developing the GUI itself. End users installing the DMG can stop here.*
+
+#### Repository layout (read this first)
 
 This repo ([`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui)) is the **only** commit/release target for the GUI — but it does **not** contain the agent source. The agent is compiled in from the [oh-my-pi monorepo fork](https://github.com/nornzach/oh-my-pi) (tracking [upstream can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) at package time, as a bundled sidecar binary. Consequences:
 
@@ -69,7 +89,7 @@ This repo ([`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui)) 
 - **The ~120 MB sidecar binaries (`resources/omp*`) are gitignored.** A fresh clone has no `resources/omp`, and without it the app shows "Built-in omp not found" at startup. That is expected until you build or drop in a sidecar.
 - The monorepo is only a **sync + build source**; GUI commits, tags, and GitHub releases live exclusively in this repo.
 
-### Build from source
+#### Build from source
 
 **Prerequisites:** macOS (for the DMG targets), [Bun](https://bun.sh) ≥ 1.3.14, and both repos side by side:
 
@@ -98,7 +118,7 @@ bun run package:mac:x64   # → dist/omp-<ver>.dmg       (ships resources/omp.x6
 
 **Without the monorepo** (e.g. CI artifact assembly): drop a prebuilt sidecar into `resources/omp` (arm64) and/or `resources/omp.x64` (Intel), run `bun run build` + the matching `package:mac:*` script, and skip `build:omp` entirely. The release apps already include the sidecar, so end users never need any of this.
 
-### Development
+#### Dev commands
 
 ```bash
 bun run dev               # electron-vite dev with HMR (uses resources/omp as the sidecar)
@@ -130,16 +150,22 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 5. `bun run package:mac:arm64 -- --publish never` and `bun run package:mac:x64 -- --publish never`; mount both DMGs, verify the bundled sidecar is the matching arch (`file …/Contents/Resources/omp`), launch each app once (sidecar `ready`, settings toggle persists).
 6. Commit, tag `vX.Y.Z`, push `main` + tag, publish the GitHub Release with both DMGs and the changelog body.
 
-### Keyboard
-
-`⌘K` command palette · `⌘P` session search · `⌘N` new session · `⌘,` settings · `⌘B`/`⌘J` toggle sidebars · `Esc` abort turn
-
 ---
 
 <a name="中文"></a>
 ## 中文
 
 `omp GUI` 是 [omp](https://github.com/can1357/oh-my-pi) 编码 agent 的桌面图形界面。agent 以内置 sidecar 方式随应用打包——**无需单独安装 omp / bun / Node**，应用自带二进制，通过类型化的 NDJSON RPC 桥与其通信。
+
+**目录**
+
+- [核心特性](#核心特性)
+- [界面截图](#界面截图)
+- [安装](#安装)
+- [快捷键](#快捷键)
+- [开发](#开发)——[仓库结构](#仓库结构先读这段) · [从源码构建](#从源码构建) · [开发命令](#开发命令)
+- [常见问题](#常见问题)
+- [发布流程（维护者）](#发布流程维护者)
 
 ### 核心特性
 
@@ -183,7 +209,17 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 
 打开 `.dmg`,把 **omp** 拖进 **应用程序**。构建未签名,首次打开 macOS 可能拦截:**右键 → 打开**(或 *系统设置 → 隐私与安全性 → 仍要打开*)。
 
-### 仓库结构（先读这段）
+### 快捷键
+
+`⌘K` 命令面板 · `⌘P` 会话搜索 · `⌘N` 新会话 · `⌘,` 设置 · `⌘B`/`⌘J` 切换侧栏 · `Esc` 中止回合
+
+---
+
+### 开发
+
+*以下内容面向构建与开发 GUI 本身；通过 DMG 安装的最终用户可以到此为止。*
+
+#### 仓库结构（先读这段）
 
 本仓库（[`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui)）是 GUI **唯一**的提交与发布仓库——但它**不包含** agent 源码。agent 在打包时从 [oh-my-pi monorepo fork](https://github.com/nornzach/oh-my-pi)(同步自[上游 can1357/oh-my-pi](https://github.com/can1357/oh-my-pi))编译进来,成为内置 sidecar 二进制。因此：
 
@@ -191,7 +227,7 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 - **约 120 MB 的 sidecar 二进制(`resources/omp*`)不入库。** 全新克隆没有 `resources/omp`,此时启动应用会显示“Built-in omp not found”,这是构建/放置 sidecar 之前的预期行为。
 - monorepo 只承担**同步上游 + 提供构建源**的角色;GUI 的提交、标签、GitHub Release 全部只属于本仓库。
 
-### 从源码构建
+#### 从源码构建
 
 **前置条件:** macOS（构建 DMG）、[Bun](https://bun.sh) ≥ 1.3.14,以及并排的两个仓库：
 
@@ -220,7 +256,7 @@ bun run package:mac:x64   # → dist/omp-<版本>.dmg（随包 resources/omp.x64
 
 **没有 monorepo 时**（如 CI 组装产物）：把预编译 sidecar 放入 `resources/omp`（arm64）和/或 `resources/omp.x64`（Intel）,执行 `bun run build` 加对应的 `package:mac:*` 脚本,完全跳过 `build:omp`。Release 应用已内置 sidecar,最终用户无需关心以上任何步骤。
 
-### 开发
+#### 开发命令
 
 ```bash
 bun run dev               # electron-vite 开发模式(HMR,使用 resources/omp 作为 sidecar)
@@ -251,10 +287,6 @@ bun run check:types       # tsc 类型检查
 4. `bun run build:omp && bun run build:omp:x64`——分别烟测两个二进制（`resources/omp --smoke-test`,或以 `--mode rpc-ui` 启动并期待 `{"type":"ready"}`）。
 5. `bun run package:mac:arm64 -- --publish never` 与 `bun run package:mac:x64 -- --publish never`；挂载两个 DMG,用 `file …/Contents/Resources/omp` 确认包内 sidecar 架构匹配,各启动一次（sidecar 到达 `ready`、设置开关可持久化）。
 6. 提交、打 `vX.Y.Z` 标签、推送 `main` 与标签,携带两个 DMG 和 changelog 正文发布 GitHub Release。
-
-### 快捷键
-
-`⌘K` 命令面板 · `⌘P` 会话搜索 · `⌘N` 新会话 · `⌘,` 设置 · `⌘B`/`⌘J` 切换侧栏 · `Esc` 中止回合
 
 ---
 
