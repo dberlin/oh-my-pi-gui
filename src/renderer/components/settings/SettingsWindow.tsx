@@ -40,6 +40,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
+import { useUpdaterStore } from "../../stores/updater";
 import { CodeBlock } from "../chat/CodeBlock";
 import { Button, Input, LangSwitcher, Spinner, type TabItem, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
@@ -250,6 +251,60 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 			<h3 className="mb-2 text-[10px] font-semibold tracking-widest text-(--omp-dim) uppercase">{title}</h3>
 			{children}
 		</section>
+	);
+}
+
+/**
+ * Settings → GUI updates row: current version, manual check, and the same
+ * status machine the UpdateBanner shows (available/downloading/downloaded
+ * are driven from the shared updater store, so this row and the banner
+ * never disagree).
+ */
+function UpdatesSection() {
+	const t = useT();
+	const status = useUpdaterStore(s => s.status);
+	const [version, setVersion] = useState<string | null>(null);
+	useEffect(() => {
+		void window.omp.updater.version().then(setVersion);
+	}, []);
+
+	const statusText = (() => {
+		switch (status.state) {
+			case "checking":
+				return t("updater.checking");
+			case "not-available":
+				return t("updater.notAvailable");
+			case "available":
+				return t("updater.available", { version: status.version });
+			case "downloading":
+				return `${t("updater.downloading")} ${status.percent}%`;
+			case "downloaded":
+				return t("updater.ready", { version: status.version });
+			case "error":
+				return t("updater.checkFailed");
+			default:
+				return null;
+		}
+	})();
+
+	return (
+		<Section title={t("updater.section")}>
+			<div className="flex items-center gap-3">
+				<span className="min-w-0 flex-1 truncate text-[12px] text-(--omp-text)">
+					{version ? t("updater.currentVersion", { version }) : "…"}
+					{statusText ? <span className="ml-2 text-(--omp-muted)">{statusText}</span> : null}
+				</span>
+				<Button
+					disabled={status.state === "checking"}
+					onClick={() => void window.omp.updater.check()}
+					size="sm"
+					variant="secondary"
+				>
+					{status.state === "checking" ? <Spinner size="sm" /> : null}
+					{t("updater.check")}
+				</Button>
+			</div>
+		</Section>
 	);
 }
 
@@ -1924,6 +1979,7 @@ export function SettingsWindow() {
 											/>
 											<p className="mt-1.5 text-[11px] text-(--omp-muted)">{t("settings.gui.proxyDesc")}</p>
 										</Section>
+										<UpdatesSection />
 										<Section title={t("settings.gui.approvalMode")}>
 											<RadioGroup
 												name="approvalMode"

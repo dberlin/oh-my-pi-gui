@@ -74,6 +74,8 @@ export const IPC_EVENTS = {
 	TRAY_STATE_PUSH: "tray:state-push",
 	/** Renderer → main fire-and-forget run-progress state (dock badge + progress bar) */
 	PROGRESS_SET: "progress:set",
+	/** Auto-update status machine push (idle/checking/available/downloading/downloaded/not-available/error) */
+	UPDATER_STATUS: "updater:status",
 } as const;
 
 // ============================================================================
@@ -140,7 +142,30 @@ export const IPC_COMMANDS = {
 	SESSION_CONSUME_PENDING: "session:consume-pending",
 	/** Round-trip a draft through the user's $VISUAL/$EDITOR (temp file, exit-0 read-back) */
 	EDITOR_OPEN_EXTERNAL: "editor:open-external",
+	/** Manual update check */
+	UPDATER_CHECK: "updater:check",
+	/** Start downloading the available update */
+	UPDATER_DOWNLOAD: "updater:download",
+	/** Quit and install the downloaded update */
+	UPDATER_INSTALL: "updater:install",
+	/** Current updater status (replay for renderer boot) */
+	UPDATER_GET_STATUS: "updater:getStatus",
+	/** Current app version (settings → updates row) */
+	UPDATER_VERSION: "updater:version",
 } as const;
+
+// ============================================================================
+// Auto-update status machine (electron-updater → renderer)
+// ============================================================================
+
+export type UpdateStatus =
+	| { state: "idle" }
+	| { state: "checking" }
+	| { state: "available"; version: string; notes?: string }
+	| { state: "downloading"; percent: number; bytesPerSecond: number; transferred: number; total: number }
+	| { state: "downloaded"; version: string }
+	| { state: "not-available"; version: string }
+	| { state: "error"; message: string };
 
 export type MenuAction =
 	| "new-session"
@@ -574,6 +599,14 @@ export interface OmpApi {
 		onLogLines(callback: (lines: string[]) => void): () => void;
 		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
+		onUpdaterStatus(callback: (status: UpdateStatus) => void): () => void;
+	};
+	updater: {
+		check(): Promise<UpdateStatus>;
+		download(): Promise<UpdateStatus>;
+		install(): Promise<void>;
+		getStatus(): Promise<UpdateStatus>;
+		version(): Promise<string>;
 	};
 	ui: {
 		respondExtensionUi(response: ExtensionUIResponse): void;

@@ -20,6 +20,7 @@ import type {
 	RunProgressState,
 	SessionInfo,
 	TrayState,
+	UpdateStatus,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import type {
@@ -293,6 +294,16 @@ const api: OmpApi = {
 			),
 		onDeepLink: (callback: (link: DeepLinkPayload) => void) =>
 			subscribe<DeepLinkPayload>(IPC_EVENTS.DEEP_LINK, callback),
+		onUpdaterStatus: (callback: (status: UpdateStatus) => void) =>
+			subscribe<UpdateStatus>(IPC_EVENTS.UPDATER_STATUS, callback),
+	},
+
+	updater: {
+		check: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_CHECK),
+		download: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_DOWNLOAD),
+		install: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_INSTALL),
+		getStatus: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_GET_STATUS),
+		version: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_VERSION),
 	},
 
 	ui: {

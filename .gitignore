@@ -16,3 +16,4 @@ resources/omp.*
 # electron-builder trial/override configs
 electron-builder.trial.yml
 electron-builder.x64.yml
+dev-app-update.yml

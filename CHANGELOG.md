@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Auto-update flow**: the app now discovers, stages, and applies updates from GitHub Releases end to end. A banner announces new versions ("新版本 x.y.z 已发布") with per-version dismissal; downloads run user-initiated (`autoDownload` stays off) with a live progress bar (percent + transferred/total, differential via release blockmaps); a "重启安装" prompt applies the staged update via quit-and-install. Settings → 界面 gains an 应用更新 row (current version + manual check + live status). The main-process updater drives a single status machine (idle/checking/available/downloading/downloaded/not-available/error) replayed to every window; `OMP_DEV_UPDATE_CHECK=1` + `dev-app-update.yml` enables the same flow from `electron-vite preview` for development.
+
 ## [0.4.0] - 2026-08-06
 
 ### Added

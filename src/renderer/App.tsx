@@ -35,6 +35,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { SidecarBanner } from "./components/layout/SidecarBanner";
 import { StatusFooter } from "./components/layout/StatusFooter";
 import { TitleBar } from "./components/layout/TitleBar";
+import { UpdateBanner } from "./components/layout/UpdateBanner";
 import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { hydrateSession, useRpcEvents } from "./hooks/use-rpc-events";
@@ -52,6 +53,7 @@ import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
 import { toast } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
+import { subscribeUpdaterStatus } from "./stores/updater";
 
 // Heavy overlays code-split: they render null while closed, so they download
 // only on first open instead of bloating the eager bundle.
@@ -273,8 +275,8 @@ export function App() {
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const keymap = useMemo(() => compileKeymap(KEYMAP_ACTIONS, keymapOverrides), [keymapOverrides]);
 
+	// Boot hydration of user keybinding overrides (prefs key "keymapOverrides").
 	useEffect(() => {
-		// Boot hydration of user keybinding overrides (prefs key "keymapOverrides").
 		void useUiStore.getState().hydrateKeymap();
 
 		// One dispatch switch keyed by actionId: the compiled-map lookup below and
@@ -430,6 +432,9 @@ export function App() {
 		return () => window.removeEventListener("keydown", onKey);
 	}, [t, keymap]);
 
+	// Updater status: main-process push + boot replay, unsubscribed on unmount.
+	useEffect(() => subscribeUpdaterStatus(), []);
+
 	useEffect(() => {
 		const run = async (action: MenuAction, payload?: MenuActionPayload) => {
 			const ui = useUiStore.getState();
@@ -508,6 +513,7 @@ export function App() {
 			<main className="relative flex min-w-0 flex-1 flex-col">
 				<TitleBar onToggleStats={() => useUiStore.getState().openStatsDashboard()} />
 				<SidecarBanner />
+				<UpdateBanner />
 				<ChatStream />
 				<InputArea />
 				<StatusFooter />
