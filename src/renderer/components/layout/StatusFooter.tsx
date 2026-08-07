@@ -117,18 +117,26 @@ export function StatusFooter() {
 	// Active session modes as small badges beside the model segment. Loop's
 	// tooltip reuses the Modes window's limit/args formatting; paused is the
 	// `set_agents_paused` gate (command palette "Pause All Agents").
+	// Badges are SWITCHES, not just indicators (the exposure audit): plan/vibe
+	// toggle directly off, paused resumes, goal/loop open the Modes window
+	// (they need richer state than a bare off-switch).
 	const loopActive = loopMode?.enabled === true;
 	const loopLimit = loopMode ? parseLoopLimit(loopMode.limit) : null;
 	const loopArgs = loopLimit ? loopLimitText(t, loopLimit) : t("modesPanel.loop.noLimit");
-	const modeBadges: { key: string; label: string; tooltip: string; variant: BadgeVariant }[] = [];
+	const modeBadges: { key: string; label: string; tooltip: string; variant: BadgeVariant; onClick: () => void }[] = [];
 	// Chat tabs are tool-free: agent-mode badges (plan/goal/loop/vibe) can't be
 	// armed there. The paused gate is transport-level and stays.
 	if (planModeEnabled && !isChat) {
 		modeBadges.push({
 			key: "plan",
 			label: t("statusFooter.mode.plan"),
-			tooltip: t("statusFooter.mode.planTooltip"),
+			tooltip: t("statusFooter.mode.planTooltipOff"),
 			variant: "info",
+			onClick: () => {
+				void window.omp.rpc.setPlanMode(false).then(response => {
+					if (response.success) useSessionStore.setState({ planModeEnabled: false });
+				});
+			},
 		});
 	}
 	if (goalActive && !isChat) {
@@ -139,6 +147,7 @@ export function StatusFooter() {
 				? t("statusFooter.mode.goalTooltipObjective", { objective: goalObjective })
 				: t("statusFooter.mode.goalTooltip"),
 			variant: "success",
+			onClick: () => useUiStore.getState().openModes("goal"),
 		});
 	}
 	if (loopActive && !isChat) {
@@ -147,22 +156,34 @@ export function StatusFooter() {
 			label: t("statusFooter.mode.loop"),
 			tooltip: t("statusFooter.mode.loopTooltip", { args: loopArgs }),
 			variant: "info",
+			onClick: () => useUiStore.getState().openModes("loop"),
 		});
 	}
 	if (vibeModeEnabled && !isChat) {
 		modeBadges.push({
 			key: "vibe",
 			label: t("statusFooter.mode.vibe"),
-			tooltip: t("statusFooter.mode.vibeTooltip"),
+			tooltip: t("statusFooter.mode.vibeTooltipOff"),
 			variant: "default",
+			onClick: () => {
+				// set_vibe_mode emits no event — mirror the settled value into the store.
+				void window.omp.rpc.setVibeMode(false).then(response => {
+					if (response.success) useSessionStore.setState({ vibeModeEnabled: false });
+				});
+			},
 		});
 	}
 	if (agentsPaused) {
 		modeBadges.push({
 			key: "paused",
 			label: t("statusFooter.mode.paused"),
-			tooltip: t("statusFooter.mode.pausedTooltip"),
+			tooltip: t("statusFooter.mode.pausedTooltipResume"),
 			variant: "warning",
+			onClick: () => {
+				void window.omp.rpc.setAgentsPaused(false).then(response => {
+					if (response.success) useSessionStore.setState({ agentsPaused: false, agentsPausedAt: null });
+				});
+			},
 		});
 	}
 
@@ -195,9 +216,15 @@ export function StatusFooter() {
 						<Sep />
 						<span className="flex shrink-0 items-center gap-1">
 							{modeBadges.map(badge => (
-								<span key={badge.key} title={badge.tooltip} className="flex shrink-0 cursor-default">
+								<button
+									key={badge.key}
+									type="button"
+									onClick={badge.onClick}
+									title={badge.tooltip}
+									className="flex shrink-0 cursor-pointer rounded hover:brightness-110"
+								>
 									<Badge variant={badge.variant}>{badge.label}</Badge>
-								</span>
+								</button>
 							))}
 						</span>
 					</>

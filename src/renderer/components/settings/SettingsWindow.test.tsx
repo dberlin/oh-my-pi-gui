@@ -63,8 +63,6 @@ describe("CapabilitiesHome", () => {
 					onOpenMemory={noop}
 					onOpenModelRoles={noop}
 					onOpenTools={noop}
-					onToggleAdvisor={noop}
-					onToggleTtsr={noop}
 					ready
 					ttsrEnabled
 				/>
@@ -85,34 +83,9 @@ describe("CapabilitiesHome", () => {
 		expect(html).toContain("Enabled, not running");
 	});
 
-	it("locks capability toggles and exposes progress while a mutation is pending", () => {
-		const noop = () => {};
-		const html = renderToStaticMarkup(
-			<I18nProvider>
-				<CapabilitiesHome
-					advisorEnabled={false}
-					advisorActive={false}
-					memoryBackend="off"
-					onConfigureAdvisor={noop}
-					onConfigureTtsr={noop}
-					onOpenAgents={noop}
-					onOpenGoal={noop}
-					onOpenLoop={noop}
-					onOpenMemory={noop}
-					onOpenModelRoles={noop}
-					onOpenTools={noop}
-					onToggleAdvisor={noop}
-					onToggleTtsr={noop}
-					pendingCapability="ttsr.enabled"
-					ready
-					ttsrEnabled
-				/>
-			</I18nProvider>,
-		);
-
-		expect(html.match(/ disabled=""/g)).toHaveLength(2);
-		expect(html).toContain('role="status"');
-	});
+	// (The pending-toggle lock test was removed with the toggle buttons —
+	// capability cards are now discovery + navigation only; the values live in
+	// their schema tabs.)
 });
 
 describe("groupSchemaEntries", () => {

@@ -29,20 +29,18 @@ import {
 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { SettingEntry, SettingsSchemaResult, ThinkingLevel } from "../../../shared/rpc-types";
+import type { SettingEntry, SettingsSchemaResult } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
 import { flagsToCommandLine, type LaunchProfile, parseLaunchProfile, profileToFlags } from "../../lib/launch-profile";
 import { setCodeLineNumbersPref } from "../../lib/markdown";
 import { applyThemeByName, getPersistedThemeSelection, THEMES, type ThemeName } from "../../lib/themes";
 import { useMessagesStore } from "../../stores/messages";
-import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
-import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { useUpdaterStore } from "../../stores/updater";
 import { CodeBlock } from "../chat/CodeBlock";
-import { Button, Input, LangSwitcher, Spinner, type TabItem, TextArea } from "../common";
+import { Button, Input, Spinner, type TabItem, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { type EnumerableOption, EnumerableSelect } from "./editors/EnumerableSelect";
 import { ProviderLimitsEditor } from "./editors/ProviderLimitsEditor";
@@ -50,9 +48,6 @@ import { RecordKvEditor } from "./editors/RecordKvEditor";
 import { ModelValueSelect, settingRefKind } from "./ModelValueSelect";
 import { ZH_GROUP_TITLES, ZH_SETTINGS } from "./schema-zh";
 
-const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-
-type ApprovalMode = "always-ask" | "write" | "yolo";
 type LoadState = "loading" | "error" | "ready";
 
 /** Launch-profile text fields that commit on blur (checkboxes/chips apply immediately). */
@@ -943,12 +938,9 @@ interface CapabilitiesHomeProps {
 	advisorEnabled: boolean;
 	advisorActive: boolean | undefined;
 	memoryBackend: string;
-	pendingCapability?: "ttsr.enabled" | "advisor.enabled";
-	onToggleTtsr: () => void;
 	onConfigureTtsr: () => void;
 	onOpenAgents: () => void;
 	onOpenModelRoles: () => void;
-	onToggleAdvisor: () => void;
 	onConfigureAdvisor: () => void;
 	onOpenGoal: () => void;
 	onOpenLoop: () => void;
@@ -962,12 +954,9 @@ export function CapabilitiesHome({
 	advisorEnabled,
 	advisorActive,
 	memoryBackend,
-	pendingCapability,
-	onToggleTtsr,
 	onConfigureTtsr,
 	onOpenAgents,
 	onOpenModelRoles,
-	onToggleAdvisor,
 	onConfigureAdvisor,
 	onOpenGoal,
 	onOpenLoop,
@@ -1004,17 +993,9 @@ export function CapabilitiesHome({
 					statusActive={ready && ttsrEnabled}
 					title={t("settings.capabilities.ttsr")}
 				>
-					<Button
-						disabled={!ready || pendingCapability !== undefined}
-						loading={pendingCapability === "ttsr.enabled"}
-						onClick={onToggleTtsr}
-						size="sm"
-						type="button"
-						variant={ttsrEnabled ? "secondary" : "primary"}
-					>
-						{t(ttsrEnabled ? "settings.capabilities.disable" : "settings.capabilities.enable")}
-					</Button>
-					<Button onClick={onConfigureTtsr} size="sm" type="button" variant="ghost">
+					{/* Toggle lives in Context › Rules (schema owns the value); this card
+					    is discovery + navigation only. */}
+					<Button onClick={onConfigureTtsr} size="sm" type="button" variant="secondary">
 						{t("settings.capabilities.configureRules")}
 					</Button>
 				</CapabilityCard>
@@ -1050,17 +1031,8 @@ export function CapabilitiesHome({
 					statusActive={ready && advisorEnabled && advisorActive !== false}
 					title={t("settings.capabilities.advisor")}
 				>
-					<Button
-						disabled={!ready || pendingCapability !== undefined}
-						loading={pendingCapability === "advisor.enabled"}
-						onClick={onToggleAdvisor}
-						size="sm"
-						type="button"
-						variant={advisorEnabled ? "secondary" : "primary"}
-					>
-						{t(advisorEnabled ? "settings.capabilities.disable" : "settings.capabilities.enable")}
-					</Button>
-					<Button onClick={onConfigureAdvisor} size="sm" type="button" variant="ghost">
+					{/* Toggle lives in Model › Advisor (schema owns the value). */}
+					<Button onClick={onConfigureAdvisor} size="sm" type="button" variant="secondary">
 						{t("settings.capabilities.configureAdvisor")}
 					</Button>
 				</CapabilityCard>
@@ -1112,7 +1084,6 @@ export function CapabilitiesHome({
 
 const CAPABILITIES_TAB_ID = "capabilities";
 
-const RUNTIME_TAB_ID = "runtime";
 const ADVANCED_TAB_ID = "advanced";
 const GUI_TAB_ID = "gui";
 
@@ -1120,22 +1091,15 @@ export function SettingsWindow() {
 	const t = useT();
 	const open = useUiStore(state => state.settingsOpen);
 	const close = useUiStore(state => state.closeSettings);
-	const setTheme = useUiStore(state => state.setTheme);
 	const setFontSize = useUiStore(state => state.setFontSize);
 	const setPanelTab = useUiStore(state => state.setPanelTab);
 	const setNotifications = useUiStore(state => state.setNotifications);
 	const setTranscriptDetail = useUiStore(state => state.setTranscriptDetail);
-	const theme = useUiStore(state => state.theme);
 	const fontSize = useUiStore(state => state.fontSize);
 	const panelTab = useUiStore(state => state.panelTab);
 	const notifications = useUiStore(state => state.notifications);
 	const thinkingExpanded = useUiStore(state => state.thinkingExpanded);
 	const transcriptDetail = useUiStore(state => state.transcriptDetail);
-	const settings = useSettingsStore();
-	const model = useModelStore(state => state.model);
-	const thinkingLevel = useModelStore(state => state.thinkingLevel);
-	const fastModeEnabled = useModelStore(state => state.fastModeEnabled);
-	const planModeEnabled = useSessionStore(state => state.planModeEnabled);
 	const sidecarReady = useSessionStore(state => state.status === "ready");
 
 	const [tab, setTab] = useState(CAPABILITIES_TAB_ID);
@@ -1144,7 +1108,6 @@ export function SettingsWindow() {
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [schema, setSchema] = useState<SettingsSchemaResult | null>(null);
 	const [values, setValues] = useState<Record<string, unknown>>({});
-	const [approvalMode, setApprovalMode] = useState<ApprovalMode>("yolo");
 	const [fontSizeDraft, setFontSizeDraft] = useState<string | null>(null);
 	const [proxyDraft, setProxyDraft] = useState<string | null>(null);
 	const [savedProxy, setSavedProxy] = useState("");
@@ -1165,7 +1128,6 @@ export function SettingsWindow() {
 	);
 	const sidecarBusy = sessionBusy || executionBusy;
 	const [reloadToken, setReloadToken] = useState(0);
-	const [pendingCapability, setPendingCapability] = useState<"ttsr.enabled" | "advisor.enabled" | undefined>();
 	const [advisorActive, setAdvisorActive] = useState<boolean>();
 
 	// Hydrate the schema, current values, and GUI prefs each time the window
@@ -1204,10 +1166,6 @@ export function SettingsWindow() {
 					if (typeof data?.advisorEnabled === "boolean") nextValues["advisor.enabled"] = data.advisorEnabled;
 					setAdvisorActive(data?.advisorActive);
 				}
-				const configured = nextValues["tools.approvalMode"];
-				setApprovalMode(
-					configured === "always-ask" || configured === "write" || configured === "yolo" ? configured : "yolo",
-				);
 				setFontSizeDraft(null);
 				setSchema(result);
 				setValues(nextValues);
@@ -1229,41 +1187,6 @@ export function SettingsWindow() {
 		setValues(prev => ({ ...prev, [path]: value }));
 	}, []);
 
-	const applyCapabilityToggle = async (path: "ttsr.enabled" | "advisor.enabled", enabled: boolean, title: string) => {
-		if (pendingCapability !== undefined) return;
-		setPendingCapability(path);
-		try {
-			const res = await window.omp.rpc.setSetting(path, enabled);
-			if (!res.success) {
-				toast({ variant: "error", title, message: res.error });
-				return;
-			}
-
-			const data = res.data as SettingsResponseData | undefined;
-			const committedValue =
-				path === "advisor.enabled" && typeof data?.advisorEnabled === "boolean" ? data.advisorEnabled : enabled;
-			handleCommitted(path, committedValue);
-			if (path === "ttsr.enabled") {
-				const { isStreaming, isCompacting, sessionFile } = useSessionStore.getState();
-				if (isStreaming || isCompacting) {
-					toast({ variant: "info", title, message: t("settings.capabilities.ttsrRestartPending") });
-				} else {
-					await window.omp.sidecar.restart(sessionFile ?? undefined);
-					toast({ variant: "info", title, message: t("settings.capabilities.ttsrRestarting") });
-				}
-			} else {
-				setAdvisorActive(data?.advisorActive);
-				if (enabled && data?.advisorActive === false) {
-					toast({ variant: "warning", title, message: t("settings.capabilities.advisorNoModel") });
-				}
-			}
-		} catch (error) {
-			toast({ variant: "error", title, message: String(error) });
-		} finally {
-			setPendingCapability(undefined);
-		}
-	};
-
 	// External edits (TUI selector, composer controls, another window) push
 	// config_update — refresh the displayed values or this window goes stale
 	// while sitting open. Values-only refetch: schema/labels don't change, and
@@ -1280,10 +1203,6 @@ export function SettingsWindow() {
 				if (typeof data.advisorEnabled === "boolean") nextValues["advisor.enabled"] = data.advisorEnabled;
 				setValues(prev => ({ ...prev, ...nextValues }));
 				setAdvisorActive(data.advisorActive);
-				const configured = data.values["tools.approvalMode"];
-				if (configured === "always-ask" || configured === "write" || configured === "yolo") {
-					setApprovalMode(configured);
-				}
 			});
 		});
 		return () => {
@@ -1293,10 +1212,11 @@ export function SettingsWindow() {
 	}, [open]);
 
 	const tabs = useMemo<TabItem[]>(() => {
-		const list: TabItem[] = [
-			{ id: CAPABILITIES_TAB_ID, label: "OMP Capabilities" },
-			{ id: RUNTIME_TAB_ID, label: "Runtime" },
-		];
+		// No hardcoded Runtime tab: every row it had duplicates another surface —
+		// model change (footer/⌥M), thinking (Model schema tab + footer), fast
+		// mode (composer ⚡), plan (Tasks tab/⌥⇧P), auto-compact (Context tab),
+		// auto-retry (Advanced), message handling (Interaction tab).
+		const list: TabItem[] = [{ id: CAPABILITIES_TAB_ID, label: "OMP Capabilities" }];
 		if (schema) {
 			for (const schemaTab of schema.tabs) {
 				if (schema.entries.some(entry => entry.tab === schemaTab.id && entry.tuiOnly !== true)) {
@@ -1307,59 +1227,6 @@ export function SettingsWindow() {
 		list.push({ id: ADVANCED_TAB_ID, label: "Advanced" }, { id: GUI_TAB_ID, label: "GUI" });
 		return list;
 	}, [schema]);
-
-	// ── Runtime RPC toggles (existing behaviour, applied immediately) ──
-	const applyFastMode = async (enabled: boolean) => {
-		const res = await window.omp.rpc.setFastMode(enabled);
-		if (res.success) {
-			const data = res.data as { enabled?: boolean; active?: boolean } | undefined;
-			useModelStore.setState({
-				fastModeEnabled: data?.enabled ?? enabled,
-				fastModeActive: data?.active ?? false,
-			});
-		} else {
-			toast({ variant: "error", title: "Fast mode", message: res.error });
-		}
-	};
-	const applyPlanMode = async (enabled: boolean) => {
-		const res = await window.omp.rpc.setPlanMode(enabled);
-		if (res.success) {
-			const data = res.data as { enabled?: boolean } | undefined;
-			useSessionStore.setState({ planModeEnabled: data?.enabled ?? enabled });
-		} else {
-			toast({ variant: "error", title: "Plan mode", message: res.error });
-		}
-	};
-	const applySteeringMode = async (mode: "all" | "one-at-a-time") => {
-		const res = await window.omp.rpc.setSteeringMode(mode);
-		if (res.success) settings.update({ steeringMode: mode });
-		else toast({ variant: "error", title: "Steering mode", message: res.error });
-	};
-	const applyFollowUpMode = async (mode: "all" | "one-at-a-time") => {
-		const res = await window.omp.rpc.setFollowUpMode(mode);
-		if (res.success) settings.update({ followUpMode: mode });
-		else toast({ variant: "error", title: "Follow-up mode", message: res.error });
-	};
-	const applyInterruptMode = async (mode: "immediate" | "wait") => {
-		const res = await window.omp.rpc.setInterruptMode(mode);
-		if (res.success) settings.update({ interruptMode: mode });
-		else toast({ variant: "error", title: "Interrupt mode", message: res.error });
-	};
-	const applyAutoCompaction = async (enabled: boolean) => {
-		const res = await window.omp.rpc.setAutoCompaction(enabled);
-		if (res.success) settings.update({ autoCompaction: enabled });
-		else toast({ variant: "error", title: "Auto-compaction", message: res.error });
-	};
-	const applyAutoRetry = async (enabled: boolean) => {
-		const res = await window.omp.rpc.setAutoRetry(enabled);
-		if (res.success) settings.update({ autoRetry: enabled });
-		else toast({ variant: "error", title: "Auto-retry", message: res.error });
-	};
-	const applyThinkingLevel = async (level: ThinkingLevel) => {
-		const res = await window.omp.rpc.setThinkingLevel(level);
-		if (res.success) useModelStore.setState({ thinkingLevel: level });
-		else toast({ variant: "error", title: "Thinking level", message: res.error });
-	};
 
 	// Load the persisted proxy pref each time the window opens.
 	useEffect(() => {
@@ -1405,14 +1272,6 @@ export function SettingsWindow() {
 	}, [open, cwd]);
 
 	// ── GUI-local preferences (prefs IPC) ──
-	// Route through applyThemeByName: it persists `themeName` (read FIRST at
-	// boot by getPersistedThemeSelection) and the legacy `theme` pref
-	// coherently. Writing only the legacy pref left a previously picked named
-	// theme to silently win on the next launch.
-	const applyTheme = (next: "dark" | "light" | "system") => {
-		setTheme(next);
-		applyThemeByName(next);
-	};
 	const applyPanelTab = (next: typeof panelTab) => {
 		setPanelTab(next);
 		void window.omp.prefs.set("defaultPanelTab", next);
@@ -1428,12 +1287,6 @@ export function SettingsWindow() {
 	const applyTranscriptDetail = (next: typeof transcriptDetail) => {
 		setTranscriptDetail(next);
 		void window.omp.prefs.set("transcriptDetail", next);
-	};
-	const applyApprovalMode = (next: ApprovalMode) => {
-		setApprovalMode(next);
-		// Update the shared store too so the composer ApprovalControl + tray reflect
-		// the change immediately (set_setting applies at runtime, no restart).
-		useSettingsStore.getState().setApprovalMode(next);
 	};
 	const commitFontSize = () => {
 		if (fontSizeDraft === null) return;
@@ -1683,7 +1536,6 @@ export function SettingsWindow() {
 							<>
 								{tab === CAPABILITIES_TAB_ID && (
 									<CapabilitiesHome
-										pendingCapability={pendingCapability}
 										advisorActive={advisorActive}
 										advisorEnabled={values["advisor.enabled"] === true}
 										memoryBackend={
@@ -1721,176 +1573,15 @@ export function SettingsWindow() {
 											close();
 											useUiStore.getState().openModelRoles();
 										}}
-										onToggleAdvisor={() =>
-											void applyCapabilityToggle(
-												"advisor.enabled",
-												values["advisor.enabled"] !== true,
-												t("settings.capabilities.advisor"),
-											)
-										}
-										onToggleTtsr={() =>
-											void applyCapabilityToggle(
-												"ttsr.enabled",
-												values["ttsr.enabled"] !== true,
-												t("settings.capabilities.ttsr"),
-											)
-										}
 										ready={loadState === "ready" && sidecarReady}
 										ttsrEnabled={values["ttsr.enabled"] === true}
 									/>
 								)}
 
-								{tab === RUNTIME_TAB_ID && (
-									<>
-										<Section title={t("settings.runtime.activeModel")}>
-											<div className="flex items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-3 py-2.5">
-												<span className="min-w-0 flex-1 truncate font-mono text-xs text-(--omp-status-model)">
-													{model ? `${model.provider}/${model.id}` : t("settings.runtime.noModel")}
-												</span>
-												<Button
-													onClick={() => {
-														close();
-														useUiStore.getState().openModelPicker();
-													}}
-													size="sm"
-													type="button"
-													variant="secondary"
-												>
-													{t("settings.runtime.change")}
-												</Button>
-											</div>
-										</Section>
-										<Section title={t("settings.runtime.thinkingLevel")}>
-											<div className="flex flex-wrap gap-1">
-												{THINKING_LEVELS.map(level => {
-													const active = thinkingLevel === level;
-													return (
-														<button
-															className={`rounded-md border px-2.5 py-1 font-mono text-[11px] transition-colors ${
-																active
-																	? "border-(--omp-accent) bg-[color-mix(in_srgb,var(--omp-accent)_12%,transparent)] text-(--omp-accent)"
-																	: "border-(--omp-border-muted) text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
-															}`}
-															key={level}
-															onClick={() => void applyThinkingLevel(level)}
-															type="button"
-														>
-															{level}
-														</button>
-													);
-												})}
-											</div>
-											<p className="mt-2 text-[11px] text-(--omp-muted)">
-												{t("settings.runtime.thinkingDesc")}
-											</p>
-										</Section>
-										<Section title={t("settings.runtime.runtime")}>
-											<Toggle
-												checked={fastModeEnabled}
-												description={t("settings.runtime.fastModeDesc")}
-												label={t("settings.runtime.fastMode")}
-												onChange={enabled => void applyFastMode(enabled)}
-											/>
-											<Toggle
-												checked={planModeEnabled}
-												description={t("settings.runtime.planModeDesc")}
-												label={t("settings.runtime.planMode")}
-												onChange={enabled => void applyPlanMode(enabled)}
-											/>
-											<Toggle
-												checked={settings.autoCompaction}
-												description={t("settings.runtime.autoCompactionDesc")}
-												label={t("settings.runtime.autoCompaction")}
-												onChange={enabled => void applyAutoCompaction(enabled)}
-											/>
-											<Toggle
-												checked={settings.autoRetry}
-												description={t("settings.runtime.autoRetryDesc")}
-												label={t("settings.runtime.autoRetry")}
-												onChange={enabled => void applyAutoRetry(enabled)}
-											/>
-										</Section>
-										<Section title={t("settings.runtime.messageHandling")}>
-											<RadioGroup
-												name="steeringMode"
-												onChange={value => void applySteeringMode(value)}
-												options={[
-													{
-														value: "all",
-														label: t("settings.runtime.steerAll"),
-														description: t("settings.runtime.steerAllDesc"),
-													},
-													{
-														value: "one-at-a-time",
-														label: t("settings.runtime.steerOne"),
-														description: t("settings.runtime.steerOneDesc"),
-													},
-												]}
-												value={settings.steeringMode}
-											/>
-											<div className="h-2" />
-											<RadioGroup
-												name="followUpMode"
-												onChange={value => void applyFollowUpMode(value)}
-												options={[
-													{
-														value: "all",
-														label: t("settings.runtime.followUpAll"),
-														description: t("settings.runtime.followUpAllDesc"),
-													},
-													{
-														value: "one-at-a-time",
-														label: t("settings.runtime.followUpOne"),
-														description: t("settings.runtime.followUpOneDesc"),
-													},
-												]}
-												value={settings.followUpMode}
-											/>
-											<div className="h-2" />
-											<RadioGroup
-												name="interruptMode"
-												onChange={value => void applyInterruptMode(value)}
-												options={[
-													{
-														value: "immediate",
-														label: t("settings.runtime.interruptImmediate"),
-														description: t("settings.runtime.interruptImmediateDesc"),
-													},
-													{
-														value: "wait",
-														label: t("settings.runtime.interruptWait"),
-														description: t("settings.runtime.interruptWaitDesc"),
-													},
-												]}
-												value={settings.interruptMode}
-											/>
-										</Section>
-									</>
-								)}
-
 								{tab === GUI_TAB_ID && (
 									<>
-										<Section title={t("settings.gui.theme")}>
-											<RadioGroup
-												name="theme"
-												onChange={applyTheme}
-												options={[
-													{ value: "dark", label: t("settings.gui.dark") },
-													{ value: "light", label: t("settings.gui.light") },
-													{
-														value: "system",
-														label: t("settings.gui.system"),
-														description: t("settings.gui.systemDesc"),
-													},
-												]}
-												value={theme}
-											/>
-										</Section>
-										<Section title={t("lang.switch")}>
-											<div className="flex items-center gap-2">
-												<LangSwitcher />
-											</div>
-										</Section>
+										{/* Theme + language live in the Sidebar's bottom rail — the only
+										    home they need; approval mode is Interaction › Approvals'. */}
 										<Section title={t("settings.gui.fontSize")}>
 											<div className="w-40">
 												<Input
@@ -1980,33 +1671,6 @@ export function SettingsWindow() {
 											<p className="mt-1.5 text-[11px] text-(--omp-muted)">{t("settings.gui.proxyDesc")}</p>
 										</Section>
 										<UpdatesSection />
-										<Section title={t("settings.gui.approvalMode")}>
-											<RadioGroup
-												name="approvalMode"
-												onChange={applyApprovalMode}
-												options={[
-													{
-														value: "always-ask",
-														label: t("settings.gui.approval.alwaysAsk"),
-														description: t("settings.gui.approval.alwaysAskDesc"),
-													},
-													{
-														value: "write",
-														label: t("settings.gui.approval.write"),
-														description: t("settings.gui.approval.writeDesc"),
-													},
-													{
-														value: "yolo",
-														label: t("settings.gui.approval.yolo"),
-														description: t("settings.gui.approval.yoloDesc"),
-													},
-												]}
-												value={approvalMode}
-											/>
-											<p className="mt-2 text-[11px] text-(--omp-muted)">
-												{t("settings.gui.approval.note")}
-											</p>
-										</Section>
 										<Section title={t("settings.launch.title")}>
 											<div className="space-y-3">
 												<div>
