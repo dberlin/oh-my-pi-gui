@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-08
+
+### Added
+
+- **Tab × worktree binding (plan/20)**: any tab can run in its own git worktree — parallel tabs never step on each other's files. Create via the tab strip's third button (⌥T) or a workspace group's menu: names a branch `omp/gui/<name>` checked out at `~/.omp/wt/gui-<name>-<hash7>` (swept by `omp worktree clear`). Bound tabs carry a branch marker, label by worktree name, and — on close — prompt to delete a clean worktree or force-delete/keep a dirty one (per-tab status reads ride a new tab-addressed RPC channel, never forcing a switch).
+- **Git status segment in the footer**: branch plus `*unstaged`/`+staged`/`?untracked` indicators (TUI parity), live-polled from the active session and refreshed on run end / tab / cwd change; click to refresh.
+- **PR Center (plan/21, ⌥P)**: a fullscreen panel for GitHub pull requests — rich list (CI health badges, author initial avatars, diff stats), markdown detail with per-check status, per-file lazily-loaded syntax-highlighted diffs, an AI-drafted create flow (title/body from the branch's commits, editable before submit), and one-click checkout that opens the PR in its own worktree-bound tab.
+- **Upstream v17.2.10+ sync (112 commits)**: Chinese quota-exhaustion classification, ANTHROPIC_BASE_URL for chat, OAuth org re-login fix, concurrent extension imports, ACP legacy session resolution, hook-refusal and fallback-commit exit-code fixes, and more — all inherited via the bundled sidecar.
+
+### Fixed
+
+- **Tab chip tracks the session's workspace**: switching a session re-roots the chip's cwd (previously frozen at the app's launch project for the tab's whole life).
+- **Idle-tab close bypass**: clicking × on an idle tab skipped the confirm handler entirely — it now routes through it, so the worktree cleanup prompt can't be missed.
+
 ## [0.6.1] - 2026-08-07
 
 ### Added
