@@ -78,6 +78,9 @@ const ModesPanel = lazy(() => import("./components/panels/ModesPanel").then(m =>
 const AgentHubWindow = lazy(() =>
 	import("./components/panels/AgentHubWindow").then(m => ({ default: m.AgentHubWindow })),
 );
+const PrCenterWindow = lazy(() =>
+	import("./components/panels/PrCenterWindow").then(m => ({ default: m.PrCenterWindow })),
+);
 const ProviderConfigDialog = lazy(() =>
 	import("./components/settings/ProviderConfigDialog").then(m => ({ default: m.ProviderConfigDialog })),
 );
@@ -363,6 +366,10 @@ export function App() {
 					// ⌥T — new worktree tab (create dialog, plan/20).
 					useUiStore.getState().openWorktreeDialog();
 					return;
+				case "pr.center":
+					// ⌥P — PR Center panel (plan/21).
+					useUiStore.getState().openPrCenter();
+					return;
 				case "model.select":
 					// ⌥M — model picker (TUI app.model.select).
 					ui.openModelPicker();
@@ -584,6 +591,7 @@ export function App() {
 				<InventoryPanel open={inventoryOpen} onClose={closeInventory} initialTab={inventoryTab} />
 				<ModesPanel open={modesOpen} onClose={closeModes} initialTab={modesTab} />
 				<AgentHubWindow open={agentHubOpen} onClose={closeAgentHub} initialTab={agentHubTab} />
+				<PrCenterWindow />
 				<ProviderConfigDialog
 					open={providerConfigOpen}
 					editProvider={providerConfigEdit}

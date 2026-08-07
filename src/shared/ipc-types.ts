@@ -648,6 +648,13 @@ export interface OmpApi {
 		getGitStatus(): Promise<RpcResponse>;
 		worktreeCreate(name: string, options?: { baseCwd?: string; baseRef?: "HEAD" | "default" }): Promise<RpcResponse>;
 		worktreeRemove(path: string, force?: boolean): Promise<RpcResponse>;
+		prRepo(): Promise<RpcResponse>;
+		prList(state?: "open" | "closed" | "merged" | "all", limit?: number): Promise<RpcResponse>;
+		prGet(number: number): Promise<RpcResponse>;
+		prDiff(number: number, path: string): Promise<RpcResponse>;
+		prDraft(options?: { base?: string; head?: string }): Promise<RpcResponse>;
+		prCreate(input: { title: string; body: string; base?: string; head?: string; draft?: boolean }): Promise<RpcResponse>;
+		prCheckout(number: number): Promise<RpcResponse>;
 		liveStart(voice?: string): Promise<RpcResponse>;
 		liveToggleMute(): Promise<RpcResponse>;
 		liveStop(): Promise<RpcResponse>;

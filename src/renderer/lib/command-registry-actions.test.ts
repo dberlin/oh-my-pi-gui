@@ -45,6 +45,7 @@ const baseCtx: CommandRegistryContext = {
 	openThemePicker: () => {},
 	openModes: () => {},
 	openAgentHub: () => {},
+	openPrCenter: () => {},
 	openHotkeys: () => {},
 	openImportDialog: () => {},
 	openProviderConfig: () => {},

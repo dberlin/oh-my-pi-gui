@@ -178,6 +178,17 @@ const api: OmpApi = {
 		worktreeCreate: (name: string, options?: { baseCwd?: string; baseRef?: "HEAD" | "default" }) =>
 			rpcCommand({ type: "worktree_create", name, baseCwd: options?.baseCwd, baseRef: options?.baseRef }, 120_000),
 		worktreeRemove: (path: string, force?: boolean) => rpcCommand({ type: "worktree_remove", path, force }, 60_000),
+		// PR Center (plan/21): all network ops, background dispatched sidecar-side.
+		prRepo: () => rpcCommand({ type: "pr_repo" }),
+		prList: (state?: "open" | "closed" | "merged" | "all", limit?: number) =>
+			rpcCommand({ type: "pr_list", state, limit }, 60_000),
+		prGet: (number: number) => rpcCommand({ type: "pr_get", number }, 60_000),
+		prDiff: (number: number, path: string) => rpcCommand({ type: "pr_diff", number, path }, 60_000),
+		prDraft: (options?: { base?: string; head?: string }) =>
+			rpcCommand({ type: "pr_draft", base: options?.base, head: options?.head }, 180_000),
+		prCreate: (input: { title: string; body: string; base?: string; head?: string; draft?: boolean }) =>
+			rpcCommand({ type: "pr_create", ...input }, 120_000),
+		prCheckout: (number: number) => rpcCommand({ type: "pr_checkout", number }, 180_000),
 		liveStart: (voice?: string) => rpcCommand({ type: "live_start", voice }, 60_000),
 		liveToggleMute: () => rpcCommand({ type: "live_toggle_mute" }),
 		liveStop: () => rpcCommand({ type: "live_stop" }, 30_000),

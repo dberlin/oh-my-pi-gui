@@ -203,7 +203,16 @@ export type RpcCommand =
 	// ~/.omp/wt/gui-<name>-<hash7>; worktree_remove refuses dirty unless force.
 	| { id?: string; type: "get_git_status" }
 	| { id?: string; type: "worktree_create"; name: string; baseCwd?: string; baseRef?: "HEAD" | "default" }
-	| { id?: string; type: "worktree_remove"; path: string; force?: boolean };
+	| { id?: string; type: "worktree_remove"; path: string; force?: boolean }
+	// Pull requests (PR Center, plan/21). pr_diff is per-file (lazy), pr_draft
+	// is a model call, pr_checkout lands the PR in a worktree (plan/20 scheme).
+	| { id?: string; type: "pr_repo" }
+	| { id?: string; type: "pr_list"; state?: "open" | "closed" | "merged" | "all"; limit?: number }
+	| { id?: string; type: "pr_get"; number: number }
+	| { id?: string; type: "pr_diff"; number: number; path: string }
+	| { id?: string; type: "pr_draft"; base?: string; head?: string }
+	| { id?: string; type: "pr_create"; title: string; body: string; base?: string; head?: string; draft?: boolean }
+	| { id?: string; type: "pr_checkout"; number: number };
 
 // ============================================================================
 // RPC Responses (omp stdout → GUI)
@@ -584,6 +593,55 @@ export interface RpcWorktreeCreateResult {
 	path: string;
 	branch: string;
 	baseCwd: string;
+}
+
+/** pr_repo: gh availability + the session cwd's GitHub repo, or the typed reason it's unusable. */
+export type RpcPrRepo =
+	| { available: true; repo: string; defaultBranch: string | null }
+	| { available: false; reason: "gh_missing" | "not_a_repo" | "no_github_remote" };
+
+/** pr_list row: one PR with rollup CI counts. */
+export interface RpcPrListItem {
+	number: number;
+	title: string;
+	url: string;
+	isDraft: boolean;
+	authorLogin: string;
+	headRefName: string;
+	baseRefName: string;
+	additions: number;
+	deletions: number;
+	updatedAt: string;
+	reviewDecision: string | null;
+	checks: { success: number; failure: number; pending: number };
+}
+
+/** pr_get detail: everything rendered except per-file diff text (lazy pr_diff). */
+export interface RpcPrDetail {
+	number: number;
+	title: string;
+	url: string;
+	isDraft: boolean;
+	authorLogin: string;
+	body: string;
+	baseRefName: string;
+	headRefName: string;
+	mergeStateStatus: string;
+	additions: number;
+	deletions: number;
+	reviewDecision: string | null;
+	files: Array<{ path: string; changeType: string; additions: number; deletions: number }>;
+	checks: Array<{ name: string; status: string; conclusion: string | null }>;
+}
+
+/** pr_draft / pr_create results. */
+export interface RpcPrDraftResult {
+	title: string;
+	body: string;
+}
+export interface RpcPrCreateResult {
+	url: string;
+	number: number;
 }
 
 /** A configured marketplace source. */

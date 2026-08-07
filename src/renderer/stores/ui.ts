@@ -56,6 +56,8 @@ interface UiStore {
 	/** Close-time cleanup prompt for a worktree-bound tab (plan/20): the tab
 	 * awaiting the user's delete/keep decision before closeTab proceeds. */
 	worktreeClosePrompt: { tabId: string } | null;
+	/** PR Center fullscreen panel (plan/21). */
+	prCenterOpen: boolean;
 	sessionPickerOpen: boolean;
 	branchPickerOpen: boolean;
 	sessionTreeOpen: boolean;
@@ -143,6 +145,8 @@ interface UiStore {
 	closeWorktreeDialog: () => void;
 	openWorktreeClosePrompt: (tabId: string) => void;
 	closeWorktreeClosePrompt: () => void;
+	openPrCenter: () => void;
+	closePrCenter: () => void;
 	openSessionPicker: () => void;
 	closeSessionPicker: () => void;
 	openBranchPicker: () => void;
@@ -302,6 +306,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	worktreeClosePrompt: null,
 	openWorktreeClosePrompt: tabId => set({ worktreeClosePrompt: { tabId } }),
 	closeWorktreeClosePrompt: () => set({ worktreeClosePrompt: null }),
+	prCenterOpen: false,
+	openPrCenter: () => set({ prCenterOpen: true }),
+	closePrCenter: () => set({ prCenterOpen: false }),
 	sessionPickerOpen: false,
 	openSessionPicker: () => set({ sessionPickerOpen: true }),
 	closeSessionPicker: () => set({ sessionPickerOpen: false }),

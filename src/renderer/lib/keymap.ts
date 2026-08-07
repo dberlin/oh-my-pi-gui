@@ -241,6 +241,7 @@ export const KEYMAP_ACTIONS = [
 	{ id: "model.cycleForward", labelKey: "hotkeys.row.modelNext", defaults: ["⌃P"], overlaySafe: true },
 	{ id: "model.cycleBackward", labelKey: "hotkeys.row.modelPrev", defaults: ["⇧⌃P"], overlaySafe: false },
 	{ id: "retry", labelKey: "hotkeys.row.retry", defaults: ["⌥R"], overlaySafe: false },
+	{ id: "pr.center", labelKey: "hotkeys.row.prCenter", defaults: ["⌥P"], overlaySafe: false },
 	{ id: "dequeue", labelKey: "hotkeys.row.dequeue", defaults: ["⌥↑"], overlaySafe: false },
 	{ id: "plan.toggle", labelKey: "hotkeys.row.planToggle", defaults: ["⌥⇧P"], overlaySafe: false },
 	{ id: "tools.expand", labelKey: "hotkeys.row.expandTools", defaults: ["⌃O"], overlaySafe: false },

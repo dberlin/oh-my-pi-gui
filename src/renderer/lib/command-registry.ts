@@ -96,6 +96,7 @@ export interface CommandRegistryContext {
 	openThemePicker: () => void;
 	openModes: (tab?: "vibe" | "goal" | "loop") => void;
 	openAgentHub: (tab?: "definitions" | "hub") => void;
+	openPrCenter: () => void;
 	openHotkeys: () => void;
 	openImportDialog: () => void;
 	openProviderConfig: () => void;
@@ -1172,6 +1173,13 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "view",
 		affordance: { kind: "window", open: () => ctx.openAgentHub() },
 	});
+	add({
+		name: "prs",
+		label: t("cmd.prCenter"),
+		description: t("cmd.prCenter.desc"),
+		category: "view",
+		affordance: { kind: "window", open: () => ctx.openPrCenter() },
+	});
 
 	// ═══════════════════════════════════════════════════════════════════
 	// LIVE COLLABORATION
@@ -1545,6 +1553,7 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 		openThemePicker: ui.openThemePicker,
 		openModes: ui.openModes,
 		openAgentHub: ui.openAgentHub,
+		openPrCenter: ui.openPrCenter,
 		openHotkeys: ui.openHotkeys,
 		openImportDialog: ui.openImportDialog,
 		openProviderConfig: ui.openProviderConfig,
