@@ -61,7 +61,10 @@ bun --cwd="$GUI" run build:omp
 
 say "7/7 GUI build + typecheck + tests"
 bun --cwd="$GUI" run build
-bun --cwd="$GUI" x tsc --noEmit
-bun --cwd="$GUI" x vitest run
+# `bun --cwd x tsc|vitest` resolves tsconfig/vitest.config by the SHELL's cwd,
+# not --cwd — from the repo root that picks the monorepo's root configs and
+# fails (TS6306) or runs the wrong suite. `run <script>` cds properly.
+bun --cwd="$GUI" run check:types
+bun --cwd="$GUI" run test
 
 say "sync complete — review with: git log --oneline -5; git status --short"
