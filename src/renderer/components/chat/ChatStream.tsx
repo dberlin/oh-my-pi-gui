@@ -1,5 +1,18 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, Bug, ChevronRight, Code2, Loader2, SearchCode, Sparkles, X } from "lucide-react";
+import {
+	ArrowDown,
+	BookOpen,
+	Bug,
+	ChevronRight,
+	Code2,
+	Languages,
+	Lightbulb,
+	Loader2,
+	PenLine,
+	SearchCode,
+	Sparkles,
+	X,
+} from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, MessageContent, RpcQueuedMessage } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
@@ -10,6 +23,7 @@ import { useMessagesStore } from "../../stores/messages";
 import { type QueueLane, useQueuedMessages } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
+import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
@@ -237,6 +251,15 @@ export function ChatStream() {
 		{ icon: Sparkles, title: t("chat.starter.build.title"), prompt: t("chat.starter.build.prompt") },
 		{ icon: SearchCode, title: t("chat.starter.review.title"), prompt: t("chat.starter.review.prompt") },
 	] as const;
+	const CHAT_STARTERS = [
+		{ icon: BookOpen, title: t("chat.starter.explain.title"), prompt: t("chat.starter.explain.prompt") },
+		{ icon: PenLine, title: t("chat.starter.draft.title"), prompt: t("chat.starter.draft.prompt") },
+		{ icon: Lightbulb, title: t("chat.starter.brainstorm.title"), prompt: t("chat.starter.brainstorm.prompt") },
+		{ icon: Languages, title: t("chat.starter.translate.title"), prompt: t("chat.starter.translate.prompt") },
+	] as const;
+	/** Chat tabs get a conversation-oriented empty state (agent starters imply tools). */
+	const isChat = useActiveTabKind() === "chat";
+	const starters = isChat ? CHAT_STARTERS : STARTERS;
 
 	const virtualizer = useVirtualizer({
 		count: rows.length,
@@ -297,13 +320,13 @@ export function ChatStream() {
 							<PiLogo size={22} />
 						</div>
 						<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
-							{t("chat.empty.title")}
+							{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
 						</h1>
 						<p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-[var(--omp-muted)]">
-							{t("chat.empty.subtitle")}
+							{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
 						</p>
 						<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-							{STARTERS.map(({ icon: Icon, title, prompt }) => (
+							{starters.map(({ icon: Icon, title, prompt }) => (
 								<button
 									key={title}
 									type="button"

@@ -33,6 +33,7 @@ import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
+import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { ActivityStrip } from "../chat/ActivityStrip";
@@ -73,6 +74,25 @@ const MENTION_FS_DEBOUNCE_MS = 150;
 
 /** Internal URL schemes always offered in the @ menu, below file results. */
 const MENTION_SCHEMES = ["skill://", "memory://", "artifact://", "issue://", "pr://", "local://plan.md"];
+
+/**
+ * Commands that are silent no-ops in a tool-free chat session: mode toggles
+ * whose wiring is gated by restrictToolNames (plan/goal/loop/vibe/modes) and
+ * tool-spawning commands (task/tan/security). They stay OFF the slash menu in
+ * chat tabs — the menu must never offer a command that does nothing.
+ * Session/transport commands (/compact, /clear, /model, /export…) still work
+ * tool-free and stay.
+ */
+const CHAT_DEAD_COMMANDS: ReadonlySet<string> = new Set([
+	"plan",
+	"goal",
+	"loop",
+	"vibe",
+	"modes",
+	"task",
+	"tan",
+	"security",
+]);
 
 /** Subsequence fuzzy score; null = no match. Earlier + denser wins. */
 function fuzzyScore(query: string, target: string): number | null {
@@ -154,6 +174,8 @@ function fileToImage(file: File): Promise<PastedImage> {
 export function InputArea() {
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const t = useT();
+	/** Chat tabs are tool-free: approval/mode chrome is meaningless there. */
+	const isChat = useActiveTabKind() === "chat";
 	const status = useSessionStore(s => s.status);
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
 	const contextUsage = useSessionStore(s => s.contextUsage);
@@ -387,9 +409,11 @@ export function InputArea() {
 			const items = commands
 				.filter(
 					command =>
-						!query ||
-						command.name.toLowerCase().includes(query) ||
-						command.aliases?.some(alias => alias.toLowerCase().includes(query)),
+						// Chat tabs: never offer commands that are silent no-ops there.
+						(!isChat || !CHAT_DEAD_COMMANDS.has(command.name)) &&
+						(!query ||
+							command.name.toLowerCase().includes(query) ||
+							command.aliases?.some(alias => alias.toLowerCase().includes(query))),
 				)
 				.slice(0, MAX_MENU_ITEMS)
 				.map(command => ({
@@ -445,7 +469,7 @@ export function InputArea() {
 		return () => {
 			cancelled = true;
 		};
-	}, [text, filePaths, commands, emojiAutocomplete]);
+	}, [text, filePaths, commands, emojiAutocomplete, isChat]);
 
 	// Reset the mention file list when the session cwd changes (cache is per-cwd).
 	useEffect(() => {
@@ -1212,7 +1236,9 @@ export function InputArea() {
 									? t("input.placeholder.connecting")
 									: isStreaming
 										? t("input.placeholder.streaming")
-										: t("input.placeholder.idle")
+										: isChat
+											? t("input.placeholder.chat")
+											: t("input.placeholder.idle")
 							}
 							className="max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent text-[14.5px] leading-[1.5] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
 						/>
@@ -1292,8 +1318,8 @@ export function InputArea() {
 							<span className="hidden sm:inline">{t("input.fast.label")}</span>
 						</button>
 
-						<ApprovalControl />
-						<ComposerModes />
+						{!isChat && <ApprovalControl />}
+						{!isChat && <ComposerModes />}
 
 						<div className="flex-1" />
 

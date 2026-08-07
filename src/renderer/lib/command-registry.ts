@@ -19,6 +19,7 @@ import { openHandoffDialog } from "../stores/fork-handoff";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
+import { useTabsStore } from "../stores/tabs";
 import { toast } from "../stores/toast";
 import { useUiStore } from "../stores/ui";
 import { exportSessionHtml } from "./export-session";
@@ -337,6 +338,22 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "session",
 		shortcut: "⌘N",
 		affordance: { kind: "action", run: () => newSessionGuarded() },
+	});
+	add({
+		name: "new-tab",
+		label: t("cmd.newTab"),
+		description: t("cmd.newTab.desc"),
+		category: "session",
+		shortcut: "⌘T",
+		affordance: { kind: "action", run: () => useTabsStore.getState().openTab() },
+	});
+	add({
+		name: "new-chat-tab",
+		label: t("cmd.newChatTab"),
+		description: t("cmd.newChatTab.desc"),
+		category: "session",
+		shortcut: "⇧⌘T",
+		affordance: { kind: "action", run: () => useTabsStore.getState().openTab({ kind: "chat" }) },
 	});
 	add({
 		name: "clear",

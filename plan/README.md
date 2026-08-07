@@ -20,7 +20,7 @@ Source-verified against omp codebase (2026-08-01 audit).
 | 15 | [Parity Closeout](./15-parity-closeout.md) | TUI 对等收尾:三条 workstream、跨切面决策、5 阶段验证门、风险 |
 | 16 | [Agent RPC Extensions](./16-agent-rpc-extensions.md) | 11 个新 RPC 命令的线路契约、插入点、错误语义 |
 | 17 | [Composer & Input](./17-composer-input.md) | 队列简写、大粘贴、补全 provider 链、键位/重映射、渲染小项 |
-| 18 | [Management Surfaces](./18-management-surfaces.md) | MCP 向导/测试/reauth、marketplace、插件配置、Agent Hub、会话树、启动 profile |
+| 19 | [Chat Sessions](./19-chat-sessions.md) | 无工具纯对话会话:SessionHeader.kind、--chat flag、类型隔离守卫、composer 裁剪、~2 天 | 12.6KB |
 
 ## Key Decisions
 

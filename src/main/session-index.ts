@@ -7,7 +7,7 @@ import { open, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
-import type { SessionInfo } from "../shared/ipc-types";
+import type { SessionInfo, SessionKind } from "../shared/ipc-types";
 
 const TITLE_SLOT_BYTES = 256;
 const TAIL_BYTES = 32 * 1024;
@@ -109,6 +109,20 @@ export class SessionIndex {
 			seen.add(info.id);
 			return true;
 		});
+	}
+
+	/**
+	 * Session kind for one file: the LRU-cached parse when fresh, a cold parse
+	 * otherwise. Unreadable files degrade to "agent" — the kind guards re-check
+	 * with the file's real parse before refusing anything.
+	 */
+	async kindFor(sessionPath: string): Promise<SessionKind> {
+		try {
+			const info = await this.#parseSessionFile(sessionPath);
+			return info?.kind === "chat" ? "chat" : "agent";
+		} catch {
+			return "agent";
+		}
 	}
 
 	async deleteSession(sessionPath: string): Promise<void> {
@@ -307,8 +321,14 @@ export class SessionIndex {
 
 			// Read header line (second line, after first newline)
 			const headerStart = headBuf.indexOf(0x0a);
-			let header: { id?: string; title?: string; timestamp?: string; cwd?: string; parentSession?: string } | null =
-				null;
+			let header: {
+				id?: string;
+				title?: string;
+				timestamp?: string;
+				cwd?: string;
+				parentSession?: string;
+				kind?: "chat";
+			} | null = null;
 
 			if (headerStart !== -1) {
 				// Read up to 4KB for the header line
@@ -343,6 +363,7 @@ export class SessionIndex {
 				messageCount,
 				size,
 				status,
+				kind: header?.kind,
 				parentSessionPath: header?.parentSession,
 				firstMessage,
 			};

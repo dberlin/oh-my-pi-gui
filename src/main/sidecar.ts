@@ -69,6 +69,8 @@ export interface SidecarOptions {
 	binaryPath: string;
 	cwd: string;
 	extraFlags?: string[];
+	/** Session kind: "agent" (default) or "chat" (tool-free conversation). Immutable per sidecar. */
+	kind?: "agent" | "chat";
 	/** When set, spawn the workspace source CLI via bun instead of the installed binary. */
 	sourceCli?: string;
 	/**
@@ -201,6 +203,7 @@ export class SidecarManager extends EventEmitter {
 
 		const args = ["--mode", "rpc-ui"];
 		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
+		if (this.#options.kind === "chat") args.push("--chat");
 		// User-controllable flags ride the extraFlags seam + the launch profile.
 		// Strip the code-controlled-flag denylist (pair-aware) over BOTH, then
 		// append: neither can override the code-controlled argv above, while a

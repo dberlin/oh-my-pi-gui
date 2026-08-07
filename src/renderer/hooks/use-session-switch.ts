@@ -52,9 +52,34 @@ export async function switchSessionNow(session: SessionInfo): Promise<boolean> {
 	} catch {
 		// Pre-check best-effort — the main-process refusal is the backstop.
 	}
+	// Cross-kind pre-check: agent and chat sessions never convert (I2). A
+	// mismatch opens the file in a NEW tab of its own kind instead of
+	// switching the current tab onto it — more intuitive than an error, and
+	// main's spawn-tab guard is the backstop.
+	const fileKind = session.kind === "chat" ? "chat" : "agent";
+	const tabsState = useTabsStore.getState();
+	const activeTab = tabsState.tabs.find(tab => tab.id === tabsState.activeTabId);
+	if (activeTab && activeTab.kind !== fileKind) {
+		const tabId = await tabsState.openTab({ sessionPath: session.path, kind: fileKind });
+		if (tabId !== null) {
+			// Explain the surprise: the user clicked expecting an in-place switch,
+			// but kinds never convert — the file opened in its own tab instead.
+			toast({ variant: "info", message: translate("sidebar.openedInNewTab") });
+		}
+		return tabId !== null;
+	}
 	try {
 		const response = await window.omp.rpc.switchSession(session.path);
 		if (!response.success) {
+			// Cross-kind switch guard: refuse agent ↔ chat switches.
+			if (response.code === "session_kind_mismatch") {
+				toast({
+					variant: "error",
+					title: translate("sidebar.openFailed"),
+					message: translate("sidebar.kindMismatch"),
+				});
+				return false;
+			}
 			// Raced attach refused by main: route via the owner in the payload.
 			if (response.code === "session_owned_elsewhere") {
 				const data = response.data as { ownerTabId?: unknown; ownerWinId?: unknown } | undefined;

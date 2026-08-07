@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { ComposerModes } from "./ComposerModes";
 import { StatusFooter } from "./StatusFooter";
@@ -94,6 +95,7 @@ afterEach(async () => {
 	}
 	container?.remove();
 	useSessionStore.getState().reset();
+	useTabsStore.getState().reset();
 	useUiStore.setState({ modesOpen: false, modesTab: "vibe" });
 });
 
@@ -204,5 +206,31 @@ describe("StatusFooter mode badges", () => {
 		const text = document.body.textContent ?? "";
 		expect(text).not.toContain("Paused");
 		expect(text).not.toContain("Plan");
+	});
+
+	it("suppresses agent-mode badges in a chat tab but keeps the paused gate", async () => {
+		installMockOmp();
+		useTabsStore.setState({
+			tabs: [{ kind: "chat", id: "t0", cwd: "/tmp/project", status: "ready", unreadDone: false }],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		useSessionStore.setState({
+			cwd: "/tmp/project",
+			planModeEnabled: true,
+			goal: { objective: "Ship the activity dock" },
+			goalState: { status: "active" },
+			loopMode: { enabled: true, state: "waiting" },
+			vibeModeEnabled: true,
+			agentsPaused: true,
+		});
+		await mount(<StatusFooter />);
+
+		const text = document.body.textContent ?? "";
+		for (const label of ["Plan", "Goal", "Loop", "Vibe"]) {
+			expect(text).not.toContain(label);
+		}
+		// Pause is transport-level, not a tool mode — it survives in chat tabs.
+		expect(text).toContain("Paused");
 	});
 });

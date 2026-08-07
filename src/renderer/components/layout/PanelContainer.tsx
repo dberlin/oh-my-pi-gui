@@ -5,6 +5,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useQueueStore } from "../../stores/queue";
 import { useSubagentsStore } from "../../stores/subagents";
+import { useActiveTabKind } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
 import type { PanelTab } from "../../stores/ui";
 import { useUiStore } from "../../stores/ui";
@@ -32,6 +33,9 @@ const TABS: { id: PanelTab; labelKey: string; icon: typeof Bot }[] = [
 	{ id: "logs", labelKey: "panel.tabs.logs", icon: ScrollText },
 ];
 
+/** Drawer tabs meaningful in a tool-free chat tab (no todos, plans, agents, or diffs). */
+const CHAT_TAB_IDS: ReadonlySet<PanelTab> = new Set(["files", "logs"]);
+
 /**
  * Contextual workspace drawer. Hidden by default; opened explicitly for
  * plans, subagents, diffs, files, or logs without shrinking the core chat.
@@ -43,6 +47,9 @@ export function PanelContainer() {
 	const togglePanel = useUiStore(s => s.togglePanel);
 	const subagents = useSubagentsStore(s => s.subagents);
 	const phases = useTodoStore(s => s.phases);
+	/** Chat tabs only expose files + logs — the rest can't exist without tools. */
+	const isChat = useActiveTabKind() === "chat";
+	const visibleTabs = isChat ? TABS.filter(tab => CHAT_TAB_IDS.has(tab.id)) : TABS;
 
 	const [width, setWidth] = useState(DEFAULT_WIDTH);
 	const dragging = useRef(false);
@@ -90,7 +97,7 @@ export function PanelContainer() {
 				</button>
 			</div>
 			<div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--omp-border-muted)] px-2">
-				{TABS.map(({ id, labelKey, icon: Icon }) => {
+				{visibleTabs.map(({ id, labelKey, icon: Icon }) => {
 					const active = panelTab === id;
 					const badge =
 						id === "agents" && runningAgents > 0

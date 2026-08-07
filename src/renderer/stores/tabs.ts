@@ -19,7 +19,13 @@
  */
 import { useEffect } from "react";
 import { create } from "zustand";
-import type { IpcSpawnTabResult, IpcTabInfo, IpcTabStatusPayload, TabStatus } from "../../shared/ipc-types";
+import type {
+	IpcSpawnTabResult,
+	IpcTabInfo,
+	IpcTabStatusPayload,
+	SessionKind,
+	TabStatus,
+} from "../../shared/ipc-types";
 import type {
 	ContextUsage,
 	ModelInfo,
@@ -46,6 +52,8 @@ export interface SessionTab {
 	id: string;
 	cwd: string;
 	status: TabStatus;
+	/** Immutable session kind, fixed when this tab's sidecar was spawned. */
+	kind: SessionKind;
 	/** Session title when known (session_info_update via TAB_STATUS). */
 	title?: string;
 	sessionId?: string;
@@ -226,6 +234,15 @@ export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): stri
 	return occurrence > 1 ? `${base} #${occurrence}` : base;
 }
 
+/**
+ * Kind of the window's active tab ("agent" default). THE single read point
+ * for every chat-mode UI gate — components must never re-derive kind from
+ * session state, argv, or the session file.
+ */
+export function useActiveTabKind(): SessionKind {
+	return useTabsStore(state => state.tabs.find(tab => tab.id === state.activeTabId)?.kind ?? "agent");
+}
+
 interface TabsStore {
 	tabs: SessionTab[];
 	activeTabId: string | null;
@@ -236,8 +253,9 @@ interface TabsStore {
 	 * id, preserving local flags (unreadDone, pendingSessionPath). */
 	reconcileTabs: () => Promise<void>;
 	/** Spawn a new background tab (same cwd unless given) and switch to it.
-	 * Returns the tabId, or null at the pool cap. */
-	openTab: (args?: { cwd?: string; sessionPath?: string }) => Promise<string | null>;
+	 * Returns the tabId, or null at the pool cap. `kind` is immutable once
+	 * the tab's sidecar is spawned ("agent" default; "chat" = tool-free). */
+	openTab: (args?: { cwd?: string; sessionPath?: string; kind?: SessionKind }) => Promise<string | null>;
 	/** Park the current tab's session state, restore the target's, re-point
 	 * main's event routing (SET_ACTIVE_TAB), then hydrate from its sidecar. */
 	switchTab: (id: string) => Promise<void>;
@@ -272,6 +290,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					id: info.tabId,
 					cwd: info.cwd || existing?.cwd || "",
 					status: info.status,
+					kind: info.kind ?? existing?.kind ?? "agent",
 					title: info.title ?? existing?.title,
 					sessionId: info.sessionId ?? existing?.sessionId,
 					unreadDone: existing?.unreadDone ?? false,
@@ -301,15 +320,22 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 
 	openTab: async args => {
 		const cwd = args?.cwd ?? useSessionStore.getState().cwd;
+		const kind = args?.kind ?? "agent";
 		let result: IpcSpawnTabResult | null;
 		try {
-			result = await window.omp.tabs.spawn({ cwd: cwd || undefined, sessionPath: args?.sessionPath });
+			result = await window.omp.tabs.spawn({ cwd: cwd || undefined, sessionPath: args?.sessionPath, kind });
 		} catch (error) {
 			toast({ variant: "error", title: translate("tabs.newFailed"), message: String(error) });
 			return null;
 		}
 		if (!result) {
 			toast({ variant: "warning", message: translate("tabs.parallelCap") });
+			return null;
+		}
+		// Cross-kind refusal: the target session file carries a different kind —
+		// no conversion path exists (I2), so surface it and stay put.
+		if (result.tabId === null && result.refusal === "kind-mismatch") {
+			toast({ variant: "error", title: translate("tabs.newFailed"), message: translate("tabs.kindMismatch") });
 			return null;
 		}
 		// F-OWN belt guard: the session file is already attached to a tab, so
@@ -345,6 +371,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				id: tabId,
 				cwd,
 				status: "starting",
+				kind,
 				unreadDone: false,
 				pendingSessionPath: args?.sessionPath,
 			};
@@ -431,6 +458,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				id: payload.tabId,
 				cwd: payload.cwd || previous?.cwd || "",
 				status: payload.status,
+				kind: payload.kind ?? previous?.kind ?? "agent",
 				title: payload.title ?? previous?.title,
 				sessionId: payload.sessionId ?? previous?.sessionId,
 				unreadDone: completedInBackground ? true : (previous?.unreadDone ?? false),

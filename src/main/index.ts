@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
 import Store from "electron-store";
+import type { SessionKind } from "../shared/ipc-types";
 import { setupDeepLinks } from "./deep-link";
 import { registerIpcHandlers } from "./ipc";
 import { LogWatcher } from "./log-watcher";
@@ -183,10 +184,10 @@ let logWatcher: LogWatcher;
 /** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
  *  Empty `cwd` falls back to resolveInitialCwd() (lastProject → launch cwd),
  *  never a bare process.cwd() which is "/" for Finder-launched apps. */
-function spawnWindow(cwd?: string, pendingSessionPath?: string): BrowserWindow | null {
+function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKind): BrowserWindow | null {
 	const dir = cwd && cwd.length > 0 ? cwd : resolveInitialCwd();
 	const win = windowManager.createWindow({ cwd: dir, pendingSessionPath });
-	const sidecar = sidecarPool.acquire(dir, win);
+	const sidecar = sidecarPool.acquire(dir, win, undefined, undefined, kind);
 	if (!sidecar) {
 		win.close();
 		return null;
@@ -200,11 +201,12 @@ app.whenReady().then(() => {
 	const initialCwd = resolveInitialCwd();
 	const bundledOmp = resolveBundledOmp();
 	const sourceCli = resolveSourceCli();
-	sidecarPool = new SidecarPool(cwd => {
+	sidecarPool = new SidecarPool((cwd, kind) => {
 		const sc = new SidecarManager({
 			binaryPath: bundledOmp ?? "",
 			sourceCli: sourceCli ?? undefined,
 			cwd,
+			kind,
 			proxyEnv: resolveProxyEnvForSpawn,
 			shellEnv: shellSpawnEnv,
 		});

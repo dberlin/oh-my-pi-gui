@@ -62,6 +62,17 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 					click: () => sendMenuAction(windowManager, spawnWindow, "new-session"),
 				},
 				{
+					// No accelerator: ⌘T/⇧⌘T live in the renderer keymap so users can
+					// remap them. A menu accelerator would fire first and make the
+					// remappable chords dead (precedent: ⌘⇧O above).
+					label: "New Tab",
+					click: () => sendMenuAction(windowManager, spawnWindow, "new-tab"),
+				},
+				{
+					label: "New Chat Tab",
+					click: () => sendMenuAction(windowManager, spawnWindow, "new-chat-tab"),
+				},
+				{
 					label: "New Window",
 					accelerator: "CmdOrCtrl+Shift+N",
 					click: () => {

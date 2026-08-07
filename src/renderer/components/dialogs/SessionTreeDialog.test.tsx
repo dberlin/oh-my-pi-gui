@@ -465,8 +465,8 @@ describe("SessionTreeDialog", () => {
 		useSessionStore.setState({ sessionFile: "/sessions/x.jsonl" });
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t-me", cwd: "/a", status: "ready", unreadDone: false },
-				{ id: "t-owner", cwd: "/a", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t-me", cwd: "/a", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t-owner", cwd: "/a", status: "ready", unreadDone: false },
 			],
 			activeTabId: "t-me",
 			bundles: new Map(),
@@ -490,7 +490,7 @@ describe("SessionTreeDialog", () => {
 		const { getSessionOwner, setActive, openInNewWindow } = installOwnerMocks({ tabId: "t-elsewhere", winId: 9 });
 		useSessionStore.setState({ sessionFile: "/sessions/x.jsonl" });
 		useTabsStore.setState({
-			tabs: [{ id: "t-me", cwd: "/a", status: "ready", unreadDone: false }],
+			tabs: [{ kind: "agent", id: "t-me", cwd: "/a", status: "ready", unreadDone: false }],
 			activeTabId: "t-me",
 			bundles: new Map(),
 		});
@@ -512,7 +512,7 @@ describe("SessionTreeDialog", () => {
 		installOwnerMocks({ tabId: "t-me", winId: 1 });
 		useSessionStore.setState({ sessionFile: "/sessions/x.jsonl" });
 		useTabsStore.setState({
-			tabs: [{ id: "t-me", cwd: "/a", status: "ready", unreadDone: false }],
+			tabs: [{ kind: "agent", id: "t-me", cwd: "/a", status: "ready", unreadDone: false }],
 			activeTabId: "t-me",
 			bundles: new Map(),
 		});

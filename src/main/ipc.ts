@@ -39,8 +39,8 @@ import type { SessionIndex } from "./session-index";
 import { resolveEditorCommand } from "./shell-env";
 import type { SidecarManager } from "./sidecar";
 import type { SidecarPool } from "./sidecar-pool";
-import { nextSnowflake } from "./snowflake";
 import type { StatsClient } from "./stats-client";
+import { spawnTabForWindow } from "./tab-spawn";
 import { setTrayState } from "./tray";
 import type { SpawnWindow, WindowManager } from "./window";
 
@@ -514,7 +514,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (deps.sidecarPool.atCap) return false;
 		const callerCwd = cwdFor(deps, event) ?? process.cwd();
 		const cwd = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : callerCwd;
-		return deps.spawnWindow(cwd, sessionPath) !== null;
+		// The new window's sidecar must spawn with the target file's kind, or the
+		// boot-time switch_session hits the agent-side kind guard and the pool
+		// entry would lie about its kind (I1).
+		const kind = sessionPath ? await sessionIndex.kindFor(sessionPath) : undefined;
+		return deps.spawnWindow(cwd, sessionPath, kind) !== null;
 	});
 
 	// Fresh window pulls the session it was opened to display (one-shot). The
@@ -535,24 +539,24 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Spawn a background tab. Null at the pool cap; the renderer decides
 	// whether to activate it (SET_ACTIVE_TAB) — spawn itself never switches.
 	// F-OWN: a sessionPath already attached to a tab returns
-	// { tabId: null, ownerTabId, ownerWinId } — the renderer switches to (or
-	// focuses) the owner instead of double-attaching the session file.
+	// { tabId: null, ownerTabId, ownerWinId, refusal: "owned" } — the renderer
+	// switches to (or focuses) the owner instead of double-attaching the file.
+	// F-KIND: an explicit payload kind that disagrees with the file's stamped
+	// kind returns { tabId: null, refusal: "kind-mismatch" } (I3); an omitted
+	// payload kind defers to the file. Decision logic lives in tab-spawn.ts so
+	// both refusal contracts are unit-testable without an Electron runtime.
 	ipcMain.handle(IPC_COMMANDS.SPAWN_TAB, (event, payload: IpcSpawnTabPayload) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return null;
-		const sessionPath =
-			typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
-		if (sessionPath) {
-			const owner = deps.sidecarPool.sessionOwner(sessionPath);
-			if (owner) return { tabId: null, ownerTabId: owner.tabId, ownerWinId: owner.winId };
-		}
-		if (deps.sidecarPool.atCap) return null;
-		const cwd =
-			typeof payload?.cwd === "string" && payload.cwd.length > 0
-				? payload.cwd
-				: (cwdFor(deps, event) ?? process.cwd());
-		const tabId = nextSnowflake();
-		return deps.sidecarPool.acquire(cwd, win, tabId, sessionPath) ? { tabId } : null;
+		return spawnTabForWindow(
+			{
+				sidecarPool: deps.sidecarPool,
+				sessionIndex,
+				fallbackCwd: () => cwdFor(deps, event) ?? process.cwd(),
+			},
+			win,
+			payload,
+		);
 	});
 
 	// Release a tab's sidecar. The window falls back to its initial no-tab

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
 import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
 import type { ThemeMode } from "../lib/theme";
+import { useTabsStore } from "./tabs";
 
 export type { ThemeMode };
 
@@ -180,7 +181,17 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	toolsExpandAll: { expanded: false, seq: 0 },
 	toggleToolsExpandAll: () =>
 		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
-	setPanelTab: tab => set({ panelTab: tab, panelVisible: true }),
+	setPanelTab: tab => {
+		// Chat tabs only carry files + logs in the drawer: refuse agent-only tabs
+		// so callers (ActivityStrip, PlanPanel, menu actions) can't force one open.
+		if (tab !== "files" && tab !== "logs") {
+			const activeKind = useTabsStore
+				.getState()
+				.tabs.find(t2 => t2.id === useTabsStore.getState().activeTabId)?.kind;
+			if (activeKind === "chat") return;
+		}
+		set({ panelTab: tab, panelVisible: true });
+	},
 	openCommandPalette: () => set({ commandPaletteOpen: true }),
 	closeCommandPalette: () => set({ commandPaletteOpen: false }),
 	openModelPicker: () => set({ modelPickerOpen: true }),

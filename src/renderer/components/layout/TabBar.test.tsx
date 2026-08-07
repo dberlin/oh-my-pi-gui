@@ -172,8 +172,8 @@ describe("TabBar", () => {
 	it("renders one chip per tab with title or cwd basename and marks the active tab", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/work/alpha", status: "ready", title: "Alpha plan", unreadDone: false },
-				{ id: "t1", cwd: "/work/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/work/alpha", status: "ready", title: "Alpha plan", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/work/beta", status: "ready", unreadDone: false },
 			],
 			activeTabId: "t1",
 			bundles: new Map(),
@@ -191,7 +191,7 @@ describe("TabBar", () => {
 
 	it("hides the close button at the single-tab floor and shows it with two tabs", async () => {
 		useTabsStore.setState({
-			tabs: [{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false }],
+			tabs: [{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false }],
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
@@ -200,8 +200,8 @@ describe("TabBar", () => {
 
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
 			],
 		});
 		await flush();
@@ -211,8 +211,8 @@ describe("TabBar", () => {
 	it("renders the running dot and the unreadDone badge", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/alpha", status: "running", unreadDone: false },
-				{ id: "t1", cwd: "/beta", status: "ready", unreadDone: true },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "running", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: true },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -229,8 +229,8 @@ describe("TabBar", () => {
 	it("clicking a chip switches tabs; the + button spawns a new tab in the current cwd", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -258,17 +258,48 @@ describe("TabBar", () => {
 		expect(omp.tabs.setActive).toHaveBeenCalledWith("t1");
 		expect(useTabsStore.getState().activeTabId).toBe("t1");
 
-		const plus = container.querySelector('[aria-label="New tab"]');
+		const plus = container.querySelector('[aria-label="New Agent Tab"]');
 		expect(plus).not.toBeNull();
 		await click(plus!);
-		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/beta", sessionPath: undefined });
+		// One click = agent tab directly (the dominant path).
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/beta", sessionPath: undefined, kind: "agent" });
+	});
+
+	it("the chat button spawns a chat tab in one click — chat is a first-class, visible type", async () => {
+		useTabsStore.setState({
+			tabs: [{ kind: "agent", id: "t0", cwd: "/beta", status: "ready", unreadDone: false }],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		useSessionStore.setState({ cwd: "/beta" });
+		await mount(<TabBar />);
+
+		const chatButton = container.querySelector('[aria-label="New Chat Tab"]');
+		expect(chatButton).not.toBeNull();
+		await click(chatButton!);
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/beta", sessionPath: undefined, kind: "chat" });
+	});
+
+	it("both creation buttons are visible with labeled affordances (no hidden menu)", async () => {
+		useTabsStore.setState({
+			tabs: [{ kind: "agent", id: "t0", cwd: "/beta", status: "ready", unreadDone: false }],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+
+		// Discoverability contract: both types are one visible click away —
+		// nothing behind right-click or a collapsed menu.
+		expect(container.querySelector('[aria-label="New Agent Tab"]')).not.toBeNull();
+		expect(container.querySelector('[aria-label="New Chat Tab"]')).not.toBeNull();
+		expect(container.querySelector('[role="menu"]')).toBeNull();
 	});
 
 	it("clicking a background chip's close releases it without switching", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -296,8 +327,8 @@ describe("TabBar close confirm", () => {
 	function seedRunning(): void {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/beta", status: "running", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "running", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -355,8 +386,8 @@ describe("TabBar close confirm", () => {
 	it("a starting tab arms, and so does the active tab's live stream", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/beta", status: "starting", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "starting", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -380,8 +411,8 @@ describe("TabBar close confirm", () => {
 	it("closing an idle tab is immediate, active tab included", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -399,9 +430,9 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 	it("disambiguates identical untitled labels with an index suffix in tab order", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/other/gui", status: "ready", unreadDone: false },
-				{ id: "t2", cwd: "/tmp/gui", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/other/gui", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t2", cwd: "/tmp/gui", status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -417,8 +448,8 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 	it("prefers the session title and never suffixes titled tabs", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/other/gui", status: "ready", title: "Release plan", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/other/gui", status: "ready", title: "Release plan", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -432,8 +463,8 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 	it("drops the suffix once a colliding tab gains a title", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/other/gui", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/other/gui", status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -442,7 +473,9 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 		expect(chips().map(chip => chip.textContent)).toEqual(["gui", "gui #2"]);
 
 		// The auto-title arrives via TAB_STATUS: labels recompute immediately.
-		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/other/gui", status: "ready", title: "Fix races" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/other/gui", status: "ready", title: "Fix races" });
 		await flush();
 		expect(chips().map(chip => chip.textContent)).toEqual(["gui", "Fix races"]);
 	});

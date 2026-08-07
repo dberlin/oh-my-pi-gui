@@ -248,6 +248,8 @@ export const KEYMAP_ACTIONS = [
 	{ id: "model.select", labelKey: "hotkeys.row.modelPicker", defaults: ["⌥M"], overlaySafe: false },
 	{ id: "agents.hub", labelKey: "hotkeys.row.agentHub", defaults: ["⌥A"], overlaySafe: false },
 	{ id: "palette", labelKey: "hotkeys.row.palette", defaults: ["⌘K", "⌃K"], overlaySafe: true },
+	{ id: "tab.new", labelKey: "hotkeys.row.tabNew", defaults: ["⌘T"], overlaySafe: false },
+	{ id: "tab.newChat", labelKey: "hotkeys.row.tabNewChat", defaults: ["⇧⌘T"], overlaySafe: false },
 	{ id: "settings", labelKey: "hotkeys.row.settings", defaults: ["⌘,", "⌃,"], overlaySafe: true },
 	{ id: "sidebar.toggle", labelKey: "hotkeys.row.sidebar", defaults: ["⌘B", "⌃B"], overlaySafe: true },
 	{ id: "panel.toggle", labelKey: "hotkeys.row.panel", defaults: ["⌘J", "⌃J"], overlaySafe: true },

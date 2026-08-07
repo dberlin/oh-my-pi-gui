@@ -73,6 +73,9 @@ interface MockOmp {
 	tabs: {
 		getSessionOwner: Mock<(sessionPath: string) => Promise<IpcSessionOwner | null>>;
 		setActive: Mock<(tabId: string) => Promise<boolean>>;
+		spawn: Mock<
+			(payload: { cwd?: string; sessionPath?: string; kind?: "chat" | "agent" }) => Promise<{ tabId: string } | null>
+		>;
 	};
 	sessions: {
 		openInNewWindow: Mock<(payload: { sessionPath?: string; cwd?: string }) => Promise<boolean>>;
@@ -95,6 +98,7 @@ function installMockOmp(): MockOmp {
 		tabs: {
 			getSessionOwner: vi.fn(async () => null),
 			setActive: vi.fn(async () => true),
+			spawn: vi.fn(async () => ({ tabId: "t-spawned" })),
 		},
 		sessions: {
 			openInNewWindow: vi.fn(async () => true),
@@ -119,8 +123,8 @@ function installMockOmp(): MockOmp {
 function seedTabs(): void {
 	useTabsStore.setState({
 		tabs: [
-			{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-			{ id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
 		],
 		activeTabId: "t0",
 		bundles: new Map(),
@@ -238,5 +242,63 @@ describe("switchSessionNow F-OWN owner guard", () => {
 
 		expect(result).toBe(false);
 		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
+	});
+
+	it("surfaces a cross-kind switch as an error toast without switching (session_kind_mismatch)", async () => {
+		seedTabs();
+		omp.rpc.switchSession.mockResolvedValue({
+			type: "response",
+			command: "switch_session",
+			success: false,
+			error: "Cannot switch from agent session to chat session. Open the target session in a new tab instead.",
+			code: "session_kind_mismatch",
+		});
+
+		const result = await switchSessionNow(session("/sessions/chat.jsonl"));
+
+		expect(result).toBe(false);
+		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
+		// No routing side-effects: the kind guard never defers to an owner or a new window.
+		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+		expect(omp.sessions.openInNewWindow).not.toHaveBeenCalled();
+	});
+
+	it("opens a chat session in a new chat tab instead of switching the agent tab onto it", async () => {
+		seedTabs();
+
+		const result = await switchSessionNow({ ...session("/sessions/chat.jsonl"), kind: "chat" });
+
+		expect(result).toBe(true);
+		// Cross-kind: never a switch_session on the agent tab — a NEW chat tab instead.
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(
+			expect.objectContaining({ sessionPath: "/sessions/chat.jsonl", kind: "chat" }),
+		);
+	});
+
+	it("opens an agent session in a new agent tab when the active tab is chat", async () => {
+		useTabsStore.setState({
+			tabs: [{ kind: "chat", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false }],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+
+		const result = await switchSessionNow(session("/sessions/agent.jsonl"));
+
+		expect(result).toBe(true);
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(
+			expect.objectContaining({ sessionPath: "/sessions/agent.jsonl", kind: "agent" }),
+		);
+	});
+
+	it("switches in place when the file kind matches the active tab", async () => {
+		seedTabs();
+
+		const result = await switchSessionNow(session("/sessions/agent.jsonl"));
+
+		expect(result).toBe(true);
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/sessions/agent.jsonl");
+		expect(omp.tabs.spawn).not.toHaveBeenCalled();
 	});
 });

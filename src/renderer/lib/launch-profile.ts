@@ -53,6 +53,7 @@ export const DENYLISTED_FLAGS: readonly string[] = [
 	"--no-pty",
 	"--no-title",
 	"--api-key",
+	"--chat",
 ];
 
 const DENYLISTED: Record<string, true> = {
@@ -69,6 +70,7 @@ const DENYLISTED: Record<string, true> = {
 	"--no-pty": true,
 	"--no-title": true,
 	"--api-key": true,
+	"--chat": true,
 };
 
 /** Denylisted flags that consume a separate value token (--flag value). The

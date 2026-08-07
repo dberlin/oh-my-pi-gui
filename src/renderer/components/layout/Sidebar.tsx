@@ -5,12 +5,18 @@ import {
 	ChevronRight,
 	ExternalLink,
 	FolderTree,
+	MessageCircle,
+	MessageCirclePlus,
 	MessageSquarePlus,
+	MoreHorizontal,
 	Palette,
 	Pencil,
+	Pin,
+	PinOff,
 	Plus,
 	Search,
 	Settings,
+	SquareTerminal,
 	Trash2,
 	X,
 } from "lucide-react";
@@ -23,9 +29,12 @@ import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { mergeContentMatches, rankSessions } from "../../lib/session-search";
 import { useSessionStore } from "../../stores/session";
+import { useSidebarPrefs } from "../../stores/sidebar-prefs";
+import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { PiLogo } from "../common";
+import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { LangSwitcher } from "../common/LangSwitcher";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 
@@ -90,8 +99,25 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 	const [renaming, setRenaming] = useState(false);
 	const [workspaceOpen, setWorkspaceOpen] = useState(false);
 	const [renameDraft, setRenameDraft] = useState("");
+	// "+" type dropdown, workspace group context menu, session row context menu.
+	const [plusMenu, setPlusMenu] = useState<ContextMenuAnchor | null>(null);
+	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
+	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SessionInfo } | null>(null);
+	// Workspace display alias rename (group header inline input).
+	const [renamingGroupCwd, setRenamingGroupCwd] = useState<string | null>(null);
+	const [groupRenameDraft, setGroupRenameDraft] = useState("");
+	const groupRenameRef = useRef<HTMLInputElement>(null);
+	const openTab = useTabsStore(s => s.openTab);
+	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
+	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
+	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const renameRef = useRef<HTMLInputElement>(null);
 	const { sessions, isLoading, deleteSession } = useSessionList("global");
+
+	// Hydrate sidebar prefs (pins/aliases) once.
+	useEffect(() => {
+		void useSidebarPrefs.getState().hydrate();
+	}, []);
 	const sessionId = useSessionStore(s => s.sessionId);
 	const sessionName = useSessionStore(s => s.sessionName);
 	const cwd = useSessionStore(s => s.cwd);
@@ -137,16 +163,30 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 		}
 		const result: WorkspaceGroup[] = [...byCwd.entries()].map(([groupCwd, groupSessions]) => ({
 			cwd: groupCwd,
-			name: basename(groupCwd) || groupCwd,
-			sessions: groupSessions,
+			name: groupAliases[groupCwd] ?? (basename(groupCwd) || groupCwd),
+			sessions: [...groupSessions].sort((a, b) => {
+				// Pinned sessions first within a workspace; the rest keep rank order.
+				const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
+				const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
+				return aPinned - bPinned;
+			}),
 		}));
-		result.sort(
-			(a, b) =>
+		result.sort((a, b) => {
+			// Pinned workspaces first (pin order), then most-recent activity.
+			const aPinned = pinnedGroups.indexOf(a.cwd);
+			const bPinned = pinnedGroups.indexOf(b.cwd);
+			if (aPinned !== -1 || bPinned !== -1) {
+				if (aPinned === -1) return 1;
+				if (bPinned === -1) return -1;
+				return aPinned - bPinned;
+			}
+			return (
 				Date.parse(b.sessions[0]?.modified ?? (0 as unknown as string)) -
-				Date.parse(a.sessions[0]?.modified ?? (0 as unknown as string)),
-		);
+				Date.parse(a.sessions[0]?.modified ?? (0 as unknown as string))
+			);
+		});
 		return result;
-	}, [sessions, query, contentPaths]);
+	}, [sessions, query, contentPaths, pinnedGroups, pinnedSessions, groupAliases]);
 
 	const totalCount = useMemo(() => groups.reduce((n, g) => n + g.sessions.length, 0), [groups]);
 
@@ -260,9 +300,14 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 					</div>
 					<button
 						type="button"
-						onClick={() => setWorkspaceOpen(true)}
+						onClick={event => {
+							const rect = event.currentTarget.getBoundingClientRect();
+							setPlusMenu({ x: rect.left, y: rect.bottom + 6 });
+						}}
 						title={t("sidebar.newSession")}
 						aria-label={t("sidebar.newSession")}
+						aria-expanded={plusMenu !== null}
+						aria-haspopup="menu"
 						className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110"
 					>
 						<Plus size={16} strokeWidth={2.5} />
@@ -280,8 +325,8 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 					)}
 				</div>
 
-				<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-					{isLoading && (
+				<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 [overflow-anchor:none]">
+					{isLoading && sessions.length === 0 && (
 						<div className="px-3 py-6 text-center text-[13px] text-[var(--omp-dim)]">{t("sidebar.loading")}</div>
 					)}
 					{!isLoading && totalCount === 0 && (
@@ -295,245 +340,306 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 					{groups.map(group => {
 						const groupCollapsed = isCollapsed(group.cwd);
 						const isCurrent = group.cwd === cwd;
-						// Deleting a workspace deletes its session files — refuse while the
-						// group owns the active session (same guard as single-session delete).
-						const groupHasActive = group.sessions.some(session => session.id === sessionId);
-						const groupDeleteBlocked = groupHasActive || isStreaming;
-						const groupDeleteTitle = groupHasActive
-							? t("sidebar.deleteGroupActive")
-							: isStreaming
-								? t("sidebar.deleteGroupStreaming")
-								: t("sidebar.deleteGroup", { count: group.sessions.length });
 						return (
 							<div key={group.cwd} className="mb-1">
-								<button
-									type="button"
-									onClick={() => toggleGroup(group.cwd)}
+								<div
+									data-workspace-group={group.cwd}
+									onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
 									className={cx(
-										"omp-pressable group flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10px] font-medium uppercase tracking-[0.08em]",
+										"group flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10px] font-medium uppercase tracking-[0.08em] transition-colors duration-150 ease-out",
 										isCurrent
 											? "text-[var(--omp-muted)]"
 											: "text-[var(--omp-dim)] hover:text-[var(--omp-muted)]",
 									)}
 								>
-									{groupCollapsed ? (
-										<ChevronRight size={12} className="shrink-0" />
-									) : (
-										<ChevronDown size={12} className="shrink-0" />
-									)}
-									<span className="min-w-0 flex-1 truncate">{group.name}</span>
-									<span className="shrink-0 tabular-nums text-[10px] font-normal text-[var(--omp-dim)]">
-										{group.sessions.length}
-									</span>
-									{confirmingGroupDeleteCwd === group.cwd ? (
-										<span className="flex shrink-0 items-center gap-0.5" onClick={e => e.stopPropagation()}>
+									{renamingGroupCwd === group.cwd ? (
+										<>
 											<button
 												type="button"
-												disabled={deleting}
-												title={t("common.delete")}
-												aria-label={t("common.delete")}
-												onClick={() => void confirmDeleteGroup(group)}
-												className="flex h-4 w-4 items-center justify-center rounded bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)] hover:brightness-110 disabled:opacity-40"
+												onClick={() => toggleGroup(group.cwd)}
+												aria-expanded={!groupCollapsed}
+												aria-label={group.name}
+												className="flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-[var(--omp-bg-tertiary)]"
 											>
-												<Check size={10} strokeWidth={3} />
+												{groupCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
 											</button>
-											<button
-												type="button"
-												disabled={deleting}
-												title={t("common.cancel")}
-												aria-label={t("common.cancel")}
-												onClick={() => setConfirmingGroupDeleteCwd(null)}
-												className="flex h-4 w-4 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
-											>
-												<X size={10} strokeWidth={3} />
-											</button>
-										</span>
-									) : (
-										<span
-											role="button"
-											tabIndex={0}
-											title={groupDeleteTitle}
-											aria-label={groupDeleteTitle}
-											aria-disabled={groupDeleteBlocked}
-											className={cx(
-												"hidden h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] group-hover:flex",
-												groupDeleteBlocked
-													? "cursor-not-allowed opacity-40"
-													: "hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)]",
+											{pinnedGroups.includes(group.cwd) && (
+												<Pin
+													size={10}
+													className="shrink-0 text-[var(--omp-accent)]"
+													aria-label={t("sidebar.pinned")}
+												/>
 											)}
-											onClick={event => {
-												event.stopPropagation();
-												if (groupDeleteBlocked) {
-													toast({ variant: "warning", message: groupDeleteTitle });
-													return;
-												}
-												setConfirmingGroupDeleteCwd(group.cwd);
-											}}
-											onKeyDown={event => {
-												if (event.key === "Enter") {
-													event.stopPropagation();
-													if (groupDeleteBlocked) {
-														toast({ variant: "warning", message: groupDeleteTitle });
-														return;
+											<input
+												ref={groupRenameRef}
+												value={groupRenameDraft}
+												onChange={event => setGroupRenameDraft(event.target.value)}
+												onBlur={() => {
+													useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
+													setRenamingGroupCwd(null);
+												}}
+												onKeyDown={event => {
+													if (event.key === "Enter") {
+														useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
+														setRenamingGroupCwd(null);
 													}
-													setConfirmingGroupDeleteCwd(group.cwd);
-												}
-											}}
+													if (event.key === "Escape") setRenamingGroupCwd(null);
+												}}
+												className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1 py-0 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--omp-text)] outline-none"
+											/>
+											<span className="shrink-0 tabular-nums text-[10px] font-normal text-[var(--omp-dim)]">
+												{group.sessions.length}
+											</span>
+										</>
+									) : (
+										<button
+											type="button"
+											onClick={() => toggleGroup(group.cwd)}
+											aria-expanded={!groupCollapsed}
+											className="flex min-w-0 flex-1 items-center gap-1 text-left"
 										>
-											<Trash2 size={11} />
-										</span>
+											{groupCollapsed ? (
+												<ChevronRight size={12} className="shrink-0" />
+											) : (
+												<ChevronDown size={12} className="shrink-0" />
+											)}
+											{pinnedGroups.includes(group.cwd) && (
+												<Pin
+													size={10}
+													className="shrink-0 text-[var(--omp-accent)]"
+													aria-label={t("sidebar.pinned")}
+												/>
+											)}
+											<span className="min-w-0 flex-1 truncate">{group.name}</span>
+											<span className="shrink-0 tabular-nums text-[10px] font-normal text-[var(--omp-dim)]">
+												{group.sessions.length}
+											</span>
+										</button>
 									)}
-								</button>
-								{!groupCollapsed && (
-									<div className="space-y-0.5">
-										{group.sessions.map(session => {
-											const active = session.id === sessionId;
-											// Signal light: attached session uses live store state; other
-											// rows fall back to the session file's tail status ("pending"
-											// means mid-run). Waiting-for-confirmation wins over running.
-											const signal: "waiting" | "running" | null = active
-												? awaitingConfirmation
-													? "waiting"
-													: isStreaming
-														? "running"
-														: null
-												: session.status === "pending"
-													? "running"
-													: null;
-											return (
-												<div
-													key={session.path}
-													role="button"
-													tabIndex={0}
-													onClick={() => void openSession(session)}
-													onKeyDown={event => {
-														if (event.key === "Enter") void openSession(session);
-													}}
-													className={cx(
-														"group cursor-pointer rounded-md border px-2 py-2 transition-all",
-														active
-															? "border-[var(--omp-border-accent)] bg-[var(--omp-selected-bg)]"
-															: "border-transparent hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]",
-													)}
+									<span
+										className="flex w-[34px] shrink-0 items-center justify-end gap-0.5"
+										onClick={event => event.stopPropagation()}
+									>
+										{confirmingGroupDeleteCwd === group.cwd ? (
+											<>
+												<button
+													type="button"
+													disabled={deleting}
+													title={t("common.delete")}
+													aria-label={t("common.delete")}
+													onClick={() => void confirmDeleteGroup(group)}
+													className="flex h-4 w-4 items-center justify-center rounded bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)] hover:brightness-110 disabled:opacity-40"
 												>
-													<div className="flex items-center gap-1.5">
-														<span
-															title={
-																signal === "waiting"
-																	? t("sidebar.signal.waiting")
-																	: signal === "running"
-																		? t("sidebar.signal.running")
-																		: session.status
-															}
-															className={cx(
-																"h-1.5 w-1.5 shrink-0 rounded-full",
-																signal != null && "omp-pulse-dot",
-															)}
-															style={{
-																background:
-																	signal === "waiting"
-																		? "var(--omp-warning)"
-																		: signal === "running"
-																			? "var(--omp-success)"
-																			: STATUS_COLOR[session.status],
-															}}
-														/>
-														{active && renaming ? (
-															<input
-																ref={renameRef}
-																value={renameDraft}
-																onChange={event => setRenameDraft(event.target.value)}
-																onBlur={commitRename}
-																onKeyDown={event => {
-																	if (event.key === "Enter") commitRename();
-																	if (event.key === "Escape") setRenaming(false);
-																}}
-																onClick={event => event.stopPropagation()}
-																className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-[12.5px] font-medium text-[var(--omp-text)] outline-none"
-															/>
-														) : (
-															<span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--omp-text)]">
-																{session.title ?? session.firstMessage ?? t("sidebar.untitled")}
-															</span>
+													<Check size={10} strokeWidth={3} />
+												</button>
+												<button
+													type="button"
+													disabled={deleting}
+													title={t("common.cancel")}
+													aria-label={t("common.cancel")}
+													onClick={() => setConfirmingGroupDeleteCwd(null)}
+													className="flex h-4 w-4 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
+												>
+													<X size={10} strokeWidth={3} />
+												</button>
+											</>
+										) : (
+											<button
+												type="button"
+												title={t("sidebar.groupMenu")}
+												aria-label={t("sidebar.groupMenu")}
+												className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+												onClick={event => {
+													event.stopPropagation();
+													const rect = event.currentTarget.getBoundingClientRect();
+													setGroupMenu({ anchor: { x: rect.left, y: rect.bottom + 4 }, group });
+												}}
+											>
+												<MoreHorizontal size={11} />
+											</button>
+										)}
+									</span>
+								</div>
+								{/* Keep the content mounted for a smooth exit, but inert while collapsed. */}
+								<div
+									className="omp-sidebar-group"
+									data-session-group={group.cwd}
+									data-state={groupCollapsed ? "collapsed" : "expanded"}
+									aria-hidden={groupCollapsed}
+									inert={groupCollapsed}
+								>
+									<div className="omp-sidebar-group-content">
+										<div className="space-y-0.5">
+											{group.sessions.map(session => {
+												const active = session.id === sessionId;
+												// Signal light: attached session uses live store state; other
+												// rows fall back to the session file's tail status ("pending"
+												// means mid-run). Waiting-for-confirmation wins over running.
+												const signal: "waiting" | "running" | null = active
+													? awaitingConfirmation
+														? "waiting"
+														: isStreaming
+															? "running"
+															: null
+													: session.status === "pending"
+														? "running"
+														: null;
+												return (
+													<div
+														key={session.path}
+														role="button"
+														tabIndex={0}
+														onClick={() => void openSession(session)}
+														onContextMenu={event =>
+															setSessionMenu({ anchor: anchorFromEvent(event), session })
+														}
+														onKeyDown={event => {
+															if (event.key === "Enter") void openSession(session);
+														}}
+														className={cx(
+															"group cursor-pointer rounded-md border px-2 py-2 transition-colors duration-150 ease-out",
+															active
+																? "border-[var(--omp-border-accent)] bg-[var(--omp-selected-bg)]"
+																: "border-transparent hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]",
 														)}
-														{active && !renaming && (
-															<button
-																type="button"
-																title={t("sidebar.rename")}
-																aria-label={t("sidebar.rename")}
-																onClick={event => {
-																	event.stopPropagation();
-																	startRename();
-																}}
-																className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
-															>
-																<Pencil size={11} />
-															</button>
-														)}
-														{!active && (
-															<button
-																type="button"
-																title={t("sidebar.openInNewWindow")}
-																aria-label={t("sidebar.openInNewWindow")}
-																onClick={event => {
-																	event.stopPropagation();
-																	void openSessionInNewWindow(session);
-																}}
-																className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] group-hover:flex"
-															>
-																<ExternalLink size={11} />
-															</button>
-														)}
-														<span className="shrink-0 tabular-nums text-[10px] text-[var(--omp-dim)]">
-															{formatTimeAgo(session.modified)}
-														</span>
-														{confirmingDeletePath === session.path ? (
+													>
+														<div className="flex items-center gap-1.5">
 															<span
-																className="flex shrink-0 items-center gap-0.5"
-																onClick={e => e.stopPropagation()}
-															>
-																<button
-																	type="button"
-																	disabled={deleting}
-																	title={t("common.delete")}
-																	aria-label={t("common.delete")}
-																	onClick={() => void confirmDeleteSession(session)}
-																	className="flex h-5 w-5 items-center justify-center rounded bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)] hover:brightness-110 disabled:opacity-40"
-																>
-																	<Check size={11} strokeWidth={3} />
-																</button>
-																<button
-																	type="button"
-																	disabled={deleting}
-																	title={t("common.cancel")}
-																	aria-label={t("common.cancel")}
-																	onClick={() => setConfirmingDeletePath(null)}
-																	className="flex h-5 w-5 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
-																>
-																	<X size={11} strokeWidth={3} />
-																</button>
-															</span>
-														) : (
-															<button
-																className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)] disabled:opacity-30 group-hover:flex"
-																disabled={active || isStreaming}
-																onClick={event => {
-																	event.stopPropagation();
-																	if (!active && !isStreaming) setConfirmingDeletePath(session.path);
+																title={
+																	signal === "waiting"
+																		? t("sidebar.signal.waiting")
+																		: signal === "running"
+																			? t("sidebar.signal.running")
+																			: session.status
+																}
+																className={cx(
+																	"h-1.5 w-1.5 shrink-0 rounded-full",
+																	signal != null && "omp-pulse-dot",
+																)}
+																style={{
+																	background:
+																		signal === "waiting"
+																			? "var(--omp-warning)"
+																			: signal === "running"
+																				? "var(--omp-success)"
+																				: STATUS_COLOR[session.status],
 																}}
-																title={active ? t("sidebar.activeCannotDelete") : t("sidebar.delete")}
-																type="button"
-																aria-label={t("sidebar.delete")}
+															/>
+															{pinnedSessions.includes(session.path) && (
+																<Pin
+																	size={10}
+																	className="shrink-0 text-[var(--omp-accent)]"
+																	aria-label={t("sidebar.pinned")}
+																/>
+															)}
+															{active && renaming ? (
+																<input
+																	ref={renameRef}
+																	value={renameDraft}
+																	onChange={event => setRenameDraft(event.target.value)}
+																	onBlur={commitRename}
+																	onKeyDown={event => {
+																		if (event.key === "Enter") commitRename();
+																		if (event.key === "Escape") setRenaming(false);
+																	}}
+																	onClick={event => event.stopPropagation()}
+																	className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-[12.5px] font-medium text-[var(--omp-text)] outline-none"
+																/>
+															) : (
+																<span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] font-semibold text-[var(--omp-text)]">
+																	{session.kind === "chat" && (
+																		<MessageCircle
+																			size={11}
+																			className="shrink-0 text-[var(--omp-muted)]"
+																			aria-label={t("tabs.kind.chat")}
+																		/>
+																	)}
+																	<span className="min-w-0 truncate">
+																		{session.title ?? session.firstMessage ?? t("sidebar.untitled")}
+																	</span>
+																</span>
+															)}
+															<span className="shrink-0 tabular-nums text-[10px] text-[var(--omp-dim)]">
+																{formatTimeAgo(session.modified)}
+															</span>
+															<span
+																className="flex w-[42px] shrink-0 items-center justify-end gap-0.5"
+																onClick={event => event.stopPropagation()}
 															>
-																<Trash2 size={11} />
-															</button>
-														)}
+																{confirmingDeletePath === session.path ? (
+																	<>
+																		<button
+																			type="button"
+																			disabled={deleting}
+																			title={t("common.delete")}
+																			aria-label={t("common.delete")}
+																			onClick={() => void confirmDeleteSession(session)}
+																			className="flex h-5 w-5 items-center justify-center rounded bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)] hover:brightness-110 disabled:opacity-40"
+																		>
+																			<Check size={11} strokeWidth={3} />
+																		</button>
+																		<button
+																			type="button"
+																			disabled={deleting}
+																			title={t("common.cancel")}
+																			aria-label={t("common.cancel")}
+																			onClick={() => setConfirmingDeletePath(null)}
+																			className="flex h-5 w-5 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
+																		>
+																			<X size={11} strokeWidth={3} />
+																		</button>
+																	</>
+																) : (
+																	<>
+																		{active && !renaming ? (
+																			<button
+																				type="button"
+																				title={t("sidebar.rename")}
+																				aria-label={t("sidebar.rename")}
+																				onClick={startRename}
+																				className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+																			>
+																				<Pencil size={11} />
+																			</button>
+																		) : !active ? (
+																			<button
+																				type="button"
+																				title={t("sidebar.openInNewWindow")}
+																				aria-label={t("sidebar.openInNewWindow")}
+																				onClick={() => void openSessionInNewWindow(session)}
+																				className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+																			>
+																				<ExternalLink size={11} />
+																			</button>
+																		) : (
+																			<span className="h-5 w-5 shrink-0" />
+																		)}
+																		{!active ? (
+																			<button
+																				className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)] disabled:opacity-30"
+																				disabled={isStreaming}
+																				onClick={() => {
+																					if (!isStreaming) setConfirmingDeletePath(session.path);
+																				}}
+																				title={t("sidebar.delete")}
+																				type="button"
+																				aria-label={t("sidebar.delete")}
+																			>
+																				<Trash2 size={11} />
+																			</button>
+																		) : (
+																			<span className="h-5 w-5 shrink-0" />
+																		)}
+																	</>
+																)}
+															</span>
+														</div>
 													</div>
-												</div>
-											);
-										})}
+												);
+											})}
+										</div>
 									</div>
-								)}
+								</div>
 							</div>
 						);
 					})}
@@ -590,6 +696,172 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 				/>
 			</aside>
 			<WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} intent="new-session" />
+
+			{/* "+" type dropdown: Agent (workspace chooser flow) or Chat (direct tab). */}
+			{plusMenu && (
+				<ContextMenu
+					x={plusMenu.x}
+					y={plusMenu.y}
+					onClose={() => setPlusMenu(null)}
+					items={[
+						{
+							id: "new-agent",
+							label: t("sidebar.menu.newAgent"),
+							icon: SquareTerminal,
+							hint: "⌘T",
+							onSelect: () => {
+								setPlusMenu(null);
+								setWorkspaceOpen(true);
+							},
+						},
+						{
+							id: "new-chat",
+							label: t("sidebar.menu.newChat"),
+							icon: MessageCirclePlus,
+							hint: "⇧⌘T",
+							onSelect: () => {
+								setPlusMenu(null);
+								void openTab({ kind: "chat" });
+							},
+						},
+					]}
+				/>
+			)}
+
+			{/* Workspace group menu: new sessions, rename (alias), pin, delete. */}
+			{groupMenu && (
+				<ContextMenu
+					x={groupMenu.anchor.x}
+					y={groupMenu.anchor.y}
+					onClose={() => setGroupMenu(null)}
+					items={[
+						{
+							id: "group-new-agent",
+							label: t("sidebar.menu.newAgentHere"),
+							icon: SquareTerminal,
+							onSelect: () => {
+								setGroupMenu(null);
+								void openTab({ cwd: groupMenu.group.cwd });
+							},
+						},
+						{
+							id: "group-new-chat",
+							label: t("sidebar.menu.newChatHere"),
+							icon: MessageCirclePlus,
+							onSelect: () => {
+								setGroupMenu(null);
+								void openTab({ cwd: groupMenu.group.cwd, kind: "chat" });
+							},
+						},
+						{
+							id: "group-rename",
+							label: t("sidebar.menu.rename"),
+							icon: Pencil,
+							onSelect: () => {
+								setGroupRenameDraft(groupMenu.group.name);
+								setRenamingGroupCwd(groupMenu.group.cwd);
+								setGroupMenu(null);
+								requestAnimationFrame(() => groupRenameRef.current?.select());
+							},
+						},
+						{
+							id: "group-pin",
+							label: pinnedGroups.includes(groupMenu.group.cwd)
+								? t("sidebar.menu.unpin")
+								: t("sidebar.menu.pin"),
+							icon: pinnedGroups.includes(groupMenu.group.cwd) ? PinOff : Pin,
+							onSelect: () => {
+								useSidebarPrefs.getState().toggleGroupPin(groupMenu.group.cwd);
+								setGroupMenu(null);
+							},
+						},
+						{
+							id: "group-delete",
+							label: t("common.delete"),
+							icon: Trash2,
+							danger: true,
+							disabled: groupMenu.group.sessions.some(session => session.id === sessionId) || isStreaming,
+							disabledReason: groupMenu.group.sessions.some(session => session.id === sessionId)
+								? t("sidebar.deleteGroupActive")
+								: t("sidebar.deleteGroupStreaming"),
+							onSelect: () => {
+								setConfirmingGroupDeleteCwd(groupMenu.group.cwd);
+								setGroupMenu(null);
+							},
+						},
+					]}
+				/>
+			)}
+
+			{/* Session row menu: open variants, rename (active only), pin, delete. */}
+			{sessionMenu && (
+				<ContextMenu
+					x={sessionMenu.anchor.x}
+					y={sessionMenu.anchor.y}
+					onClose={() => setSessionMenu(null)}
+					items={[
+						{
+							id: "session-open",
+							label: t("sidebar.menu.open"),
+							icon: ChevronRight,
+							onSelect: () => {
+								setSessionMenu(null);
+								void openSession(sessionMenu.session);
+							},
+						},
+						{
+							id: "session-open-tab",
+							label: t("sidebar.menu.openNewTab"),
+							icon: Plus,
+							onSelect: () => {
+								setSessionMenu(null);
+								void openTab({ cwd: sessionMenu.session.cwd, sessionPath: sessionMenu.session.path });
+							},
+						},
+						{
+							id: "session-open-window",
+							label: t("sidebar.openInNewWindow"),
+							icon: ExternalLink,
+							onSelect: () => {
+								setSessionMenu(null);
+								void openSessionInNewWindow(sessionMenu.session);
+							},
+						},
+						{
+							id: "session-rename",
+							label: t("sidebar.rename"),
+							icon: Pencil,
+							disabled: sessionMenu.session.id !== sessionId,
+							disabledReason: t("sidebar.menu.renameActiveOnly"),
+							onSelect: () => {
+								setSessionMenu(null);
+								startRename();
+							},
+						},
+						{
+							id: "session-pin",
+							label: pinnedSessions.includes(sessionMenu.session.path)
+								? t("sidebar.menu.unpin")
+								: t("sidebar.menu.pin"),
+							icon: pinnedSessions.includes(sessionMenu.session.path) ? PinOff : Pin,
+							onSelect: () => {
+								useSidebarPrefs.getState().toggleSessionPin(sessionMenu.session.path);
+								setSessionMenu(null);
+							},
+						},
+						{
+							id: "session-delete",
+							label: t("common.delete"),
+							icon: Trash2,
+							danger: true,
+							onSelect: () => {
+								setConfirmingDeletePath(sessionMenu.session.path);
+								setSessionMenu(null);
+							},
+						},
+					]}
+				/>
+			)}
 		</>
 	);
 }

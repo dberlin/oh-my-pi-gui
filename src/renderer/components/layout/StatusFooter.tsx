@@ -4,6 +4,7 @@ import { shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
+import { useActiveTabKind } from "../../stores/tabs";
 import { Badge, type BadgeVariant } from "../common";
 import { loopLimitText, parseLoopLimit } from "../panels/ModesPanel";
 
@@ -69,6 +70,8 @@ export function StatusFooter() {
 	const loopMode = useSessionStore(s => s.loopMode);
 	const vibeModeEnabled = useSessionStore(s => s.vibeModeEnabled);
 	const agentsPaused = useSessionStore(s => s.agentsPaused);
+	/** Chat tabs are tool-free: agent-mode badges can't be armed there. */
+	const isChat = useActiveTabKind() === "chat";
 	const [preset, setPreset] = useState<StatusLinePreset>("default");
 
 	// Read the preset at mount, then re-read on every config_update push
@@ -114,7 +117,9 @@ export function StatusFooter() {
 	const loopLimit = loopMode ? parseLoopLimit(loopMode.limit) : null;
 	const loopArgs = loopLimit ? loopLimitText(t, loopLimit) : t("modesPanel.loop.noLimit");
 	const modeBadges: { key: string; label: string; tooltip: string; variant: BadgeVariant }[] = [];
-	if (planModeEnabled) {
+	// Chat tabs are tool-free: agent-mode badges (plan/goal/loop/vibe) can't be
+	// armed there. The paused gate is transport-level and stays.
+	if (planModeEnabled && !isChat) {
 		modeBadges.push({
 			key: "plan",
 			label: t("statusFooter.mode.plan"),
@@ -122,7 +127,7 @@ export function StatusFooter() {
 			variant: "info",
 		});
 	}
-	if (goalActive) {
+	if (goalActive && !isChat) {
 		modeBadges.push({
 			key: "goal",
 			label: t("statusFooter.mode.goal"),
@@ -132,7 +137,7 @@ export function StatusFooter() {
 			variant: "success",
 		});
 	}
-	if (loopActive) {
+	if (loopActive && !isChat) {
 		modeBadges.push({
 			key: "loop",
 			label: t("statusFooter.mode.loop"),
@@ -140,7 +145,7 @@ export function StatusFooter() {
 			variant: "info",
 		});
 	}
-	if (vibeModeEnabled) {
+	if (vibeModeEnabled && !isChat) {
 		modeBadges.push({
 			key: "vibe",
 			label: t("statusFooter.mode.vibe"),

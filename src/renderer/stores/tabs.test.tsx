@@ -18,7 +18,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { IpcSpawnTabPayload, IpcTabInfo, IpcTabStatusPayload } from "../../shared/ipc-types";
+import type { IpcSpawnTabPayload, IpcSpawnTabResult, IpcTabInfo, IpcTabStatusPayload } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
 	ModelInfo,
@@ -74,13 +74,13 @@ function msg(text: string): AgentMessage {
 }
 
 function tabInfo(tabId: string, cwd: string, status: IpcTabInfo["status"] = "ready"): IpcTabInfo {
-	return { tabId, cwd, status };
+	return { tabId, cwd, status, kind: "agent" };
 }
 
 interface MockOmp {
 	tabs: {
 		list: Mock<() => Promise<IpcTabInfo[]>>;
-		spawn: Mock<(payload: IpcSpawnTabPayload) => Promise<{ tabId: string } | null>>;
+		spawn: Mock<(payload: IpcSpawnTabPayload) => Promise<IpcSpawnTabResult | null>>;
 		close: Mock<(tabId: string) => Promise<boolean>>;
 		setActive: Mock<(tabId: string) => Promise<boolean>>;
 	};
@@ -137,9 +137,9 @@ function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
 function seedTabs(active: "t0" | "t1" | "t2" = "t0"): void {
 	useTabsStore.setState({
 		tabs: [
-			{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-			{ id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
-			{ id: "t2", cwd: "/gamma", status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t2", cwd: "/gamma", status: "ready", unreadDone: false },
 		],
 		activeTabId: active,
 		bundles: new Map(),
@@ -208,7 +208,9 @@ describe("tabs store boot reconciliation", () => {
 		await useTabsStore.getState().reconcileTabs();
 		expect(useTabsStore.getState().tabs).toHaveLength(1);
 
-		useTabsStore.getState().applyTabStatus({ tabId: "t0", cwd: "/alpha", status: "ready", title: "Alpha" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", title: "Alpha" });
 		await useTabsStore.getState().reconcileTabs();
 		const tabs = useTabsStore.getState().tabs;
 		expect(tabs).toHaveLength(1);
@@ -239,7 +241,7 @@ describe("tabs store switch", () => {
 		const tabId = await useTabsStore.getState().openTab();
 
 		expect(tabId).toBe("t1");
-		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/alpha", sessionPath: undefined });
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/alpha", sessionPath: undefined, kind: "agent" });
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1"]);
 		expect(useTabsStore.getState().activeTabId).toBe("t1");
 	});
@@ -253,6 +255,18 @@ describe("tabs store switch", () => {
 		expect(tabId).toBeNull();
 		expect(useTabsStore.getState().tabs).toHaveLength(3);
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+	});
+
+	it("surfaces a kind-mismatch refusal as an error toast and adds no tab", async () => {
+		seedTabs();
+		omp.tabs.spawn.mockResolvedValue({ tabId: null, refusal: "kind-mismatch" });
+
+		const tabId = await useTabsStore.getState().openTab({ sessionPath: "/sessions/agent.jsonl", kind: "chat" });
+
+		expect(tabId).toBeNull();
+		expect(useTabsStore.getState().tabs).toHaveLength(3);
+		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
 		expect(omp.tabs.setActive).not.toHaveBeenCalled();
 	});
 
@@ -324,7 +338,7 @@ describe("tabs store switch", () => {
 	it("derives run state from the tab entry when restoring a background-running tab", async () => {
 		seedTabs();
 		// t1's run kept going in the background; the pool reported it.
-		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/beta", status: "running" });
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
 
 		// Gate the hydrate so the restored (pre-hydrate) state is observable.
 		const gate = Promise.withResolvers<RpcResponse>();
@@ -424,10 +438,10 @@ describe("tabs store applyTabStatus", () => {
 	it("sets unreadDone when a background run settles, cleared on visit", async () => {
 		seedTabs();
 
-		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/beta", status: "running" });
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
 
-		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(true);
 
 		await useTabsStore.getState().switchTab("t1");
@@ -436,20 +450,20 @@ describe("tabs store applyTabStatus", () => {
 
 	it("does not badge the active tab's own run settling", () => {
 		seedTabs();
-		useTabsStore.getState().applyTabStatus({ tabId: "t0", cwd: "/alpha", status: "running" });
-		useTabsStore.getState().applyTabStatus({ tabId: "t0", cwd: "/alpha", status: "ready" });
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "running" });
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready" });
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t0")?.unreadDone).toBe(false);
 	});
 
 	it("upserts unknown tabs and preserves title/sessionId across pushes", () => {
 		seedTabs();
-		useTabsStore.getState().applyTabStatus({ tabId: "t9", cwd: "/new", status: "starting" });
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t9", cwd: "/new", status: "starting" });
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toContain("t9");
 
 		useTabsStore
 			.getState()
-			.applyTabStatus({ tabId: "t1", cwd: "/beta", status: "ready", title: "Beta", sessionId: "s9" });
-		useTabsStore.getState().applyTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready", title: "Beta", sessionId: "s9" });
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
 		const t1 = useTabsStore.getState().tabs.find(tab => tab.id === "t1");
 		expect(t1?.title).toBe("Beta");
 		expect(t1?.sessionId).toBe("s9");
@@ -497,14 +511,23 @@ describe("useSessionTabs hook", () => {
 
 	it("applies a tab's pending session path on its first ready push while active", async () => {
 		useTabsStore.setState({
-			tabs: [{ id: "t1", cwd: "/beta", status: "starting", unreadDone: false, pendingSessionPath: "/s.json" }],
+			tabs: [
+				{
+					kind: "agent",
+					id: "t1",
+					cwd: "/beta",
+					status: "starting",
+					unreadDone: false,
+					pendingSessionPath: "/s.json",
+				},
+			],
 			activeTabId: "t1",
 			bundles: new Map(),
 		});
 		await mount();
 
 		await act(async () => {
-			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
 		});
 		// The switch + hydrate run in a trailing microtask chain.
 		await act(async () => {
@@ -519,14 +542,23 @@ describe("useSessionTabs hook", () => {
 
 		// A duplicate ready push must not re-enter the flow.
 		await act(async () => {
-			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
 		});
 		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
 	});
 
 	it("skips the ready-time switchSession when the sidecar is already on the pending session", async () => {
 		useTabsStore.setState({
-			tabs: [{ id: "t1", cwd: "/beta", status: "starting", unreadDone: false, pendingSessionPath: "/s.json" }],
+			tabs: [
+				{
+					kind: "agent",
+					id: "t1",
+					cwd: "/beta",
+					status: "starting",
+					unreadDone: false,
+					pendingSessionPath: "/s.json",
+				},
+			],
 			activeTabId: "t1",
 			bundles: new Map(),
 		});
@@ -536,7 +568,7 @@ describe("useSessionTabs hook", () => {
 		await mount();
 
 		await act(async () => {
-			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
 		});
 		// The gate + hydrate run in a trailing microtask chain.
 		await act(async () => {
@@ -555,8 +587,15 @@ describe("useSessionTabs hook", () => {
 	it("does not switch the session for a background tab's pending path", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ id: "t1", cwd: "/beta", status: "starting", unreadDone: false, pendingSessionPath: "/s.json" },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{
+					kind: "agent",
+					id: "t1",
+					cwd: "/beta",
+					status: "starting",
+					unreadDone: false,
+					pendingSessionPath: "/s.json",
+				},
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -564,7 +603,7 @@ describe("useSessionTabs hook", () => {
 		await mount();
 
 		await act(async () => {
-			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
 		});
 
 		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
@@ -580,12 +619,12 @@ describe("useSessionTabs hook", () => {
 		// background tab's ready must NOT fire the command (it would land on
 		// the wrong sidecar). hydrateSession re-asserts on switch-in instead.
 		await act(async () => {
-			emitTabStatus({ tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
 		});
 		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
 
 		await act(async () => {
-			emitTabStatus({ tabId: "t0", cwd: "/alpha", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready" });
 		});
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
 	});
@@ -593,7 +632,7 @@ describe("useSessionTabs hook", () => {
 
 describe("tabChipLabel (F-HYDRATE)", () => {
 	function chip(id: string, cwd: string, title?: string): SessionTab {
-		const tab: SessionTab = { id, cwd, status: "ready", unreadDone: false };
+		const tab: SessionTab = { id, cwd, status: "ready", kind: "agent", unreadDone: false };
 		if (title !== undefined) tab.title = title;
 		return tab;
 	}

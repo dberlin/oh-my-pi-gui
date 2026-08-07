@@ -105,6 +105,34 @@ function fakePool(max = 10): { pool: SidecarPool; sidecars: FakeSidecar[] } {
 	return { pool, sidecars };
 }
 
+describe("SidecarPool session kind", () => {
+	it("threads the spawn kind through the factory into TAB_STATUS payloads", () => {
+		const kinds: Array<"agent" | "chat" | undefined> = [];
+		const sidecars: FakeSidecar[] = [];
+		const pool = new SidecarPool((cwd, kind) => {
+			kinds.push(kind);
+			const sidecar = new FakeSidecar(cwd);
+			sidecars.push(sidecar);
+			return sidecar as unknown as SidecarManager;
+		});
+		const fw = fakeWindow(1);
+
+		pool.acquire("/a", fw.win, "tab-agent");
+		pool.acquire("/b", fw.win, "tab-chat", undefined, "chat");
+		// acquire defaults the kind to "agent" — the factory always sees a defined value.
+		expect(kinds).toEqual(["agent", "chat"]);
+
+		const [, chatSidecar] = sidecars;
+		chatSidecar?.emitStatus("ready");
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data)).toEqual([
+			{ kind: "chat", tabId: "tab-chat", cwd: "/b", status: "ready" },
+		]);
+
+		// GET_TABS exposes the immutable kind for every tab.
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.kind)).toEqual(["agent", "chat"]);
+	});
+});
+
 describe("SidecarPool tabs", () => {
 	it("binds two tabs to one window; the first is active", () => {
 		const { pool, sidecars } = fakePool();
@@ -121,8 +149,8 @@ describe("SidecarPool tabs", () => {
 		expect(pool.sidecarForTab(fw.win, "nope")).toBeNull();
 		expect(pool.activeTabForWindow(fw.win)).toBe("tab-a");
 		expect(pool.tabsForWindow(fw.win)).toEqual([
-			{ tabId: "tab-a", cwd: "/a", status: "starting" },
-			{ tabId: "tab-b", cwd: "/b", status: "starting" },
+			{ kind: "agent", tabId: "tab-a", cwd: "/a", status: "starting" },
+			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "starting" },
 		]);
 	});
 
@@ -157,8 +185,8 @@ describe("SidecarPool tabs", () => {
 		// …but both tabs pushed TAB_STATUS for their running transition.
 		const statuses = fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data as IpcTabStatusPayload);
 		expect(statuses).toEqual([
-			{ tabId: "tab-a", cwd: "/a", status: "starting" },
-			{ tabId: "tab-b", cwd: "/b", status: "starting" },
+			{ kind: "agent", tabId: "tab-a", cwd: "/a", status: "starting" },
+			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "starting" },
 		]);
 
 		// Connection status is forwarded on the full channel for the active tab only.
@@ -191,18 +219,18 @@ describe("SidecarPool tabs", () => {
 		b?.emitAgentEvents(["agent_start"]);
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(0);
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data)).toEqual([
-			{ tabId: "tab-b", cwd: "/b", status: "running" },
+			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "running" },
 		]);
 		expect(pool.tabsForWindow(fw.win)).toEqual([
-			{ tabId: "tab-a", cwd: "/a", status: "ready" },
-			{ tabId: "tab-b", cwd: "/b", status: "running" },
+			{ kind: "agent", tabId: "tab-a", cwd: "/a", status: "ready" },
+			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "running" },
 		]);
 
 		// Run settles → ready (the renderer's unreadDone signal for background tabs).
 		fw.sent.length = 0;
 		b?.emitAgentEvents(["agent_end"]);
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data)).toEqual([
-			{ tabId: "tab-b", cwd: "/b", status: "ready" },
+			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "ready" },
 		]);
 
 		// A restart mid-run clears the flag: no stale "running" after recovery.
@@ -264,11 +292,12 @@ describe("SidecarPool tabs", () => {
 		b?.emitSessionInfo({ title: "Fix flaky test", sessionId: "sess-1" });
 		// Background session-info pushes a light snapshot and caches for later.
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data)).toEqual([
-			{ tabId: "tab-b", cwd: "/b", status: "starting", sessionId: "sess-1", title: "Fix flaky test" },
+			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "starting", sessionId: "sess-1", title: "Fix flaky test" },
 		]);
 		// No full-channel forward from a background tab.
 		expect(fw.sentTo(IPC_EVENTS.SESSION_INFO_UPDATE)).toHaveLength(0);
 		expect(pool.tabsForWindow(fw.win)[1]).toEqual({
+			kind: "agent",
 			tabId: "tab-b",
 			cwd: "/b",
 			status: "starting",
@@ -280,7 +309,7 @@ describe("SidecarPool tabs", () => {
 		fw.sent.length = 0;
 		b?.emitStatus("ready");
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data)).toEqual([
-			{ tabId: "tab-b", cwd: "/b", status: "ready", sessionId: "sess-1", title: "Fix flaky test" },
+			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "ready", sessionId: "sess-1", title: "Fix flaky test" },
 		]);
 	});
 

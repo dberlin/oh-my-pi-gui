@@ -8,7 +8,7 @@
  * stores. Follows the ModelPicker overlay pattern.
  */
 
-import { ArrowDownAZ, Check, Clock, Folder, FolderTree, Globe, History, Search } from "lucide-react";
+import { ArrowDownAZ, Check, Clock, Folder, FolderTree, Globe, History, MessageCircle, Search } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { requestSessionSwitch, switchSessionNow } from "../../hooks/use-session-switch";
@@ -300,6 +300,13 @@ export function SessionPickerDialog() {
 									type="button"
 								>
 									<History className="shrink-0 text-(--omp-dim)" size={13} />
+									{session.kind === "chat" && (
+										<MessageCircle
+											className="shrink-0 text-(--omp-muted)"
+											size={12}
+											aria-label={t("tabs.kind.chat")}
+										/>
+									)}
 									<span className="min-w-0 flex-1">
 										<span
 											className={`block truncate text-xs ${isCurrent ? "font-semibold text-(--omp-accent)" : "font-medium text-(--omp-text)"}`}

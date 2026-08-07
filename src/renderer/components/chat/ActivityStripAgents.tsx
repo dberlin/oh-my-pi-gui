@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
+import { useActiveTabKind } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { isLiveSubagentStatus } from "../panels/subagent-graph";
 
@@ -31,6 +32,8 @@ export function ActivityStripAgents({ pollMs = STREAM_POLL_MS }: { pollMs?: numb
 	});
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const setPanelTab = useUiStore(s => s.setPanelTab);
+	/** Chat tabs are tool-free: subagents can never exist there. */
+	const isChat = useActiveTabKind() === "chat";
 
 	useEffect(() => {
 		if (!isStreaming) return;
@@ -38,7 +41,7 @@ export function ActivityStripAgents({ pollMs = STREAM_POLL_MS }: { pollMs?: numb
 		return () => clearInterval(timer);
 	}, [isStreaming, pollMs]);
 
-	if (runningCount === 0) return null;
+	if (isChat || runningCount === 0) return null;
 
 	return (
 		<button

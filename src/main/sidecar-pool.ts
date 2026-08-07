@@ -48,7 +48,7 @@ import type {
 import type { SidecarManager } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
 
-export type SidecarFactory = (cwd: string) => SidecarManager;
+export type SidecarFactory = (cwd: string, kind?: "agent" | "chat") => SidecarManager;
 
 function forwardToWindow(win: BrowserWindow, channel: string, data: unknown): void {
 	if (!win.isDestroyed()) win.webContents.send(channel, data);
@@ -68,6 +68,8 @@ interface PoolEntry {
 	/** win.webContents.id, cached at acquire — safe to read after the window is destroyed. */
 	winId: number;
 	/** Last status this tab's sidecar reported (TAB_STATUS / GET_TABS). */
+	/** Session kind: "agent" (default) or "chat" (tool-free). Immutable; set at acquire. */
+	kind: "agent" | "chat";
 	status: SidecarStatus;
 	/** Agent run in flight (agent_start seen, no agent_end yet) — synthesized "running". */
 	running: boolean;
@@ -140,6 +142,7 @@ export class SidecarPool {
 	 * Spawn + bind a sidecar for `cwd` to `win` as a tab. Returns null at the
 	 * cap. `tabId` defaults to a fresh snowflake (the window's initial sidecar
 	 * is minted here too); `sessionPath` resumes that session on first start.
+	 * `kind` defaults to "agent"; "chat" spawns a tool-free conversation.
 	 * The first tab of a window becomes its active tab; later tabs start in
 	 * the background (light TAB_STATUS wiring only). Removes the entry when
 	 * the window closes.
@@ -149,16 +152,18 @@ export class SidecarPool {
 		win: BrowserWindow,
 		tabId: string = nextSnowflake(),
 		sessionPath?: string,
+		kind: "agent" | "chat" = "agent",
 	): SidecarManager | null {
 		if (this.atCap) return null;
 		this.#reserved++;
 		try {
-			const sidecar = this.#factory(cwd);
+			const sidecar = this.#factory(cwd, kind);
 			const entry: PoolEntry = {
 				sidecar,
 				tabId,
 				win,
 				winId: win.webContents.id,
+				kind,
 				status: sidecar.status,
 				running: false,
 				detachFull: null,
@@ -475,6 +480,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	const payload: IpcTabStatusPayload = {
 		tabId: entry.tabId,
 		cwd: entry.sidecar.cwd,
+		kind: entry.kind,
 		// "running" only makes sense on a live connection — a restarting sidecar
 		// reports its connection state even with a dead in-flight run.
 		status: entry.running && entry.status === "ready" ? "running" : entry.status,

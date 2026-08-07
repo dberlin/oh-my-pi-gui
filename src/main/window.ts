@@ -6,7 +6,7 @@
 import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import Store from "electron-store";
-import type { RunProgressState } from "../shared/ipc-types";
+import type { RunProgressState, SessionKind } from "../shared/ipc-types";
 
 interface WindowState {
 	x?: number;
@@ -43,9 +43,11 @@ export interface WindowRecord {
 /**
  * Spawn a window with its own sidecar (index.ts's pool-backed helper). Empty
  * `cwd` falls back to resolveInitialCwd (lastProject → launch cwd), never a
- * bare process.cwd() which is "/" for Finder-launched apps.
+ * bare process.cwd() which is "/" for Finder-launched apps. `kind` is the
+ * target session file's stamped kind (OPEN_NEW_WINDOW resolves it from the
+ * session index); omitted = agent.
  */
-export type SpawnWindow = (cwd?: string, pendingSessionPath?: string) => BrowserWindow | null;
+export type SpawnWindow = (cwd?: string, pendingSessionPath?: string, kind?: SessionKind) => BrowserWindow | null;
 
 export class WindowManager {
 	#records = new Map<number, WindowRecord>();

@@ -9,7 +9,7 @@
  * shrinking chips past readability.
  */
 
-import { Check, Plus, X } from "lucide-react";
+import { Check, MessageCircle, MessageCirclePlus, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -69,6 +69,9 @@ function TabChip({
 			)}
 		>
 			{running && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--omp-accent)]" />}
+			{tab.kind === "chat" && (
+				<MessageCircle size={11} className="shrink-0 text-[var(--omp-muted)]" aria-label={t("tabs.kind.chat")} />
+			)}
 			{confirmingClose ? (
 				<span className="min-w-0 truncate text-[var(--omp-error)]" title={t("tabs.confirmClose")}>
 					{t("tabs.confirmClose")}
@@ -140,7 +143,6 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 	const t = useT();
 	const tabs = useTabsStore(s => s.tabs);
 	const activeTabId = useTabsStore(s => s.activeTabId);
-	const openTab = useTabsStore(s => s.openTab);
 	const closeTab = useTabsStore(s => s.closeTab);
 	// Inline close confirm for live tabs (AgentHub abort parity): the first
 	// click arms, the ✓ executes, ✕ or the timeout cancels. One arm at a time.
@@ -191,15 +193,43 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 					onCancelClose={cancelCloseConfirm}
 				/>
 			))}
+			<NewTabMenu />
+		</div>
+	);
+}
+
+/**
+ * New-tab affordance: TWO visible one-click buttons — chat is a first-class
+ * type, so it gets a first-class surface. + spawns an agent tab (dominant
+ * path); 💬+ spawns a chat tab. The type stays immutable once spawned; the
+ * pick is explicit by which button is hit. (An earlier right-click menu
+ * failed the real-user test: right-click is undiscoverable.)
+ */
+function NewTabMenu() {
+	const t = useT();
+	const openTab = useTabsStore(s => s.openTab);
+	const buttonClass =
+		"no-drag omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]";
+	return (
+		<>
 			<button
 				type="button"
-				aria-label={t("tabs.new")}
-				title={t("tabs.new")}
+				aria-label={t("tabs.new.agent")}
+				title={t("tabs.new.agentHint")}
 				onClick={() => void openTab()}
-				className="no-drag omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+				className={buttonClass}
 			>
 				<Plus size={14} />
 			</button>
-		</div>
+			<button
+				type="button"
+				aria-label={t("tabs.new.chat")}
+				title={t("tabs.new.chatHint")}
+				onClick={() => void openTab({ kind: "chat" })}
+				className={buttonClass}
+			>
+				<MessageCirclePlus size={14} />
+			</button>
+		</>
 	);
 }

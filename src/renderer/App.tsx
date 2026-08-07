@@ -52,7 +52,7 @@ import { startVoiceAutoSpeak } from "./lib/voice";
 import { useModelStore } from "./stores/model";
 import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
-import { useSessionTabs } from "./stores/tabs";
+import { useSessionTabs, useTabsStore } from "./stores/tabs";
 import { toast } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
 import { subscribeUpdaterStatus } from "./stores/updater";
@@ -349,6 +349,14 @@ export function App() {
 					});
 					return;
 				}
+				case "tab.new":
+					// ⌘T — new agent tab (type chosen at creation, immutable).
+					void useTabsStore.getState().openTab();
+					return;
+				case "tab.newChat":
+					// ⇧⌘T — new chat tab (tool-free conversation).
+					void useTabsStore.getState().openTab({ kind: "chat" });
+					return;
 				case "model.select":
 					// ⌥M — model picker (TUI app.model.select).
 					ui.openModelPicker();
@@ -473,6 +481,16 @@ export function App() {
 			if (action === "toggle-language") {
 				const current = typeof localStorage !== "undefined" ? localStorage.getItem("omp.lang") : null;
 				setLang(current === "zh" ? "en" : "zh");
+				return;
+			}
+			// New tab actions never touch the live run — they must stay OUT of the
+			// streaming busy-guard below (unlike new-session/open-project).
+			if (action === "new-tab") {
+				void useTabsStore.getState().openTab();
+				return;
+			}
+			if (action === "new-chat-tab") {
+				void useTabsStore.getState().openTab({ kind: "chat" });
 				return;
 			}
 			if (

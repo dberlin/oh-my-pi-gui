@@ -182,6 +182,8 @@ export type UpdateStatus =
 
 export type MenuAction =
 	| "new-session"
+	| "new-tab"
+	| "new-chat-tab"
 	| "open-project"
 	| "toggle-sidebar"
 	| "toggle-panel"
@@ -427,12 +429,17 @@ export interface IpcSessionOpenNewWindowPayload {
  */
 export type TabStatus = SidecarStatus | "running";
 
+/** Session kind: "agent" (tools enabled) or "chat" (tool-free conversation). */
+export type SessionKind = "agent" | "chat";
+
 /** One tab of a window: its sidecar's cwd, last status, and cached session meta. */
 export interface IpcTabInfo {
 	/** Opaque snowflake id minted by main at acquire. */
 	tabId: string;
 	cwd: string;
 	status: TabStatus;
+	/** Immutable session kind, fixed when the tab's sidecar was spawned. */
+	kind: SessionKind;
 	/** Present once the tab's sidecar reported session_info_update. */
 	sessionId?: string;
 	title?: string;
@@ -445,6 +452,8 @@ export type IpcTabStatusPayload = IpcTabInfo;
 export interface IpcSpawnTabPayload {
 	cwd?: string;
 	sessionPath?: string;
+	/** Session kind for the new tab; omitted = "agent". Immutable once spawned. */
+	kind?: SessionKind;
 }
 
 /** Owner of a session file: the tab (and its window) currently attached to it. */
@@ -464,6 +473,12 @@ export interface IpcSpawnTabResult {
 	/** Present iff tabId is null: the tab/window owning the requested sessionPath. */
 	ownerTabId?: string;
 	ownerWinId?: number;
+	/**
+	 * Why the spawn was refused (tabId null). `owned` = the session file is
+	 * already attached elsewhere (F-OWN); `kind-mismatch` = the requested kind
+	 * disagrees with the target session file's stamped kind.
+	 */
+	refusal?: "owned" | "kind-mismatch";
 }
 
 /** Look up which tab/window owns a session file (F-OWN renderer belt-guards). */
@@ -489,6 +504,8 @@ export interface SessionInfo {
 	messageCount: number;
 	size: number;
 	status: "complete" | "interrupted" | "aborted" | "error" | "pending" | "unknown";
+	/** Session kind read from the file header; absent = agent (legacy sessions). */
+	kind?: "chat";
 	parentSessionPath?: string;
 	firstMessage: string;
 }
