@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-07
+
+### Added
+
+- **Chat sessions — tool-free conversations**: new session type (`kind: "chat"` in session headers) for pure dialogue without tool access. Chat sessions isolate from agent sessions in the sidebar and switch dialogs, spawn with `--chat` flag, and render a trimmed composer (no slash commands, file refs, or queue syntax). New-tab menu offers Agent (workspace chooser) or Chat (direct tab) modes.
+- **Workspace group management**: right-click any workspace header to pin/unpin (pinned groups float to top in pin order), rename (inline edit with check/cancel), or delete (with confirmation and session-file cleanup). Workspace aliases persist across restarts via `sidebar-prefs` store.
+- **Session tabs — full parallel system**: tabs own independent sidecar processes with complete state isolation (session, run, queue, subagents). Background tabs execute autonomously with streaming dots and done badges; switching snapshots and restores full UI state. Type-isolated switching refuses cross-kind attaches (agent ↔ chat) and routes to a new tab of the correct type instead.
+- **Session kind guards**: SessionIndex exposes `kindFor(path)` to distinguish agent/chat sessions; switch/open flows check kind compatibility and refuse or redirect mismatches (e.g., clicking a chat session while an agent tab is active opens a new chat tab instead of breaking the current run).
+
+### Fixed
+
+- **ContextMenu click-through race**: menu items now fire their `onSelect` handlers reliably — the dismiss listener switched from `pointerdown` to `click` so it no longer races menu item interactions and closes the portal before the action executes.
+- **Session list churn**: SessionIndex watcher events debounce to 350ms trailing (one refresh max per burst) and swap silently — no loading spinner on background updates, no animation churn while agents stream session files.
+- **Sidebar ghosting during reorder**: removed all View Transitions CSS rules; pin/rename/delete operations now update immediately without snapshot overlays or crossfade artifacts.
+
 ## [0.5.1] - 2026-08-06
 
 ### Fixed
