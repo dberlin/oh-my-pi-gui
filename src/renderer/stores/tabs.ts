@@ -23,6 +23,7 @@ import type {
 	IpcSpawnTabResult,
 	IpcTabInfo,
 	IpcTabStatusPayload,
+	IpcTabWorktree,
 	SessionKind,
 	TabStatus,
 } from "../../shared/ipc-types";
@@ -54,6 +55,12 @@ export interface SessionTab {
 	status: TabStatus;
 	/** Immutable session kind, fixed when this tab's sidecar was spawned. */
 	kind: SessionKind;
+	/**
+	 * Git-worktree binding (plan/20), immutable from spawn. Drives the chip's
+	 * GitBranch marker, the untitled label (worktree name over the hash-suffixed
+	 * basename), and the close-time cleanup prompt.
+	 */
+	worktree?: IpcTabWorktree;
 	/** Session title when known (session_info_update via TAB_STATUS). */
 	title?: string;
 	sessionId?: string;
@@ -221,13 +228,14 @@ function restoreBundle(bundle: SessionTabBundle | null, tab: SessionTab | undefi
  */
 export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): string {
 	// `||` everywhere: empty-string titles (never-generated auto-title slot)
-	// fall through to the cwd basename like null.
-	const base = tab.title || basename(tab.cwd) || translate("sidebar.newSession");
+	// fall through like null. Worktree tabs label by their worktree NAME — the
+	// cwd basename is the hash-suffixed dir (gui-<name>-<hash7>), unreadable.
+	const base = tab.title || tab.worktree?.name || basename(tab.cwd) || translate("sidebar.newSession");
 	if (tab.title) return base;
 	let occurrence = 0;
 	for (const entry of tabs) {
 		if (entry.title) continue;
-		if ((basename(entry.cwd) || translate("sidebar.newSession")) !== base) continue;
+		if ((entry.worktree?.name || basename(entry.cwd) || translate("sidebar.newSession")) !== base) continue;
 		occurrence += 1;
 		if (entry.id === tab.id) break;
 	}
@@ -254,8 +262,10 @@ interface TabsStore {
 	reconcileTabs: () => Promise<void>;
 	/** Spawn a new background tab (same cwd unless given) and switch to it.
 	 * Returns the tabId, or null at the pool cap. `kind` is immutable once
-	 * the tab's sidecar is spawned ("agent" default; "chat" = tool-free). */
-	openTab: (args?: { cwd?: string; sessionPath?: string; kind?: SessionKind }) => Promise<string | null>;
+	 * the tab's sidecar is spawned ("agent" default; "chat" = tool-free).
+	 * `worktree` binds the tab to a git worktree created by a prior
+	 * worktree_create RPC (cwd must be the worktree path). */
+	openTab: (args?: { cwd?: string; sessionPath?: string; kind?: SessionKind; worktree?: IpcTabWorktree }) => Promise<string | null>;
 	/** Park the current tab's session state, restore the target's, re-point
 	 * main's event routing (SET_ACTIVE_TAB), then hydrate from its sidecar. */
 	switchTab: (id: string) => Promise<void>;
@@ -291,6 +301,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					cwd: info.cwd || existing?.cwd || "",
 					status: info.status,
 					kind: info.kind ?? existing?.kind ?? "agent",
+					worktree: info.worktree ?? existing?.worktree,
 					title: info.title ?? existing?.title,
 					sessionId: info.sessionId ?? existing?.sessionId,
 					unreadDone: existing?.unreadDone ?? false,
@@ -323,7 +334,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const kind = args?.kind ?? "agent";
 		let result: IpcSpawnTabResult | null;
 		try {
-			result = await window.omp.tabs.spawn({ cwd: cwd || undefined, sessionPath: args?.sessionPath, kind });
+			result = await window.omp.tabs.spawn({
+				cwd: cwd || undefined,
+				sessionPath: args?.sessionPath,
+				kind,
+				worktree: args?.worktree,
+			});
 		} catch (error) {
 			toast({ variant: "error", title: translate("tabs.newFailed"), message: String(error) });
 			return null;
@@ -372,6 +388,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				cwd,
 				status: "starting",
 				kind,
+				worktree: args?.worktree,
 				unreadDone: false,
 				pendingSessionPath: args?.sessionPath,
 			};
@@ -459,6 +476,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				cwd: payload.cwd || previous?.cwd || "",
 				status: payload.status,
 				kind: payload.kind ?? previous?.kind ?? "agent",
+				worktree: payload.worktree ?? previous?.worktree,
 				title: payload.title ?? previous?.title,
 				sessionId: payload.sessionId ?? previous?.sessionId,
 				unreadDone: completedInBackground ? true : (previous?.unreadDone ?? false),

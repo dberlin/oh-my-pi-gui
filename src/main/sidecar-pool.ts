@@ -29,7 +29,7 @@
  * it to the newly active sidecar, which never saw the request).
  */
 import type { BrowserWindow } from "electron";
-import { IPC_EVENTS, type IpcSessionOwner, type IpcTabInfo, type IpcTabStatusPayload } from "../shared/ipc-types";
+import { IPC_EVENTS, type IpcSessionOwner, type IpcTabInfo, type IpcTabStatusPayload, type IpcTabWorktree } from "../shared/ipc-types";
 import type {
 	AgentSessionEvent,
 	AvailableCommand,
@@ -70,6 +70,12 @@ interface PoolEntry {
 	/** Last status this tab's sidecar reported (TAB_STATUS / GET_TABS). */
 	/** Session kind: "agent" (default) or "chat" (tool-free). Immutable; set at acquire. */
 	kind: "agent" | "chat";
+	/**
+	 * Git-worktree binding (plan/20). Immutable, set at acquire from the spawn
+	 * payload; surfaced via tabStatusPayload so the chip and close flow know
+	 * this tab owns a ~/.omp/wt checkout.
+	 */
+	worktree?: IpcTabWorktree;
 	status: SidecarStatus;
 	/** Agent run in flight (agent_start seen, no agent_end yet) — synthesized "running". */
 	running: boolean;
@@ -153,6 +159,7 @@ export class SidecarPool {
 		tabId: string = nextSnowflake(),
 		sessionPath?: string,
 		kind: "agent" | "chat" = "agent",
+		worktree?: IpcTabWorktree,
 	): SidecarManager | null {
 		if (this.atCap) return null;
 		this.#reserved++;
@@ -164,6 +171,7 @@ export class SidecarPool {
 				win,
 				winId: win.webContents.id,
 				kind,
+				worktree,
 				status: sidecar.status,
 				running: false,
 				detachFull: null,
@@ -503,5 +511,6 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	};
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;
+	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
 	return payload;
 }

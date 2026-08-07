@@ -21,6 +21,7 @@ import { useSubagentsStore } from "../../stores/subagents";
 import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
 import { useToolsStore } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
 import { TabBar } from "./TabBar";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -423,6 +424,35 @@ describe("TabBar close confirm", () => {
 		await click(chips()[0]!.querySelector('[aria-label="Close tab"]')!);
 		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t1"]);
+	});
+
+	it("an idle worktree tab's × routes to the cleanup prompt, never straight to close (plan/20)", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{
+					kind: "agent",
+					id: "t1",
+					cwd: "/wt/gui-fix-deadbeef",
+					status: "ready",
+					unreadDone: false,
+					worktree: { name: "fix", branch: "omp/gui/fix", baseCwd: "/alpha" },
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+
+		// The chip carries the worktree marker + branch tooltip…
+		expect(chips()[1]?.getAttribute("title")).toBe("omp/gui/fix — /wt/gui-fix-deadbeef");
+		expect(chips()[1]?.textContent).toContain("fix");
+
+		// …and its × opens the cleanup prompt WITHOUT closing the tab.
+		await click(chips()[1]!.querySelector('[aria-label="Close tab"]')!);
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1"]);
+		expect(useUiStore.getState().worktreeClosePrompt).toEqual({ tabId: "t1" });
 	});
 });
 

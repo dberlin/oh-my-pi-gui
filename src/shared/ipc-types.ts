@@ -92,6 +92,8 @@ export const IPC_COMMANDS = {
 	RUNTIME_LOG_PATH: "runtime:log-path",
 	/** Send an RPC command, get response */
 	RPC_COMMAND: "rpc:command",
+	/** Send an RPC command to a specific tab's sidecar (IpcRpcCommandForTabPayload). */
+	RPC_COMMAND_FOR_TAB: "rpc:command-for-tab",
 	/** Respond to extension UI request */
 	EXTENSION_UI_RESPOND: "extension-ui:respond",
 	/** Send host tool result */
@@ -263,6 +265,18 @@ export interface TrayState {
 export interface IpcRpcCommandPayload {
 	command: RpcCommand;
 	/** Per-call timeout override (ms) for slow commands (voice STT/TTS model load). */
+	timeoutMs?: number;
+}
+
+/**
+ * RPC addressed at a SPECIFIC tab's sidecar (default RPC_COMMAND resolves the
+ * window's ACTIVE tab). Needed by flows that act on a background tab — the
+ * worktree close prompt queries/removes on the tab being closed without
+ * yanking the user onto it (plan/20).
+ */
+export interface IpcRpcCommandForTabPayload {
+	tabId: string;
+	command: RpcCommand;
 	timeoutMs?: number;
 }
 
@@ -464,6 +478,18 @@ export type TabStatus = SidecarStatus | "running";
 /** Session kind: "agent" (tools enabled) or "chat" (tool-free conversation). */
 export type SessionKind = "agent" | "chat";
 
+/**
+ * A tab's git-worktree binding (tab × worktree, plan/20). Immutable, set at
+ * spawn like `kind`; main-held so it survives renderer reloads. `name` is the
+ * user-facing slug (chip label for untitled tabs), `branch` the created
+ * omp/gui/<name> ref, `baseCwd` the repo checkout the worktree forked from.
+ */
+export interface IpcTabWorktree {
+	name: string;
+	branch: string;
+	baseCwd: string;
+}
+
 /** One tab of a window: its sidecar's cwd, last status, and cached session meta. */
 export interface IpcTabInfo {
 	/** Opaque snowflake id minted by main at acquire. */
@@ -472,6 +498,8 @@ export interface IpcTabInfo {
 	status: TabStatus;
 	/** Immutable session kind, fixed when the tab's sidecar was spawned. */
 	kind: SessionKind;
+	/** Present when the tab was spawned bound to a git worktree. */
+	worktree?: IpcTabWorktree;
 	/** Present once the tab's sidecar reported session_info_update. */
 	sessionId?: string;
 	title?: string;
@@ -486,6 +514,12 @@ export interface IpcSpawnTabPayload {
 	sessionPath?: string;
 	/** Session kind for the new tab; omitted = "agent". Immutable once spawned. */
 	kind?: SessionKind;
+	/**
+	 * Worktree binding minted by a prior worktree_create RPC: cwd is the
+	 * worktree path and the tab carries the binding for chip rendering and
+	 * the close-time cleanup prompt.
+	 */
+	worktree?: IpcTabWorktree;
 }
 
 /** Owner of a session file: the tab (and its window) currently attached to it. */
@@ -554,6 +588,7 @@ export interface OmpApi {
 	};
 	rpc: {
 		command(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
+		commandForTab(tabId: string, cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
 		getState(): Promise<RpcResponse>;
 		prompt(message: string, images?: ImageContent[], streamingBehavior?: "steer" | "followUp"): Promise<RpcResponse>;
 		steer(message: string, images?: ImageContent[]): Promise<RpcResponse>;
@@ -610,6 +645,9 @@ export interface OmpApi {
 		addDirectory(path: string): Promise<RpcResponse>;
 		removeDirectory(path: string): Promise<RpcResponse>;
 		moveSession(path: string): Promise<RpcResponse>;
+		getGitStatus(): Promise<RpcResponse>;
+		worktreeCreate(name: string, options?: { baseCwd?: string; baseRef?: "HEAD" | "default" }): Promise<RpcResponse>;
+		worktreeRemove(path: string, force?: boolean): Promise<RpcResponse>;
 		liveStart(voice?: string): Promise<RpcResponse>;
 		liveToggleMute(): Promise<RpcResponse>;
 		liveStop(): Promise<RpcResponse>;

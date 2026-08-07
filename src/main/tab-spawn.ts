@@ -45,5 +45,5 @@ export async function spawnTabForWindow(
 	if (deps.sidecarPool.atCap) return null;
 	const cwd = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : deps.fallbackCwd();
 	const tabId = nextSnowflake();
-	return deps.sidecarPool.acquire(cwd, win, tabId, sessionPath, kind) ? { tabId } : null;
+	return deps.sidecarPool.acquire(cwd, win, tabId, sessionPath, kind, payload?.worktree) ? { tabId } : null;
 }

@@ -1,6 +1,6 @@
 /**
  * Sidebar integration contracts: the "+" type dropdown, workspace group
- * context menu (5 items), session row context menu (6 items), pinned-first
+ * context menu (6 items), session row context menu (6 items), pinned-first
  * ordering for groups and sessions, and the rename item's attached-only gate.
  * Same linkedom + react-dom harness as TabBar.test.tsx.
  */
@@ -209,7 +209,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(labels).toHaveLength(2);
 	});
 
-	it("right-click on a workspace header opens the 5-item group menu", async () => {
+	it("right-click on a workspace header opens the 6-item group menu", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar onToggleStats={() => {}} />);
@@ -221,10 +221,11 @@ describe("Sidebar menus and pinned ordering", () => {
 		const labels = menuItemLabels();
 		expect(labels.some(label => label.includes("New agent session here"))).toBe(true);
 		expect(labels.some(label => label.includes("New chat session here"))).toBe(true);
+		expect(labels.some(label => label.includes("New worktree tab here"))).toBe(true);
 		expect(labels.some(label => label.includes("Rename"))).toBe(true);
 		expect(labels.some(label => label.includes("Pin to top"))).toBe(true);
 		expect(labels.some(label => label.includes("Delete"))).toBe(true);
-		expect(labels).toHaveLength(5);
+		expect(labels).toHaveLength(6);
 	});
 
 	it("right-click on a session row opens the 6-item session menu", async () => {

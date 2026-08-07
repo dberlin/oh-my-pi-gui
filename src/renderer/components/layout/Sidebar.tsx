@@ -5,6 +5,7 @@ import {
 	ChevronRight,
 	ExternalLink,
 	FolderTree,
+	GitBranchPlus,
 	MessageCircle,
 	MessageCirclePlus,
 	MessageSquarePlus,
@@ -751,6 +752,15 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 							onSelect: () => {
 								setGroupMenu(null);
 								void openTab({ cwd: groupMenu.group.cwd, kind: "chat" });
+							},
+						},
+						{
+							id: "group-new-worktree",
+							label: t("sidebar.menu.newWorktreeHere"),
+							icon: GitBranchPlus,
+							onSelect: () => {
+								setGroupMenu(null);
+								useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.cwd });
 							},
 						},
 						{

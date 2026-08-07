@@ -27,6 +27,9 @@ export const en: Record<string, string> = {
 	"tabs.new.chatHint": "New chat tab — tool-free conversation (⇧⌘T)",
 	"tabs.new.agent": "New Agent Tab",
 	"tabs.new.chat": "New Chat Tab",
+	"tabs.new.worktree": "New Worktree Tab",
+	"tabs.new.worktreeHint": "New agent tab in a fresh git worktree (⌥T)",
+	"tabs.kind.worktree": "Worktree tab",
 	"tabs.kindMismatch":
 		"That session has a different type. Agent and chat sessions can't be converted — open it from the session list instead.",
 	"tabs.close": "Close tab",
@@ -35,6 +38,31 @@ export const en: Record<string, string> = {
 	"tabs.parallelCap": "Parallel limit reached (10) — close a tab or window first",
 	"tabs.switchFailed": "Could not switch tab",
 	"tabs.confirmClose": "Close tab? The running task will be aborted",
+
+	// Worktree create dialog (tab × worktree, plan/20)
+	"worktree.title": "New worktree tab",
+	"worktree.nameLabel": "Name",
+	"worktree.namePlaceholder": "e.g. fix-login",
+	"worktree.branchPreview": "Will create branch {branch}",
+	"worktree.baseLabel": "Base",
+	"worktree.baseHead": "Current checkout (HEAD)",
+	"worktree.baseDefault": "Repository default branch",
+	"worktree.submit": "Create & open",
+	"worktree.failed": "Failed to create worktree",
+	"worktree.notARepo": "Current directory is not a git repository",
+	"worktree.invalidName": "Invalid name — use letters, digits and dashes",
+
+	// Worktree tab close prompt
+	"worktreeClose.title": "Close worktree tab “{name}”",
+	"worktreeClose.checking": "Checking worktree status…",
+	"worktreeClose.cleanBody": "The worktree has no uncommitted changes. Delete it from disk?",
+	"worktreeClose.dirtyBody":
+		"Uncommitted changes: {staged} staged, {unstaged} unstaged, {untracked} untracked. Force-deleting discards them.",
+	"worktreeClose.statusUnknown": "Could not check the worktree status. You can keep it and close the tab.",
+	"worktreeClose.delete": "Delete & close",
+	"worktreeClose.forceDelete": "Force delete (discard changes)",
+	"worktreeClose.keep": "Keep & close",
+	"worktreeClose.removeFailed": "Failed to remove worktree",
 
 	// InputArea
 	"input.placeholder.connecting": "Connecting to omp…",
@@ -168,6 +196,7 @@ export const en: Record<string, string> = {
 	"sidebar.menu.newChat": "New chat session",
 	"sidebar.menu.newAgentHere": "New agent session here",
 	"sidebar.menu.newChatHere": "New chat session here",
+	"sidebar.menu.newWorktreeHere": "New worktree tab here",
 	"sidebar.menu.rename": "Rename",
 	"sidebar.menu.pin": "Pin to top",
 	"sidebar.menu.unpin": "Unpin",
@@ -1859,6 +1888,7 @@ export const en: Record<string, string> = {
 	"hotkeys.row.palette": "Command palette",
 	"hotkeys.row.tabNew": "New tab",
 	"hotkeys.row.tabNewChat": "New chat tab",
+	"hotkeys.row.tabNewWorktree": "New worktree tab",
 	"hotkeys.row.settings": "Settings",
 	"hotkeys.row.sidebar": "Toggle sidebar",
 	"hotkeys.row.panel": "Toggle workspace panel",
@@ -2303,9 +2333,12 @@ export const en: Record<string, string> = {
 	"statusFooter.label.cwd": "cwd:",
 	"statusFooter.label.context": "ctx:",
 	"statusFooter.label.session": "session:",
+	"statusFooter.label.git": "git:",
 	"statusFooter.modelTooltip": "Model: {model}",
 	"statusFooter.thinkingTooltip": "Thinking level: {level}",
 	"statusFooter.cwdTooltip": "Working directory: {path}",
+	"statusFooter.gitTooltip":
+		"Branch: {branch} — {staged} staged, {unstaged} unstaged, {untracked} untracked. Click to refresh",
 	"statusFooter.sessionTooltip": "Session: {name}",
 	"statusFooter.mode.plan": "Plan",
 	"statusFooter.mode.goal": "Goal",

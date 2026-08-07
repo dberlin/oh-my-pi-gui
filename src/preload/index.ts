@@ -103,6 +103,8 @@ const api: OmpApi = {
 
 	rpc: {
 		command: (cmd: RpcCommand, timeoutMs?: number) => rpcCommand(cmd, timeoutMs),
+		commandForTab: (tabId: string, cmd: RpcCommand, timeoutMs?: number) =>
+			ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, { tabId, command: cmd, timeoutMs }) as Promise<RpcResponse>,
 		getState: () => ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, { command: { type: "get_state" } }),
 		prompt: (message: string, images?: ImageContent[], streamingBehavior?: "steer" | "followUp") =>
 			rpcCommand({ type: "prompt", message, images, streamingBehavior }),
@@ -170,6 +172,12 @@ const api: OmpApi = {
 		addDirectory: (path: string) => rpcCommand({ type: "add_directory", path }),
 		removeDirectory: (path: string) => rpcCommand({ type: "remove_directory", path }),
 		moveSession: (path: string) => rpcCommand({ type: "move_session", path }, 30_000),
+		getGitStatus: () => rpcCommand({ type: "get_git_status" }),
+		// Worktree mutations are background RPC commands — generous timeouts for
+		// large repos (git worktree add copies the index, remove walks the tree).
+		worktreeCreate: (name: string, options?: { baseCwd?: string; baseRef?: "HEAD" | "default" }) =>
+			rpcCommand({ type: "worktree_create", name, baseCwd: options?.baseCwd, baseRef: options?.baseRef }, 120_000),
+		worktreeRemove: (path: string, force?: boolean) => rpcCommand({ type: "worktree_remove", path, force }, 60_000),
 		liveStart: (voice?: string) => rpcCommand({ type: "live_start", voice }, 60_000),
 		liveToggleMute: () => rpcCommand({ type: "live_toggle_mute" }),
 		liveStop: () => rpcCommand({ type: "live_stop" }, 30_000),

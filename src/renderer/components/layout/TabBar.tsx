@@ -9,12 +9,13 @@
  * shrinking chips past readability.
  */
 
-import { Check, MessageCircle, MessageCirclePlus, Plus, X } from "lucide-react";
+import { Check, GitBranch, GitBranchPlus, MessageCircle, MessageCirclePlus, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../stores/tabs";
+import { useUiStore } from "../../stores/ui";
 
 /** Auto-cancel window for the armed close confirm (injectable for tests). */
 const CONFIRM_CLOSE_MS = 3000;
@@ -38,14 +39,14 @@ function TabChip({
 }) {
 	const t = useT();
 	const switchTab = useTabsStore(s => s.switchTab);
-	const closeTab = useTabsStore(s => s.closeTab);
 	const closable = useTabsStore(s => s.tabs.length > 1);
 	// The active tab's live stream state sharpens the dot between status pushes.
 	const activeStreaming = useSessionStore(s => (active ? s.isStreaming : false));
 	const running = tab.status === "running" || (active && activeStreaming);
 	// Closing kills the tab's sidecar: a live run (running, starting, or the
 	// active tab's stream outrunning the pool's status pushes) dies with it,
-	// so those route through the inline confirm. Idle tabs close immediately.
+	// so those route through the inline confirm. Idle tabs go straight to the
+	// confirm handler (which detours worktree tabs to the cleanup prompt).
 	const closeNeedsConfirm = running || tab.status === "starting";
 
 	return (
@@ -60,7 +61,7 @@ function TabChip({
 					void switchTab(tab.id);
 				}
 			}}
-			title={tab.cwd || label}
+			title={tab.worktree ? `${tab.worktree.branch} — ${tab.cwd}` : tab.cwd || label}
 			className={cx(
 				"no-drag group flex h-7 min-w-0 max-w-44 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[12px] select-none",
 				active
@@ -69,6 +70,9 @@ function TabChip({
 			)}
 		>
 			{running && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--omp-accent)]" />}
+			{tab.worktree && (
+				<GitBranch size={11} className="shrink-0 text-[var(--omp-accent)]" aria-label={t("tabs.kind.worktree")} />
+			)}
 			{tab.kind === "chat" && (
 				<MessageCircle size={11} className="shrink-0 text-[var(--omp-muted)]" aria-label={t("tabs.kind.chat")} />
 			)}
@@ -123,9 +127,11 @@ function TabChip({
 						onClick={event => {
 							event.stopPropagation();
 							// Live tabs arm the inline confirm (the close kills their
-							// run); idle tabs close immediately.
+							// run); idle tabs skip the arm but STILL route through the
+							// confirm handler — it detours worktree-bound tabs to the
+							// cleanup prompt before closing (plan/20).
 							if (closeNeedsConfirm) onArmClose();
-							else void closeTab(tab.id);
+							else onConfirmClose();
 						}}
 						className={cx(
 							"omp-pressable -mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-primary)] hover:text-[var(--omp-text)]",
@@ -172,6 +178,13 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 
 	const confirmClose = (id: string) => {
 		cancelCloseConfirm();
+		// Worktree-bound tabs detour through the cleanup prompt (delete/keep)
+		// before the tab actually closes (plan/20).
+		const tab = tabs.find(entry => entry.id === id);
+		if (tab?.worktree) {
+			useUiStore.getState().openWorktreeClosePrompt(id);
+			return;
+		}
 		void closeTab(id);
 	};
 
@@ -208,6 +221,7 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 function NewTabMenu() {
 	const t = useT();
 	const openTab = useTabsStore(s => s.openTab);
+	const openWorktreeDialog = useUiStore(s => s.openWorktreeDialog);
 	const buttonClass =
 		"no-drag omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]";
 	return (
@@ -229,6 +243,15 @@ function NewTabMenu() {
 				className={buttonClass}
 			>
 				<MessageCirclePlus size={14} />
+			</button>
+			<button
+				type="button"
+				aria-label={t("tabs.new.worktree")}
+				title={t("tabs.new.worktreeHint")}
+				onClick={() => openWorktreeDialog()}
+				className={buttonClass}
+			>
+				<GitBranchPlus size={14} />
 			</button>
 		</>
 	);

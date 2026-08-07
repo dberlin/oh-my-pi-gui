@@ -1,5 +1,6 @@
-import { Brain, Cpu, FolderOpen, Gauge, MessageSquare } from "lucide-react";
+import { Brain, Cpu, FolderOpen, Gauge, GitBranch, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useGitStatus } from "../../hooks/use-git-status";
 import { shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
@@ -15,6 +16,7 @@ import { loopLimitText, parseLoopLimit } from "../panels/ModesPanel";
  * Rendered segment subset — only what the renderer stores honestly back:
  *   model (+ thinking level)  useModelStore.model / .thinkingLevel / .thinkingConfigured
  *   path (cwd)                useSessionStore.cwd
+ *   git (branch + counts)     useGitStatus → get_git_status RPC (plan/20)
  *   context_pct               useSessionStore.contextUsage
  *   session_name              useSessionStore.sessionName
  *
@@ -25,7 +27,7 @@ import { loopLimitText, parseLoopLimit } from "../panels/ModesPanel";
  * loop limit/args.
  *
  * TUI segments deliberately NOT rendered (no live GUI data source, and
- * faking them would lie): pi, mode, collab, git, pr, subagents, hostname,
+ * faking them would lie): pi, mode, collab, pr, subagents, hostname,
  * session, token_in/out/total/rate, cache_read/write/hit, usage, cost,
  * time, time_spent, context_total. Cost exists only per-message (UsageRow)
  * — the messages store pages history, so summing it would under-report —
@@ -72,6 +74,7 @@ export function StatusFooter() {
 	const agentsPaused = useSessionStore(s => s.agentsPaused);
 	/** Chat tabs are tool-free: agent-mode badges can't be armed there. */
 	const isChat = useActiveTabKind() === "chat";
+	const { status: git, refresh: refreshGit } = useGitStatus();
 	const [preset, setPreset] = useState<StatusLinePreset>("default");
 
 	// Read the preset at mount, then re-read on every config_update push
@@ -208,6 +211,30 @@ export function StatusFooter() {
 							{ascii && <span className="shrink-0 text-[var(--omp-dim)]">{t("statusFooter.label.cwd")}</span>}
 							<span className="truncate">{shortenPath(cwd)}</span>
 						</span>
+					</>
+				)}
+
+				{!minimal && git?.isRepo && git.branch && (
+					<>
+						<Sep />
+						<button
+							className="flex min-w-0 shrink cursor-pointer items-center gap-1 hover:text-[var(--omp-text)]"
+							title={t("statusFooter.gitTooltip", {
+								branch: git.branch,
+								staged: String(git.staged),
+								unstaged: String(git.unstaged),
+								untracked: String(git.untracked),
+							})}
+							onClick={refreshGit}
+							type="button"
+						>
+							{icons && <GitBranch size={11} className="shrink-0" />}
+							{ascii && <span className="shrink-0 text-[var(--omp-dim)]">{t("statusFooter.label.git")}</span>}
+							<span className="max-w-40 truncate">{git.branch}</span>
+							{git.unstaged > 0 && <span className="shrink-0 text-[var(--omp-warning)]">*{git.unstaged}</span>}
+							{git.staged > 0 && <span className="shrink-0 text-[var(--omp-success)]">+{git.staged}</span>}
+							{git.untracked > 0 && <span className="shrink-0 text-[var(--omp-dim)]">?{git.untracked}</span>}
+						</button>
 					</>
 				)}
 

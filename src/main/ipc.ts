@@ -21,6 +21,7 @@ import type {
 	IpcNotifyPayload,
 	IpcPrefsGetPayload,
 	IpcPrefsSetPayload,
+	IpcRpcCommandForTabPayload,
 	IpcRpcCommandPayload,
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionsDeletePayload,
@@ -461,6 +462,35 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				}
 			}
 			return response;
+		} catch (err) {
+			return { id: _id, type: "response", success: false, error: err instanceof Error ? err.message : String(err) };
+		}
+	});
+
+	// RPC addressed at a SPECIFIC tab's sidecar — background-tab flows (the
+	// worktree close prompt) must not route through the window's active tab.
+	// No F-OWN bookkeeping here: the callers query/remove worktrees, never
+	// switch sessions.
+	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, async (event, payload: IpcRpcCommandForTabPayload) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win) return { id: payload?.command?.id, type: "response", success: false, error: "No window" };
+		const sidecar = sidecarPool.sidecarForTab(win, payload.tabId);
+		if (!sidecar) {
+			return { id: payload.command.id, type: "response", success: false, error: "Unknown tab" };
+		}
+		if (sidecar.status !== "ready") {
+			return {
+				id: payload.command.id,
+				type: "response",
+				success: false,
+				error: `Sidecar not ready (${sidecar.status})`,
+			};
+		}
+		const client = sidecar.rpcClient;
+		if (!client) return { id: payload.command.id, type: "response", success: false, error: "No RPC client" };
+		const { id: _id, ...cmd } = payload.command;
+		try {
+			return await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
 		} catch (err) {
 			return { id: _id, type: "response", success: false, error: err instanceof Error ? err.message : String(err) };
 		}

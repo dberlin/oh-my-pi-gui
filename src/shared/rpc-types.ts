@@ -197,7 +197,13 @@ export type RpcCommand =
 	| { id?: string; type: "get_directories" }
 	| { id?: string; type: "add_directory"; path: string }
 	| { id?: string; type: "remove_directory"; path: string }
-	| { id?: string; type: "move_session"; path: string };
+	| { id?: string; type: "move_session"; path: string }
+	// Git worktrees (tab × worktree binding, plan/20). get_git_status feeds the
+	// footer git segment; worktree_create materializes branch omp/gui/<name> at
+	// ~/.omp/wt/gui-<name>-<hash7>; worktree_remove refuses dirty unless force.
+	| { id?: string; type: "get_git_status" }
+	| { id?: string; type: "worktree_create"; name: string; baseCwd?: string; baseRef?: "HEAD" | "default" }
+	| { id?: string; type: "worktree_remove"; path: string; force?: boolean };
 
 // ============================================================================
 // RPC Responses (omp stdout → GUI)
@@ -559,6 +565,25 @@ export interface RpcWorkspaceDirectory {
  */
 export interface RpcWorkspaceDirectoriesResult {
 	directories: RpcWorkspaceDirectory[];
+}
+
+/**
+ * Result of get_git_status: footer git segment state for the session cwd.
+ * `isRepo` false outside a repository (counts zeroed, branch null).
+ */
+export interface RpcGitStatus {
+	isRepo: boolean;
+	branch: string | null;
+	staged: number;
+	unstaged: number;
+	untracked: number;
+}
+
+/** Result of worktree_create: the materialized worktree + its new branch + the repo it forked from. */
+export interface RpcWorktreeCreateResult {
+	path: string;
+	branch: string;
+	baseCwd: string;
 }
 
 /** A configured marketplace source. */

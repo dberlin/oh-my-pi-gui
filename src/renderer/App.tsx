@@ -27,6 +27,8 @@ import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
 import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
 import { SessionTreeDialog } from "./components/dialogs/SessionTreeDialog";
 import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
+import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
+import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
 import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
 import { WorkspaceDirsDialog } from "./components/dialogs/WorkspaceDirsDialog";
 import { InputArea } from "./components/layout/InputArea";
@@ -357,6 +359,10 @@ export function App() {
 					// ⇧⌘T — new chat tab (tool-free conversation).
 					void useTabsStore.getState().openTab({ kind: "chat" });
 					return;
+				case "tab.newWorktree":
+					// ⌥T — new worktree tab (create dialog, plan/20).
+					useUiStore.getState().openWorktreeDialog();
+					return;
 				case "model.select":
 					// ⌥M — model picker (TUI app.model.select).
 					ui.openModelPicker();
@@ -548,6 +554,8 @@ export function App() {
 			<ExtensionDialog />
 			<ModelPicker />
 			<RenameSessionDialog />
+			<WorktreeDialog />
+			<WorktreeCloseDialog />
 			<SessionPickerDialog />
 			<SessionSwitchDialog />
 			<BranchPickerDialog />
