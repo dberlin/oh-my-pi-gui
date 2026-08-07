@@ -166,4 +166,38 @@ describe("SidecarManager", () => {
 			await fs.rm(tempDir, { recursive: true, force: true });
 		}
 	});
+
+	it("adoptCwd re-roots the reported cwd and plain restarts spawn there", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-adopt-"));
+		// realpath: the spawned process's process.cwd() resolves /var symlinks.
+		const adoptedCwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-adopted-")));
+		const logPath = path.join(tempDir, "spawn.json");
+		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
+		await fs.writeFile(
+			binaryPath,
+			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		await fs.chmod(binaryPath, 0o755);
+
+		const sidecar = new SidecarManager({ binaryPath, cwd: tempDir });
+		try {
+			// Same-cwd adoption is a no-op; a new cwd moves the reported cwd.
+			expect(sidecar.adoptCwd(tempDir)).toBe(false);
+			expect(sidecar.adoptCwd(adoptedCwd)).toBe(true);
+			expect(sidecar.cwd).toBe(adoptedCwd);
+
+			// A plain restart (crash recovery, manual session resume) respawns in
+			// the ADOPTED cwd — the session's workspace, not the stale spawn cwd.
+			const ready = waitForReady(sidecar);
+			sidecar.restart();
+			await ready;
+
+			const spawn = JSON.parse(await fs.readFile(logPath, "utf8")) as { cwd: string };
+			expect(spawn.cwd).toBe(adoptedCwd);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(adoptedCwd, { recursive: true, force: true });
+		}
+	});
 });

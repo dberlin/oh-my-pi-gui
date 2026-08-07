@@ -453,6 +453,22 @@ export class SidecarManager extends EventEmitter {
 		this.#setStatus("error", reason);
 	}
 
+	/**
+	 * Adopt a new logical cwd WITHOUT a respawn. `switch_session` onto a file
+	 * rooted in another workspace re-roots the agent with no main-observable
+	 * event, leaving `get cwd()` (and the tab chip reading it) frozen at the
+	 * spawn cwd. The RPC passthrough reports the post-switch cwd here so every
+	 * consumer — status payloads, future plain `restart()` spawns,
+	 * launch-profile lookup — follows the live session. Project switch goes
+	 * through `restart(cwd)` instead (explicit re-root). Returns true when the
+	 * cwd actually changed.
+	 */
+	adoptCwd(cwd: string): boolean {
+		if (cwd === this.#options.cwd) return false;
+		this.#options = { ...this.#options, cwd };
+		return true;
+	}
+
 	restart(cwd?: string, resumeSessionPath?: string): void {
 		this.kill();
 		if (cwd) this.#options = { ...this.#options, cwd };

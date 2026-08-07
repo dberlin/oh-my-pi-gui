@@ -448,8 +448,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
 					if (!cancelled) sidecarPool.noteSessionFile(issuerTabId, cmd.sessionPath);
 				} else if (cmd.type === "get_state") {
-					const sessionFile = (response.data as RpcSessionState | undefined)?.sessionFile ?? null;
-					sidecarPool.noteSessionFile(issuerTabId, sessionFile);
+					const state = response.data as RpcSessionState | undefined;
+					sidecarPool.noteSessionFile(issuerTabId, state?.sessionFile ?? null);
+					// switch_session re-roots the agent with no main-observable
+					// event; get_state (run by every hydrate) carries the live
+					// cwd. Adopt it so the tab chip tracks the session, and sync
+					// the window record (menu "New Window" reads cwd from it) —
+					// the same tail as a project switch, minus the respawn.
+					if (state?.cwd && win && sidecarPool.adoptSessionCwd(issuerTabId, state.cwd)) {
+						windowManager.setRecordCwd(win, state.cwd);
+					}
 				}
 			}
 			return response;

@@ -13,8 +13,13 @@ class FakeSidecar extends EventEmitter {
 	restartArgs: Array<{ cwd: string | undefined; sessionPath: string | undefined }> = [];
 	/** Side-channel frames written via sendSideChannel (F-UI-ORIGIN assertions). */
 	sentFrames: object[] = [];
-	constructor(readonly cwd: string) {
+	constructor(public cwd: string) {
 		super();
+	}
+	adoptCwd(cwd: string): boolean {
+		if (cwd === this.cwd) return false;
+		this.cwd = cwd;
+		return true;
 	}
 	get status(): SidecarStatus {
 		return "starting";
@@ -480,6 +485,32 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(pool.sessionOwner("/sessions/s.jsonl")).not.toBeNull();
 		fw.close();
 		expect(pool.sessionOwner("/sessions/s.jsonl")).toBeNull();
+	});
+});
+
+describe("SidecarPool session cwd tracking", () => {
+	it("adoptSessionCwd re-roots the tab and pushes the live cwd over TAB_STATUS", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/spawn-a", fw.win, "tab-a");
+
+		// switch_session re-roots the agent silently; the get_state report moves
+		// the tab off its spawn cwd…
+		expect(pool.adoptSessionCwd("tab-a", "/live-b")).toBe(true);
+		expect(sidecars[0]?.cwd).toBe("/live-b");
+
+		// …and the pushed TAB_STATUS carries the NEW cwd so the renderer's chip
+		// stops showing the spawn workspace.
+		const pushes = fw.sentTo(IPC_EVENTS.TAB_STATUS);
+		expect(pushes).toHaveLength(1);
+		expect((pushes[0]?.data as IpcTabStatusPayload).cwd).toBe("/live-b");
+
+		// Same cwd / unknown tab / empty cwd are no-ops (no push, no mutation).
+		expect(pool.adoptSessionCwd("tab-a", "/live-b")).toBe(false);
+		expect(pool.adoptSessionCwd("nope", "/elsewhere")).toBe(false);
+		expect(pool.adoptSessionCwd("tab-a", "")).toBe(false);
+		expect(sidecars[0]?.cwd).toBe("/live-b");
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS)).toHaveLength(1);
 	});
 });
 

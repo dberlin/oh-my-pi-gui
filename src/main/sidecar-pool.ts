@@ -414,6 +414,22 @@ export class SidecarPool {
 	}
 
 	/**
+	 * Re-root a tab to its live session's cwd. `switch_session` re-roots the
+	 * agent with no main-observable event, so the chip and every `sidecar.cwd`
+	 * consumer stay frozen at the spawn cwd until this is called — the RPC
+	 * passthrough reports the post-switch cwd (get_state) here. Pushes
+	 * TAB_STATUS when the cwd changed so the renderer's chip tracks the move.
+	 * Returns true when the cwd changed (ipc.ts gates the window-record sync).
+	 */
+	adoptSessionCwd(tabId: string, cwd: string): boolean {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry || !cwd) return false;
+		if (!entry.sidecar.adoptCwd(cwd)) return false;
+		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		return true;
+	}
+
+	/**
 	 * Route a renderer side-channel response to the sidecar that RAISED the
 	 * request (F-UI-ORIGIN), tracked by request id at forward time — not the
 	 * window's active tab, which may have changed while the dialog was open.
