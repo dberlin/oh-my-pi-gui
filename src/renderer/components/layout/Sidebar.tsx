@@ -1,10 +1,8 @@
 import {
-	BarChart3,
 	Check,
 	ChevronDown,
 	ChevronRight,
 	ExternalLink,
-	FolderTree,
 	GitBranchPlus,
 	MessageCircle,
 	MessageCirclePlus,
@@ -16,7 +14,6 @@ import {
 	PinOff,
 	Plus,
 	Search,
-	Settings,
 	SquareTerminal,
 	Trash2,
 	X,
@@ -39,10 +36,6 @@ import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/
 import { LangSwitcher } from "../common/LangSwitcher";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 
-export interface SidebarProps {
-	onToggleStats: () => void;
-}
-
 const STATUS_COLOR: Record<SessionInfo["status"], string> = {
 	complete: "var(--omp-success)",
 	interrupted: "var(--omp-warning)",
@@ -62,9 +55,10 @@ interface WorkspaceGroup {
  * Left rail: one-row search+new-session, workspace-grouped collapsible session
  * list (Codex-style — grouped by cwd, current workspace first, others
  * collapsible), compact title-only items with inline rename for the active
- * session, and a bottom utility row (files/stats/theme/language/settings).
+ * session, and a bottom utility row (theme + language — stats/settings live
+ * in the TitleBar, no duplicated chrome).
  */
-export function Sidebar({ onToggleStats }: SidebarProps) {
+export function Sidebar() {
 	const [query, setQuery] = useState("");
 	const t = useT();
 	// Resizable left rail (mirrors PanelContainer's right-rail drag, but the
@@ -127,9 +121,7 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 	// confirmation (plan approval / ask / permission) overrides the running
 	// signal — it needs the user, not just time.
 	const awaitingConfirmation = useAwaitingConfirmation();
-	const openSettings = useUiStore(s => s.openSettings);
 	const openThemePicker = useUiStore(s => s.openThemePicker);
-	const setPanelTab = useUiStore(s => s.setPanelTab);
 
 	// Debounced full-transcript content search (main-process grep over the
 	// session files). Best-effort: failures simply yield no content matches.
@@ -646,26 +638,9 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 					})}
 				</div>
 
-				{/* Bottom utility row: files, stats, theme, language, settings */}
+				{/* Bottom utility row: theme + language only — stats/settings live in the
+				    TitleBar, and the files button was a subset of the drawer toggle. */}
 				<div className="flex items-center gap-0.5 border-t border-[var(--omp-border-muted)] px-2 py-2">
-					<button
-						type="button"
-						onClick={() => setPanelTab("files")}
-						title={t("sidebar.fileTree")}
-						aria-label={t("sidebar.fileTree")}
-						className={utilityButton}
-					>
-						<FolderTree size={15} />
-					</button>
-					<button
-						type="button"
-						onClick={onToggleStats}
-						title={t("titlebar.stats")}
-						aria-label={t("titlebar.stats")}
-						className={utilityButton}
-					>
-						<BarChart3 size={15} />
-					</button>
 					<button
 						type="button"
 						onClick={openThemePicker}
@@ -677,15 +652,6 @@ export function Sidebar({ onToggleStats }: SidebarProps) {
 					</button>
 					<LangSwitcher className="h-8 px-1.5" />
 					<div className="flex-1" />
-					<button
-						type="button"
-						onClick={openSettings}
-						title={t("titlebar.settings")}
-						aria-label={t("titlebar.settings")}
-						className={utilityButton}
-					>
-						<Settings size={15} />
-					</button>
 				</div>
 				<div
 					role="separator"

@@ -1,4 +1,4 @@
-import { Brain, Cpu, FolderOpen, Gauge, GitBranch, MessageSquare } from "lucide-react";
+import { Brain, Cpu, FolderOpen, Gauge, GitBranch, Keyboard, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useGitStatus } from "../../hooks/use-git-status";
 import { shortenPath } from "../../lib/format";
@@ -6,6 +6,7 @@ import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useActiveTabKind } from "../../stores/tabs";
+import { useUiStore } from "../../stores/ui";
 import { Badge, type BadgeVariant } from "../common";
 import { loopLimitText, parseLoopLimit } from "../panels/ModesPanel";
 
@@ -168,8 +169,10 @@ export function StatusFooter() {
 	return (
 		<footer className="flex h-7 shrink-0 items-center overflow-hidden border-t border-[var(--omp-border-muted)] px-3 whitespace-nowrap text-[11px] text-[var(--omp-muted)]">
 			<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-				<span
-					className="flex min-w-0 shrink items-center gap-1"
+				<button
+					type="button"
+					onClick={() => useUiStore.getState().openModelPicker()}
+					className="flex min-w-0 shrink cursor-pointer items-center gap-1 rounded hover:text-[var(--omp-text)]"
 					title={model ? t("statusFooter.modelTooltip", { model: `${model.provider}/${model.id}` }) : undefined}
 				>
 					{icons && <Cpu size={11} className="shrink-0" />}
@@ -185,7 +188,7 @@ export function StatusFooter() {
 							{thinking}
 						</span>
 					)}
-				</span>
+				</button>
 
 				{!minimal && modeBadges.length > 0 && (
 					<>
@@ -270,6 +273,15 @@ export function StatusFooter() {
 					<span className="truncate">{sessionName}</span>
 				</span>
 			)}
+
+			<button
+				type="button"
+				onClick={() => useUiStore.getState().openHotkeys()}
+				className="ml-2 flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 hover:text-[var(--omp-text)]"
+				title={t("statusFooter.hotkeys")}
+			>
+				<Keyboard size={12} className="shrink-0" />
+			</button>
 		</footer>
 	);
 }

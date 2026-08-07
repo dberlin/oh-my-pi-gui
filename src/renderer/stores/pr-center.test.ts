@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RpcResponse } from "../../../shared/rpc-types";
+import type { RpcResponse } from "../../shared/rpc-types";
 import { usePrCenterStore } from "./pr-center";
 import { useTabsStore } from "./tabs";
 

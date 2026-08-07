@@ -9,6 +9,8 @@ export const en: Record<string, string> = {
 	"titlebar.contextTooltip": "Context window used",
 	"titlebar.usage": "Usage & quotas",
 	"titlebar.providers": "Providers & login",
+	"titlebar.prCenter": "PR Center (⌥P)",
+	"titlebar.agentHub": "Agent Hub (⌥A)",
 	"titlebar.rename": "Rename session",
 	"titlebar.openProject": "Open project",
 	"titlebar.abortHint": "Abort the active turn before changing projects",
@@ -2383,6 +2385,7 @@ export const en: Record<string, string> = {
 	"statusFooter.gitTooltip":
 		"Branch: {branch} — {staged} staged, {unstaged} unstaged, {untracked} untracked. Click to refresh",
 	"statusFooter.sessionTooltip": "Session: {name}",
+	"statusFooter.hotkeys": "Keyboard shortcuts",
 	"statusFooter.mode.plan": "Plan",
 	"statusFooter.mode.goal": "Goal",
 	"statusFooter.mode.loop": "Loop",

@@ -197,7 +197,7 @@ describe("Sidebar menus and pinned ordering", () => {
 	it("+ button opens the type dropdown with agent and chat entries", async () => {
 		installMockOmp(LIST);
 		seedStores();
-		await mount(<Sidebar onToggleStats={() => {}} />);
+		await mount(<Sidebar />);
 
 		const plus = container.querySelector('[aria-label="New session"], [aria-label="新建会话"]');
 		expect(plus).not.toBeNull();
@@ -212,7 +212,7 @@ describe("Sidebar menus and pinned ordering", () => {
 	it("right-click on a workspace header opens the 6-item group menu", async () => {
 		installMockOmp(LIST);
 		seedStores();
-		await mount(<Sidebar onToggleStats={() => {}} />);
+		await mount(<Sidebar />);
 
 		const header = container.querySelector('[data-workspace-group="/work/alpha"]');
 		expect(header).not.toBeUndefined();
@@ -231,7 +231,7 @@ describe("Sidebar menus and pinned ordering", () => {
 	it("right-click on a session row opens the 6-item session menu", async () => {
 		installMockOmp(LIST);
 		seedStores();
-		await mount(<Sidebar onToggleStats={() => {}} />);
+		await mount(<Sidebar />);
 
 		const row = [...document.querySelectorAll('div[role="button"]')].find(el =>
 			(el.textContent ?? "").includes("Session /work/alpha/one"),
@@ -253,7 +253,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		const attached = session("/work/alpha/mine.jsonl", "/work/alpha", { id: "attached-id" });
 		installMockOmp([attached, ...LIST]);
 		seedStores();
-		await mount(<Sidebar onToggleStats={() => {}} />);
+		await mount(<Sidebar />);
 
 		// Attached session → rename enabled.
 		const attachedRow = [...document.querySelectorAll('div[role="button"]')].find(el =>
@@ -280,7 +280,7 @@ describe("Sidebar menus and pinned ordering", () => {
 	it("collapsed groups stay mounted for animation but become inert and hidden from accessibility", async () => {
 		installMockOmp(LIST);
 		seedStores();
-		await mount(<Sidebar onToggleStats={() => {}} />);
+		await mount(<Sidebar />);
 
 		const alphaHeader = [...container.querySelectorAll("button")].find(button =>
 			(button.textContent ?? "").includes("alpha"),
@@ -314,7 +314,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			pinnedSessions: ["/work/alpha/two.jsonl"],
 			hydrated: true,
 		});
-		await mount(<Sidebar onToggleStats={() => {}} />);
+		await mount(<Sidebar />);
 
 		const headers = [...container.querySelectorAll("button")]
 			.filter(b => (b.textContent ?? "").match(/alpha|beta/i))

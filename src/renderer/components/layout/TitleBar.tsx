@@ -1,8 +1,10 @@
 import {
 	BarChart3,
+	Bot,
 	ChevronRight,
 	Coins,
 	FolderOpen,
+	GitPullRequest,
 	PanelLeft,
 	PanelRight,
 	Plug,
@@ -43,6 +45,8 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 	const openUsage = useUiStore(s => s.openUsage);
 	const openProviders = useUiStore(s => s.openProviders);
 	const openSettings = useUiStore(s => s.openSettings);
+	const openPrCenter = useUiStore(s => s.openPrCenter);
+	const openAgentHub = useUiStore(s => s.openAgentHub);
 	const { sessions } = useSessionList("local");
 	const projectName = cwd ? basename(cwd) : t("titlebar.openProject");
 
@@ -175,6 +179,12 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 				</span>
 			)}
 
+			<button type="button" onClick={openPrCenter} title={t("titlebar.prCenter")} className={iconButton}>
+				<GitPullRequest size={17} />
+			</button>
+			<button type="button" onClick={() => openAgentHub()} title={t("titlebar.agentHub")} className={iconButton}>
+				<Bot size={17} />
+			</button>
 			<button type="button" onClick={onToggleStats} title={t("titlebar.stats")} className={iconButton}>
 				<BarChart3 size={17} />
 			</button>
