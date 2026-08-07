@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-07
+
+### Added
+
+- **Persistent runtime diagnostics**: React render failures, global JavaScript errors, unhandled promises, preload failures, failed page loads, renderer console errors, unresponsive windows, and renderer/GPU/utility process exits are now recorded as bounded, rotating JSONL at `~/Library/Application Support/@oh-my-pi/omp-gui/logs/gui-runtime.jsonl`. A root-level error surface shows the failure and log path instead of leaving an unexplained blank window.
+
+### Fixed
+
+- **White-screen recovery after renderer exit**: when Chromium's renderer process disappears while the Electron main process and sidecars remain alive, the window now records the exit reason/code and reloads the renderer automatically. Recovery is rate-limited to prevent a boot crash from becoming an infinite reload loop.
+- **Packaged font loading**: the renderer CSP now permits bundled data fonts, removing a noisy startup error that could rapidly fill the new runtime log.
+
 ## [0.6.0] - 2026-08-07
 
 ### Added

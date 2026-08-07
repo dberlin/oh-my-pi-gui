@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>omp GUI — One window. Every session in parallel.</title>
-<meta name="description" content="The desktop GUI for the omp coding agent: parallel session tabs, background agents, voice & collab, structured debug, command palette, auto-update. macOS arm64 / x64." />
+<meta name="description" content="The resilient desktop GUI for the omp coding agent: parallel session tabs, background agents, crash recovery, runtime diagnostics, voice, collaboration, and auto-update. macOS arm64 / x64." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -380,21 +380,21 @@
       <a href="#install">Install</a>
       <a href="https://github.com/nornzach/oh-my-pi-gui">GitHub</a>
     </div>
-    <a class="btn btn-primary btn-sm" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1-arm64.dmg">Download v0.5.1</a>
+    <a class="btn btn-primary btn-sm" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.6.1/omp-0.6.1-arm64.dmg">Download v0.6.1</a>
   </div>
 </nav>
 
 <header class="hero" id="top">
   <div class="container">
-    <div class="hero-badge rise d1"><span class="dot"></span>v0.5.1 · Aug 2026 — Session Tabs &amp; Architecture Hardening</div>
+    <div class="hero-badge rise d1"><span class="dot"></span>v0.6.1 · Aug 2026 — Crash Recovery &amp; Runtime Diagnostics</div>
     <h1 class="rise d2">One window.<br /><span class="grad">Every session in parallel.</span></h1>
     <p class="sub rise d3">The desktop GUI for the omp coding agent. Every session tab runs its own agent process — your work keeps moving in the background while you switch. All of the TUI's power, none of its walls.</p>
     <div class="hero-cta rise d4">
-      <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1-arm64.dmg">
+      <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.6.1/omp-0.6.1-arm64.dmg">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Download for macOS <span class="btn-sub">Apple Silicon</span>
       </a>
-      <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1.dmg">Intel build <span class="btn-sub">macOS x64</span></a>
+      <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.6.1/omp-0.6.1.dmg">Intel build <span class="btn-sub">macOS x64</span></a>
     </div>
     <p class="hero-fine rise d5">Bundled sidecar — no agent, bun, or Node to install · <a href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a> · <a href="#install">Build from source</a></p>
     <div class="hero-shot-wrap rise d5">
@@ -415,6 +415,7 @@
     <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Structured debug console</span>
     <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Command palette</span>
     <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Three-step auto-update</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>Crash recovery &amp; diagnostics</span>
     <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Session stats</span>
     <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Provider &amp; login management</span>
   </div>
@@ -575,16 +576,16 @@
       <h2>Up and running in a minute</h2>
       <p class="lead" style="margin-left: auto; margin-right: auto;">Grab the DMG for your Mac. The agent, its runtime and everything else are already inside.</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1-arm64.dmg">
+        <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.6.1/omp-0.6.1-arm64.dmg">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Apple Silicon <span class="btn-sub">arm64</span>
         </a>
-        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.5.1/omp.GUI-0.5.1.dmg">Intel <span class="btn-sub">x64</span></a>
+        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.6.1/omp-0.6.1.dmg">Intel <span class="btn-sub">x64</span></a>
         <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a>
       </div>
       <div class="install-note">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        <span>Builds are unsigned for now. On first launch macOS will quarantine the app — right-click → <b>Open</b> once, or run <code>xattr -cr /Applications/omp\ GUI.app</code>. Gatekeeper only asks once.</span>
+        <span>Builds are unsigned for now. On first launch macOS will quarantine the app — right-click → <b>Open</b> once, or run <code>xattr -cr /Applications/omp.app</code>. Gatekeeper only asks once.</span>
       </div>
       <div class="src">
         <h3>Prefer building it yourself?</h3>
@@ -593,7 +594,7 @@ git clone https://github.com/nornzach/oh-my-pi.git
 cd oh-my-pi &amp;&amp; git clone https://github.com/nornzach/oh-my-pi-gui.git packages/gui
 bun install
 bun --cwd packages/gui run build:omp   <span class="c"># build the sidecar from the monorepo</span>
-bun --cwd packages/gui run dist        <span class="c"># → packages/gui/release/*.dmg</span></pre>
+bun --cwd packages/gui run package:mac:arm64 -- --publish never <span class="c"># → packages/gui/dist/*.dmg</span></pre>
       </div>
     </div>
   </div>
