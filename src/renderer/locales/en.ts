@@ -186,6 +186,10 @@ export const en: Record<string, string> = {
 	"sidebar.signal.waiting": "Waiting for confirmation or approval",
 	"errorBoundary.title": "This panel crashed",
 	"errorBoundary.retry": "Retry",
+	"appError.title": "The interface stopped rendering",
+	"appError.description": "The error was saved to the runtime log. Reload the interface to continue.",
+	"appError.logPath": "Runtime log: {path}",
+	"appError.reload": "Reload interface",
 
 	// Deep links (omp:// protocol)
 	"deepLink.notFound": "No saved session matches this link.",

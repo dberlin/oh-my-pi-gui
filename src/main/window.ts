@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import Store from "electron-store";
 import type { RunProgressState, SessionKind } from "../shared/ipc-types";
+import { shouldReloadRenderer } from "./renderer-recovery";
+import { writeRuntimeLog } from "./runtime-log";
 
 interface WindowState {
 	x?: number;
@@ -92,6 +94,10 @@ export class WindowManager {
 			win.maximize();
 		}
 
+		const record: WindowRecord = { win, id: win.webContents.id, cwd, pendingSessionPath: opts.pendingSessionPath };
+		this.#records.set(record.id, record);
+		this.#observeRuntimeFailures(record);
+
 		// Load renderer
 		if (process.env.ELECTRON_RENDERER_URL) {
 			win.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -109,9 +115,6 @@ export class WindowManager {
 			return { action: "deny" };
 		});
 
-		const record: WindowRecord = { win, id: win.webContents.id, cwd, pendingSessionPath: opts.pendingSessionPath };
-		this.#records.set(record.id, record);
-
 		// Persist state on close
 		win.on("close", () => {
 			this.#persistState(win);
@@ -123,6 +126,83 @@ export class WindowManager {
 		});
 
 		return win;
+	}
+
+	#observeRuntimeFailures(record: WindowRecord): void {
+		const { win } = record;
+		const context = () => ({ windowId: record.id, cwd: record.cwd });
+		let lastRendererRecoveryAt = 0;
+
+		win.webContents.on(
+			"did-fail-load",
+			(_event, errorCode, errorDescription, validatedURL, isMainFrame, frameProcessId, frameRoutingId) => {
+				if (!isMainFrame || errorCode === -3) return;
+				writeRuntimeLog(
+					{
+						source: "renderer-load",
+						message: `Renderer failed to load: ${errorDescription}`,
+						url: validatedURL,
+						details: { errorCode, frameProcessId, frameRoutingId },
+					},
+					context(),
+				);
+			},
+		);
+
+		win.webContents.on("preload-error", (_event, preloadPath, error) => {
+			writeRuntimeLog(
+				{
+					source: "preload",
+					message: error.message,
+					stack: error.stack,
+					url: preloadPath,
+				},
+				context(),
+			);
+		});
+
+		win.webContents.on("render-process-gone", (_event, details) => {
+			const now = Date.now();
+			const shouldReload = shouldReloadRenderer(details.reason, lastRendererRecoveryAt, now);
+			if (shouldReload) lastRendererRecoveryAt = now;
+			writeRuntimeLog(
+				{
+					source: "renderer-process",
+					message: `Renderer process exited: ${details.reason}`,
+					details: { reason: details.reason, exitCode: details.exitCode, automaticReload: shouldReload },
+				},
+				context(),
+			);
+			if (shouldReload) {
+				queueMicrotask(() => {
+					if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.reload();
+				});
+			}
+		});
+
+		win.on("unresponsive", () => {
+			writeRuntimeLog(
+				{
+					source: "renderer-unresponsive",
+					message: "Renderer stopped responding",
+					url: win.webContents.getURL(),
+				},
+				context(),
+			);
+		});
+
+		win.webContents.on("console-message", details => {
+			if (details.level !== "error") return;
+			writeRuntimeLog(
+				{
+					source: "renderer-console",
+					message: details.message,
+					url: details.sourceId,
+					line: details.lineNumber,
+				},
+				context(),
+			);
+		});
 	}
 
 	recordFor(win: BrowserWindow): WindowRecord | undefined {

@@ -35,6 +35,7 @@ import type { RpcCommand, RpcSessionState } from "../shared/rpc-types";
 import { openInExternalEditor } from "./editor";
 import type { LogWatcher } from "./log-watcher";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
+import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
 import { resolveEditorCommand } from "./shell-env";
 import type { SidecarManager } from "./sidecar";
@@ -362,6 +363,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// ========================================================================
 	// IPC Command Handlers
 	// ========================================================================
+	ipcMain.on(IPC_COMMANDS.RUNTIME_ERROR_REPORT, (event, report: unknown) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		writeRuntimeLog(report, {
+			windowId: win?.webContents.id,
+			cwd: win ? windowManager.recordFor(win)?.cwd : undefined,
+		});
+	});
+
+	ipcMain.handle(IPC_COMMANDS.RUNTIME_LOG_PATH, () => runtimeLogPath());
 
 	// RPC command passthrough — always returns a response, never throws.
 	// Throwing here causes "Error occurred in handler" console spam AND

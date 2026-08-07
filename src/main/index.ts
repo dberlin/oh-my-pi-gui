@@ -13,6 +13,7 @@ import { setupDeepLinks } from "./deep-link";
 import { registerIpcHandlers } from "./ipc";
 import { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
+import { writeRuntimeLog } from "./runtime-log";
 import { SessionIndex } from "./session-index";
 import { shellSpawnEnv } from "./shell-env";
 import { SidecarManager } from "./sidecar";
@@ -181,6 +182,38 @@ let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
 
+function errorMessage(value: unknown): { message: string; stack?: string } {
+	if (value instanceof Error) return { message: value.message, stack: value.stack };
+	if (typeof value === "string") return { message: value };
+	try {
+		return { message: JSON.stringify(value) ?? String(value) };
+	} catch {
+		return { message: String(value) };
+	}
+}
+
+function installMainRuntimeLogging(): void {
+	process.on("uncaughtExceptionMonitor", (error, origin) => {
+		writeRuntimeLog({ source: "main-uncaught", ...errorMessage(error), details: { origin } });
+	});
+	process.on("unhandledRejection", reason => {
+		writeRuntimeLog({ source: "main-unhandled-rejection", ...errorMessage(reason) });
+	});
+	app.on("child-process-gone", (_event, details) => {
+		writeRuntimeLog({
+			source: "child-process",
+			message: `${details.type} process exited: ${details.reason}`,
+			details: {
+				type: details.type,
+				reason: details.reason,
+				exitCode: details.exitCode,
+				serviceName: details.serviceName ?? null,
+				name: details.name ?? null,
+			},
+		});
+	});
+}
+
 /** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
  *  Empty `cwd` falls back to resolveInitialCwd() (lastProject → launch cwd),
  *  never a bare process.cwd() which is "/" for Finder-launched apps. */
@@ -196,6 +229,7 @@ function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKi
 }
 
 app.whenReady().then(() => {
+	installMainRuntimeLogging();
 	windowManager = new WindowManager();
 
 	const initialCwd = resolveInitialCwd();

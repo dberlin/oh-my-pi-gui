@@ -4,7 +4,7 @@
  * agents/diff-tab white screen. The fallback keeps the app alive, shows the
  * error, and offers a retry that remounts the subtree.
  */
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, type ReactNode } from "react";
 import { useT } from "../../lib/i18n";
 
 interface PanelErrorBoundaryProps {
@@ -39,10 +39,6 @@ export class PanelErrorBoundary extends Component<PanelErrorBoundaryProps, Panel
 
 	static getDerivedStateFromError(error: Error): PanelErrorBoundaryState {
 		return { error };
-	}
-
-	componentDidCatch(error: Error, info: ErrorInfo): void {
-		console.error("[panel] render crash contained by error boundary", error, info.componentStack);
 	}
 
 	render(): ReactNode {

@@ -86,6 +86,10 @@ export const IPC_EVENTS = {
 // ============================================================================
 
 export const IPC_COMMANDS = {
+	/** Persist a renderer runtime failure in the main-process crash log */
+	RUNTIME_ERROR_REPORT: "runtime:error-report",
+	/** Absolute path to the main-process crash log */
+	RUNTIME_LOG_PATH: "runtime:log-path",
 	/** Send an RPC command, get response */
 	RPC_COMMAND: "rpc:command",
 	/** Respond to extension UI request */
@@ -166,6 +170,34 @@ export const IPC_COMMANDS = {
 	/** Current app version (settings → updates row) */
 	UPDATER_VERSION: "updater:version",
 } as const;
+
+export type RuntimeErrorSource =
+	| "react-render"
+	| "react-uncaught"
+	| "react-recoverable"
+	| "window-error"
+	| "unhandled-rejection"
+	| "renderer-console"
+	| "renderer-load"
+	| "preload"
+	| "renderer-process"
+	| "renderer-unresponsive"
+	| "child-process"
+	| "main-uncaught"
+	| "main-unhandled-rejection"
+	| "unknown";
+
+/** Bounded, serializable renderer/main failure payload written as JSONL. */
+export interface RuntimeErrorReport {
+	source: RuntimeErrorSource;
+	message: string;
+	stack?: string;
+	componentStack?: string;
+	url?: string;
+	line?: number;
+	column?: number;
+	details?: Record<string, string | number | boolean | null>;
+}
 
 // ============================================================================
 // Auto-update status machine (electron-updater → renderer)
@@ -515,6 +547,11 @@ export interface SessionInfo {
 // ============================================================================
 
 export interface OmpApi {
+	runtime: {
+		/** Best-effort fire-and-forget reporting so fatal render paths never wait on IPC. */
+		report(error: RuntimeErrorReport): void;
+		logPath(): Promise<string>;
+	};
 	rpc: {
 		command(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
 		getState(): Promise<RpcResponse>;

@@ -23,6 +23,7 @@ import type {
 	MenuActionPayload,
 	OmpApi,
 	RunProgressState,
+	RuntimeErrorReport,
 	SessionInfo,
 	TrayState,
 	UpdateStatus,
@@ -95,6 +96,11 @@ function subscribe<T>(channel: string, callback: (data: T) => void): () => void 
 }
 
 const api: OmpApi = {
+	runtime: {
+		report: (error: RuntimeErrorReport) => ipcRenderer.send(IPC_COMMANDS.RUNTIME_ERROR_REPORT, error),
+		logPath: () => ipcRenderer.invoke(IPC_COMMANDS.RUNTIME_LOG_PATH) as Promise<string>,
+	},
+
 	rpc: {
 		command: (cmd: RpcCommand, timeoutMs?: number) => rpcCommand(cmd, timeoutMs),
 		getState: () => ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, { command: { type: "get_state" } }),

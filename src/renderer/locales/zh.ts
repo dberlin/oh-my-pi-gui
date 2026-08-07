@@ -183,6 +183,10 @@ export const zh: Record<string, string> = {
 	"sidebar.signal.waiting": "等待确认或权限",
 	"errorBoundary.title": "面板渲染出错",
 	"errorBoundary.retry": "重试",
+	"appError.title": "界面渲染已停止",
+	"appError.description": "错误已写入运行时日志。重新加载界面后可继续使用。",
+	"appError.logPath": "运行时日志：{path}",
+	"appError.reload": "重新加载界面",
 
 	// 深链接（omp:// 协议）
 	"deepLink.notFound": "没有与此链接匹配的已保存会话。",
