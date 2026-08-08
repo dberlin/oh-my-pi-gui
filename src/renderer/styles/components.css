@@ -328,3 +328,395 @@
 		animation: none;
 	}
 }
+
+/* ---------------------------------------------------------------------------
+ * Editorial transcript — an open reading rail for long agent sessions.
+ * The existing component chrome remains available outside this scope; this
+ * layer changes only the transcript surface so tool renderers stay intact.
+ * ------------------------------------------------------------------------- */
+.omp-transcript-editorial {
+	--omp-editorial-shell-left: clamp(72px, 10.5vw, 136px);
+	--omp-editorial-shell-right: clamp(36px, 7vw, 112px);
+	--omp-editorial-inset: 142px;
+	--omp-editorial-edge: 10px;
+	--omp-editorial-rail-x: 34px;
+}
+
+.omp-transcript-editorial .omp-transcript-scroll {
+	scrollbar-gutter: stable;
+}
+
+.omp-transcript-editorial .omp-transcript-row {
+	position: relative;
+	width: min(1160px, calc(100% - var(--omp-editorial-shell-left) - var(--omp-editorial-shell-right)));
+	margin-right: auto;
+	margin-left: var(--omp-editorial-shell-left);
+}
+
+.omp-transcript-editorial [data-transcript-kind] > .omp-transcript-row::before {
+	content: "";
+	position: absolute;
+	left: var(--omp-editorial-rail-x);
+	top: -1px;
+	bottom: -1px;
+	width: 1px;
+	background: var(--omp-transcript-rail);
+	opacity: 0.72;
+}
+
+.omp-transcript-editorial .omp-timeline-marker {
+	position: absolute;
+	z-index: 1;
+	left: calc(var(--omp-editorial-rail-x) - 11px);
+	top: 18px;
+	display: flex;
+	width: 23px;
+	flex-direction: column;
+	align-items: center;
+	gap: 7px;
+	color: var(--omp-muted);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+}
+
+.omp-transcript-editorial .omp-timeline-dot {
+	display: grid;
+	width: 22px;
+	height: 22px;
+	place-items: center;
+	border: 3px solid var(--omp-bg-primary);
+	border-radius: 999px;
+	background: var(--omp-success);
+	color: white;
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--omp-success) 22%, var(--omp-transcript-rail));
+}
+
+.omp-transcript-editorial .omp-timeline-marker--running .omp-timeline-dot {
+	background: var(--omp-accent);
+}
+
+.omp-transcript-editorial .omp-timeline-marker--launch .omp-timeline-dot {
+	background: var(--omp-transcript-launch);
+}
+
+.omp-transcript-editorial .omp-timeline-marker--error .omp-timeline-dot {
+	background: var(--omp-error);
+}
+
+.omp-transcript-editorial .omp-user-turn {
+	justify-content: flex-start;
+	padding: 24px var(--omp-editorial-edge) 16px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-user-bubble {
+	width: min(650px, 100%);
+	max-width: none !important;
+	border: 1px solid var(--omp-transcript-user-border);
+	border-radius: 8px;
+	background: var(--omp-transcript-user-bg);
+	box-shadow: none !important;
+	padding: 11px 14px;
+}
+
+.omp-transcript-editorial .omp-user-bubble-layout {
+	display: grid;
+	grid-template-columns: 34px minmax(0, 1fr);
+	align-items: start;
+	gap: 14px;
+}
+
+.omp-transcript-editorial .omp-user-bubble-author {
+	padding-top: 2px;
+	font-size: 12px;
+	font-weight: 650;
+	color: var(--omp-text);
+}
+
+.omp-transcript-editorial .omp-user-bubble-content {
+	min-width: 0;
+}
+
+.omp-transcript-editorial .omp-user-bubble-content .markdown-body p:first-child,
+.omp-transcript-editorial .omp-user-bubble-content .markdown-body p:last-child {
+	margin-block: 0;
+}
+
+.omp-transcript-editorial .omp-user-bubble-actions {
+	position: absolute;
+	left: calc(100% + 8px);
+	top: 50%;
+	width: max-content;
+	transform: translateY(-50%);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease-out;
+}
+
+.omp-transcript-editorial .omp-user-bubble:hover .omp-user-bubble-actions,
+.omp-transcript-editorial .omp-user-bubble:focus-within .omp-user-bubble-actions {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.omp-transcript-editorial .omp-assistant-turn {
+	padding: 12px var(--omp-editorial-edge) 16px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-assistant-turn--compact {
+	padding: 2px var(--omp-editorial-edge) 2px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-assistant-turn > .min-w-0 {
+	max-width: 77ch;
+}
+
+.omp-transcript-editorial .omp-assistant-turn--compact > .min-w-0 {
+	width: 100%;
+	max-width: none;
+}
+
+.omp-transcript-editorial .omp-process-group {
+	position: relative;
+	padding-block: 10px 14px;
+}
+
+.omp-transcript-editorial .omp-tool-card {
+	margin: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent !important;
+	box-shadow: none !important;
+}
+
+.omp-transcript-editorial .omp-tool-card > span[aria-hidden] {
+	width: 1px;
+	background: var(--omp-transcript-rule) !important;
+	opacity: 1;
+}
+
+.omp-transcript-editorial .omp-tool-header {
+	min-height: 34px;
+	padding: 6px 0 6px 15px;
+	font-size: 12px;
+}
+
+.omp-transcript-editorial .omp-tool-header:hover {
+	background: color-mix(in srgb, var(--omp-selected-bg) 28%, transparent);
+}
+
+.omp-transcript-editorial .omp-tool-name {
+	min-width: 42px;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0;
+}
+
+.omp-transcript-editorial .omp-tool-summary {
+	font-size: 11.5px;
+	color: var(--omp-muted);
+}
+
+.omp-transcript-editorial .omp-tool-duration {
+	min-width: 44px;
+	border-radius: 0;
+	background: transparent;
+	padding: 0;
+	text-align: right;
+	font-size: 10.5px;
+	color: var(--omp-muted);
+}
+
+.omp-transcript-editorial .omp-tool-chevron {
+	opacity: 0;
+}
+
+.omp-transcript-editorial .omp-tool-header:hover .omp-tool-chevron,
+.omp-transcript-editorial .omp-tool-header:focus-visible .omp-tool-chevron {
+	opacity: 1;
+}
+
+.omp-transcript-editorial .omp-tool-body {
+	border-top: 1px solid var(--omp-transcript-rule);
+	padding: 10px 0 12px 28px;
+}
+
+.omp-transcript-editorial .omp-read-group {
+	position: relative;
+	padding: 6px var(--omp-editorial-edge) 8px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-read-group-header {
+	min-height: 28px;
+	border: 0 !important;
+	border-radius: 0;
+	background: transparent !important;
+	padding: 4px 0;
+}
+
+.omp-transcript-editorial .omp-read-group-header:hover {
+	background: transparent !important;
+}
+
+.omp-transcript-editorial .omp-read-group-preview {
+	margin-left: 21px;
+	color: var(--omp-muted);
+}
+
+.omp-transcript-editorial .omp-read-group-body {
+	margin-left: 21px;
+}
+
+.omp-transcript-editorial .omp-streaming-turn {
+	padding: 12px var(--omp-editorial-edge) 18px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-thinking-block {
+	margin: 3px 0 9px;
+	border: 0 !important;
+	border-radius: 0;
+	background: transparent !important;
+}
+
+.omp-transcript-editorial .omp-thinking-header {
+	min-height: 30px;
+	padding: 5px 0;
+	font-size: 11.5px;
+	letter-spacing: 0.01em;
+}
+
+.omp-transcript-editorial .omp-thinking-header:hover {
+	background: transparent;
+}
+
+.omp-transcript-editorial .omp-thinking-body {
+	max-height: 19rem;
+	margin-left: 4px;
+	border-left: 1px solid color-mix(in srgb, var(--omp-thinking-medium) 35%, var(--omp-transcript-rule));
+	padding: 6px 0 10px 20px;
+	font-size: 12px;
+	line-height: 1.55;
+}
+
+.omp-transcript-editorial .omp-thinking-brain,
+.omp-transcript-editorial .omp-thinking-level,
+.omp-transcript-editorial .omp-thinking-gauge,
+.omp-transcript-editorial .omp-thinking-count,
+.omp-transcript-editorial .omp-thinking-duration {
+	display: none;
+}
+
+.omp-transcript-editorial .omp-thinking-state,
+.omp-transcript-editorial .omp-thinking-fold-state {
+	font-weight: 600;
+}
+
+.omp-transcript-editorial .omp-thinking-hint {
+	margin-left: 8px;
+	font-weight: 400;
+}
+
+.omp-transcript-editorial .omp-thinking-block--pulse {
+	padding-left: 12px;
+}
+
+.omp-transcript-editorial .omp-assistant-turn .markdown-body,
+.omp-transcript-editorial .omp-assistant-turn--compact > .min-w-0 > .markdown-body,
+.omp-transcript-editorial .omp-streaming-turn > .markdown-body {
+	font-size: 15px;
+	line-height: 1.65;
+}
+
+.omp-transcript-editorial .markdown-body p {
+	margin: 0.78em 0;
+}
+
+.omp-transcript-editorial .markdown-body h1 {
+	padding-bottom: 0;
+	border-bottom: 0;
+	font-size: 1.28em;
+}
+
+.omp-transcript-editorial .markdown-body pre {
+	border: 0;
+	border-left: 2px solid var(--omp-transcript-rail);
+	border-radius: 0 8px 8px 0;
+	background: var(--omp-transcript-code-bg);
+	box-shadow: none;
+}
+
+.omp-transcript-editorial .markdown-body code {
+	border: 0;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--omp-transcript-code-bg) 85%, var(--omp-text) 15%);
+}
+
+.omp-transcript-editorial .markdown-body pre code {
+	background: transparent;
+}
+
+.omp-transcript-editorial .markdown-body a {
+	border-bottom-color: color-mix(in srgb, var(--omp-md-link) 20%, transparent);
+}
+
+.omp-transcript-editorial .omp-message-error {
+	margin-top: 12px;
+	border: 1px solid color-mix(in srgb, var(--omp-error) 24%, transparent);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--omp-error) 5%, transparent);
+	padding: 9px 14px;
+	font-size: 12px;
+}
+
+.omp-transcript-editorial .omp-queued-turn {
+	padding: 10px var(--omp-editorial-edge) !important;
+}
+
+.omp-transcript-editorial .omp-queued-bubble {
+	border: 1px dashed var(--omp-transcript-rail);
+	border-radius: 8px;
+	background: transparent;
+	box-shadow: none;
+}
+
+.omp-transcript-editorial .omp-fade-up,
+.omp-transcript-editorial .omp-fade-in {
+	animation: none;
+	opacity: 1;
+	transform: none;
+}
+
+.omp-transcript-editorial .omp-thinking-shimmer {
+	animation-duration: 3.2s;
+}
+
+.omp-composer-shell {
+	width: min(1178px, calc(100% - clamp(70px, 8.5vw, 116px) - clamp(36px, 7vw, 112px)));
+	margin-right: auto;
+	margin-left: clamp(70px, 8.5vw, 116px);
+}
+
+@media (max-width: 720px) {
+	.omp-transcript-editorial {
+		--omp-editorial-shell-left: 10px;
+		--omp-editorial-shell-right: 10px;
+		--omp-editorial-inset: 48px;
+		--omp-editorial-edge: 16px;
+		--omp-editorial-rail-x: 20px;
+	}
+	.omp-transcript-editorial .omp-timeline-marker time {
+		display: none;
+	}
+	.omp-composer-shell {
+		width: 100%;
+		margin-left: 0;
+	}
+	.omp-transcript-editorial .omp-user-bubble-actions {
+		position: static;
+		justify-content: flex-end;
+		margin-top: 8px;
+		transform: none;
+		opacity: 1;
+		pointer-events: auto;
+	}
+}

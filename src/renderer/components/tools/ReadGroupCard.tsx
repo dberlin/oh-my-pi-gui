@@ -56,11 +56,12 @@ export function ReadGroupCard({
 		const entry = entries[0]!;
 		const status = statuses.get(entry.toolKey);
 		return (
-			<div className={pad}>
+			<div className={cx("omp-read-group", pad)}>
 				<button
 					type="button"
+					aria-expanded={open}
 					onClick={() => setOpen(value => !value)}
-					className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text)"
+					className="omp-read-group-header flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text)"
 				>
 					{status === "pending" ? (
 						<Loader2 size={11} className="shrink-0 animate-spin text-(--omp-accent)" />
@@ -80,7 +81,7 @@ export function ReadGroupCard({
 					<ChevronRight size={12} className={cx("ml-auto shrink-0 transition-transform", open && "rotate-90")} />
 				</button>
 				{open && (
-					<div className="ml-4 mt-1">
+					<div className="omp-read-group-body ml-4 mt-1">
 						<ToolCard toolCallId={entry.toolKey} toolName="read" args={entry.args} />
 					</div>
 				)}
@@ -92,12 +93,12 @@ export function ReadGroupCard({
 	}
 
 	return (
-		<div className={pad}>
+		<div className={cx("omp-read-group", pad)}>
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen(value => !value)}
-				className="flex w-full items-center gap-2 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-1.5 text-left text-[12px] text-(--omp-muted) hover:border-(--omp-border) hover:text-(--omp-text)"
+				className="omp-read-group-header flex w-full items-center gap-2 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-1.5 text-left text-[12px] text-(--omp-muted) hover:border-(--omp-border) hover:text-(--omp-text)"
 			>
 				<ChevronRight size={13} className={cx("shrink-0 transition-transform", open && "rotate-90")} />
 				{anyPending ? (
@@ -116,7 +117,7 @@ export function ReadGroupCard({
 				</span>
 			</button>
 			{/* Tree preview rows (always visible, TUI parity) */}
-			<div className="ml-6 mt-0.5 font-mono text-[11px] leading-[1.6] text-(--omp-muted)">
+			<div className="omp-read-group-preview ml-6 mt-0.5 font-mono text-[11px] leading-[1.6] text-(--omp-muted)">
 				{rows.map((row, index) => (
 					<div key={`${row.path}:${index}`} className="flex items-baseline gap-2 truncate">
 						<span className="shrink-0 text-(--omp-dim)">{index === rows.length - 1 ? "└─" : "├─"}</span>
@@ -133,7 +134,7 @@ export function ReadGroupCard({
 				))}
 			</div>
 			{open && (
-				<div className="ml-6 mt-1 space-y-1.5">
+				<div className="omp-read-group-body ml-6 mt-1 space-y-1.5">
 					{entries.map(entry => (
 						<ToolCard key={entry.toolKey} toolCallId={entry.toolKey} toolName="read" args={entry.args} />
 					))}

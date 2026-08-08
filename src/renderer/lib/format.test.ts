@@ -7,7 +7,15 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { resultDetails, resultText } from "./format";
+import { formatShortClock, resultDetails, resultText } from "./format";
+
+describe("formatShortClock", () => {
+	it("keeps timeline labels to hour and minute", () => {
+		const label = formatShortClock("2026-08-08T10:42:37+08:00");
+		expect(label).toMatch(/^\d{2}:\d{2}$/);
+		expect(label).not.toContain("2026");
+	});
+});
 
 const liveEnvelope = {
 	content: [

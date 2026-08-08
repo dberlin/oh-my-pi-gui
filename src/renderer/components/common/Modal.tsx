@@ -7,6 +7,7 @@ import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../lib/i18n";
+import { isTopmostDialog } from "./dialog-layer";
 
 export type ModalSize = "sm" | "md" | "lg" | "full" | "picker";
 
@@ -23,6 +24,11 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
 
 const FOCUSABLE =
 	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Multiple dialogs can be mounted at once (for example a provider editor
+// opened from the providers window). Only the visually topmost dialog may own
+// keyboard focus or consume Escape.
+const modalStack: symbol[] = [];
 
 export interface ModalProps {
 	open: boolean;
@@ -61,32 +67,33 @@ export function Modal({
 	const t = useT();
 	const panelRef = useRef<HTMLDivElement>(null);
 	const restoreRef = useRef<HTMLElement | null>(null);
+	const modalIdRef = useRef(Symbol("modal"));
+	const onCloseRef = useRef(onClose);
+	onCloseRef.current = onClose;
 
-	// Focus capture runs once per open transition. Depending on `onClose` here
-	// would re-focus the panel on every re-render (callers pass non-memoized
-	// closures), yanking focus out of inputs on every keystroke.
 	useEffect(() => {
 		if (!open) return;
+		const modalId = modalIdRef.current;
+		modalStack.push(modalId);
 		restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-		// Focus only when nothing else is — an already-focused element (e.g. the
-		// caller autofocused an input) must not be yanked back to the first item.
-		const active = document.activeElement;
 		const panel = panelRef.current;
-		if (!active || active === document.body || active === document.documentElement) {
+		const active = document.activeElement;
+		// Preserve a caller-autofocused control inside the new dialog, but never
+		// leave focus on its trigger or on a dialog now covered by this one.
+		if (!(active instanceof HTMLElement && panel?.contains(active))) {
 			const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
 			(first ?? panel)?.focus();
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [open]);
-
-	useEffect(() => {
-		if (!open) return;
-		const panel = panelRef.current;
 
 		const onKeyDown = (event: KeyboardEvent) => {
+			// Include fullscreen/custom dialogs that do not use Modal in the layer
+			// decision; a modal hidden beneath Settings must remain untouched.
+			if (modalStack[modalStack.length - 1] !== modalId || !isTopmostDialog(panel)) return;
 			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopImmediatePropagation();
 				event.stopPropagation();
-				onClose();
+				onCloseRef.current();
 				return;
 			}
 			if (event.key !== "Tab" || !panel) return;
@@ -109,15 +116,12 @@ export function Modal({
 		document.addEventListener("keydown", onKeyDown, true);
 		return () => {
 			document.removeEventListener("keydown", onKeyDown, true);
-			// Restore focus only when it is currently outside this panel —
-			// otherwise a freshly-opened dialog would be blurred back to the
-			// element that was focused before this modal opened.
-			const active = document.activeElement;
-			if (!(active instanceof HTMLElement && panel?.contains(active))) {
-				restoreRef.current?.focus();
-			}
+			const wasTopmost = modalStack[modalStack.length - 1] === modalId;
+			const stackIndex = modalStack.lastIndexOf(modalId);
+			if (stackIndex >= 0) modalStack.splice(stackIndex, 1);
+			if (wasTopmost) restoreRef.current?.focus();
 		};
-	}, [open, onClose]);
+	}, [open]);
 
 	if (!open) return null;
 

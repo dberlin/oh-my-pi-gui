@@ -156,6 +156,16 @@
 	--omp-streaming-cursor: var(--omp-accent);
 	--omp-streaming-highlight: rgba(91, 140, 255, 0.07);
 
+	/* ── Editorial transcript ──────────────────────────────────────────── */
+	--omp-transcript-rail: #344052;
+	--omp-transcript-rule: #273142;
+	--omp-transcript-event: #77849a;
+	--omp-transcript-event-live: var(--omp-accent);
+	--omp-transcript-launch: #2aa7a7;
+	--omp-transcript-user-bg: #1d2b42;
+	--omp-transcript-user-border: #31435e;
+	--omp-transcript-code-bg: #151b24;
+
 	/* ── Panel ─────────────────────────────────────────────────────────── */
 	--omp-panel-bg: #171d26;
 	--omp-panel-border: #273142;

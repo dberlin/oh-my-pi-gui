@@ -50,14 +50,14 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
 
 	useEffect(() => {
 		const onDown = (event: PointerEvent) => {
-			// Close only on outside clicks; menu item clicks fire their onSelect
-			// before unmount, so the portal must not dismiss itself mid-interaction.
+			// The trigger opens this menu from `click`, so its preceding pointerdown
+			// has already finished before this effect is installed. Listening for the
+			// next pointer press avoids treating the opening click itself as an
+			// outside dismissal while still closing before a later outside click.
 			if (!menuRef.current?.contains(event.target as globalThis.Node | null)) onClose();
 		};
-		// Use click instead of pointerdown: pointerdown races with menu item
-		// focus, closing the menu before onClick handlers fire.
-		document.addEventListener("click", onDown);
-		return () => document.removeEventListener("click", onDown);
+		document.addEventListener("pointerdown", onDown);
+		return () => document.removeEventListener("pointerdown", onDown);
 	}, [onClose]);
 
 	// Focus the active item whenever the menu opens or the index moves.

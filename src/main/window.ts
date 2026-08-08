@@ -3,11 +3,16 @@
  * Creates sandboxed BrowserWindows with persisted state via electron-store.
  */
 
+import * as fs from "node:original-fs";
 import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import Store from "electron-store";
 import type { RunProgressState, SessionKind } from "../shared/ipc-types";
-import { shouldReloadRenderer } from "./renderer-recovery";
+import {
+	type ApplicationResourceIdentity,
+	applicationResourcesChanged,
+	shouldReloadRenderer,
+} from "./renderer-recovery";
 import { writeRuntimeLog } from "./runtime-log";
 
 interface WindowState {
@@ -54,6 +59,9 @@ export type SpawnWindow = (cwd?: string, pendingSessionPath?: string, kind?: Ses
 export class WindowManager {
 	#records = new Map<number, WindowRecord>();
 	#store: Store<StoreSchema>;
+	#resourceArchivePath = app.isPackaged ? join(process.resourcesPath, "app.asar") : null;
+	#launchResourceIdentity = this.#readResourceIdentity();
+	#resourceRestartScheduled = false;
 	/** Fired when a window closes; index.ts uses it to release the window's sidecar. */
 	onWindowClosed: ((record: WindowRecord) => void) | null = null;
 
@@ -98,12 +106,7 @@ export class WindowManager {
 		this.#records.set(record.id, record);
 		this.#observeRuntimeFailures(record);
 
-		// Load renderer
-		if (process.env.ELECTRON_RENDERER_URL) {
-			win.loadURL(process.env.ELECTRON_RENDERER_URL);
-		} else {
-			win.loadFile(join(__dirname, "../renderer/index.html"));
-		}
+		this.#loadRenderer(win);
 
 		win.once("ready-to-show", () => {
 			win.show();
@@ -133,10 +136,16 @@ export class WindowManager {
 		const context = () => ({ windowId: record.id, cwd: record.cwd });
 		let lastRendererRecoveryAt = 0;
 
+		win.webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
+			if (isMainFrame) this.#restartForChangedResources(record, "main-frame-navigation");
+		});
+
 		win.webContents.on(
 			"did-fail-load",
 			(_event, errorCode, errorDescription, validatedURL, isMainFrame, frameProcessId, frameRoutingId) => {
-				if (!isMainFrame || errorCode === -3) return;
+				if (errorCode === -3) return;
+				if (this.#restartForChangedResources(record, "renderer-load-failure")) return;
+				if (!isMainFrame) return;
 				writeRuntimeLog(
 					{
 						source: "renderer-load",
@@ -164,18 +173,27 @@ export class WindowManager {
 		win.webContents.on("render-process-gone", (_event, details) => {
 			const now = Date.now();
 			const shouldReload = shouldReloadRenderer(details.reason, lastRendererRecoveryAt, now);
-			if (shouldReload) lastRendererRecoveryAt = now;
+			const resourcesChanged = this.#resourcesChangedSinceLaunch();
+			if (shouldReload && !resourcesChanged) lastRendererRecoveryAt = now;
 			writeRuntimeLog(
 				{
 					source: "renderer-process",
 					message: `Renderer process exited: ${details.reason}`,
-					details: { reason: details.reason, exitCode: details.exitCode, automaticReload: shouldReload },
+					url: win.webContents.getURL(),
+					details: {
+						reason: details.reason,
+						exitCode: details.exitCode,
+						automaticReload: shouldReload && !resourcesChanged,
+						resourcesChanged,
+					},
 				},
 				context(),
 			);
-			if (shouldReload) {
+			if (shouldReload && resourcesChanged) {
+				this.#restartForChangedResources(record, "renderer-process-gone");
+			} else if (shouldReload) {
 				queueMicrotask(() => {
-					if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.reload();
+					if (!win.isDestroyed() && !win.webContents.isDestroyed()) this.#loadRenderer(win);
 				});
 			}
 		});
@@ -202,7 +220,63 @@ export class WindowManager {
 				},
 				context(),
 			);
+			this.#restartForChangedResources(record, "renderer-console-error");
 		});
+	}
+
+	#loadRenderer(win: BrowserWindow): void {
+		if (process.env.ELECTRON_RENDERER_URL) {
+			void win.loadURL(process.env.ELECTRON_RENDERER_URL);
+		} else {
+			void win.loadFile(join(__dirname, "../renderer/index.html"));
+		}
+	}
+
+	#readResourceIdentity(): ApplicationResourceIdentity | null {
+		if (this.#resourceArchivePath === null) return null;
+		try {
+			const stats = fs.statSync(this.#resourceArchivePath);
+			return {
+				device: stats.dev,
+				inode: stats.ino,
+				size: stats.size,
+				modifiedAt: stats.mtimeMs,
+			};
+		} catch {
+			return null;
+		}
+	}
+
+	#resourcesChangedSinceLaunch(): boolean {
+		return applicationResourcesChanged(this.#launchResourceIdentity, this.#readResourceIdentity());
+	}
+
+	#restartForChangedResources(record: WindowRecord, trigger: string): boolean {
+		const currentIdentity = this.#readResourceIdentity();
+		if (!applicationResourcesChanged(this.#launchResourceIdentity, currentIdentity)) return false;
+		if (this.#resourceRestartScheduled) return true;
+		this.#resourceRestartScheduled = true;
+		writeRuntimeLog(
+			{
+				source: "application-resources",
+				message:
+					"Packaged application resources changed while omp was running; restarting before renderer recovery",
+				url: record.win.webContents.getURL(),
+				details: {
+					trigger,
+					launchInode: this.#launchResourceIdentity?.inode ?? -1,
+					currentInode: currentIdentity?.inode ?? -1,
+					launchSize: this.#launchResourceIdentity?.size ?? -1,
+					currentSize: currentIdentity?.size ?? -1,
+				},
+			},
+			{ windowId: record.id, cwd: record.cwd },
+		);
+		queueMicrotask(() => {
+			app.relaunch();
+			app.quit();
+		});
+		return true;
 	}
 
 	recordFor(win: BrowserWindow): WindowRecord | undefined {

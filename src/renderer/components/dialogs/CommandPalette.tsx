@@ -498,7 +498,12 @@ export function CommandPalette() {
 			}}
 			role="presentation"
 		>
-			<div className="w-[560px] max-w-[92vw] overflow-hidden rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) shadow-2xl shadow-black/60">
+			<div
+				aria-label={t("palette.searchLabel")}
+				aria-modal="true"
+				className="w-[560px] max-w-[92vw] overflow-hidden rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) shadow-2xl shadow-black/60"
+				role="dialog"
+			>
 				<div className="flex items-center gap-2.5 border-b border-(--omp-border-muted) px-3.5 py-2.5">
 					{submenu && (
 						<button

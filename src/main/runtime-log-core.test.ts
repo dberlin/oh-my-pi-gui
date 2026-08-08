@@ -53,4 +53,18 @@ describe("runtime crash log", () => {
 		expect(report.message.length).toBeLessThan(8_200);
 		expect(report.details).toEqual({ kept: 3 });
 	});
+
+	it("preserves packaged resource replacement reports", () => {
+		const report = normalizeRuntimeErrorReport({
+			source: "application-resources",
+			message: "resource archive changed",
+			details: { launchInode: 100, currentInode: 101 },
+		});
+
+		expect(report).toMatchObject({
+			source: "application-resources",
+			message: "resource archive changed",
+			details: { launchInode: 100, currentInode: 101 },
+		});
+	});
 });

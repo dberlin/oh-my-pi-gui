@@ -20,6 +20,7 @@ const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
 	"preload",
 	"renderer-process",
 	"renderer-unresponsive",
+	"application-resources",
 	"child-process",
 	"main-uncaught",
 	"main-unhandled-rejection",

@@ -142,7 +142,7 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 		const glyph = THINKING_GLYPH_FRAMES[glyphFrame % THINKING_GLYPH_FRAMES.length] ?? "…";
 		return (
 			<div
-				className="mb-2 flex items-center gap-1.5 overflow-hidden rounded-md border-l-2 bg-[var(--omp-bg-secondary)] px-2 py-1 text-[11px]"
+				className="omp-thinking-block omp-thinking-block--pulse mb-2 flex items-center gap-1.5 overflow-hidden rounded-md border-l-2 bg-[var(--omp-bg-secondary)] px-2 py-1 text-[11px]"
 				style={{ borderLeftColor: `var(--omp-thinking-${tokenLevel})` }}
 			>
 				<span
@@ -174,41 +174,56 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 
 	return (
 		<div
-			className="mb-2 overflow-hidden rounded-md border-l-2 bg-[var(--omp-bg-secondary)] transition-colors"
+			className="omp-thinking-block mb-2 overflow-hidden rounded-md border-l-2 bg-[var(--omp-bg-secondary)] transition-colors"
 			style={{ borderLeftColor: `var(--omp-thinking-${tokenLevel})` }}
 		>
 			<button
 				type="button"
+				aria-expanded={open}
 				onClick={() => setOpen(v => !v)}
-				className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-bg-tertiary)]"
+				className="omp-thinking-header flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-bg-tertiary)]"
 			>
-				{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+				{open ? (
+					<ChevronDown className="omp-thinking-chevron" size={12} />
+				) : (
+					<ChevronRight className="omp-thinking-chevron" size={12} />
+				)}
 				<Brain
 					size={12}
-					className={cx(isLive && "omp-thinking-pulse")}
+					className={cx("omp-thinking-brain", isLive && "omp-thinking-pulse")}
 					style={{ color: `var(--omp-thinking-${tokenLevel})` }}
 				/>
 				{isLive ? (
-					<span className="omp-thinking-shimmer font-medium">{t("chat.thinking.live")}</span>
+					<span className="omp-thinking-state omp-thinking-shimmer font-medium">{t("chat.thinking.live")}</span>
 				) : (
-					<span className="font-medium" style={{ color: `var(--omp-thinking-${tokenLevel})` }}>
+					<span className="omp-thinking-state font-medium" style={{ color: `var(--omp-thinking-${tokenLevel})` }}>
 						{t("chat.thinking.done")}
 					</span>
 				)}
-				<span className="text-[var(--omp-dim)]">{LEVEL_LABEL[resolvedLevel]}</span>
+				{!isLive ? (
+					<span className="omp-thinking-fold-state" style={{ color: `var(--omp-thinking-${tokenLevel})` }}>
+						{t(open ? "chat.thinking.expanded" : "chat.thinking.collapsed")}
+					</span>
+				) : null}
+				<span className="omp-thinking-hint text-[var(--omp-muted)]">
+					{t(open ? "chat.thinking.hide" : "chat.thinking.show")}
+				</span>
+				<span className="omp-thinking-level text-[var(--omp-dim)]">{LEVEL_LABEL[resolvedLevel]}</span>
 				{showGauge && (
-					<>
+					<span className="omp-thinking-gauge contents">
 						<span className="tabular-nums text-[var(--omp-dim)]">{formatTokens(content.length)}</span>
 						<span className="tabular-nums" style={{ color: rateColor }}>
 							{t("chat.thinking.speed", { rate: rate.toFixed(1) })}
 						</span>
-					</>
+					</span>
 				)}
-				<span className="tabular-nums text-[var(--omp-dim)]">{countLabel}</span>
-				{duration && <span className="ml-auto tabular-nums text-[var(--omp-dim)]">{duration}</span>}
+				<span className="omp-thinking-count tabular-nums text-[var(--omp-dim)]">{countLabel}</span>
+				{duration && (
+					<span className="omp-thinking-duration ml-auto tabular-nums text-[var(--omp-dim)]">{duration}</span>
+				)}
 			</button>
 			{open && (
-				<div className="max-h-64 overflow-y-auto px-3 pb-2 font-mono text-[11.5px] leading-[1.45] text-[var(--omp-muted)]">
+				<div className="omp-thinking-body max-h-64 overflow-y-auto px-3 pb-2 font-mono text-[11.5px] leading-[1.45] text-[var(--omp-muted)]">
 					<div className={cx(isLive && "omp-streaming")}>
 						<MarkdownRenderer content={formatted} />
 						{isLive && <span aria-hidden className="omp-caret" />}

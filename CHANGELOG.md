@@ -11,8 +11,16 @@
 - **PR Center (plan/21, ⌥P)**: a fullscreen panel for GitHub pull requests — rich list (CI health badges, author initial avatars, diff stats), markdown detail with per-check status, per-file lazily-loaded syntax-highlighted diffs, an AI-drafted create flow (title/body from the branch's commits, editable before submit), and one-click checkout that opens the PR in its own worktree-bound tab.
 - **Upstream v17.2.10+ sync (112 commits)**: Chinese quota-exhaustion classification, ANTHROPIC_BASE_URL for chat, OAuth org re-login fix, concurrent extension imports, ACP legacy session resolution, hook-refusal and fallback-commit exit-code fixes, and more — all inherited via the bundled sidecar.
 
+### Changed
+
+- **Editorial execution timeline**: rebuilt the conversation renderer around narrated phases, stable virtual-row identities, compact status markers, quieter read/tool cards, refined typography, spacing, borders, light/dark colors, and clearer collapsed reasoning controls. Consecutive filler-only tool messages now merge into the surrounding phase instead of producing repetitive visual blocks.
+
 ### Fixed
 
+- **White screen after replacing a running app**: packaged windows now fingerprint `app.asar` at launch and relaunch Electron when an installed update replaces those resources, preventing Chromium from mixing an old archive index with new bytes. The condition is recorded in the bounded runtime JSONL log with its trigger and resource identity.
+- **Blank transcript bands and unstable streaming rows**: hidden tool results, punctuation-only deltas, and other zero-height messages no longer reserve virtualized space; tool-only live turns still appear immediately, and existing rows keep stable keys when history changes.
+- **New-session and workspace menus**: outside dismissal now begins on the next pointer press, after the opening click has completed, so the sidebar `+` menu and workspace actions stay open and remain clickable.
+- **Stacked dialog focus and Escape handling**: opening a dialog moves focus inside it, closing restores the trigger, and only the visually topmost modal/settings layer handles Escape or focus trapping.
 - **Tab chip tracks the session's workspace**: switching a session re-roots the chip's cwd (previously frozen at the app's launch project for the tab's whole life).
 - **Idle-tab close bypass**: clicking × on an idle tab skipped the confirm handler entirely — it now routes through it, so the worktree cleanup prompt can't be missed.
 
@@ -162,8 +170,6 @@
 - Fixed live subagent updates attributing to the wrong (or a single undefined-key) entry: `subagent_lifecycle`/`progress`/`event` frames arrive nested as `{type, payload}`, but the GUI read flat fields off the top level, so `id`/`index` were always undefined. Lifecycle frames are now read from `payload`, and progress frames attribute by `payload.progress.id` (the batch-local `index` repeats across task batches).
 - Fixed opening a session in a new window showing a blank conversation instead of the target session: the sidecar switch raced the window's boot hydration. The switch now happens in the new window's renderer on boot (it pulls a `pendingSessionPath` and runs `switch_session` + hydrate itself), which both orders the hydration correctly and surfaces switch failures in that window.
 - Removed the `gui_open_url`/`gui_notify`/`gui_clipboard_read` host-tool registrations. They were deadlocked end-to-end: the agent emits `{id, toolName, arguments}` frames, the main-process executor read the drifted `{callId, name, args}` fields (always undefined), the renderer had zero `onHostToolCall` consumers, and the agent-side call has no timeout — a model call to any of these hung the turn until the sidecar restarted. Registration is removed until the host-tool pipeline is properly wired; the main-process executor stays in place.
-
-## [Unreleased]
 
 ## [0.2.1] - 2026-08-04
 

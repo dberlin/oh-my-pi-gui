@@ -201,7 +201,13 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		const plus = container.querySelector('[aria-label="New session"], [aria-label="新建会话"]');
 		expect(plus).not.toBeNull();
-		await fire(plus, "onClick");
+		// Dispatch a real bubbling click instead of calling React's onClick prop
+		// directly. The real event must finish bubbling without the newly-mounted
+		// menu mistaking its own trigger click for an outside dismissal.
+		await act(async () => {
+			(plus as unknown as Element).dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		await flush();
 
 		const labels = menuItemLabels();
 		expect(labels.some(label => label.includes("New agent session"))).toBe(true);

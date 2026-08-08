@@ -3,19 +3,20 @@ import {
 	ArrowDown,
 	BookOpen,
 	Bug,
-	ChevronRight,
+	Check,
 	Code2,
 	Languages,
 	Lightbulb,
 	Loader2,
 	PenLine,
+	Rocket,
 	SearchCode,
 	Sparkles,
 	X,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, MessageContent, RpcQueuedMessage } from "../../../shared/rpc-types";
-import { cx } from "../../lib/format";
+import { cx, formatShortClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isRenderableMessageText } from "../../lib/messages";
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry, type ReadGroupUsage } from "../../lib/read-group";
@@ -40,6 +41,14 @@ interface ProcessMeta {
 	toolNames: string[];
 }
 
+type TimelineState = "done" | "running" | "error" | "launch";
+
+export interface TimelineMarkerSeed {
+	state: TimelineState;
+	timestamp?: number | string;
+	toolIds: string[];
+}
+
 export type HistoryRow =
 	| { kind: "message"; message: AgentMessage }
 	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] }
@@ -53,10 +62,69 @@ type Row =
 	| { kind: "expander"; count: number }
 	| { kind: "queued"; item: RpcQueuedMessage; lane: QueueLane };
 
+function messageKey(message: AgentMessage): string {
+	if (typeof message.id === "string" && message.id.length > 0) return message.id;
+	const firstTool = messageContent(message).find(block => block.type === "toolCall");
+	if (firstTool?.type === "toolCall") return toolEntryKey(firstTool);
+	return `${message.role}-${String(message.timestamp ?? "untimed")}`;
+}
+
+function transcriptRowBaseKey(row: Row): string {
+	switch (row.kind) {
+		case "queued":
+			return `queued-${row.item.id}`;
+		case "message":
+			return `message-${messageKey(row.message)}`;
+		case "process":
+			return `process-${messageKey(row.messages[0]!)}`;
+		case "readGroup":
+			return `read-${row.entries.map(entry => entry.toolKey).join("-")}`;
+		case "streaming":
+		case "pending":
+			return row.kind;
+		case "expander":
+			return "pre-compaction-expander";
+	}
+}
+
+function buildTranscriptRowKeys(rows: readonly Row[]): string[] {
+	const occurrences = new Map<string, number>();
+	return rows.map(row => {
+		const base = transcriptRowBaseKey(row);
+		const occurrence = occurrences.get(base) ?? 0;
+		occurrences.set(base, occurrence + 1);
+		return occurrence === 0 ? base : `${base}-${occurrence}`;
+	});
+}
+
+/** Stable finalized-row identities used by the virtualizer and regression tests. */
+export function buildHistoryRowKeys(rows: readonly HistoryRow[]): string[] {
+	return buildTranscriptRowKeys(rows);
+}
+
 function messageContent(message: AgentMessage): MessageContent[] {
 	if (Array.isArray(message.content)) return message.content;
 	if (typeof message.content === "string") return [{ type: "text", text: message.content }];
 	return [];
+}
+
+function messageToolIds(message: AgentMessage): string[] {
+	return messageContent(message)
+		.filter(block => block.type === "toolCall")
+		.map(block => toolEntryKey(block));
+}
+
+/** A real narration/reasoning block starts a new visual execution phase. */
+function hasProcessNarration(message: AgentMessage): boolean {
+	return messageContent(message).some(block => {
+		if (block.type === "text") return isRenderableMessageText(block.text);
+		if (block.type === "thinking") return isRenderableMessageText(block.thinking);
+		return false;
+	});
+}
+
+function isLaunchMessage(message: AgentMessage): boolean {
+	return message.customType === "async-result" || message.customType === "launch-completion";
 }
 
 /**
@@ -94,6 +162,33 @@ function isVisibleTranscriptMessage(message: AgentMessage): boolean {
 	});
 }
 
+function messageTimestampMs(message: AgentMessage): number {
+	const timestamp = message.timestamp;
+	if (typeof timestamp === "number" && Number.isFinite(timestamp)) return timestamp;
+	if (typeof timestamp === "string") {
+		const parsed = Date.parse(timestamp);
+		if (Number.isFinite(parsed)) return parsed;
+	}
+	return 0;
+}
+
+/** Whether the in-flight turn owns a real visible row right now. */
+export function hasStreamingTranscriptContent(
+	message: AgentMessage | null,
+	streamingText: string,
+	streamingThinking: string,
+	activeTools: ReadonlyMap<string, ToolEntry>,
+): boolean {
+	if (!message) return false;
+	if (isRenderableMessageText(streamingText) || isRenderableMessageText(streamingThinking)) return true;
+	if (isVisibleTranscriptMessage(message)) return true;
+	const streamStart = messageTimestampMs(message);
+	for (const entry of activeTools.values()) {
+		if ((entry.status === "pending" || entry.status === "running") && entry.startTime >= streamStart) return true;
+	}
+	return false;
+}
+
 function summarizeProcess(messages: AgentMessage[]): ProcessMeta {
 	let thinkingCount = 0;
 	const toolCallIds: string[] = [];
@@ -110,8 +205,8 @@ function summarizeProcess(messages: AgentMessage[]): ProcessMeta {
 }
 
 /**
- * Build finalized transcript rows. Compact mode folds a run's reasoning and
- * tool-call messages into one disclosure while preserving the final answer.
+ * Build finalized transcript rows. Compact mode groups a run's reasoning and
+ * tool-call messages into one visual phase while preserving the final answer.
  * A final assistant message containing both thinking and text is split: only
  * the thinking fragment joins the process row.
  */
@@ -143,6 +238,10 @@ export function buildHistoryRows(messages: AgentMessage[], detail: TranscriptDet
 		const hasToolCall = message.content.some(block => block.type === "toolCall");
 		const hasImage = message.content.some(block => block.type === "image");
 		if (hasToolCall && !hasImage) {
+			// A narrated tool call is the semantic start of a new execution phase.
+			// Punctuation-only tool messages (".", "…") keep accruing to the
+			// current phase, matching the editorial timeline in both detail modes.
+			if (processMessages.length > 0 && hasProcessNarration(message)) flushProcess();
 			// Text accompanying a tool call is intermediate narration; the API
 			// delivers the final answer in a later assistant message.
 			processMessages.push(message);
@@ -173,6 +272,66 @@ export function buildHistoryRows(messages: AgentMessage[], detail: TranscriptDet
 }
 
 /**
+ * Map finalized history rows onto semantic timeline phases. Full detail keeps
+ * every tool message visible, but punctuation-only continuations share the
+ * phase's first marker and timestamp. Tool state is aggregated so a later
+ * running/error call still updates that one marker.
+ */
+export function buildTimelineMarkers(rows: readonly HistoryRow[]): Array<TimelineMarkerSeed | null> {
+	const markers: Array<TimelineMarkerSeed | null> = rows.map(() => null);
+	let phaseOwner: number | null = null;
+
+	for (let index = 0; index < rows.length; index++) {
+		const row = rows[index];
+		if (!row) continue;
+
+		if (row.kind === "message" && (row.message.errorMessage || isLaunchMessage(row.message))) {
+			phaseOwner = null;
+			markers[index] = {
+				state: row.message.errorMessage ? "error" : "launch",
+				timestamp: row.message.timestamp,
+				toolIds: messageToolIds(row.message),
+			};
+			continue;
+		}
+
+		let timestamp: number | string | undefined;
+		let toolIds: string[] = [];
+		let startsPhase = false;
+		if (row.kind === "process") {
+			timestamp = row.messages[0]?.timestamp;
+			toolIds = row.toolCallIds;
+			startsPhase = true;
+		} else if (row.kind === "readGroup") {
+			timestamp = row.usage?.[0]?.timestamp;
+			toolIds = row.entries.map(entry => entry.toolKey);
+		} else if (row.kind === "message") {
+			timestamp = row.message.timestamp;
+			toolIds = messageToolIds(row.message);
+			startsPhase = hasProcessNarration(row.message);
+		}
+
+		if (toolIds.length === 0 && row.kind !== "process") {
+			phaseOwner = null;
+			continue;
+		}
+
+		if (phaseOwner === null || startsPhase) {
+			phaseOwner = index;
+			markers[index] = { state: "done", timestamp, toolIds: [...toolIds] };
+			continue;
+		}
+
+		const owner = markers[phaseOwner];
+		if (!owner) continue;
+		owner.toolIds.push(...toolIds);
+		owner.timestamp ??= timestamp;
+	}
+
+	return markers;
+}
+
+/**
  * Virtual-scroll message list. Stays pinned to the bottom while streaming
  * unless the user scrolls up; a floating "jump to latest" button appears when
  * unpinned. The in-flight assistant turn renders as live rows (thinking,
@@ -182,8 +341,11 @@ export function ChatStream() {
 	const t = useT();
 	const messages = useMessagesStore(s => s.messages);
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
+	const streamingText = useMessagesStore(s => s.streamingText);
+	const streamingThinking = useMessagesStore(s => s.streamingThinking);
 	const streamingTextLen = useMessagesStore(s => s.streamingText.length);
 	const streamingThinkingLen = useMessagesStore(s => s.streamingThinking.length);
+	const activeTools = useToolsStore(s => s.activeTools);
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const retryInfo = useSessionStore(s => s.retryInfo);
@@ -203,23 +365,23 @@ export function ChatStream() {
 
 	const lastCompactionIndex = messages.findLastIndex(message => message.role === "compactionSummary");
 	const hiddenCount = collapseCompacted && !preCompactionOpen && lastCompactionIndex > 0 ? lastCompactionIndex : 0;
-	const historyRows = useMemo(() => {
+	const historyRows = useMemo<HistoryRow[]>(() => {
 		const built = buildHistoryRows(hiddenCount > 0 ? messages.slice(hiddenCount) : messages, transcriptDetail);
 		// Read-tool grouping (TUI parity) folds consecutive collapsible reads into
 		// one card — only in full mode; compact mode's ProcessGroup already folds
 		// ALL consecutive tool work, so a second fold would nest redundantly.
-		return transcriptDetail === "compact" ? built : groupReadRows(built);
+		return transcriptDetail === "compact" ? built : (groupReadRows(built) as HistoryRow[]);
 	}, [messages, hiddenCount, transcriptDetail]);
 
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the
 	// streaming rows, so the shell window never reads as dead air.
-	const streamingContent = streamingMessage?.content;
-	const hasStreamedContent =
-		streamingMessage != null &&
-		(streamingTextLen > 0 ||
-			streamingThinkingLen > 0 ||
-			(Array.isArray(streamingContent) && streamingContent.length > 0));
+	const hasStreamedContent = hasStreamingTranscriptContent(
+		streamingMessage,
+		streamingText,
+		streamingThinking,
+		activeTools,
+	);
 
 	// One status row for every "agent busy but nothing visible" window,
 	// mirroring the TUI's loader line: auto-retry delay/attempt (warning),
@@ -235,12 +397,30 @@ export function ChatStream() {
 	const queued = useQueuedMessages();
 
 	const rows: Row[] = [];
-	if (hiddenCount > 0) rows.push({ kind: "expander", count: hiddenCount });
+	const timelineMarkers: Array<TimelineMarkerSeed | null> = [];
+	if (hiddenCount > 0) {
+		rows.push({ kind: "expander", count: hiddenCount });
+		timelineMarkers.push(null);
+	}
 	rows.push(...historyRows);
-	if (hasStreamedContent) rows.push({ kind: "streaming" });
-	if (showStatusRow) rows.push({ kind: "pending" });
-	for (const item of queued.steering) rows.push({ kind: "queued", item, lane: "steering" });
-	for (const item of queued.followUp) rows.push({ kind: "queued", item, lane: "followUp" });
+	timelineMarkers.push(...buildTimelineMarkers(historyRows));
+	if (hasStreamedContent) {
+		rows.push({ kind: "streaming" });
+		timelineMarkers.push({ state: "running", toolIds: [] });
+	}
+	if (showStatusRow) {
+		rows.push({ kind: "pending" });
+		timelineMarkers.push({ state: "running", toolIds: [] });
+	}
+	for (const item of queued.steering) {
+		rows.push({ kind: "queued", item, lane: "steering" });
+		timelineMarkers.push(null);
+	}
+	for (const item of queued.followUp) {
+		rows.push({ kind: "queued", item, lane: "followUp" });
+		timelineMarkers.push(null);
+	}
+	const rowKeys = buildTranscriptRowKeys(rows);
 
 	const parentRef = useRef<HTMLDivElement>(null);
 	const [pinned, setPinned] = useState(true);
@@ -263,6 +443,11 @@ export function ChatStream() {
 
 	const virtualizer = useVirtualizer({
 		count: rows.length,
+		getItemKey: index => rowKeys[index] ?? index,
+		// Row measurements can arrive while React is committing hydrated history.
+		// Async rerenders avoid react-dom flushSync re-entry and the stale compositor
+		// layers it produced on large transcripts.
+		useFlushSync: false,
 		getScrollElement: () => parentRef.current,
 		estimateSize: i =>
 			rows[i]?.kind === "streaming"
@@ -283,12 +468,16 @@ export function ChatStream() {
 	// The delta-length selectors re-fire the effect so those also snap back to
 	// the bottom while pinned.
 	useEffect(() => {
-		if (!pinned) return;
+		if (!pinned || rows.length === 0) return;
 		// Read the delta lengths so biome sees them used; they are the trigger
 		// signal that re-fires this effect as the streaming row grows.
 		void streamingTextLen;
 		void streamingThinkingLen;
-		virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+		// TanStack Virtual performs a synchronous measurement while scrolling.
+		// Schedule it after React's lifecycle work so hydration/resize cannot
+		// re-enter rendering (which previously left stale, ghosted row layers).
+		const frame = requestAnimationFrame(() => virtualizer.scrollToIndex(rows.length - 1, { align: "end" }));
+		return () => cancelAnimationFrame(frame);
 	}, [virtualizer, rows.length, pinned, streamingTextLen, streamingThinkingLen]);
 
 	const handleScroll = useCallback(() => {
@@ -307,8 +496,12 @@ export function ChatStream() {
 	// no separate fetch here (that would double-download the transcript).
 
 	return (
-		<div className="relative min-h-0 flex-1 bg-[var(--omp-bg-primary)]">
-			<div ref={parentRef} onScroll={handleScroll} className="h-full overflow-y-auto overscroll-contain">
+		<div className="omp-transcript-editorial relative min-h-0 flex-1 bg-[var(--omp-bg-primary)]">
+			<div
+				ref={parentRef}
+				onScroll={handleScroll}
+				className="omp-transcript-scroll h-full overflow-y-auto overscroll-contain"
+			>
 				{status === "starting" && (
 					<div className="flex justify-center py-3">
 						<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
@@ -349,20 +542,18 @@ export function ChatStream() {
 						</div>
 					</div>
 				)}
-				<div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+				<div
+					className="omp-transcript-canvas"
+					style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}
+				>
 					{virtualizer.getVirtualItems().map(item => {
 						const row = rows[item.index];
 						if (!row) return null;
 						return (
 							<div
-								key={
-									row.kind === "queued"
-										? `queued-${row.item.id}`
-										: row.kind === "message"
-											? `msg-${item.index}`
-											: `${row.kind}-${item.index}`
-								}
+								key={item.key}
 								data-index={item.index}
+								data-transcript-kind={row.kind}
 								ref={virtualizer.measureElement}
 								style={{
 									position: "absolute",
@@ -372,7 +563,8 @@ export function ChatStream() {
 									transform: `translateY(${item.start}px)`,
 								}}
 							>
-								<div className="mx-auto w-full max-w-[900px]">
+								<div className="omp-transcript-row w-full">
+									<TimelineMarker seed={timelineMarkers[item.index] ?? null} />
 									{row.kind === "message" ? (
 										<MessageBubble message={row.message} />
 									) : row.kind === "readGroup" ? (
@@ -416,80 +608,44 @@ export function ChatStream() {
 	);
 }
 
-function ProcessDisclosure({
-	meta,
-	live = false,
-	inset = true,
-	children,
-}: {
-	meta: ProcessMeta;
-	live?: boolean;
-	inset?: boolean;
-	children: ReactNode;
-}) {
-	const t = useT();
+function TimelineMarker({ seed }: { seed: TimelineMarkerSeed | null }) {
 	const activeTools = useToolsStore(s => s.activeTools);
-	const [open, setOpen] = useState(false);
-	const toolCounts = new Map<string, number>();
-	for (const name of meta.toolNames) toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
-	const toolEntries = [...toolCounts.entries()];
-	const visibleTools = toolEntries
-		.slice(0, 4)
-		.map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
-		.join(" · ");
-	const hiddenToolCount = Math.max(0, toolEntries.length - 4);
-	const toolSummary =
-		visibleTools.length > 0
-			? `${visibleTools}${hiddenToolCount > 0 ? ` · +${hiddenToolCount}` : ""}`
-			: t("chat.process.reasoning");
-	let failedCount = 0;
-	for (const id of meta.toolCallIds) {
-		const entry = activeTools.get(id);
-		if (entry?.isError || entry?.status === "error") failedCount++;
-	}
-	const label = t(live ? "chat.process.running" : "chat.process.summary", {
-		count: meta.stepCount,
-		plural: meta.stepCount === 1 ? "" : "s",
-	});
+	if (!seed) return null;
+	let state = seed.state;
 
+	if (seed.toolIds.some(id => activeTools.get(id)?.status === "error" || activeTools.get(id)?.isError)) {
+		state = "error";
+	} else if (
+		seed.toolIds.some(id => {
+			const status = activeTools.get(id)?.status;
+			return status === "pending" || status === "running";
+		})
+	) {
+		state = "running";
+	}
+
+	const time = formatShortClock(seed.timestamp);
 	return (
-		<div className="py-1.5">
-			<div className={inset ? "px-6" : undefined}>
-				<button
-					aria-expanded={open}
-					className="omp-pressable flex w-full items-center gap-2 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2 text-left text-[12px] text-[var(--omp-muted)] hover:border-[var(--omp-border)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
-					onClick={() => setOpen(value => !value)}
-					type="button"
-				>
-					<ChevronRight
-						aria-hidden
-						className={cx("shrink-0 transition-transform", open && "rotate-90")}
-						size={14}
-					/>
-					{live ? (
-						<Loader2 aria-hidden className="shrink-0 animate-spin text-[var(--omp-accent)]" size={13} />
-					) : (
-						<Sparkles aria-hidden className="shrink-0 text-[var(--omp-accent)]" size={13} />
-					)}
-					<span className="shrink-0 font-medium text-[var(--omp-text)]">{label}</span>
-					<span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--omp-dim)]">
-						{toolSummary}
-					</span>
-					{failedCount > 0 && (
-						<span className="shrink-0 text-[11px] font-medium text-[var(--omp-error)]">
-							{t("chat.process.failed", { count: failedCount })}
-						</span>
-					)}
-				</button>
-			</div>
-			{open ? <div className="mt-1">{children}</div> : null}
+		<div aria-hidden className={cx("omp-timeline-marker", `omp-timeline-marker--${state}`)}>
+			<span className="omp-timeline-dot">
+				{state === "running" ? (
+					<Loader2 className="animate-spin" size={11} />
+				) : state === "error" ? (
+					<X size={11} />
+				) : state === "launch" ? (
+					<Rocket size={10} />
+				) : (
+					<Check size={11} />
+				)}
+			</span>
+			{time ? <time>{time}</time> : null}
 		</div>
 	);
 }
 
 function ProcessGroup({ row }: { row: Extract<HistoryRow, { kind: "process" }> }) {
 	return (
-		<ProcessDisclosure meta={row}>
+		<div className="omp-process-group">
 			{row.messages.map((message, index) => (
 				<MessageBubble
 					compact
@@ -497,7 +653,7 @@ function ProcessGroup({ row }: { row: Extract<HistoryRow, { kind: "process" }> }
 					message={message}
 				/>
 			))}
-		</ProcessDisclosure>
+		</div>
 	);
 }
 
@@ -521,9 +677,7 @@ function StreamingRows() {
 	// as live cards; on message_end this row unmounts and MessageBubble takes
 	// over with the same toolCallIds. Entries from before this stream started
 	// (hydrated history that never finished) are excluded by start time.
-	const ts = streamingMessage.timestamp;
-	const parsed = typeof ts === "number" ? ts : typeof ts === "string" ? Date.parse(ts) : Number.NaN;
-	const streamStart = Number.isFinite(parsed) ? parsed : 0;
+	const streamStart = messageTimestampMs(streamingMessage);
 	const contentIds = new Set(toolCalls.map(block => toolEntryKey(block)));
 	const liveTools: Array<{ id: string; entry: ToolEntry }> = [];
 	for (const [id, entry] of activeTools) {
@@ -535,15 +689,10 @@ function StreamingRows() {
 
 	const hasThinking = isRenderableMessageText(streamingThinking);
 	const hasProcess = hasThinking || toolCalls.length > 0 || liveTools.length > 0;
-	const processMeta: ProcessMeta = {
-		stepCount: (hasThinking ? 1 : 0) + toolCalls.length + liveTools.length,
-		toolCallIds: [...toolCalls.map(block => toolEntryKey(block)), ...liveTools.map(({ id }) => id)],
-		toolNames: [...toolCalls.map(block => block.name), ...liveTools.map(({ entry }) => entry.toolName)],
-	};
 
 	// Live read grouping (same predicate as the finalized path): consecutive
 	// collapsible reads fold into one ReadGroupCard even mid-turn. Compact
-	// detail keeps plain cards — ProcessDisclosure already folds them.
+	// detail keeps the same plain execution rows used by ProcessGroup.
 	const allCards: Array<{ id: string; name: string; args: Record<string, unknown> }> = [
 		...toolCalls.map(block => ({
 			id: toolEntryKey(block),
@@ -574,8 +723,10 @@ function StreamingRows() {
 			segments.push({ type: "card", card });
 		}
 		flush();
-		// Grouping only pays when at least one group holds 2+ reads.
-		if (!segments.some(segment => segment.type === "group" && segment.entries.length > 1)) return null;
+		// Keep the live shape identical to finalized `groupReadRows`: even one
+		// collapsible read uses ReadGroupCard, preventing a card-type swap at
+		// message_end.
+		if (!segments.some(segment => segment.type === "group")) return null;
 		return segments.map((segment, index) =>
 			segment.type === "group" ? (
 				<ReadGroupCard inset key={`rg-${segment.entries[0]?.callId ?? index}`} entries={segment.entries} />
@@ -593,7 +744,12 @@ function StreamingRows() {
 	const toolCards = groupedLiveCards ?? (
 		<>
 			{toolCalls.map(block => (
-				<ToolCard key={block.id} toolCallId={block.id} toolName={block.name} args={block.arguments} />
+				<ToolCard
+					key={toolEntryKey(block)}
+					toolCallId={toolEntryKey(block)}
+					toolName={block.name}
+					args={block.arguments}
+				/>
 			))}
 			{liveTools.map(({ id, entry }) => (
 				<ToolCard key={id} toolCallId={id} toolName={entry.toolName} args={entry.args} />
@@ -603,7 +759,7 @@ function StreamingRows() {
 
 	if (transcriptDetail === "full") {
 		return (
-			<div className="flex flex-col px-6 py-4">
+			<div className="omp-streaming-turn flex flex-col px-6 py-4">
 				{/* streamingMessage.content only fills at message_end; mid-stream the
 				    thinking deltas accumulate in the streamingThinking buffer, which
 				    ThinkingBlock reads itself when live. */}
@@ -617,12 +773,12 @@ function StreamingRows() {
 	}
 
 	return (
-		<div className="flex flex-col px-6 py-2">
+		<div className="omp-streaming-turn flex flex-col px-6 py-2">
 			{hasProcess ? (
-				<ProcessDisclosure inset={false} live meta={processMeta}>
+				<div className="omp-process-group omp-process-group--live">
 					{hasThinking ? <ThinkingBlock live /> : null}
-					{toolCalls.length + liveTools.length > 0 ? <div className="space-y-2">{toolCards}</div> : null}
-				</ProcessDisclosure>
+					{toolCalls.length + liveTools.length > 0 ? <div>{toolCards}</div> : null}
+				</div>
 			) : null}
 			<div className={hasProcess ? "mt-1" : undefined}>
 				<StreamingText />
@@ -755,8 +911,8 @@ function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: Que
 	};
 
 	return (
-		<div className="group flex justify-end px-6 py-1.5">
-			<div className="flex max-w-[75%] items-start gap-2 rounded-xl border border-dashed border-[var(--omp-border)] bg-[var(--omp-bg-secondary)] px-3.5 py-2.5">
+		<div className="omp-queued-turn group flex justify-end px-6 py-1.5">
+			<div className="omp-queued-bubble flex max-w-[75%] items-start gap-2 rounded-xl border border-dashed border-[var(--omp-border)] bg-[var(--omp-bg-secondary)] px-3.5 py-2.5">
 				<div className="min-w-0 flex-1">
 					<div className="mb-0.5 text-[10px] font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
 						{t(lane === "steering" ? "pendingBubble.steering" : "pendingBubble.followUp")}

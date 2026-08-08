@@ -27,6 +27,14 @@ export function formatClock(value: number | string | undefined | null): string {
 	return timestamp == null ? "" : new Date(timestamp).toLocaleString();
 }
 
+/** Compact hour/minute label for dense visual timelines. */
+export function formatShortClock(value: number | string | undefined | null): string {
+	const timestamp = toMs(value);
+	return timestamp == null
+		? ""
+		: new Date(timestamp).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
 /** Accepts epoch ms (number) or ISO strings. */
 function toMs(value: number | string | undefined | null): number | null {
 	if (value == null) return null;

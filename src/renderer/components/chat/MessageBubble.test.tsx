@@ -257,6 +257,6 @@ describe("MessageBubble noise filtering", () => {
 		expect(html).toContain("read");
 		expect(html).not.toContain("Copy message text");
 		expect(html).toContain("py-1.5");
-		expect(html).toMatch(/^<div class="group flex px-6 py-1\.5">/);
+		expect(html).toContain("omp-assistant-turn--compact");
 	});
 });

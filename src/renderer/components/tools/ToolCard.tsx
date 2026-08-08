@@ -69,9 +69,11 @@ export function ToolCard({ toolCallId, toolName, args, summary }: ToolCardProps)
 	return (
 		<div
 			className={cx(
-				"omp-fade-up relative my-2 overflow-hidden rounded-[10px] border border-[var(--omp-border-muted)] transition-[border-color,box-shadow,background-color] duration-200",
+				"omp-tool-card omp-fade-up relative my-2 overflow-hidden rounded-[10px] border border-[var(--omp-border-muted)] transition-[border-color,box-shadow,background-color] duration-200",
 				status === "running" && "border-[var(--omp-border-accent)]/60",
 			)}
+			data-tool-status={status}
+			data-tool-error={isError ? "true" : undefined}
 			style={{
 				background: statusBg,
 				boxShadow: status === "running" ? "0 0 12px var(--omp-input-glow)" : "var(--omp-shadow-sm)",
@@ -85,38 +87,45 @@ export function ToolCard({ toolCallId, toolName, args, summary }: ToolCardProps)
 			/>
 			<button
 				type="button"
+				aria-expanded={expanded}
 				onClick={() => setExpanded(v => !v)}
-				className="flex w-full items-center gap-2 py-2 pl-3.5 pr-2.5 text-left transition-colors duration-150 hover:bg-[var(--omp-selected-bg)]/40"
+				className="omp-tool-header flex w-full items-center gap-2 py-2 pl-3.5 pr-2.5 text-left transition-colors duration-150 hover:bg-[var(--omp-selected-bg)]/40"
 			>
 				{status === "running" ? (
-					<Loader2 size={12} className="shrink-0 animate-spin text-[var(--omp-accent)]" />
+					<Loader2 size={12} className="omp-tool-status-icon shrink-0 animate-spin text-[var(--omp-accent)]" />
 				) : isError ? (
-					<X size={12} className="shrink-0 text-[var(--omp-error)]" />
+					<X size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-error)]" />
 				) : (
-					<Check size={12} className="shrink-0 text-[var(--omp-success)]" />
+					<Check size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-success)]" />
 				)}
-				<span className="shrink-0 font-mono text-[12px] font-semibold tracking-tight text-[var(--omp-text)]">
+				<span className="omp-tool-name shrink-0 font-mono text-[12px] font-semibold tracking-tight text-[var(--omp-text)]">
 					{toolName}
 				</span>
 				{summary && (
-					<span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-[var(--omp-tool-output)]">
+					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-[11.5px] text-[var(--omp-tool-output)]">
 						{summary}
 					</span>
 				)}
 				{!summary && <span className="flex-1" />}
 				{duration && (
-					<span className="shrink-0 rounded-md bg-[var(--omp-bg-tertiary)] px-1.5 py-0.5 font-mono text-[9.5px] tabular-nums text-[var(--omp-muted)]">
+					<span className="omp-tool-duration shrink-0 rounded-md bg-[var(--omp-bg-tertiary)] px-1.5 py-0.5 font-mono text-[9.5px] tabular-nums text-[var(--omp-muted)]">
 						{duration}
 					</span>
 				)}
 				{expanded ? (
-					<ChevronDown size={13} className="shrink-0 text-[var(--omp-dim)] transition-transform duration-150" />
+					<ChevronDown
+						size={13}
+						className="omp-tool-chevron shrink-0 text-[var(--omp-dim)] transition-transform duration-150"
+					/>
 				) : (
-					<ChevronRight size={13} className="shrink-0 text-[var(--omp-dim)] transition-transform duration-150" />
+					<ChevronRight
+						size={13}
+						className="omp-tool-chevron shrink-0 text-[var(--omp-dim)] transition-transform duration-150"
+					/>
 				)}
 			</button>
 			{expanded && (
-				<div className="omp-fade-in border-t border-[var(--omp-border-muted)]/70 px-3.5 py-2.5">
+				<div className="omp-tool-body omp-fade-in border-t border-[var(--omp-border-muted)]/70 px-3.5 py-2.5">
 					<Renderer
 						args={args}
 						result={entry?.result}

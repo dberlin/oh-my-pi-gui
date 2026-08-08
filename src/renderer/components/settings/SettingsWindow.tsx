@@ -41,6 +41,7 @@ import { useUiStore } from "../../stores/ui";
 import { useUpdaterStore } from "../../stores/updater";
 import { CodeBlock } from "../chat/CodeBlock";
 import { Button, Input, Spinner, type TabItem, TextArea } from "../common";
+import { isTopmostDialog } from "../common/dialog-layer";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { type EnumerableOption, EnumerableSelect } from "./editors/EnumerableSelect";
 import { ProviderLimitsEditor } from "./editors/ProviderLimitsEditor";
@@ -1431,6 +1432,7 @@ export function SettingsWindow() {
 	useEffect(() => {
 		if (!open) return;
 		const onKey = (event: KeyboardEvent) => {
+			if (!isTopmostDialog(dialogRef.current)) return;
 			if (event.key !== "Tab" || !dialogRef.current) return;
 			const focusables = [
 				...dialogRef.current.querySelectorAll<HTMLElement>(
@@ -1458,6 +1460,7 @@ export function SettingsWindow() {
 		if (!open) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
+				if (!isTopmostDialog(dialogRef.current)) return;
 				// An open dropdown (listbox) handles its own Escape; don't close the page.
 				if (document.querySelector('[role="listbox"]')) return;
 				event.preventDefault();

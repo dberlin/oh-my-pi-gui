@@ -184,6 +184,7 @@ export type RuntimeErrorSource =
 	| "preload"
 	| "renderer-process"
 	| "renderer-unresponsive"
+	| "application-resources"
 	| "child-process"
 	| "main-uncaught"
 	| "main-unhandled-rejection"
@@ -653,7 +654,13 @@ export interface OmpApi {
 		prGet(number: number): Promise<RpcResponse>;
 		prDiff(number: number, path: string): Promise<RpcResponse>;
 		prDraft(options?: { base?: string; head?: string }): Promise<RpcResponse>;
-		prCreate(input: { title: string; body: string; base?: string; head?: string; draft?: boolean }): Promise<RpcResponse>;
+		prCreate(input: {
+			title: string;
+			body: string;
+			base?: string;
+			head?: string;
+			draft?: boolean;
+		}): Promise<RpcResponse>;
 		prCheckout(number: number): Promise<RpcResponse>;
 		liveStart(voice?: string): Promise<RpcResponse>;
 		liveToggleMute(): Promise<RpcResponse>;

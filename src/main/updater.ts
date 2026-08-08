@@ -11,6 +11,8 @@
  * installed on a one-click restart.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
 import pkg from "electron-updater";
 import type { UpdateStatus } from "../shared/ipc-types";
@@ -19,6 +21,25 @@ import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 const { autoUpdater } = pkg;
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+/**
+ * App version for the updates row. `app.getVersion()` reads the HOST
+ * package.json — the Electron binary's own when unpacked (dev shows
+ * "36.9.5"), so dev resolves the project's package.json from the bundle
+ * location instead. Packaged builds keep app.getVersion().
+ */
+function appVersion(): string {
+	if (app.isPackaged) return app.getVersion();
+	try {
+		// out/main/index.js → ../../package.json (dev bundle layout).
+		const raw = fs.readFileSync(path.join(__dirname, "../../package.json"), "utf8");
+		const parsed: unknown = JSON.parse(raw);
+		if (parsed && typeof parsed === "object" && "version" in parsed && typeof parsed.version === "string") {
+			return parsed.version;
+		}
+	} catch {}
+	return app.getVersion();
+}
 
 /** Current status, replayed to any window that asks (renderer boot/refresh). */
 let current: UpdateStatus = { state: "idle" };
@@ -91,7 +112,7 @@ export function setupUpdater(): void {
 		autoUpdater.quitAndInstall();
 	});
 	ipcMain.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);
-	ipcMain.handle(IPC_COMMANDS.UPDATER_VERSION, () => app.getVersion());
+	ipcMain.handle(IPC_COMMANDS.UPDATER_VERSION, () => appVersion());
 
 	// First check once the app settles; then every 4h.
 	setTimeout(() => {

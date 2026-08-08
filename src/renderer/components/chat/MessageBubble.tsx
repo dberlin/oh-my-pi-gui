@@ -274,31 +274,36 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 
 	if (isUser) {
 		return (
-			<div className="group flex justify-end px-6 py-2.5">
+			<div className="omp-user-turn group flex justify-end px-6 py-2.5">
 				<div
-					className="omp-fade-up max-w-[75%] rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3"
+					className="omp-user-bubble omp-fade-up relative max-w-[75%] rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3"
 					style={{ boxShadow: "var(--omp-shadow-sm)" }}
 				>
-					{isSteering && (
-						<div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
-							<span className="h-1 w-1 rounded-full bg-current" />
-							{t("chat.steering")}
-						</div>
-					)}
-					{content.map((block, i) => {
-						if (block.type === "text") {
-							return (
-								<div key={i} className="text-[14.5px] leading-[1.6] text-[var(--omp-text)]">
-									<MarkdownRenderer content={block.text} />
+					<div className="omp-user-bubble-layout">
+						<span className="omp-user-bubble-author">{t("live.you")}</span>
+						<div className="omp-user-bubble-content">
+							{isSteering && (
+								<div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
+									<span className="h-1 w-1 rounded-full bg-current" />
+									{t("chat.steering")}
 								</div>
-							);
-						}
-						if (block.type === "image") {
-							return <InlineImage key={i} image={block} />;
-						}
-						return null;
-					})}
-					<div className="mt-2 flex items-center justify-end gap-1.5 text-[10.5px] tabular-nums text-[var(--omp-dim)]">
+							)}
+							{content.map((block, i) => {
+								if (block.type === "text") {
+									return (
+										<div key={i} className="text-[14.5px] leading-[1.6] text-[var(--omp-text)]">
+											<MarkdownRenderer content={block.text} />
+										</div>
+									);
+								}
+								if (block.type === "image") {
+									return <InlineImage key={i} image={block} />;
+								}
+								return null;
+							})}
+						</div>
+					</div>
+					<div className="omp-user-bubble-actions flex items-center gap-1.5 text-[10.5px] tabular-nums text-[var(--omp-dim)]">
 						{timestamp && <span className="font-mono">{timestamp}</span>}
 						<button
 							type="button"
@@ -364,7 +369,15 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 	const compactChrome = compact || (!sawNonToolBlock && !message.errorMessage && !customLabel && !isSteering);
 
 	return (
-		<div className={cx("group flex px-6", !compact && "omp-fade-up", compactChrome ? "py-1.5" : "py-3")}>
+		<div
+			className={cx(
+				"group flex px-6",
+				!compact && "omp-fade-up",
+				!compactChrome && "omp-assistant-turn",
+				compactChrome && "omp-assistant-turn--compact",
+				compactChrome ? "py-1.5" : "py-3",
+			)}
+		>
 			<div className="min-w-0 flex-1">
 				{customLabel && (
 					<div className="mb-2 text-[11px] font-bold tracking-[0.1em] text-[var(--omp-status-context)] uppercase">
@@ -379,7 +392,7 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 				)}
 				{blocks}
 				{message.errorMessage && (
-					<div className="mt-2 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5 text-[13px] leading-relaxed text-[var(--omp-error)]">
+					<div className="omp-message-error mt-2 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5 text-[13px] leading-relaxed text-[var(--omp-error)]">
 						{message.errorMessage}
 					</div>
 				)}

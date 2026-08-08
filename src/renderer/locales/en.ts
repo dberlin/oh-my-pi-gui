@@ -1835,6 +1835,10 @@ export const en: Record<string, string> = {
 	"chat.custom.ircAuto": "auto",
 	"chat.custom.ircReply": "reply",
 	"chat.thinking.live": "Thinking…",
+	"chat.thinking.collapsed": "(collapsed)",
+	"chat.thinking.expanded": "(expanded)",
+	"chat.thinking.show": "Show reasoning",
+	"chat.thinking.hide": "Hide reasoning",
 	"chat.awaitingModel": "Waiting for model response… {seconds}s",
 	"chat.awaitingModel.slow": "Slow response — the network may be unstable",
 	"chat.awaitingModel.stalled":

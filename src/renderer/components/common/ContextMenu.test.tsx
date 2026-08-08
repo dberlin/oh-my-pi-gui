@@ -134,6 +134,24 @@ describe("ContextMenu", () => {
 		expect(onA).not.toHaveBeenCalled();
 	});
 
+	it("stays open through clicks inside and closes on the next outside pointer press", async () => {
+		const onClose = vi.fn();
+		await mount(
+			<ContextMenu items={[{ id: "a", label: "Action A", onSelect: () => {} }]} x={10} y={10} onClose={onClose} />,
+		);
+
+		const item = document.body.querySelector('[role="menu"] button');
+		await act(async () => {
+			item?.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+		});
+		expect(onClose).not.toHaveBeenCalled();
+
+		await act(async () => {
+			document.body.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+		});
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
 	it("disabled items are skipped by navigation and never fire", async () => {
 		const onA = vi.fn();
 		const onB = vi.fn();
