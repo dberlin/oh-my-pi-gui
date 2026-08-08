@@ -1771,6 +1771,7 @@ export const en: Record<string, string> = {
 	"chat.copyCode": "Copy code",
 	"chat.renderingDiagram": "Rendering diagram…",
 	"chat.diagram": "Diagram",
+	"markdown.imageFailed": "Image failed to load",
 	"chat.copyMessage": "Copy message text",
 	"chat.branchFromHere": "Branch conversation from here",
 	"chat.jumpToLatest": "Jump to latest",

@@ -5,9 +5,11 @@ import {
 	memo,
 	type ReactNode,
 	useContext,
+	useEffect,
+	useState,
 	useSyncExternalStore,
 } from "react";
-import ReactMarkdown, { type Components, type Options } from "react-markdown";
+import ReactMarkdown, { type Components, defaultUrlTransform, type Options } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -17,6 +19,7 @@ import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { LineNumberGutter } from "../components/chat/LineNumberGutter";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
+import { useT } from "./i18n";
 
 interface MarkdownRendererProps {
 	content: string;
@@ -106,7 +109,9 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 	},
 	protocols: {
 		href: ["http", "https", "mailto"],
-		src: ["http", "https"],
+		// data: keeps inline base64 images; file: is resolved to a workspace /
+		// absolute read by the MarkdownImage component (protocol stripped).
+		src: ["http", "https", "data", "file"],
 	},
 	// Unknown tags are replaced by their children; these hold code/resources,
 	// not prose, so drop their contents too.
@@ -123,6 +128,15 @@ const REHYPE_PLUGINS: Options["rehypePlugins"] = [
 	rehypeKatex,
 	rehypeHighlight,
 ];
+
+// react-markdown's defaultUrlTransform blanks data:/file: URLs even when the
+// sanitize schema allows them. Images need both (inline base64, local files
+// resolved via IPC), so let image-bearing protocols through for <img src> and
+// defer to the default everywhere else.
+const URL_TRANSFORM: NonNullable<Options["urlTransform"]> = (url, key, node) => {
+	if (key === "src" && node?.tagName === "img" && /^(data|blob|file):/i.test(url)) return url;
+	return defaultUrlTransform(url);
+};
 
 function ExternalLink({ href, children, ...props }: ComponentPropsWithoutRef<"a">) {
 	return (
@@ -343,6 +357,90 @@ function TaskCheckbox(props: ComponentPropsWithoutRef<"input">) {
 	return <input {...props} type="checkbox" disabled readOnly tabIndex={-1} />;
 }
 
+// ── Markdown images ─────────────────────────────────────────────────────────
+// Model output references images three ways: remote URLs (loaded directly —
+// CSP allows http/https), inline data: URLs, and local paths (screenshots,
+// generated images) that the browser cannot resolve from the bundle origin.
+// Local paths go through the fs:read-image IPC (sniffed mime + size cap) and
+// come back as data URLs.
+
+export type MarkdownImageSrc =
+	| { kind: "direct"; src: string }
+	| { kind: "local"; path: string }
+	| { kind: "none" };
+
+/** Classifies an <img> src after sanitize: direct-load URL, local path, or unusable. */
+export function classifyImageSrc(src: string | undefined): MarkdownImageSrc {
+	if (!src) return { kind: "none" };
+	if (src.startsWith("data:") || src.startsWith("blob:")) return { kind: "direct", src };
+	if (/^https?:\/\//i.test(src)) return { kind: "direct", src };
+	if (src.startsWith("//")) return { kind: "direct", src: `https:${src}` };
+	if (/^file:\/\//i.test(src)) {
+		let raw = src.replace(/^file:\/\//i, "");
+		try {
+			raw = decodeURIComponent(raw);
+		} catch {
+			// Malformed escapes — resolve the raw string rather than failing the image.
+		}
+		return { kind: "local", path: raw };
+	}
+	// Bare paths — absolute (/…, ~\…, C:\…), relative (./…, ../…), or plain
+	// filenames — all resolve through the workspace/absolute read.
+	return { kind: "local", path: src };
+}
+
+const MARKDOWN_IMAGE_CLASS = "my-1 max-h-72 max-w-full rounded-md border border-[var(--omp-border-muted)] object-contain";
+
+function MarkdownImageFallback({ alt, path }: { alt: string; path?: string }) {
+	return (
+		<span
+			title={path}
+			className="my-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-[var(--omp-border-muted)] px-2 py-1 text-[12px] text-[var(--omp-dim)]"
+		>
+			<span className="truncate">{alt || path || "image"}</span>
+			{alt && path && <span className="shrink-0 truncate font-mono text-[10px] opacity-70">{path}</span>}
+		</span>
+	);
+}
+
+function LocalMarkdownImage({ path, alt, title }: { path: string; alt: string; title?: string }) {
+	const t = useT();
+	const [resolved, setResolved] = useState<{ url: string } | { error: true } | null>(null);
+	useEffect(() => {
+		let cancelled = false;
+		window.omp.fs
+			.readImage(path)
+			.then(result => {
+				if (!cancelled) setResolved(result.ok && result.dataUrl ? { url: result.dataUrl } : { error: true });
+			})
+			.catch(() => {
+				if (!cancelled) setResolved({ error: true });
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [path]);
+	if (!resolved) return <MarkdownImageFallback alt={alt} path={path} />;
+	if ("error" in resolved) {
+		return (
+			<span title={t("markdown.imageFailed")}>
+				<MarkdownImageFallback alt={alt} path={path} />
+			</span>
+		);
+	}
+	return <img src={resolved.url} alt={alt} title={title ?? alt} className={MARKDOWN_IMAGE_CLASS} />;
+}
+
+function MarkdownImage({ src, alt, title, ...props }: ComponentPropsWithoutRef<"img">) {
+	const classified = classifyImageSrc(typeof src === "string" ? src : undefined);
+	const altText = typeof alt === "string" ? alt : "";
+	if (classified.kind === "none") return <MarkdownImageFallback alt={altText} />;
+	if (classified.kind === "local") {
+		return <LocalMarkdownImage path={classified.path} alt={altText} title={typeof title === "string" ? title : undefined} />;
+	}
+	return <img {...props} src={classified.src} alt={altText} title={title} className={MARKDOWN_IMAGE_CLASS} />;
+}
+
 const COMPONENTS: Components = {
 	a: ExternalLink,
 	table: StyledTable,
@@ -355,6 +453,7 @@ const COMPONENTS: Components = {
 	li: Li,
 	pre: Pre,
 	input: TaskCheckbox,
+	img: MarkdownImage,
 };
 
 /**
@@ -365,7 +464,12 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, codeLi
 	return (
 		<div className="markdown-body text-[1em] leading-[1.5]">
 			<CodeLineNumbersOverride.Provider value={codeLineNumbers}>
-				<ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={COMPONENTS}>
+				<ReactMarkdown
+					remarkPlugins={REMARK_PLUGINS}
+					rehypePlugins={REHYPE_PLUGINS}
+					components={COMPONENTS}
+					urlTransform={URL_TRANSFORM}
+				>
 					{content}
 				</ReactMarkdown>
 			</CodeLineNumbersOverride.Provider>

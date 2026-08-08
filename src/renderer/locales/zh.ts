@@ -1748,6 +1748,7 @@ export const zh: Record<string, string> = {
 	"chat.copyCode": "复制代码",
 	"chat.renderingDiagram": "正在渲染图表…",
 	"chat.diagram": "图表",
+	"markdown.imageFailed": "图片加载失败",
 	"chat.copyMessage": "复制消息文本",
 	"chat.branchFromHere": "从此处创建对话分支",
 	"chat.jumpToLatest": "跳到最新",

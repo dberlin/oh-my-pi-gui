@@ -12,6 +12,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcFsReadImageResult,
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionOwner,
 	IpcSidecarStatusPayload,
@@ -427,6 +428,8 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ, { path, maxBytes }) as Promise<IpcFsReadResult>,
 		readPlan: (payload: IpcFsReadPlanPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ_PLAN, payload) as Promise<IpcFsReadPlanResult>,
+		readImage: (path: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.FS_READ_IMAGE, { path }) as Promise<IpcFsReadImageResult>,
 	},
 
 	editor: {

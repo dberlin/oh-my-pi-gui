@@ -145,6 +145,8 @@ export const IPC_COMMANDS = {
 	FS_READ: "fs:read",
 	/** Read the plan-mode document off the RPC bus (with session-local fallback) */
 	FS_READ_PLAN: "fs:read-plan",
+	/** Read an image file as a data URL for markdown <img> rendering (sniffed mime, size cap) */
+	FS_READ_IMAGE: "fs:read-image",
 	/** Open a session (or a fresh window) in a new parallel window with its own sidecar */
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
@@ -441,6 +443,26 @@ export interface IpcFsReadPlanPayload {
 	fsPath: string;
 	/** Session-local artifacts root for the newest-`*plan.md` fallback (plan under `local://`); null disables the fallback. */
 	localRoot: string | null;
+}
+
+export interface IpcFsReadImagePayload {
+	/**
+	 * Image path from a markdown `![alt](src)` in model output. Relative paths
+	 * resolve against the session workspace; absolute paths (and `~`) are read
+	 * as-is — the bytes only ever reach a local <img>, so there is no exfil
+	 * channel, but the file must sniff as a real image type.
+	 */
+	path: string;
+}
+
+export interface IpcFsReadImageResult {
+	ok: boolean;
+	/** `data:<mime>;base64,…` ready for <img src>. */
+	dataUrl: string | null;
+	mime: string | null;
+	/** Total file size in bytes. */
+	size: number;
+	error?: string;
 }
 
 export interface IpcFsReadPlanResult {
@@ -865,6 +887,7 @@ export interface OmpApi {
 		list(path?: string, maxDepth?: number, maxEntries?: number): Promise<IpcFsListResult>;
 		read(path: string, maxBytes?: number): Promise<IpcFsReadResult>;
 		readPlan(payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult>;
+		readImage(path: string): Promise<IpcFsReadImageResult>;
 	};
 	editor: {
 		openExternal(content: string): Promise<{
