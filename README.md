@@ -2,9 +2,16 @@
 
 # omp GUI
 
-**A desktop GUI for the [omp](https://github.com/can1357/oh-my-pi) coding agent.**
+**A native desktop control center for the [omp](https://github.com/can1357/oh-my-pi) coding agent.**
 
-Every slash command as a menu · full-fidelity rendering · providers, models & usage in one place.
+Run parallel agent sessions · inspect every tool call · manage models and usage — without living in a terminal.
+
+<a href="https://github.com/nornzach/oh-my-pi-gui/releases"><img src="https://img.shields.io/github/v/release/nornzach/oh-my-pi-gui?style=flat&colorA=222222&colorB=3FB950" alt="Release"></a>
+<a href="https://github.com/nornzach/oh-my-pi-gui/releases"><img src="https://img.shields.io/github/downloads/nornzach/oh-my-pi-gui/total?style=flat&colorA=222222&colorB=58A6FF" alt="Downloads"></a>
+<a href="./LICENSE"><img src="https://img.shields.io/github/license/nornzach/oh-my-pi-gui?style=flat&colorA=222222&colorB=BE185D" alt="License"></a>
+<img src="https://img.shields.io/badge/platform-macOS-222222?style=flat" alt="Platform">
+<img src="https://img.shields.io/badge/Electron-35-47848F?style=flat&logo=electron&logoColor=white" alt="Electron">
+<img src="https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=white" alt="React">
 
 [English](#english) · [中文](#中文)
 
@@ -17,41 +24,41 @@ Every slash command as a menu · full-fidelity rendering · providers, models & 
 <a name="english"></a>
 ## English
 
-`omp GUI` wraps the omp agent (`omp --mode rpc-ui`) in a fast Electron shell. The agent runs as a bundled sidecar — **no separate omp / bun / Node install is required**; the app ships its own binary and talks to it over a typed NDJSON RPC bridge.
+`omp GUI` is a desktop app for the [omp](https://github.com/can1357/oh-my-pi) coding agent. It bundles the agent as a built-in binary — **no need to separately install omp, Bun, or Node** — and gives you a full visual interface for running parallel agent sessions, inspecting tool calls, and managing models, providers, and usage.
 
 **Contents**
 
+- [Why a GUI?](#why-a-gui)
 - [Highlights](#highlights)
 - [Screenshots](#screenshots)
 - [Install](#install)
+- [Quick Start](#quick-start)
 - [Keyboard shortcuts](#keyboard-shortcuts)
-- [Development](#development) — [repository layout](#repository-layout-read-this-first) · [build from source](#build-from-source) · [dev commands](#dev-commands)
+- [Development](#development)
 - [Troubleshooting](#troubleshooting)
 - [Release process (maintainers)](#release-process-maintainers)
 
+### Why a GUI?
+
+The omp TUI is powerful, but some things are easier with a visual interface. omp GUI doesn't replace the TUI — it complements it, sharing the same `~/.omp` config and sessions.
+
+| | omp TUI | omp GUI | Claude Code | Cursor |
+|---|---|---|---|---|
+| Parallel sessions | ✓ | ✓ (tabs + worktrees) | ✓ | — |
+| Visual tool calls | — | ✓ | partial | — |
+| Provider/model management | CLI | GUI + OAuth | limited | limited |
+| Usage analytics | CLI | dashboard | — | — |
+| Session search / fork | ✓ | ✓ | — | — |
+| Requires terminal | yes | no | yes | no |
+| Bundled agent | npm/brew | sidecar (zero deps) | — | — |
+
 ### Highlights
 
-- **Every `/` command, as a menu.** Commands aren't just text you type — they're grouped, searchable menus. Open the **Command Palette (`⌘K`)** for fuzzy access to everything, or browse grouped categories (Workspace, Providers, Model, Session…). Sub-menus, argument prompts, and toggles all run the underlying RPC — never a fake input box.
-
-- **Full-fidelity rendering.** The chat renders what omp's TUI renders: streaming text, collapsible **thinking** blocks, live **tool cards** (bash, edit, read, grep, task, …) with real diffs, local/remote markdown images, **KaTeX math**, mermaid diagrams, and syntax-highlighted code — streamed token-by-token.
-
-- **Providers & login.** Sign in with OAuth or API keys, add third-party providers, edit `models.json` config, and see auth status at a glance.
-
-- **Model config.** Pick the model, tune the **thinking level**, toggle fast/plan mode, and assign per-role models.
-
-- **Usage & quotas.** A full stats dashboard — requests, tokens, cost, cache-hit, speed, errors, per-agent breakdown — with time ranges and charts.
-
-- **Workspace panels.** Todo, Plan, Agents, Queue, Diff, Files, and Logs in a collapsible side panel, kept in sync with the active tab. Agent runs appear as a timed parent/child list or spawn graph with expandable transcripts.
-
-- **Sessions.** Search, group, rename, branch, fork/handoff, and resume sessions across projects. Global and per-project history.
-
-- **Parallel, protected sessions.** Open up to 10 tabs/windows, each with its own sidecar, session, queue, draft, subagents, and optional git worktree. Background tabs keep running; ownership guards prevent two sidecars from attaching to the same session file.
-
-- **Crash-aware desktop runtime.** React failures, renderer/process exits, and preload errors are written to a bounded JSONL log; abnormal renderer exits recover automatically, and packaged resource replacement triggers a clean relaunch instead of a white screen.
-
-- **OMP capabilities, not generic toggles.** Settings leads with TTSR, parallel subagents, model roles, Advisor, goal/loop modes, memory, and native tools. Schema-driven controls distinguish live settings from restart-required ones, and full-row switches persist across reconnects.
-
-- **Proxy-aware packaged app.** Finder-launched builds resolve an explicit GUI proxy, inherited proxy variables, or the macOS system proxy for OAuth, streaming, and usage requests.
+- **Parallel sessions.** Open up to 10 tabs, each with its own sidecar, session, queue, and optional git worktree. Background tabs keep running while you work elsewhere.
+- **Every `/` command as a menu.** `⌘K` opens a searchable command palette — sub-menus, argument prompts, and toggles all run real RPC, never a fake input box.
+- **Visual tool calls.** Bash, edit, read, grep, task — rendered live with real diffs, syntax highlighting, collapsible thinking blocks, KaTeX math, and mermaid diagrams.
+- **Model & provider management.** OAuth or API-key sign-in, third-party providers, per-role model assignment, thinking-level tuning, and a full usage dashboard with cost/speed/cache-hit charts.
+- **Bundled agent, zero deps.** The app ships its own omp binary — no separate omp / Bun / Node install required. The same `~/.omp` config is shared with the TUI.
 
 ### Screenshots
 
@@ -73,15 +80,24 @@ Current release: [**v0.7.2**](https://github.com/nornzach/oh-my-pi-gui/releases/
 
 Open the `.dmg` and drag **omp** into **Applications**. The build is unsigned, so on first launch macOS may block it: **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*).
 
+### Quick Start
+
+1. **Install** — download the `.dmg`, drag **omp** to **Applications**, right-click → Open
+2. **Sign in** — add your provider via OAuth or API key (`⌘,` → Providers)
+3. **Start a session** — `⌘N` for a new session, type a prompt, hit Enter
+4. **Browse commands** — `⌘K` to open the command palette and explore every `/` command as a menu
+5. **Go parallel** — `⌥T` to spawn a new tab with its own session and optional git worktree
+
 ### Keyboard shortcuts
 
 `⌘K` command palette · `⌘P` session search · `⌘N` new session · `⌘,` settings · `⌘B`/`⌘J` toggle sidebars · `Esc` abort turn
 
 ---
 
-### Development
+<details>
+<summary><b>Development</b> — for building and developing the GUI itself</summary>
 
-*Everything below is for building and developing the GUI itself. End users installing the DMG can stop here.*
+*End users installing the DMG can stop here.*
 
 #### Repository layout (read this first)
 
@@ -129,6 +145,8 @@ bunx vitest run           # test suite
 bun run check:types       # tsc
 ```
 
+</details>
+
 ### Troubleshooting
 
 | Symptom | Cause → fix |
@@ -157,41 +175,41 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 <a name="中文"></a>
 ## 中文
 
-`omp GUI` 是 [omp](https://github.com/can1357/oh-my-pi) 编码 agent 的桌面图形界面。agent 以内置 sidecar 方式随应用打包——**无需单独安装 omp / bun / Node**，应用自带二进制，通过类型化的 NDJSON RPC 桥与其通信。
+`omp GUI` 是 [omp](https://github.com/can1357/oh-my-pi) 编码 agent 的桌面应用。它将 agent 作为内置二进制打包——**无需单独安装 omp、Bun 或 Node**——提供完整的可视化界面来运行并行 agent 会话、检查工具调用、管理模型与用量。
 
 **目录**
 
+- [为什么需要 GUI?](#为什么需要-gui)
 - [核心特性](#核心特性)
 - [界面截图](#界面截图)
 - [安装](#安装)
+- [快速上手](#快速上手)
 - [快捷键](#快捷键)
-- [开发](#开发)——[仓库结构](#仓库结构先读这段) · [从源码构建](#从源码构建) · [开发命令](#开发命令)
+- [开发](#开发)
 - [常见问题](#常见问题)
 - [发布流程（维护者）](#发布流程维护者)
 
+### 为什么需要 GUI?
+
+omp TUI 很强大,但有些事情用可视化界面更方便。omp GUI 不替代 TUI——两者互补,共享同一份 `~/.omp` 配置和会话。
+
+| | omp TUI | omp GUI | Claude Code | Cursor |
+|---|---|---|---|---|
+| 并行会话 | ✓ | ✓（标签页 + worktree） | ✓ | — |
+| 可视化工具调用 | — | ✓ | 部分 | — |
+| Provider/模型管理 | 命令行 | GUI + OAuth | 有限 | 有限 |
+| 用量分析 | 命令行 | 仪表盘 | — | — |
+| 会话搜索/分支 | ✓ | ✓ | — | — |
+| 需要终端 | 是 | 否 | 是 | 否 |
+| 内置 agent | npm/brew | sidecar（零依赖） | — | — |
+
 ### 核心特性
 
-- **所有 `/` 命令,全部做成菜单。** 命令不再只是手敲的文本——而是分组、可搜索的菜单。打开**命令面板(`⌘K`)**模糊直达任意命令,或浏览分组(工作区、Provider、模型、会话…)。子菜单、参数输入、开关项都走真实 RPC,绝不是套个输入框。
-
-- **完整渲染。** 聊天区渲染 omp TUI 的全部内容:流式文本、可折叠的**思考块**、实时**工具卡**(bash、edit、read、grep、task…,带真实 diff)、本地/远程 markdown 图片、**KaTeX 公式**、mermaid 图、语法高亮代码——逐 token 流式呈现。
-
-- **Provider 与登录。** 支持 OAuth 或 API key 登录、添加第三方 provider、编辑 `models.json` 配置,认证状态一目了然。
-
-- **模型配置。** 选择模型、调节**思考等级**、切换快速/计划模式、按角色分配模型。
-
-- **用量与配额。** 完整的统计仪表盘——请求数、token、花费、缓存命中、速度、错误、按 agent 类型拆分,支持时间范围与图表。
-
-- **工作区面板。** 待办、计划、Agent、队列、Diff、文件、日志集成在可折叠侧栏,并与当前标签页实时同步。子 Agent 可按带计时的父子列表或派生图展示,记录可直接展开。
-
-- **会话管理。** 搜索、分组、重命名、分支、fork/交接、跨项目恢复会话,支持全局与项目级历史。
-
-- **并行且受保护的会话。** 最多同时打开 10 个标签页/窗口,每个都拥有独立 sidecar、会话、队列、草稿、子 Agent 和可选 git worktree。后台标签页持续运行,所有权守卫确保同一会话文件不会被两个 sidecar 同时挂载。
-
-- **可诊断、可恢复的桌面运行时。** React 异常、渲染进程/子进程退出和 preload 错误会写入有界 JSONL 日志；渲染进程异常退出会自动恢复,运行中替换安装资源会干净重启,不再留下原因不明的白屏。
-
-- **围绕 OMP 能力组织的设置。** 设置首页直接呈现 TTSR、并行子 agent、角色模型、顾问、目标/循环模式、记忆和原生工具；schema 控件会区分即时生效与需要重启的设置,整行滑块在重连后也保持正确状态。
-
-- **适配代理网络的打包应用。** 从 Finder 启动时,应用会依次解析 GUI 显式代理、继承的代理环境变量和 macOS 系统代理,用于 OAuth、流式请求与用量查询。
+- **并行会话。** 最多同时打开 10 个标签页,每个拥有独立 sidecar、会话、队列和可选 git worktree。后台标签页持续运行,你可以在其他标签页继续工作。
+- **所有 `/` 命令做成菜单。** `⌘K` 打开可搜索的命令面板——子菜单、参数输入、开关项都走真实 RPC,绝不是套个输入框。
+- **可视化工具调用。** Bash、edit、read、grep、task——实时渲染真实 diff、语法高亮、可折叠思考块、KaTeX 公式和 mermaid 图。
+- **模型与 Provider 管理。** OAuth 或 API key 登录、第三方 provider、按角色分配模型、调节思考等级,以及完整的用量仪表盘（花费/速度/缓存命中图表）。
+- **内置 agent,零依赖。** 应用自带 omp 二进制——无需单独安装 omp / Bun / Node。与 TUI 共享同一份 `~/.omp` 配置。
 
 ### 界面截图
 
@@ -213,22 +231,31 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 
 打开 `.dmg`,把 **omp** 拖进 **应用程序**。构建未签名,首次打开 macOS 可能拦截:**右键 → 打开**(或 *系统设置 → 隐私与安全性 → 仍要打开*)。
 
+### 快速上手
+
+1. **安装** — 下载 `.dmg`,把 **omp** 拖到 **应用程序**,右键 → 打开
+2. **登录** — 通过 OAuth 或 API key 添加你的 provider（`⌘,` → Providers）
+3. **开始会话** — `⌘N` 新建会话,输入提示词,回车
+4. **浏览命令** — `⌘K` 打开命令面板,探索所有 `/` 命令
+5. **并行运行** — `⌥T` 新建标签页,拥有独立会话和可选 git worktree
+
 ### 快捷键
 
 `⌘K` 命令面板 · `⌘P` 会话搜索 · `⌘N` 新会话 · `⌘,` 设置 · `⌘B`/`⌘J` 切换侧栏 · `Esc` 中止回合
 
 ---
 
-### 开发
+<details>
+<summary><b>开发</b> — 面向构建与开发 GUI 本身</summary>
 
-*以下内容面向构建与开发 GUI 本身；通过 DMG 安装的最终用户可以到此为止。*
+*通过 DMG 安装的最终用户可以到此为止。*
 
 #### 仓库结构（先读这段）
 
 本仓库（[`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui)）是 GUI **唯一**的提交与发布仓库——但它**不包含** agent 源码。agent 在打包时从 [oh-my-pi monorepo fork](https://github.com/nornzach/oh-my-pi)(同步自[上游 can1357/oh-my-pi](https://github.com/can1357/oh-my-pi))编译进来,成为内置 sidecar 二进制。因此：
 
 - **只 clone 本仓库无法完成打包。** `bun run build:omp` 会解析 `../../coding-agent` 与 `../../natives`,即要求本仓库位于 monorepo 克隆的 `packages/gui/` 位置。
-- **约 120 MB 的 sidecar 二进制(`resources/omp*`)不入库。** 全新克隆没有 `resources/omp`,此时启动应用会显示“Built-in omp not found”,这是构建/放置 sidecar 之前的预期行为。
+- **约 120 MB 的 sidecar 二进制(`resources/omp*`)不入库。** 全新克隆没有 `resources/omp`,此时启动应用会显示"Built-in omp not found",这是构建/放置 sidecar 之前的预期行为。
 - monorepo 只承担**同步上游 + 提供构建源**的角色;GUI 的提交、标签、GitHub Release 全部只属于本仓库。
 
 #### 从源码构建
@@ -268,6 +295,8 @@ OMP_SIDECAR=source bun run dev   # 开发覆盖:改为运行 monorepo 中的 age
 bunx vitest run           # 测试套件
 bun run check:types       # tsc 类型检查
 ```
+
+</details>
 
 ### 常见问题
 
