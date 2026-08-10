@@ -87,7 +87,7 @@ const HEADER_META_CLASS = "font-medium normal-case tracking-normal text-[var(--o
 /** Card frame matching ContextBubble: rounded custom-message background on the chat gutter. */
 function CardFrame({ children }: { children: ReactNode }) {
 	return (
-		<div className="omp-fade-up px-6 py-3">
+		<div className="omp-custom-turn omp-fade-up px-6 py-3">
 			<div className="rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-custom-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
 				{children}
 			</div>

@@ -4,11 +4,12 @@
  */
 
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStats } from "../../hooks/use-stats";
 import { compact, formatMs, formatUsd } from "../../lib/chart";
 import { useT } from "../../lib/i18n";
 import { Badge, Button, Spinner } from "../common";
+import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
 import type { StatsRange } from "./StatsDashboard";
 import { RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
 
@@ -47,6 +48,22 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 	const [detail, setDetail] = useState<RequestDetail | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const drawerRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		const unregisterLayer = registerDialogLayer(drawerRef.current);
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape" || !isTopmostDialog(drawerRef.current)) return;
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			onClose();
+		};
+		document.addEventListener("keydown", onKeyDown, true);
+		return () => {
+			document.removeEventListener("keydown", onKeyDown, true);
+			unregisterLayer();
+		};
+	}, [onClose]);
 
 	useEffect(() => {
 		if (row.id === undefined) {
@@ -74,8 +91,21 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 	}, [row.id]);
 
 	return (
-		<div className="fixed inset-0 z-[60] flex justify-end bg-black/40" role="presentation">
-			<div className="flex h-full w-[560px] max-w-[92vw] flex-col border-l border-(--omp-border-muted) bg-(--omp-bg-secondary) shadow-2xl">
+		<div
+			className="fixed inset-0 z-[60] flex justify-end bg-[var(--omp-overlay-bg)]"
+			onMouseDown={event => {
+				if (event.target === event.currentTarget) onClose();
+			}}
+			role="presentation"
+		>
+			<div
+				aria-label={`${row.model} ${new Date(row.timestamp).toLocaleString()}`}
+				aria-modal="true"
+				className="omp-detail-drawer flex h-full flex-col border-l border-(--omp-border-muted) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg)"
+				ref={drawerRef}
+				role="dialog"
+				tabIndex={-1}
+			>
 				<div className="flex items-center justify-between gap-2 border-b border-(--omp-border-muted) px-4 py-2.5">
 					<span className="min-w-0 truncate font-mono text-xs font-semibold text-(--omp-text)">
 						{row.model}
@@ -83,6 +113,7 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 					</span>
 					<button
 						aria-label={t("stats.requests.closeDetails")}
+						autoFocus
 						className="rounded p-1 text-(--omp-muted) transition-colors hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
 						onClick={onClose}
 						type="button"
@@ -116,7 +147,7 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 						))}
 					</div>
 					{row.errorMessage && (
-						<div className="mb-3 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_40%,transparent)] bg-[color-mix(in_srgb,var(--omp-error)_8%,transparent)] px-3 py-2 font-mono text-[10.5px] break-words text-(--omp-error)">
+						<div className="mb-3 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_40%,transparent)] bg-transparent px-3 py-2 font-mono text-[10.5px] break-words text-(--omp-error)">
 							{row.errorMessage}
 						</div>
 					)}

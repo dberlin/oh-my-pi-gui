@@ -75,7 +75,7 @@ export function MetricCard({
 		error: "text-(--omp-error)",
 	}[tone];
 	return (
-		<div className="rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3.5 py-3 transition-colors hover:border-(--omp-border)">
+		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent px-3.5 py-3 transition-colors hover:border-(--omp-border)">
 			<div className="text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">{label}</div>
 			<div className={`mt-1 text-xl font-semibold tabular-nums ${valueColor}`}>{value}</div>
 			{sub && <div className="mt-0.5 text-[10px] text-(--omp-muted)">{sub}</div>}
@@ -106,7 +106,7 @@ export function StatTable<T>({
 		<div className="overflow-x-auto rounded-lg border border-(--omp-border-muted)">
 			<table className="w-full border-collapse text-[11px]">
 				<thead>
-					<tr className="border-b border-(--omp-border-muted) bg-(--omp-bg-tertiary)">
+					<tr className="border-b border-(--omp-border-muted) bg-transparent">
 						{columns.map(column => (
 							<th
 								className={`px-2.5 py-1.5 text-[9px] font-semibold tracking-widest whitespace-nowrap text-(--omp-dim) uppercase ${
@@ -144,10 +144,7 @@ export function StatTable<T>({
 
 export function ChartBox({ height = 260, children }: { height?: number; children: ReactNode }) {
 	return (
-		<div
-			className="rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) p-3"
-			style={{ height: height + 24 }}
-		>
+		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent p-3" style={{ height: height + 24 }}>
 			<div className="relative h-full w-full">{children}</div>
 		</div>
 	);

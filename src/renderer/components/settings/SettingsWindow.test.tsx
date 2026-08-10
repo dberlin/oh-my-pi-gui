@@ -14,6 +14,7 @@ import {
 	CapabilitiesHome,
 	groupSchemaEntries,
 	isSettingVisibleInGui,
+	resolveSettingsTarget,
 	SchemaTabContent,
 	SettingsWindow,
 	Toggle,
@@ -24,7 +25,7 @@ function entry(partial: Partial<SettingEntry> & { path: string }): SettingEntry 
 }
 
 afterEach(() => {
-	useUiStore.setState({ settingsOpen: false });
+	useUiStore.setState({ settingsOpen: false, settingsTab: "capabilities" });
 });
 
 describe("Toggle", () => {
@@ -217,6 +218,27 @@ describe("SchemaTabContent zh translations", () => {
 });
 
 describe("SettingsWindow", () => {
+	it("normalizes resource deep links to one stable left-nav destination", () => {
+		expect(resolveSettingsTarget("resources:marketplaces")).toEqual({
+			tab: "resources",
+			resourceTab: "marketplaces",
+		});
+		expect(resolveSettingsTarget("resources:unknown")).toEqual({ tab: "resources", resourceTab: "plugins" });
+	});
+
+	it("supports deep-linking the first-class Skills page from commands", () => {
+		useUiStore.getState().openSettings("skills");
+		expect(useUiStore.getState()).toMatchObject({ settingsOpen: true, settingsTab: "skills" });
+	});
+
+	it("preserves resource subroutes for the Settings inventory page", () => {
+		useUiStore.getState().openSettings("resources:marketplaces");
+		expect(useUiStore.getState()).toMatchObject({
+			settingsOpen: true,
+			settingsTab: "resources:marketplaces",
+		});
+	});
+
 	it("renders nothing when closed", () => {
 		expect(
 			renderToStaticMarkup(

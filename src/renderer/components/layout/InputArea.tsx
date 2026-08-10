@@ -1093,7 +1093,7 @@ export function InputArea() {
 	const modeTitle = isStreaming ? t("input.streamingTitle", { mode: steeringMode }) : t("input.sendPrompt");
 
 	return (
-		<div className="relative shrink-0 bg-[var(--omp-bg-primary)] px-6 pb-5 pt-3">
+		<div className="omp-composer-region relative shrink-0 bg-transparent pb-5 pt-3">
 			<div className="omp-composer-shell relative w-full">
 				{menu && (
 					<div className="absolute bottom-full left-0 z-10 mb-2 max-h-[60vh] w-[420px] max-w-full overflow-y-auto rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1 shadow-[var(--omp-shadow-lg)]">

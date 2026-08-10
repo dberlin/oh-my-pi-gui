@@ -77,11 +77,11 @@ export function LiveVoiceDialog() {
 					{starting && !state.active ? <Spinner size="sm" /> : null}
 					<span>{phaseLabel}</span>
 				</div>
-				<div className="space-y-3 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) p-4">
+				<div className="space-y-3 rounded-lg border border-(--omp-border-muted) bg-transparent p-4">
 					<Level label={t("live.input")} value={state.inputLevel} />
 					<Level label={t("live.output")} value={state.outputLevel} />
 				</div>
-				<div className="min-h-24 rounded-lg bg-(--omp-bg-tertiary) p-3 text-sm">
+				<div className="min-h-24 rounded-lg border border-(--omp-border-muted) bg-transparent p-3 text-sm">
 					{state.transcript ? (
 						<>
 							<div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-(--omp-dim)">

@@ -7,7 +7,7 @@ import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../lib/i18n";
-import { isTopmostDialog } from "./dialog-layer";
+import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
 
 export type ModalSize = "sm" | "md" | "lg" | "full" | "picker";
 
@@ -15,20 +15,15 @@ export type ModalSize = "sm" | "md" | "lg" | "full" | "picker";
 export type ModalPlacement = "center" | "top";
 
 const SIZE_CLASSES: Record<ModalSize, string> = {
-	sm: "max-h-[85vh] w-[360px] max-w-[90vw]",
-	md: "max-h-[85vh] w-[520px] max-w-[92vw]",
-	lg: "max-h-[85vh] w-[760px] max-w-[95vw]",
-	full: "h-[92vh] w-[94vw]",
-	picker: "max-h-[68vh] w-[560px] max-w-[92vw]",
+	sm: "omp-dialog-size-sm",
+	md: "omp-dialog-size-md",
+	lg: "omp-dialog-size-lg",
+	full: "omp-dialog-size-full",
+	picker: "omp-dialog-size-picker",
 };
 
 const FOCUSABLE =
 	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-// Multiple dialogs can be mounted at once (for example a provider editor
-// opened from the providers window). Only the visually topmost dialog may own
-// keyboard focus or consume Escape.
-const modalStack: symbol[] = [];
 
 export interface ModalProps {
 	open: boolean;
@@ -67,14 +62,12 @@ export function Modal({
 	const t = useT();
 	const panelRef = useRef<HTMLDivElement>(null);
 	const restoreRef = useRef<HTMLElement | null>(null);
-	const modalIdRef = useRef(Symbol("modal"));
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
 
 	useEffect(() => {
 		if (!open) return;
-		const modalId = modalIdRef.current;
-		modalStack.push(modalId);
+		const unregisterLayer = registerDialogLayer(panelRef.current);
 		restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		const panel = panelRef.current;
 		const active = document.activeElement;
@@ -88,7 +81,7 @@ export function Modal({
 		const onKeyDown = (event: KeyboardEvent) => {
 			// Include fullscreen/custom dialogs that do not use Modal in the layer
 			// decision; a modal hidden beneath Settings must remain untouched.
-			if (modalStack[modalStack.length - 1] !== modalId || !isTopmostDialog(panel)) return;
+			if (!isTopmostDialog(panel)) return;
 			if (event.key === "Escape") {
 				event.preventDefault();
 				event.stopImmediatePropagation();
@@ -116,9 +109,8 @@ export function Modal({
 		document.addEventListener("keydown", onKeyDown, true);
 		return () => {
 			document.removeEventListener("keydown", onKeyDown, true);
-			const wasTopmost = modalStack[modalStack.length - 1] === modalId;
-			const stackIndex = modalStack.lastIndexOf(modalId);
-			if (stackIndex >= 0) modalStack.splice(stackIndex, 1);
+			const wasTopmost = isTopmostDialog(panel);
+			unregisterLayer();
 			if (wasTopmost) restoreRef.current?.focus();
 		};
 	}, [open]);
@@ -127,7 +119,7 @@ export function Modal({
 
 	return createPortal(
 		<div
-			className={`fixed inset-0 z-50 flex justify-center bg-(--omp-overlay-bg) p-4 backdrop-blur-[3px] ${placement === "top" ? "items-start pt-[12vh]" : "items-center"}`}
+			className={`omp-dialog-overlay fixed inset-0 z-50 flex justify-center bg-(--omp-overlay-bg) p-4 backdrop-blur-[3px] ${placement === "top" ? "items-start pt-[12dvh]" : "items-center"}`}
 			onMouseDown={event => {
 				if (event.target === event.currentTarget) onClose();
 			}}
@@ -136,7 +128,7 @@ export function Modal({
 			<div
 				aria-label={ariaLabel}
 				aria-modal="true"
-				className={`omp-scale-in flex flex-col overflow-hidden rounded-[14px] border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg) ${SIZE_CLASSES[size]} ${panelClassName ?? ""}`.trim()}
+				className={`omp-dialog-panel omp-scale-in flex flex-col overflow-hidden rounded-[14px] border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg) ${SIZE_CLASSES[size]} ${panelClassName ?? ""}`.trim()}
 				onKeyDown={event => {
 					if (event.key === "Escape") event.stopPropagation();
 				}}

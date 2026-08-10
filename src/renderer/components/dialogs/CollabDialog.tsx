@@ -96,7 +96,7 @@ export function CollabDialog() {
 		<Modal onClose={close} open={open} size="lg" title={t("collab.title")}>
 			{state.role ? (
 				<div className="space-y-4">
-					<div className="flex items-center justify-between rounded-lg bg-(--omp-bg-tertiary) p-3">
+					<div className="flex items-center justify-between rounded-lg border border-(--omp-border-muted) bg-transparent p-3">
 						<div className="flex items-center gap-2 text-sm text-(--omp-text)">
 							<Radio className="text-(--omp-success)" size={15} />
 							{state.role === "host"

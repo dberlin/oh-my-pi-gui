@@ -78,6 +78,7 @@ export type RpcCommand =
 
 	// Domain inspection (read-only)
 	| { id?: string; type: "get_skills" }
+	| { id?: string; type: "get_skill_detail"; name: string }
 	| { id?: string; type: "get_agent_definitions" }
 	| { id?: string; type: "get_hooks" }
 	| { id?: string; type: "get_mcp_servers" }
@@ -85,6 +86,10 @@ export type RpcCommand =
 	| { id?: string; type: "get_marketplaces" }
 	| { id?: string; type: "get_prompt_templates" }
 	| { id?: string; type: "get_memory_report" }
+	| { id?: string; type: "get_security_dashboard" }
+	| { id?: string; type: "get_security_scan"; scanId: string }
+	| { id?: string; type: "get_ssh_hosts" }
+	| { id?: string; type: "get_omp_update" }
 
 	// Session reports (structured TUI /context /share /jobs parity; /tools rides get_active_tools)
 	| { id?: string; type: "get_context_report" }
@@ -138,6 +143,14 @@ export type RpcCommand =
 
 	// Domain actions (mutating)
 	| { id?: string; type: "set_skill_enabled"; name: string; enabled: boolean }
+	| {
+			id?: string;
+			type: "manage_skill";
+			action: "create" | "update" | "delete";
+			name: string;
+			description?: string;
+			body?: string;
+	  }
 	| { id?: string; type: "set_hook_enabled"; hookId: string; enabled: boolean }
 	| { id?: string; type: "set_plugin_enabled"; pluginId: string; enabled: boolean; scope?: "user" | "project" }
 	| {
@@ -147,6 +160,28 @@ export type RpcCommand =
 			action: "enable" | "disable" | "reconnect" | "remove";
 			scope?: "user" | "project";
 	  }
+	| { id?: string; type: "security_start"; target: RpcSecurityTargetInput }
+	| { id?: string; type: "security_cancel"; operationId: string }
+	| { id?: string; type: "security_validate"; scanId: string; findingId: string }
+	| {
+			id?: string;
+			type: "security_set_disposition";
+			scanId: string;
+			findingId: string;
+			status: RpcSecurityDispositionStatus;
+			rationale?: string;
+	  }
+	| {
+			id?: string;
+			type: "ssh_manage";
+			action: "create" | "update" | "delete";
+			scope: "user" | "project";
+			name: string;
+			previousName?: string;
+			previousScope?: "user" | "project";
+			host?: RpcSshHostInput;
+	  }
+	| { id?: string; type: "ssh_test"; host: RpcSshHostInput & { name: string } }
 
 	// Voice (speech in/out). `transcribe_audio.audioBase64` carries a canonical
 	// RIFF/WAVE buffer — PCM16, mono, 16 kHz (the STT pipeline's native rate);
@@ -477,9 +512,21 @@ export interface RpcSkillInfo {
 	source: string;
 	enabled: boolean;
 	location: string;
+	provider: string;
+	providerName: string;
+	level: "user" | "project" | "native";
+	managed: boolean;
+	hidden: boolean;
 }
 export interface RpcSkillsResult {
 	skills: RpcSkillInfo[];
+}
+export interface RpcSkillDetail extends RpcSkillInfo {
+	body: string;
+}
+export interface RpcManageSkillResult {
+	action: "create" | "update" | "delete";
+	name: string;
 }
 
 /** A discovered pre/post tool hook. */
@@ -689,6 +736,107 @@ export interface RpcMemoryReport {
 	status?: RpcMemoryStatus;
 	stats?: string;
 	diagnosis?: string;
+}
+
+export type RpcSecurityDispositionStatus = "open" | "false_positive" | "accepted_risk" | "fixed" | "wont_fix";
+export type RpcSecuritySeverityLevel = "critical" | "high" | "medium" | "low" | "informational";
+export type RpcSecurityTargetInput =
+	| { kind: "repository" }
+	| { kind: "working_tree" }
+	| { kind: "ref_diff"; baseRevision: string; headRevision: string };
+export interface RpcSecurityFindingInfo {
+	id: string;
+	scanId: string;
+	title: string;
+	summary: string;
+	severity: RpcSecuritySeverityLevel;
+	confidence: "high" | "medium" | "low";
+	path?: string;
+	line?: number;
+	disposition: RpcSecurityDispositionStatus;
+	validation: "unvalidated" | "validated" | "rejected" | "partial" | "error";
+	remediation?: string;
+	evidence: Array<{ label: string; explanation: string; excerpt?: string; path?: string; line?: number }>;
+}
+export interface RpcSecurityScanInfo {
+	id: string;
+	status: "planned" | "running" | "completed" | "partial" | "cancelled" | "failed";
+	createdAt: string;
+	completedAt?: string;
+	producer: string;
+	findingCount: number;
+	target: {
+		kind: "repository" | "scoped_path" | "ref_diff" | "working_tree" | "imported";
+		displayName: string;
+		revision?: string;
+		baseRevision?: string;
+		headRevision?: string;
+	};
+}
+export interface RpcSecurityOperationInfo {
+	operationId: string;
+	planId: string;
+	scanId: string;
+	phase: "queued" | "preparing" | "reviewing" | "publishing" | "completed" | "partial" | "cancelled" | "failed";
+	createdAt: string;
+	updatedAt: string;
+	findingCount: number;
+	error?: string;
+}
+export interface RpcSecurityDashboardResult {
+	enabled: boolean;
+	modelReady: boolean;
+	modelLabel?: string;
+	repositoryRoot: string;
+	revision?: string;
+	scans: RpcSecurityScanInfo[];
+	operations: RpcSecurityOperationInfo[];
+	latest?: RpcSecurityScanResult;
+}
+export interface RpcSecurityScanResult {
+	scan: RpcSecurityScanInfo;
+	findings: RpcSecurityFindingInfo[];
+}
+export interface RpcSshHostInput {
+	host: string;
+	username?: string;
+	port?: number;
+	keyPath?: string;
+	description?: string;
+	compat?: boolean;
+}
+export interface RpcSshHostInfo extends RpcSshHostInput {
+	name: string;
+	scope: "user" | "project" | "native";
+	editable: boolean;
+	source: string;
+	os?: "windows" | "linux" | "macos" | "unknown";
+	shell?: "cmd" | "powershell" | "bash" | "zsh" | "sh" | "unknown";
+	compatShell?: "bash" | "sh";
+	transferShell?: "sh" | "bash" | "zsh";
+}
+export interface RpcSshHostsResult {
+	openSshAvailable: boolean;
+	hosts: RpcSshHostInfo[];
+	warnings: string[];
+}
+export interface RpcSshTestResult {
+	name: string;
+	ok: boolean;
+	checkedAt: string;
+	os?: RpcSshHostInfo["os"];
+	shell?: RpcSshHostInfo["shell"];
+	compatShell?: RpcSshHostInfo["compatShell"];
+	transferShell?: RpcSshHostInfo["transferShell"];
+	error?: string;
+}
+export interface RpcOmpUpdateResult {
+	currentVersion: string;
+	latestVersion: string;
+	updateAvailable: boolean;
+	checkedAt: string;
+	distribution: "bundled";
+	installStrategy: "gui-update";
 }
 
 /** A node in the session's branch tree (visual session navigation). */

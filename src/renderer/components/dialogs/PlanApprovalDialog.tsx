@@ -173,7 +173,7 @@ export function PlanApprovalDialog() {
 					)}
 				</div>
 				{notice !== null && (
-					<div className="rounded-md border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-3 py-2 text-[11px] text-(--omp-warning)">
+					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-[11px] text-(--omp-warning)">
 						{notice}
 					</div>
 				)}

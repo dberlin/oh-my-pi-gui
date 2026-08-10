@@ -16,13 +16,14 @@ interface UiStore {
 	commandPaletteOpen: boolean;
 	modelPickerOpen: boolean;
 	settingsOpen: boolean;
+	settingsTab: string;
 	usageOpen: boolean;
 	providersOpen: boolean;
 	modelRolesOpen: boolean;
 	statsDashboardOpen: boolean;
 	modelCompareOpen: boolean;
 	extensionsOpen: boolean;
-	extensionsTab: "skills" | "hooks" | "mcp" | "commands";
+	extensionsTab: "hooks" | "mcp" | "commands";
 	inventoryOpen: boolean;
 	inventoryTab: "plugins" | "marketplaces" | "templates" | "memory";
 	themePickerOpen: boolean;
@@ -85,7 +86,7 @@ interface UiStore {
 	closeCommandPalette: () => void;
 	openModelPicker: () => void;
 	closeModelPicker: () => void;
-	openSettings: () => void;
+	openSettings: (tab?: string) => void;
 	closeSettings: () => void;
 	openUsage: () => void;
 	closeUsage: () => void;
@@ -97,7 +98,7 @@ interface UiStore {
 	closeStatsDashboard: () => void;
 	openModelCompare: () => void;
 	closeModelCompare: () => void;
-	openExtensions: (tab?: "skills" | "hooks" | "mcp" | "commands") => void;
+	openExtensions: (tab?: "hooks" | "mcp" | "commands") => void;
 	closeExtensions: () => void;
 	openInventory: (tab?: "plugins" | "marketplaces" | "templates" | "memory") => void;
 	closeInventory: () => void;
@@ -187,6 +188,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	commandPaletteOpen: false,
 	modelPickerOpen: false,
 	settingsOpen: false,
+	settingsTab: "capabilities",
 	theme: "light",
 	fontSize: 15,
 	notifications: true,
@@ -212,7 +214,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	closeCommandPalette: () => set({ commandPaletteOpen: false }),
 	openModelPicker: () => set({ modelPickerOpen: true }),
 	closeModelPicker: () => set({ modelPickerOpen: false }),
-	openSettings: () => set({ settingsOpen: true }),
+	openSettings: tab => set({ settingsOpen: true, settingsTab: tab ?? "capabilities" }),
 	closeSettings: () => set({ settingsOpen: false }),
 	usageOpen: false,
 	providersOpen: false,
@@ -230,10 +232,10 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	openModelCompare: () => set({ modelCompareOpen: true }),
 	closeModelCompare: () => set({ modelCompareOpen: false }),
 	extensionsOpen: false,
-	extensionsTab: "skills" as const,
+	extensionsTab: "hooks" as const,
 	inventoryOpen: false,
 	inventoryTab: "plugins" as const,
-	openExtensions: tab => set({ extensionsOpen: true, extensionsTab: tab ?? "skills" }),
+	openExtensions: tab => set({ extensionsOpen: true, extensionsTab: tab ?? "hooks" }),
 	closeExtensions: () => set({ extensionsOpen: false }),
 	openInventory: tab => set({ inventoryOpen: true, inventoryTab: tab ?? "plugins" }),
 	closeInventory: () => set({ inventoryOpen: false }),

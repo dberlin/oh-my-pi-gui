@@ -128,7 +128,7 @@ export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey
 							.filter(([, totals]) => totals.hits > 0)
 							.map(([source, totals]) => (
 								<div
-									className="mb-1.5 flex items-center gap-3 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2 text-[11px]"
+									className="mb-1.5 flex items-center gap-3 rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2 text-[11px]"
 									key={source}
 								>
 									<span className="font-mono font-medium text-(--omp-text)">{source}</span>

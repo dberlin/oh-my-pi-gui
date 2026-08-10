@@ -75,7 +75,7 @@ export function Tabs({ tabs, activeId, onChange, compact, className, ariaLabel }
 					>
 						{tab.label}
 						{tab.badge !== undefined && (
-							<span className="ml-1.5 rounded-full bg-(--omp-bg-tertiary) px-1.5 py-px text-[9px] tabular-nums text-(--omp-muted)">
+							<span className="ml-1.5 rounded-full border border-(--omp-border-muted) bg-transparent px-1.5 py-px text-[9px] tabular-nums text-(--omp-muted)">
 								{tab.badge}
 							</span>
 						)}

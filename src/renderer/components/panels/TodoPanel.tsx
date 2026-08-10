@@ -312,7 +312,7 @@ export function TodoPanel() {
 	return (
 		<div className="flex h-full flex-col">
 			{reminderVisible && (
-				<div className="mx-2 mt-2 flex items-start gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_40%,transparent)] bg-[color-mix(in_srgb,var(--omp-warning)_10%,transparent)] px-2.5 py-2">
+				<div className="mx-2 mt-2 flex items-start gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_40%,transparent)] bg-transparent px-2.5 py-2">
 					<AlertTriangle className="mt-px shrink-0 text-(--omp-warning)" size={13} />
 					<div className="min-w-0 flex-1 text-[11px] leading-snug text-(--omp-warning)">
 						<span className="font-semibold">{t("todoPanel.reminder")}</span>

@@ -57,7 +57,7 @@ const SubagentRow = memo(function SubagentRow({
 			)}
 			<div
 				className={cx(
-					"relative overflow-hidden rounded-lg bg-(--omp-bg-secondary) transition-colors duration-150 hover:bg-(--omp-bg-tertiary)",
+					"relative overflow-hidden rounded-lg border border-(--omp-border-muted) bg-transparent transition-colors duration-150 hover:bg-(--omp-bg-tertiary)",
 					agent.status === "cancelled" && "opacity-70",
 				)}
 			>

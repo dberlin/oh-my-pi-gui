@@ -701,7 +701,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 				</div>
 
 				{failedSections.length > 0 && (
-					<div className="shrink-0 rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--omp-warning)_8%,transparent)] px-3 py-2 text-[11px] text-(--omp-warning)">
+					<div className="shrink-0 rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-[11px] text-(--omp-warning)">
 						{t("modelCompare.partialWarning", { what: failedSections.join(", ") })}
 					</div>
 				)}

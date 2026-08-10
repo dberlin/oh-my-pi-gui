@@ -222,7 +222,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 		<div className="flex max-h-[70vh] flex-col">
 			<div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
 				{readonly && (
-					<div className="rounded-md bg-(--omp-bg-tertiary) px-3 py-2 text-[12px] text-(--omp-muted)">
+					<div className="rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2 text-[12px] text-(--omp-muted)">
 						{t("providerCfg.form.builtinReadonly")}
 					</div>
 				)}
@@ -413,7 +413,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 				</div>
 
 				{submitError && (
-					<div className="rounded-md bg-(--omp-tool-error-bg) px-3 py-2 text-[12px] text-(--omp-error)">
+					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2 text-[12px] text-(--omp-error)">
 						{t("providerCfg.toast.saveFailed")}: {submitError}
 					</div>
 				)}
@@ -449,7 +449,7 @@ function ProviderConfigRow({
 	t: TFn;
 }) {
 	return (
-		<div className="flex items-center gap-3 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2.5">
+		<div className="flex items-center gap-3 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex items-center gap-2">
 					<span className="truncate text-[13px] font-medium text-(--omp-text)">{provider.id}</span>
@@ -607,7 +607,7 @@ export function ProviderConfigDialog({ open, onClose, editProvider = null }: Pro
 						</div>
 
 						{listError && (
-							<div className="flex items-center gap-2 rounded-md bg-(--omp-tool-error-bg) px-3 py-2 text-[12px] text-(--omp-error)">
+							<div className="flex items-center gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2 text-[12px] text-(--omp-error)">
 								<span className="min-w-0 flex-1">
 									{t("providerCfg.list.loadFailed")}: {listError}
 								</span>

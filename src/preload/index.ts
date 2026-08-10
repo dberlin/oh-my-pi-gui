@@ -51,6 +51,9 @@ import type {
 	RpcLiveUpdateFrame,
 	RpcMcpServerInput,
 	RpcResponse,
+	RpcSecurityDispositionStatus,
+	RpcSecurityTargetInput,
+	RpcSshHostInput,
 	SessionInfoUpdateFrame,
 	SubagentFrame,
 	ThinkingLevel,
@@ -250,6 +253,7 @@ const api: OmpApi = {
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
 		getAvailableCommands: () => rpcCommand({ type: "get_available_commands" }),
 		getSkills: () => rpcCommand({ type: "get_skills" }),
+		getSkillDetail: (name: string) => rpcCommand({ type: "get_skill_detail", name }),
 		getAgentDefinitions: () => rpcCommand({ type: "get_agent_definitions" }),
 		getHooks: () => rpcCommand({ type: "get_hooks" }),
 		getMcpServers: () => rpcCommand({ type: "get_mcp_servers" }),
@@ -257,6 +261,29 @@ const api: OmpApi = {
 		getMarketplaces: () => rpcCommand({ type: "get_marketplaces" }),
 		getPromptTemplates: () => rpcCommand({ type: "get_prompt_templates" }),
 		getMemoryReport: () => rpcCommand({ type: "get_memory_report" }),
+		getSecurityDashboard: () => rpcCommand({ type: "get_security_dashboard" }, 60_000),
+		getSecurityScan: (scanId: string) => rpcCommand({ type: "get_security_scan", scanId }, 30_000),
+		securityStart: (target: RpcSecurityTargetInput) => rpcCommand({ type: "security_start", target }, 120_000),
+		securityCancel: (operationId: string) => rpcCommand({ type: "security_cancel", operationId }),
+		securityValidate: (scanId: string, findingId: string) =>
+			rpcCommand({ type: "security_validate", scanId, findingId }, 30_000),
+		securitySetDisposition: (
+			scanId: string,
+			findingId: string,
+			status: RpcSecurityDispositionStatus,
+			rationale?: string,
+		) => rpcCommand({ type: "security_set_disposition", scanId, findingId, status, rationale }),
+		getSshHosts: () => rpcCommand({ type: "get_ssh_hosts" }, 30_000),
+		sshManage: (payload: {
+			action: "create" | "update" | "delete";
+			scope: "user" | "project";
+			name: string;
+			previousName?: string;
+			previousScope?: "user" | "project";
+			host?: RpcSshHostInput;
+		}) => rpcCommand({ type: "ssh_manage", ...payload }, 30_000),
+		sshTest: (host: RpcSshHostInput & { name: string }) => rpcCommand({ type: "ssh_test", host }, 60_000),
+		getOmpUpdate: () => rpcCommand({ type: "get_omp_update" }, 60_000),
 		getContextReport: () => rpcCommand({ type: "get_context_report" }),
 		// Uploads + seals the session snapshot to the share server — network-bound.
 		shareSession: () => rpcCommand({ type: "share_session" }, 120_000),
@@ -281,6 +308,12 @@ const api: OmpApi = {
 		getLoopMode: () => rpcCommand({ type: "get_loop_mode" }),
 		setLoopMode: (enabled: boolean, args?: string) => rpcCommand({ type: "set_loop_mode", enabled, args }),
 		setSkillEnabled: (name: string, enabled: boolean) => rpcCommand({ type: "set_skill_enabled", name, enabled }),
+		manageSkill: (args: {
+			action: "create" | "update" | "delete";
+			name: string;
+			description?: string;
+			body?: string;
+		}) => rpcCommand({ type: "manage_skill", ...args }),
 		setHookEnabled: (hookId: string, enabled: boolean) => rpcCommand({ type: "set_hook_enabled", hookId, enabled }),
 		setPluginEnabled: (pluginId: string, enabled: boolean, scope?: "user" | "project") =>
 			rpcCommand({ type: "set_plugin_enabled", pluginId, enabled, scope }),

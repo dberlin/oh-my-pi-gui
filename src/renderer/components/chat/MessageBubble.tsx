@@ -107,7 +107,7 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 	const failed = !running && (message.cancelled || (message.exitCode != null && message.exitCode !== 0));
 
 	return (
-		<div className="omp-fade-up px-6 py-4">
+		<div className="omp-execution-turn omp-fade-up px-6 py-4">
 			<div className="overflow-hidden rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] shadow-[var(--omp-shadow-sm)]">
 				<div className="flex items-center gap-2 border-b border-[var(--omp-border-muted)] px-3.5 py-2">
 					<Terminal className="text-[var(--omp-status-path)]" size={13} />
@@ -174,7 +174,7 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 				: t("chat.context.referencedFiles");
 
 	return (
-		<div className="omp-fade-up px-6 py-3">
+		<div className="omp-context-turn omp-fade-up px-6 py-3">
 			<div className="rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-bg-tertiary)] px-3.5 py-3">
 				<div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold tracking-[0.12em] text-[var(--omp-status-context)] uppercase">
 					{isFiles ? <FileText size={12} /> : <Archive size={12} />}

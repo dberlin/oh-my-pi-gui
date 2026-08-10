@@ -304,7 +304,7 @@ function SessionRootNode({ x, y }: { x: number; y: number }) {
 	const t = useT();
 	return (
 		<div
-			className="absolute flex items-center gap-1.5 rounded-md border border-dashed border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-2"
+			className="absolute flex items-center gap-1.5 rounded-md border border-dashed border-(--omp-border-muted) bg-transparent px-2"
 			style={{ left: x, top: y, width: TREE_NODE_WIDTH, height: TREE_ROOT_HEIGHT }}
 		>
 			<Play className="shrink-0 text-(--omp-dim)" size={11} />

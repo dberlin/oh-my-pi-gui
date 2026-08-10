@@ -145,7 +145,7 @@ export function McpServerCard({
 	const target = (server.transport === "stdio" ? server.command : server.url) ?? server.command ?? server.url;
 
 	return (
-		<div className="flex flex-col rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2.5">
+		<div className="flex flex-col rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
 			<div className="flex items-center gap-3">
 				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
 					<span className="font-mono text-[12px] font-medium text-(--omp-text)">{server.name}</span>
@@ -241,7 +241,7 @@ export function McpServerCard({
 				<McpTestResultView className="mt-1.5" onDismiss={onDismissTest} testing={testing} view={testView} />
 			)}
 			{reauth !== null && (
-				<div className="mt-1.5 flex items-center gap-2 rounded-md bg-(--omp-bg-tertiary) px-2.5 py-1.5">
+				<div className="mt-1.5 flex items-center gap-2 rounded-md border border-(--omp-border-muted) bg-transparent px-2.5 py-1.5">
 					<Spinner size="sm" />
 					<span className="min-w-0 flex-1 text-[11px] text-(--omp-muted)">{t("mcp.reauth.running")}</span>
 					<Button disabled={reauth === "cancelling"} onClick={onReauthCancel} size="sm" variant="ghost">
@@ -250,7 +250,7 @@ export function McpServerCard({
 				</div>
 			)}
 			{confirmingRemove && (
-				<div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-(--omp-tool-error-bg) px-2.5 py-1.5">
+				<div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2.5 py-1.5">
 					<span className="min-w-0 flex-1 text-[11px] text-(--omp-error)">
 						{t("extPanel.mcp.removeConfirm", { name: server.name })}
 					</span>

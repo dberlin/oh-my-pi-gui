@@ -542,7 +542,7 @@ export function ChatStream() {
 	// no separate fetch here (that would double-download the transcript).
 
 	return (
-		<div className="omp-transcript-editorial relative min-h-0 flex-1 bg-[var(--omp-bg-primary)]">
+		<div className="omp-transcript-editorial relative min-h-0 flex-1 bg-transparent">
 			<div
 				ref={parentRef}
 				onScroll={handleScroll}
@@ -558,7 +558,7 @@ export function ChatStream() {
 					</div>
 				)}
 				{rows.length === 0 && !isStreaming && (
-					<div className="omp-empty-canvas mx-auto flex min-h-full w-full max-w-[900px] flex-col justify-center px-6 pb-20">
+					<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
 						<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)]">
 							<PiLogo size={22} />
 						</div>
@@ -629,7 +629,7 @@ export function ChatStream() {
 										<button
 											type="button"
 											onClick={() => setPreCompactionOpen(true)}
-											className="omp-pressable mx-6 my-2 flex items-center gap-2 rounded-lg border border-[var(--omp-border)] bg-[var(--omp-bg-secondary)] px-3 py-1.5 text-[11.5px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+											className="omp-history-expander omp-pressable mx-6 my-2 flex items-center gap-2 rounded-lg border border-[var(--omp-border)] bg-[var(--omp-bg-secondary)] px-3 py-1.5 text-[11.5px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
 										>
 											{t("chat.compaction.showEarlier", { count: row.count })}
 										</button>
@@ -916,7 +916,7 @@ export function TurnStatusRow() {
 	}
 
 	return (
-		<div className="omp-fade-in flex flex-col gap-1 px-6 py-4 text-[13px] text-[var(--omp-muted)]">
+		<div className="omp-status-turn omp-fade-in flex flex-col gap-1 px-6 py-4 text-[13px] text-[var(--omp-muted)]">
 			<div className="flex items-center gap-2.5">
 				<Loader2 size={14} className={cx("animate-spin shrink-0", iconClass)} />
 				<span>{text}</span>

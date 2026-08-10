@@ -1,6 +1,6 @@
 import { Bot, ClipboardList, Diff, FolderTree, ListOrdered, ListTodo, ScrollText, X } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -20,9 +20,13 @@ import { SubagentPanel } from "../panels/SubagentPanel";
 import { isLiveSubagentStatus } from "../panels/subagent-graph";
 import { TodoPanel } from "../panels/TodoPanel";
 
-const MIN_WIDTH = 320;
-const MAX_WIDTH = 680;
-const DEFAULT_WIDTH = 400;
+const MIN_WIDTH = 360;
+const MAX_WIDTH = 840;
+
+function defaultPanelWidth(): number {
+	const viewportWidth = Number.isFinite(window.innerWidth) && window.innerWidth > 0 ? window.innerWidth : 1440;
+	return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(viewportWidth * 0.28)));
+}
 
 const TABS: { id: PanelTab; labelKey: string; icon: typeof Bot }[] = [
 	{ id: "todo", labelKey: "panel.tabs.todo", icon: ListTodo },
@@ -55,8 +59,17 @@ export function PanelContainer() {
 	const visibleTabs = isChat ? TABS.filter(tab => CHAT_TAB_IDS.has(tab.id)) : TABS;
 	const visiblePanelTab = isChat && !CHAT_TAB_IDS.has(panelTab) ? "files" : panelTab;
 
-	const [width, setWidth] = useState(DEFAULT_WIDTH);
+	const [width, setWidth] = useState(defaultPanelWidth);
 	const dragging = useRef(false);
+
+	useEffect(() => {
+		const clampToViewport = () => {
+			const viewportLimit = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - 56));
+			setWidth(current => Math.min(current, viewportLimit));
+		};
+		window.addEventListener("resize", clampToViewport);
+		return () => window.removeEventListener("resize", clampToViewport);
+	}, []);
 
 	const startDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
 		dragging.current = true;
@@ -69,7 +82,8 @@ export function PanelContainer() {
 		const host = e.currentTarget.parentElement;
 		if (!host) return;
 		const hostRect = host.getBoundingClientRect();
-		const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, hostRect.right - e.clientX));
+		const hostLimit = Math.min(MAX_WIDTH, Math.round(hostRect.width * 0.55));
+		const next = Math.min(hostLimit, Math.max(MIN_WIDTH, hostRect.right - e.clientX));
 		setWidth(next);
 	}, []);
 
@@ -85,7 +99,7 @@ export function PanelContainer() {
 		<aside
 			aria-busy={!routeReady}
 			className={cx(
-				"omp-inspector relative flex h-full shrink-0 flex-col border-l border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]",
+				"omp-inspector relative flex h-full shrink-0 flex-col border-l border-[var(--omp-border-muted)] bg-[var(--omp-bg-primary)]",
 				!routeReady && "pointer-events-none",
 			)}
 			style={{ width }}
@@ -128,7 +142,7 @@ export function PanelContainer() {
 							)}
 						>
 							<Icon size={14} />
-							<span className="hidden min-[1180px]:inline">{t(labelKey)}</span>
+							<span className="omp-inspector-tab-label">{t(labelKey)}</span>
 							{badge != null && (
 								<span
 									className={cx(

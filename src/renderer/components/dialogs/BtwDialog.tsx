@@ -82,7 +82,7 @@ export function BtwDialog() {
 
 	return (
 		<Modal onClose={close} open={question !== null} size="lg" title={t("btw.title")}>
-			<div className="mb-4 flex items-start gap-2 rounded-lg bg-(--omp-bg-tertiary) px-3 py-2.5 text-xs text-(--omp-dim)">
+			<div className="mb-4 flex items-start gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5 text-xs text-(--omp-dim)">
 				<MessageCircleQuestion className="mt-0.5 shrink-0" size={14} />
 				<span className="whitespace-pre-wrap">{question}</span>
 			</div>
@@ -91,7 +91,7 @@ export function BtwDialog() {
 					<Spinner size="sm" /> {t("btw.thinking")}
 				</div>
 			) : error ? (
-				<div className="rounded-lg border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-[color-mix(in_srgb,var(--omp-error)_8%,transparent)] p-3 text-sm text-[var(--omp-error)]">
+				<div className="rounded-lg border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent p-3 text-sm text-[var(--omp-error)]">
 					{error}
 				</div>
 			) : result ? (

@@ -373,7 +373,7 @@ const DefinitionRow = memo(function DefinitionRow({
 	const submit = () => onSaveModel(entry.name, draft);
 
 	return (
-		<div className="rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2">
+		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2">
 			<div className="flex items-center gap-2.5">
 				<span
 					className={cx(
@@ -687,7 +687,7 @@ const HubRow = memo(function HubRow({
 	const revivable = parked && agent.kind !== "advisor";
 
 	return (
-		<div className="rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary)">
+		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent">
 			<div className="flex items-center">
 				<button
 					className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-2 text-left"
@@ -731,7 +731,7 @@ const HubRow = memo(function HubRow({
 							type="button"
 							title={t("agentHub.hub.confirmAbort")}
 							onClick={onAbortConfirm}
-							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md bg-(--omp-error-dim) text-(--omp-error)"
+							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent text-(--omp-error)"
 						>
 							<Check size={12} />
 						</button>

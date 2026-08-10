@@ -48,14 +48,21 @@ kbd,
 }
 
 /* ============================================================================
-   Ambient depth — the app shell sits on layered surfaces, never flat
+   App surface — keep the workspace flat; depth belongs to actual overlays
    ============================================================================ */
 
 .omp-surface-depth {
-	background:
-		radial-gradient(1100px 460px at 72% -12%, color-mix(in srgb, var(--omp-accent) 7%, transparent), transparent 62%),
-		radial-gradient(800px 360px at 14% 112%, color-mix(in srgb, var(--omp-accent) 4%, transparent), transparent 58%),
-		var(--omp-bg-primary);
+	background: var(--omp-bg-primary);
+}
+
+.omp-workspace-main,
+.settings-main-canvas {
+	background: var(--omp-bg-primary);
+}
+
+:root[data-theme="light"] .omp-workspace-main,
+:root[data-theme="light"] .settings-main-canvas {
+	background: var(--omp-bg-elevated);
 }
 
 /* ============================================================================
@@ -320,14 +327,247 @@ kbd,
 
 /* Compact windows: keep the conversation wide and present the inspector as
    an explicit overlay when the user opens it. */
+.omp-inspector {
+	container: omp-inspector / inline-size;
+	box-shadow: none;
+}
+
+.omp-inspector-tab-label {
+	display: none;
+}
+
+@container omp-inspector (min-width: 520px) {
+	.omp-inspector-tab-label {
+		display: inline;
+	}
+}
+
 @media (max-width: 1000px) {
 	.omp-inspector {
 		position: absolute;
 		inset-block: 0;
 		right: 0;
 		z-index: 30;
-		width: min(360px, calc(100vw - 64px)) !important;
-		box-shadow: var(--omp-shadow-lg);
+		width: min(460px, calc(100vw - 56px)) !important;
+		box-shadow: -8px 0 24px rgba(24, 28, 33, 0.08);
+	}
+}
+
+/* ============================================================================
+   Settings workspace — container-driven reflow across every page archetype
+   ============================================================================ */
+
+.settings-sidebar {
+	width: 14rem;
+}
+
+.settings-content {
+	container: settings-content / inline-size;
+}
+
+.settings-capability-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 0.75rem;
+}
+
+.settings-capability-featured {
+	grid-column: 1 / -1;
+}
+
+.settings-capability-featured > div {
+	max-width: 72rem;
+}
+
+.settings-field-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(13rem, 16rem);
+	align-items: start;
+	gap: 1rem;
+}
+
+.settings-field-control {
+	min-width: 0;
+	width: 100%;
+}
+
+.settings-embedded-panel {
+	min-height: 0;
+}
+
+.skills-master-detail {
+	display: grid;
+	grid-template-columns: minmax(13.75rem, 17.5rem) minmax(0, 1fr);
+	/* Consume the available settings viewport. The previous 52rem ceiling
+	   left most of high-resolution windows blank, especially below 100% GUI
+	   scale, and made the skill document look like a cropped preview. */
+	height: max(28rem, calc(100dvh - 11.5rem));
+	background: transparent;
+}
+
+.skills-preview-pane {
+	background: transparent;
+}
+
+.skills-list-pane,
+.skills-detail-pane,
+.ssh-list-pane,
+.ssh-detail-pane,
+.security-findings-pane,
+.security-insights-pane {
+	min-height: 0;
+}
+
+.skills-list-pane,
+.ssh-list-pane,
+.security-findings-pane {
+	border-right: 1px solid var(--omp-border-muted);
+}
+
+.ssh-master-detail {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(20rem, 22.5rem);
+	height: clamp(26rem, calc(100dvh - 13rem), 47.5rem);
+}
+
+.security-revision-grid {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.security-master-detail {
+	display: grid;
+	grid-template-columns: minmax(0, 2fr) minmax(14.375rem, 1fr);
+	min-height: 24.375rem;
+}
+
+.security-finding-detail {
+	grid-template-columns: minmax(0, 1.4fr) minmax(13.75rem, 1fr);
+}
+
+.updates-row {
+	display: grid;
+	grid-template-columns: 2rem minmax(0, 1fr) 6.875rem 6.875rem auto;
+}
+
+@container settings-content (max-width: 1600px) {
+	.settings-capability-grid {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+@container settings-content (max-width: 1100px) {
+	.settings-capability-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 960px) {
+	.settings-sidebar {
+		width: 4rem;
+	}
+
+	.settings-sidebar > :first-child {
+		justify-content: center;
+		padding-inline: 0;
+	}
+
+	.settings-sidebar > :last-child {
+		padding-inline: 0.5rem;
+	}
+
+	.settings-nav-label,
+	.settings-nav-group-label {
+		display: none;
+	}
+
+	.settings-nav-group {
+		margin-top: 0.5rem;
+	}
+
+	.settings-nav-item {
+		justify-content: center;
+		padding-inline: 0;
+	}
+}
+
+@container settings-content (max-width: 1040px) {
+	.ssh-master-detail {
+		grid-template-columns: minmax(0, 1fr);
+		height: auto;
+	}
+
+	.ssh-list-pane {
+		min-height: 16rem;
+		border-right: 0;
+		border-bottom: 1px solid var(--omp-border-muted);
+	}
+
+	.ssh-detail-pane {
+		max-height: none;
+	}
+}
+
+@container settings-content (max-width: 840px) {
+	.skills-master-detail,
+	.security-master-detail {
+		grid-template-columns: minmax(0, 1fr);
+		height: auto;
+	}
+
+	.skills-list-pane {
+		height: min(17rem, 42dvh);
+		border-right: 0;
+		border-bottom: 1px solid var(--omp-border-muted);
+	}
+
+	.skills-detail-pane {
+		min-height: 24rem;
+	}
+
+	.security-findings-pane {
+		border-right: 0;
+		border-bottom: 1px solid var(--omp-border-muted);
+	}
+
+	.security-insights-pane {
+		min-height: 12rem;
+	}
+}
+
+@container settings-content (max-width: 700px) {
+	.settings-capability-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.settings-field-row,
+	.security-revision-grid,
+	.security-finding-detail {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.updates-row {
+		grid-template-columns: 2rem minmax(0, 1fr);
+		align-items: start;
+	}
+
+	.updates-icon {
+		grid-column: 1;
+		grid-row: 1;
+	}
+
+	.updates-copy,
+	.updates-current,
+	.updates-latest,
+	.updates-action {
+		grid-column: 2;
+	}
+
+	.updates-action {
+		justify-self: start;
+	}
+
+	.settings-management-toolbar {
+		flex-wrap: wrap;
 	}
 }
 

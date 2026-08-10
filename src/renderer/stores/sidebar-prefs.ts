@@ -77,7 +77,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 	setGroupAlias: (cwd, alias) => {
 		set(state => {
 			const groupAliases = { ...state.groupAliases };
-			if (alias && alias.trim()) groupAliases[cwd] = alias.trim();
+			if (alias?.trim()) groupAliases[cwd] = alias.trim();
 			else delete groupAliases[cwd];
 			return { groupAliases };
 		});

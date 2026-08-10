@@ -107,7 +107,7 @@ function SettingFieldRow({
 			<span className="flex shrink-0 items-center gap-0.5">
 				<button
 					aria-label={t("pluginDetail.resetConfirm")}
-					className="omp-pressable flex h-5 w-5 items-center justify-center rounded bg-(--omp-error-dim) text-(--omp-error) disabled:opacity-40"
+					className="omp-pressable flex h-5 w-5 items-center justify-center rounded border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent text-(--omp-error) disabled:opacity-40"
 					disabled={resetState === "busy"}
 					onClick={onResetConfirm}
 					title={t("pluginDetail.resetConfirm")}
@@ -593,7 +593,7 @@ export function PluginDetailDrawer({
 								</div>
 							) : (
 								<>
-									<div className="flex flex-col rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary)">
+									<div className="flex flex-col rounded-lg border border-(--omp-border-muted) bg-transparent">
 										{detail.features.map(feature => (
 											<label
 												className="flex cursor-pointer items-start gap-2.5 border-b border-(--omp-border-muted) px-3 py-2 last:border-0 hover:bg-(--omp-selected-bg)"
@@ -649,7 +649,7 @@ export function PluginDetailDrawer({
 								</div>
 							) : (
 								<>
-									<div className="flex flex-col rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary)">
+									<div className="flex flex-col rounded-lg border border-(--omp-border-muted) bg-transparent">
 										{fields.map(field => (
 											<SettingFieldRow
 												draft={drafts[field.key]}

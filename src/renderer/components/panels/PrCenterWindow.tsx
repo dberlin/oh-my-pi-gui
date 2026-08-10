@@ -132,7 +132,11 @@ export function PrCenterWindow() {
 					<div className="flex min-h-0 flex-1">
 						{/* List pane */}
 						<div className="flex w-[300px] shrink-0 flex-col overflow-y-auto border-r border-(--omp-border-muted) p-2">
-							{error && <p className="mb-2 rounded-md bg-(--omp-error-dim) px-2 py-1.5 text-[11px] text-(--omp-error)">{error}</p>}
+							{error && (
+								<p className="mb-2 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2 py-1.5 text-[11px] text-(--omp-error)">
+									{error}
+								</p>
+							)}
 							{listLoading && list.length === 0 ? (
 								<div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-(--omp-dim)">
 									<Spinner size="sm" /> {t("prCenter.loading")}

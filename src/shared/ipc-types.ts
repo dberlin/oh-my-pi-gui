@@ -23,6 +23,9 @@ import type {
 	RpcLiveUpdateFrame,
 	RpcMcpServerInput,
 	RpcResponse,
+	RpcSecurityDispositionStatus,
+	RpcSecurityTargetInput,
+	RpcSshHostInput,
 	SessionInfoUpdateFrame,
 	SidecarStatus,
 	SubagentFrame,
@@ -739,6 +742,7 @@ export interface OmpApi {
 		getModelRoleMetadata(): Promise<RpcResponse>;
 		getAvailableCommands(): Promise<RpcResponse>;
 		getSkills(): Promise<RpcResponse>;
+		getSkillDetail(name: string): Promise<RpcResponse>;
 		getAgentDefinitions(): Promise<RpcResponse>;
 		getHooks(): Promise<RpcResponse>;
 		getMcpServers(): Promise<RpcResponse>;
@@ -746,6 +750,28 @@ export interface OmpApi {
 		getMarketplaces(): Promise<RpcResponse>;
 		getPromptTemplates(): Promise<RpcResponse>;
 		getMemoryReport(): Promise<RpcResponse>;
+		getSecurityDashboard(): Promise<RpcResponse>;
+		getSecurityScan(scanId: string): Promise<RpcResponse>;
+		securityStart(target: RpcSecurityTargetInput): Promise<RpcResponse>;
+		securityCancel(operationId: string): Promise<RpcResponse>;
+		securityValidate(scanId: string, findingId: string): Promise<RpcResponse>;
+		securitySetDisposition(
+			scanId: string,
+			findingId: string,
+			status: RpcSecurityDispositionStatus,
+			rationale?: string,
+		): Promise<RpcResponse>;
+		getSshHosts(): Promise<RpcResponse>;
+		sshManage(payload: {
+			action: "create" | "update" | "delete";
+			scope: "user" | "project";
+			name: string;
+			previousName?: string;
+			previousScope?: "user" | "project";
+			host?: RpcSshHostInput;
+		}): Promise<RpcResponse>;
+		sshTest(host: RpcSshHostInput & { name: string }): Promise<RpcResponse>;
+		getOmpUpdate(): Promise<RpcResponse>;
 		getContextReport(): Promise<RpcResponse>;
 		shareSession(): Promise<RpcResponse>;
 		getJobs(): Promise<RpcResponse>;
@@ -775,6 +801,12 @@ export interface OmpApi {
 		getLoopMode(): Promise<RpcResponse>;
 		setLoopMode(enabled: boolean, args?: string): Promise<RpcResponse>;
 		setSkillEnabled(name: string, enabled: boolean): Promise<RpcResponse>;
+		manageSkill(args: {
+			action: "create" | "update" | "delete";
+			name: string;
+			description?: string;
+			body?: string;
+		}): Promise<RpcResponse>;
 		setHookEnabled(hookId: string, enabled: boolean): Promise<RpcResponse>;
 		setPluginEnabled(pluginId: string, enabled: boolean, scope?: "user" | "project"): Promise<RpcResponse>;
 		mcpAction(

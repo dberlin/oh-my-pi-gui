@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-08-10
+
+### Added
+
+- **Native management surfaces**: Settings now exposes dedicated Skills, MCP, Security Center, SSH Hosts, and Updates pages backed by native RPC instead of hiding these workflows behind commands.
+- **Skills and operations controls**: inspect installed skills, enable or disable them by scope, preview their full instructions, audit the active repository, and manage reusable SSH targets from the GUI.
+
+### Changed
+
+- **Responsive application shell**: settings pages, center content, dialogs, drawers, tabs, and activity panels now size from the available viewport instead of fixed desktop measurements; wide displays use the space without stretching content into unreadable lines, while compact windows reflow controls and columns.
+- **Quieter visual hierarchy**: management pages use the window surface as their canvas, reserve tint for selection and status, remove nested grey/green panel fills, reduce decorative borders, and let long previews grow with the page instead of clipping them into a short inset box.
+- **Settings information architecture**: OMP capabilities, extensions, operations, configuration, and application concerns are separated into discoverable left-navigation groups with localized labels and search support.
+
+### Fixed
+
+- **Auto-update release discovery**: update errors are normalized into actionable UI state, and the release pipeline now publishes `latest-mac.yml`, ZIP payloads, and blockmaps alongside both DMGs so packaged clients can actually resolve and download the newest version.
+- **Dialog and drawer containment**: stacked overlays share a single top-layer contract, preserve focus ownership, fit narrow windows, and keep every tab and footer action reachable without overflowing the viewport.
+- **Skills, MCP, and inventory layouts**: removed fixed preview heights and oversized tinted containers that left most of the window empty or made content look disabled; empty, loading, error, and populated states now share the same responsive geometry.
+- **Renderer presentation regressions**: compacted message/tool rows no longer reserve blank bands, and status, badges, cards, and navigation keep consistent contrast without unexplained dark or colored backgrounds.
+
 ## [0.7.1] - 2026-08-10
 
 ### Added

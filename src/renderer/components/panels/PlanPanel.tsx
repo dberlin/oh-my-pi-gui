@@ -331,7 +331,7 @@ export function PlanPanel() {
 	return (
 		<div className="flex h-full flex-col">
 			{/* Status card: mode badge, toggle, live plan path. */}
-			<div className="mx-2 mt-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-2.5 py-2">
+			<div className="mx-2 mt-2 rounded-md border border-(--omp-border-muted) bg-transparent px-2.5 py-2">
 				<div className="flex items-center gap-2">
 					<Badge
 						dot={planModeEnabled}
@@ -374,7 +374,7 @@ export function PlanPanel() {
 						<span
 							className={cx(
 								"absolute top-1/2 left-0.5 size-3 -translate-y-1/2 rounded-full transition-transform duration-150",
-								planModeEnabled ? "translate-x-3 bg-black/70" : "translate-x-0 bg-(--omp-muted)",
+								planModeEnabled ? "translate-x-3 bg-white" : "translate-x-0 bg-(--omp-muted)",
 							)}
 						/>
 					</button>
@@ -498,7 +498,7 @@ export function PlanPanel() {
 														</button>
 													</div>
 													{stepFeedback?.step.index === step.index && (
-														<div className="mb-1 rounded border border-(--omp-border-muted) bg-(--omp-bg-tertiary) p-1.5">
+														<div className="mb-1 rounded border border-(--omp-border-muted) bg-transparent p-1.5">
 															<TextArea
 																autoFocus
 																onChange={event =>

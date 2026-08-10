@@ -15,7 +15,7 @@
  *   <InventoryPanel open={inventoryOpen} onClose={() => setInventoryOpen(false)} />
  */
 
-import { ChevronDown, ChevronRight, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, PackageOpen, RefreshCw, Search, Store } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	RpcMarketplacesResult,
@@ -26,10 +26,12 @@ import type {
 	RpcPromptTemplatesResult,
 	RpcResponse,
 } from "../../../shared/rpc-types";
+import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Modal, Spinner, type TabItem, Tabs } from "../common";
 import { AddMarketplaceForm, MarketplaceCard } from "./inventory/MarketplacesSection";
@@ -44,6 +46,8 @@ interface RpcResource<T> {
 	data: T | null;
 	error: string | null;
 	loading: boolean;
+	ready: boolean;
+	routeKey: string;
 	/** True once a fetch has succeeded; cached until the next manual refresh. */
 	loaded: boolean;
 	reload: () => Promise<void>;
@@ -53,22 +57,31 @@ interface RpcResource<T> {
 function useRpcResource<T>(fetcher: () => Promise<RpcResponse>): RpcResource<T> {
 	const t = useT();
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
+	const cwd = useSessionStore(s => s.cwd);
+	const activeTabId = useTabsStore(s => s.activeTabId);
+	const routeReady = useActiveTabRouteReady();
+	const routeKey = `${activeTabId ?? "none"}:${cwd}`;
 	const fetcherRef = useRef(fetcher);
 	fetcherRef.current = fetcher;
+	const requestRef = useRef(0);
+	const routeRef = useRef(routeKey);
 	const [data, setData] = useState<T | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [loaded, setLoaded] = useState(false);
 
 	const reload = useCallback(async () => {
-		if (!sidecarReady) {
+		if (!sidecarReady || !routeReady) {
 			setError(t("invPanel.notConnected"));
 			return;
 		}
+		const request = ++requestRef.current;
+		const requestRoute = routeKey;
 		setLoading(true);
 		setError(null);
 		try {
 			const res = await fetcherRef.current();
+			if (request !== requestRef.current || requestRoute !== routeRef.current) return;
 			if (res.success) {
 				setData(res.data as T);
 				setLoaded(true);
@@ -76,31 +89,59 @@ function useRpcResource<T>(fetcher: () => Promise<RpcResponse>): RpcResource<T> 
 				setError(res.error);
 			}
 		} catch (cause) {
-			setError(String(cause));
+			if (request === requestRef.current && requestRoute === routeRef.current) setError(String(cause));
 		} finally {
-			setLoading(false);
+			if (request === requestRef.current && requestRoute === routeRef.current) setLoading(false);
 		}
-	}, [sidecarReady, t]);
+	}, [sidecarReady, routeReady, routeKey, t]);
 
-	return { data, error, loading, loaded, reload };
+	useEffect(() => {
+		routeRef.current = routeKey;
+		requestRef.current += 1;
+		setData(null);
+		setError(null);
+		setLoading(false);
+		setLoaded(false);
+	}, [routeKey]);
+
+	return { data, error, loading, loaded, ready: sidecarReady && routeReady, routeKey, reload };
 }
 
 /**
  * Load a tab's resource the first time it becomes visible. Failures leave
  * `loaded` false, so revisiting the tab retries once; successes stay cached.
  */
-function useAutoLoad(resource: Pick<RpcResource<unknown>, "loaded" | "loading" | "reload">, visible: boolean): void {
+function useAutoLoad(
+	resource: Pick<RpcResource<unknown>, "loaded" | "loading" | "ready" | "reload" | "routeKey">,
+	visible: boolean,
+): void {
 	const attemptedRef = useRef(false);
-	const { loaded, loading, reload } = resource;
+	const routeRef = useRef(resource.routeKey);
+	const { loaded, loading, ready, reload, routeKey } = resource;
 	useEffect(() => {
-		if (!visible) {
+		if (routeRef.current !== routeKey) {
+			routeRef.current = routeKey;
+			attemptedRef.current = false;
+		}
+		if (!visible || !ready) {
 			attemptedRef.current = false;
 			return;
 		}
 		if (attemptedRef.current || loaded || loading) return;
 		attemptedRef.current = true;
-		void reload();
-	}, [visible, loaded, loading, reload]);
+		// This hook lives in a child tab while the route-reset effect lives in
+		// the parent resource hook. Passive effects mount child-first, so an
+		// immediate request can be invalidated by the parent's initial reset and
+		// leave the page blank until Refresh is clicked. Start after the current
+		// effect flush so route refs are authoritative before the request begins.
+		let cancelled = false;
+		queueMicrotask(() => {
+			if (!cancelled) void reload();
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [visible, loaded, loading, ready, reload, routeKey]);
 }
 
 // ============================================================================
@@ -151,6 +192,7 @@ function ListToolbar({
 	loading,
 	onRefresh,
 	t,
+	showSearch = true,
 }: {
 	query: string;
 	onQuery: (value: string) => void;
@@ -160,10 +202,15 @@ function ListToolbar({
 	loading: boolean;
 	onRefresh: () => void;
 	t: TFn;
+	showSearch?: boolean;
 }) {
 	return (
 		<div className="flex items-center gap-2">
-			<SearchBox value={query} onChange={onQuery} placeholder={placeholder} />
+			{showSearch ? (
+				<SearchBox value={query} onChange={onQuery} placeholder={placeholder} />
+			) : (
+				<div className="flex-1" />
+			)}
 			<span className="text-[10px] whitespace-nowrap tabular-nums text-(--omp-dim)">
 				{t("invPanel.count", { shown, total })}
 			</span>
@@ -180,10 +227,27 @@ function Row({ children }: { children: ReactNode }) {
 	);
 }
 
-function EmptyNote({ children }: { children: ReactNode }) {
+function EmptyNote({
+	children,
+	description,
+	action,
+	icon: Icon = PackageOpen,
+}: {
+	children: ReactNode;
+	description?: ReactNode;
+	action?: ReactNode;
+	icon?: typeof PackageOpen;
+}) {
 	return (
-		<div className="rounded-md border border-(--omp-border-muted) px-3 py-4 text-center text-[12px] text-(--omp-dim)">
-			{children}
+		<div className="flex min-h-48 flex-col items-center justify-center rounded-lg border border-dashed border-(--omp-border-muted) px-6 py-8 text-center">
+			<div className="mb-3 flex size-9 items-center justify-center rounded-lg border border-(--omp-border-muted) text-(--omp-dim)">
+				<Icon aria-hidden="true" size={16} strokeWidth={1.7} />
+			</div>
+			<div className="text-[12.5px] font-medium text-(--omp-text)">{children}</div>
+			{description && (
+				<div className="mt-1 max-w-sm text-[11px] leading-relaxed text-(--omp-dim)">{description}</div>
+			)}
+			{action && <div className="mt-4">{action}</div>}
 		</div>
 	);
 }
@@ -345,13 +409,18 @@ function PluginsTab({
 	resource,
 	visible,
 	onOpenDetail,
+	onBrowseMarketplaces,
+	externalQuery,
 }: {
 	resource: RpcResource<RpcPluginsResult>;
 	visible: boolean;
 	onOpenDetail: (plugin: RpcPluginInfo) => void;
+	onBrowseMarketplaces: () => void;
+	externalQuery?: string;
 }) {
 	const t = useT();
-	const [query, setQuery] = useState("");
+	const [localQuery, setLocalQuery] = useState("");
+	const query = externalQuery ?? localQuery;
 	const [busyKey, setBusyKey] = useState<string | null>(null);
 	const [overrides, setOverrides] = useState<Readonly<Record<string, boolean>>>({});
 	useAutoLoad(resource, visible);
@@ -393,18 +462,32 @@ function PluginsTab({
 		<TabPanel visible={visible}>
 			<ListToolbar
 				query={query}
-				onQuery={setQuery}
+				onQuery={setLocalQuery}
 				placeholder={t("invPanel.search.plugins")}
 				shown={plugins.length}
 				total={total}
 				loading={resource.loading}
 				onRefresh={() => void resource.reload()}
 				t={t}
+				showSearch={externalQuery === undefined}
 			/>
 			<ResourceGate resource={resource}>
 				{() =>
 					plugins.length === 0 ? (
-						<EmptyNote>{t(total === 0 ? "invPanel.plugins.empty" : "invPanel.noMatch")}</EmptyNote>
+						total === 0 ? (
+							<EmptyNote
+								action={
+									<Button onClick={onBrowseMarketplaces} size="sm" variant="ghost">
+										{t("invPanel.plugins.browseMarketplaces")}
+									</Button>
+								}
+								description={t("invPanel.plugins.emptyHint")}
+							>
+								{t("invPanel.plugins.empty")}
+							</EmptyNote>
+						) : (
+							<EmptyNote icon={Search}>{t("invPanel.noMatch")}</EmptyNote>
+						)
 					) : (
 						<div className="flex flex-col gap-2">
 							{plugins.map(p => {
@@ -434,9 +517,18 @@ function PluginsTab({
 // Marketplaces tab
 // ============================================================================
 
-function MarketplacesTab({ resource, visible }: { resource: RpcResource<RpcMarketplacesResult>; visible: boolean }) {
+function MarketplacesTab({
+	resource,
+	visible,
+	externalQuery,
+}: {
+	resource: RpcResource<RpcMarketplacesResult>;
+	visible: boolean;
+	externalQuery?: string;
+}) {
 	const t = useT();
-	const [query, setQuery] = useState("");
+	const [localQuery, setLocalQuery] = useState("");
+	const query = externalQuery ?? localQuery;
 	useAutoLoad(resource, visible);
 	const marketplaces = useMemo(
 		() => filterMarketplaces(resource.data?.marketplaces ?? [], query),
@@ -447,20 +539,27 @@ function MarketplacesTab({ resource, visible }: { resource: RpcResource<RpcMarke
 		<TabPanel visible={visible}>
 			<ListToolbar
 				query={query}
-				onQuery={setQuery}
+				onQuery={setLocalQuery}
 				placeholder={t("invPanel.search.marketplaces")}
 				shown={marketplaces.length}
 				total={total}
 				loading={resource.loading}
 				onRefresh={() => void resource.reload()}
 				t={t}
+				showSearch={externalQuery === undefined}
 			/>
 			<ResourceGate resource={resource}>
 				{() => (
 					<>
 						<AddMarketplaceForm onAdded={resource.reload} />
 						{marketplaces.length === 0 ? (
-							<EmptyNote>{t(total === 0 ? "invPanel.marketplaces.empty" : "invPanel.noMatch")}</EmptyNote>
+							total === 0 ? (
+								<EmptyNote description={t("invPanel.marketplaces.emptyHint")} icon={Store}>
+									{t("invPanel.marketplaces.empty")}
+								</EmptyNote>
+							) : (
+								<EmptyNote icon={Search}>{t("invPanel.noMatch")}</EmptyNote>
+							)
 						) : (
 							<div className="flex flex-col gap-2">
 								{marketplaces.map(m => (
@@ -500,9 +599,18 @@ function TemplateRow({ template }: { template: RpcPromptTemplateInfo }) {
 	);
 }
 
-function TemplatesTab({ resource, visible }: { resource: RpcResource<RpcPromptTemplatesResult>; visible: boolean }) {
+function TemplatesTab({
+	resource,
+	visible,
+	externalQuery,
+}: {
+	resource: RpcResource<RpcPromptTemplatesResult>;
+	visible: boolean;
+	externalQuery?: string;
+}) {
 	const t = useT();
-	const [query, setQuery] = useState("");
+	const [localQuery, setLocalQuery] = useState("");
+	const query = externalQuery ?? localQuery;
 	useAutoLoad(resource, visible);
 	const templates = useMemo(() => filterTemplates(resource.data?.templates ?? [], query), [resource.data, query]);
 	const total = resource.data?.templates.length ?? 0;
@@ -510,18 +618,25 @@ function TemplatesTab({ resource, visible }: { resource: RpcResource<RpcPromptTe
 		<TabPanel visible={visible}>
 			<ListToolbar
 				query={query}
-				onQuery={setQuery}
+				onQuery={setLocalQuery}
 				placeholder={t("invPanel.search.templates")}
 				shown={templates.length}
 				total={total}
 				loading={resource.loading}
 				onRefresh={() => void resource.reload()}
 				t={t}
+				showSearch={externalQuery === undefined}
 			/>
 			<ResourceGate resource={resource}>
 				{() =>
 					templates.length === 0 ? (
-						<EmptyNote>{t(total === 0 ? "invPanel.templates.empty" : "invPanel.noMatch")}</EmptyNote>
+						total === 0 ? (
+							<EmptyNote description={t("invPanel.templates.emptyHint")} icon={FileText}>
+								{t("invPanel.templates.empty")}
+							</EmptyNote>
+						) : (
+							<EmptyNote icon={Search}>{t("invPanel.noMatch")}</EmptyNote>
+						)
 					) : (
 						<div className="flex flex-col gap-2">
 							{templates.map(tpl => (
@@ -668,7 +783,17 @@ export interface InventoryPanelProps {
 	initialTab?: TabId;
 }
 
-export function InventoryPanel({ open, onClose, initialTab = "plugins" }: InventoryPanelProps) {
+function InventoryContent({
+	active,
+	initialTab,
+	embedded,
+	query,
+}: {
+	active: boolean;
+	initialTab: TabId;
+	embedded: boolean;
+	query?: string;
+}) {
 	const t = useT();
 	const [tab, setTab] = useState<TabId>(initialTab);
 	const [detailPlugin, setDetailPlugin] = useState<RpcPluginInfo | null>(null);
@@ -679,11 +804,11 @@ export function InventoryPanel({ open, onClose, initialTab = "plugins" }: Invent
 
 	// Reopening deep-links to the requested tab and drops any open detail drawer.
 	useEffect(() => {
-		if (open) {
+		if (active) {
 			setTab(initialTab);
 			setDetailPlugin(null);
 		}
-	}, [open, initialTab]);
+	}, [active, initialTab]);
 
 	const tabs = useMemo<TabItem[]>(
 		() => [
@@ -703,34 +828,67 @@ export function InventoryPanel({ open, onClose, initialTab = "plugins" }: Invent
 				: t("invPanel.readonlyNote");
 
 	return (
-		<Modal bodyClassName="p-0" open={open} onClose={onClose} title={t("invPanel.title")} size="lg">
-			<div className="relative flex h-[72vh] flex-col">
-				<Tabs
-					tabs={tabs}
-					activeId={tab}
-					onChange={id => setTab(id as TabId)}
-					className="shrink-0 px-2"
-					ariaLabel={t("invPanel.title")}
+		<div className={cx("relative flex flex-col overflow-hidden", embedded ? "settings-embedded-panel" : "h-[72vh]")}>
+			<Tabs
+				tabs={tabs}
+				activeId={tab}
+				onChange={id => setTab(id as TabId)}
+				className="shrink-0 px-2"
+				ariaLabel={t("invPanel.title")}
+			/>
+			<div className="min-h-0 flex-1 overflow-y-auto">
+				<PluginsTab
+					externalQuery={query}
+					onBrowseMarketplaces={() => setTab("marketplaces")}
+					onOpenDetail={setDetailPlugin}
+					resource={plugins}
+					visible={active && tab === "plugins"}
 				/>
-				<div className="min-h-0 flex-1 overflow-y-auto">
-					<PluginsTab resource={plugins} visible={tab === "plugins"} onOpenDetail={setDetailPlugin} />
-					<MarketplacesTab resource={marketplaces} visible={tab === "marketplaces"} />
-					<TemplatesTab resource={templates} visible={tab === "templates"} />
-					<MemoryTab resource={memory} visible={tab === "memory"} />
-				</div>
-				<div className="shrink-0 border-t border-(--omp-border-muted) px-4 py-2 text-[10px] leading-relaxed text-(--omp-dim)">
-					{footer}
-				</div>
-				{/* Drill-in detail drawer — covers the window body until dismissed. */}
-				{detailPlugin && (
-					<PluginDetailDrawer
-						key={detailPlugin.id ?? detailPlugin.name}
-						onChanged={plugins.reload}
-						onClose={() => setDetailPlugin(null)}
-						plugin={detailPlugin}
-					/>
-				)}
+				<MarketplacesTab externalQuery={query} resource={marketplaces} visible={active && tab === "marketplaces"} />
+				<TemplatesTab externalQuery={query} resource={templates} visible={active && tab === "templates"} />
+				<MemoryTab resource={memory} visible={active && tab === "memory"} />
 			</div>
+			<div className="shrink-0 border-t border-(--omp-border-muted) px-4 py-2 text-[10px] leading-relaxed text-(--omp-dim)">
+				{footer}
+			</div>
+			{/* Drill-in detail drawer — covers the window body until dismissed. */}
+			{detailPlugin && (
+				<PluginDetailDrawer
+					key={detailPlugin.id ?? detailPlugin.name}
+					onChanged={plugins.reload}
+					onClose={() => setDetailPlugin(null)}
+					plugin={detailPlugin}
+				/>
+			)}
+		</div>
+	);
+}
+
+export function InventorySettingsPage({ initialTab = "plugins", query }: { initialTab?: TabId; query: string }) {
+	const t = useT();
+	return (
+		<div className="space-y-5">
+			<header>
+				<div className="flex items-center gap-2 text-(--omp-accent)">
+					<PackageOpen aria-hidden="true" size={17} />
+					<h2 className="text-[16px] font-semibold tracking-[-0.01em] text-(--omp-text)">
+						{t("settings.resources.title")}
+					</h2>
+				</div>
+				<p className="mt-1.5 max-w-2xl text-[11.5px] leading-relaxed text-(--omp-muted)">
+					{t("settings.resources.description")}
+				</p>
+			</header>
+			<InventoryContent active embedded initialTab={initialTab} query={query} />
+		</div>
+	);
+}
+
+export function InventoryPanel({ open, onClose, initialTab = "plugins" }: InventoryPanelProps) {
+	const t = useT();
+	return (
+		<Modal bodyClassName="p-0" open={open} onClose={onClose} title={t("invPanel.title")} size="lg">
+			<InventoryContent active={open} embedded={false} initialTab={initialTab} />
 		</Modal>
 	);
 }

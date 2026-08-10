@@ -7,13 +7,11 @@ import type { ReactNode } from "react";
 export type BadgeVariant = "default" | "success" | "warning" | "error" | "info" | "muted";
 
 const VARIANT_CLASSES: Record<BadgeVariant, string> = {
-	default: "border-(--omp-border-muted) bg-(--omp-bg-tertiary) text-(--omp-text)",
-	success:
-		"border-[color-mix(in_srgb,var(--omp-success)_35%,transparent)] bg-[color-mix(in_srgb,var(--omp-success)_12%,transparent)] text-(--omp-success)",
-	warning:
-		"border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--omp-warning)_12%,transparent)] text-(--omp-warning)",
-	error: "border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-[color-mix(in_srgb,var(--omp-error)_12%,transparent)] text-(--omp-error)",
-	info: "border-[color-mix(in_srgb,var(--omp-link)_35%,transparent)] bg-[color-mix(in_srgb,var(--omp-link)_12%,transparent)] text-(--omp-link)",
+	default: "border-(--omp-border-muted) bg-transparent text-(--omp-text)",
+	success: "border-[color-mix(in_srgb,var(--omp-success)_35%,transparent)] bg-transparent text-(--omp-success)",
+	warning: "border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent text-(--omp-warning)",
+	error: "border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent text-(--omp-error)",
+	info: "border-[color-mix(in_srgb,var(--omp-link)_35%,transparent)] bg-transparent text-(--omp-link)",
 	muted: "border-transparent bg-transparent text-(--omp-dim)",
 };
 

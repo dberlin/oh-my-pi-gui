@@ -98,7 +98,7 @@ export function ReadGroupCard({
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen(value => !value)}
-				className="omp-read-group-header flex w-full items-center gap-2 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-1.5 text-left text-[12px] text-(--omp-muted) hover:border-(--omp-border) hover:text-(--omp-text)"
+				className="omp-read-group-header flex w-full items-center gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-left text-[12px] text-(--omp-muted) hover:border-(--omp-border) hover:text-(--omp-text)"
 			>
 				<ChevronRight size={13} className={cx("shrink-0 transition-transform", open && "rotate-90")} />
 				{anyPending ? (

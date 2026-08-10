@@ -21,9 +21,9 @@ function Section({ title, rows }: { title: string; rows: Row[] }) {
 		<section>
 			<h3 className="mb-1 text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">{title}</h3>
 			<div className="overflow-hidden rounded-md border border-(--omp-border-muted)">
-				{rows.map((row, index) => (
+				{rows.map(row => (
 					<div
-						className={`flex items-center gap-2 px-2.5 py-1.5 ${index % 2 === 1 ? "bg-(--omp-bg-tertiary)/50" : ""}`}
+						className="flex items-center gap-2 border-b border-(--omp-border-muted) px-2.5 py-1.5 last:border-b-0"
 						key={row.label}
 					>
 						<span className="flex-1 text-[11.5px] text-(--omp-muted)">{row.label}</span>

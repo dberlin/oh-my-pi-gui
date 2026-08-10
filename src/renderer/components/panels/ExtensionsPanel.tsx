@@ -1,7 +1,7 @@
 /**
- * Extensions window: interactive management of the session's skills, hooks,
- * MCP servers, and custom slash commands, backed by the domain RPCs
- * (get_skills / get_hooks / get_mcp_servers / get_available_commands).
+ * Shared management surfaces for hooks, MCP servers, and custom slash
+ * commands. Settings hosts the first-class pages; the compact Extensions
+ * window remains as a backwards-compatible wrapper over the same content.
  *
  * Each tab lazy-loads on first view, caches for the lifetime of the mounted
  * panel, and offers a manual Refresh. Search filters rows client-side.
@@ -22,7 +22,7 @@
  *   <ExtensionsPanel open={extensionsOpen} onClose={closeExtensions} />
  */
 
-import { Plus, RefreshCw, Search } from "lucide-react";
+import { Braces, Network, Plus, RefreshCw, Search, Webhook } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	AvailableCommand,
@@ -31,12 +31,12 @@ import type {
 	RpcMcpServerInfo,
 	RpcMcpServersResult,
 	RpcResponse,
-	RpcSkillInfo,
-	RpcSkillsResult,
 } from "../../../shared/rpc-types";
+import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { cx, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Badge, type BadgeVariant, Button, Modal, Spinner, type TabItem, Tabs } from "../common";
 import { type McpTestView, summarizeMcpTestData } from "./mcp/McpFeedback";
@@ -46,11 +46,11 @@ import { McpServerWizard } from "./mcp/McpServerWizard";
 export interface ExtensionsPanelProps {
 	open: boolean;
 	onClose: () => void;
-	/** Deep-link a specific tab on open (defaults to "skills"). */
+	/** Deep-link a specific tab on open (defaults to "hooks"). */
 	initialTab?: TabId;
 }
 
-export type TabId = "skills" | "hooks" | "mcp" | "commands";
+export type TabId = "hooks" | "mcp" | "commands";
 
 // ---------------------------------------------------------------------------
 // Data loading
@@ -64,8 +64,6 @@ interface TabRpc<T> {
 	refresh: () => Promise<void>;
 }
 
-const fetchSkills = (): Promise<RpcResponse> => window.omp.rpc.getSkills();
-const pickSkills = (data: unknown): RpcSkillInfo[] => (data as RpcSkillsResult | undefined)?.skills ?? [];
 const fetchHooks = (): Promise<RpcResponse> => window.omp.rpc.getHooks();
 const pickHooks = (data: unknown): RpcHookInfo[] => (data as RpcHooksResult | undefined)?.hooks ?? [];
 const fetchMcpServers = (): Promise<RpcResponse> => window.omp.rpc.getMcpServers();
@@ -86,34 +84,52 @@ function useTabRpc<T>(
 ): TabRpc<T> {
 	const t = useT();
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
+	const cwd = useSessionStore(s => s.cwd);
+	const activeTabId = useTabsStore(s => s.activeTabId);
+	const routeReady = useActiveTabRouteReady();
+	const routeKey = `${activeTabId ?? "none"}:${cwd}`;
 	const [data, setData] = useState<T | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const attemptedRef = useRef(false);
+	const requestRef = useRef(0);
+	const routeRef = useRef(routeKey);
 
 	const load = useCallback(async () => {
-		if (!sidecarReady) {
+		if (!sidecarReady || !routeReady) {
 			setError(t("extPanel.notConnected"));
 			return;
 		}
+		const request = ++requestRef.current;
+		const requestRoute = routeKey;
 		setLoading(true);
 		setError(null);
 		try {
 			const res = await fetcher();
+			if (request !== requestRef.current || requestRoute !== routeRef.current) return;
 			if (res.success) setData(pick(res.data));
 			else setError(res.error);
 		} catch (cause) {
-			setError(String(cause));
+			if (request === requestRef.current && requestRoute === routeRef.current) setError(String(cause));
 		} finally {
-			setLoading(false);
+			if (request === requestRef.current && requestRoute === routeRef.current) setLoading(false);
 		}
-	}, [sidecarReady, fetcher, pick, t]);
+	}, [sidecarReady, routeReady, routeKey, fetcher, pick, t]);
 
 	useEffect(() => {
-		if (!open || !active || attemptedRef.current) return;
+		routeRef.current = routeKey;
+		requestRef.current += 1;
+		attemptedRef.current = false;
+		setData(null);
+		setError(null);
+		setLoading(false);
+	}, [routeKey]);
+
+	useEffect(() => {
+		if (!open || !active || !routeReady || attemptedRef.current) return;
 		attemptedRef.current = true;
 		void load();
-	}, [open, active, load]);
+	}, [open, active, load, routeReady]);
 
 	const refresh = useCallback(async (): Promise<void> => {
 		await load();
@@ -305,6 +321,10 @@ interface TabFrameProps {
 	visible: number;
 	/** Extra toolbar buttons between the count and Refresh (e.g. MCP add-server). */
 	actions?: ReactNode;
+	/** Settings owns the global search field when this content is embedded there. */
+	showSearch?: boolean;
+	/** Embedded settings pages grow with their content and use the page scroll. */
+	embedded?: boolean;
 	children: ReactNode;
 }
 
@@ -319,6 +339,8 @@ function TabFrame({
 	total,
 	visible,
 	actions,
+	showSearch = true,
+	embedded = false,
 	children,
 }: TabFrameProps) {
 	const t = useT();
@@ -362,18 +384,22 @@ function TabFrame({
 	}
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-			<div className="flex shrink-0 items-center gap-2">
-				<div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-1.5">
-					<Search className="shrink-0 text-(--omp-dim)" size={13} />
-					<input
-						aria-label={t(`extPanel.search.${tabId}`)}
-						className="min-w-0 flex-1 bg-transparent text-xs text-(--omp-text) placeholder:text-(--omp-dim) focus:outline-none"
-						onChange={event => onQueryChange(event.target.value)}
-						placeholder={t(`extPanel.search.${tabId}`)}
-						value={query}
-					/>
-				</div>
+		<div className={cx("flex min-h-0 flex-col gap-3 py-3", embedded ? "flex-none" : "flex-1 px-4")}>
+			<div className="settings-management-toolbar flex shrink-0 items-center gap-2">
+				{showSearch ? (
+					<div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-1.5">
+						<Search className="shrink-0 text-(--omp-dim)" size={13} />
+						<input
+							aria-label={t(`extPanel.search.${tabId}`)}
+							className="min-w-0 flex-1 bg-transparent text-xs text-(--omp-text) placeholder:text-(--omp-dim) focus:outline-none"
+							onChange={event => onQueryChange(event.target.value)}
+							placeholder={t(`extPanel.search.${tabId}`)}
+							value={query}
+						/>
+					</div>
+				) : (
+					<div className="flex-1" />
+				)}
 				{countText && <span className="shrink-0 text-[11px] tabular-nums text-(--omp-dim)">{countText}</span>}
 				{actions}
 				<Button icon={<RefreshCw size={12} />} loading={loading} onClick={onRefresh} size="sm" variant="ghost">
@@ -381,103 +407,14 @@ function TabFrame({
 				</Button>
 			</div>
 			{loaded && error && (
-				<div className="shrink-0 rounded-md bg-(--omp-tool-error-bg) px-3 py-2 text-[12px] text-(--omp-error)">
+				<div className="shrink-0 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2 text-[12px] text-(--omp-error)">
 					{error}
 				</div>
 			)}
-			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{body}</div>
-		</div>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// Skills tab
-// ---------------------------------------------------------------------------
-
-function SkillRow({
-	skill,
-	enabled,
-	busy,
-	disabled,
-	onToggle,
-}: {
-	skill: RpcSkillInfo;
-	/** Enable state with the optimistic overlay applied. */
-	enabled: boolean;
-	busy: boolean;
-	disabled: boolean;
-	onToggle: () => void;
-}) {
-	return (
-		<div className="flex flex-col gap-1 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2.5">
-			<div className="flex flex-wrap items-center gap-2">
-				<span className="font-mono text-[12px] font-medium text-(--omp-text)">{skill.name}</span>
-				<Badge variant="info">{skill.source}</Badge>
-				<span className="ml-auto">
-					<EnableToggle busy={busy} disabled={disabled} enabled={enabled} onToggle={onToggle} />
-				</span>
+			<div className={cx("flex min-h-0 flex-col", embedded ? "overflow-visible" : "flex-1 overflow-y-auto")}>
+				{body}
 			</div>
-			{skill.description && (
-				<p className="line-clamp-2 text-[11px] leading-snug text-(--omp-muted)">{skill.description}</p>
-			)}
-			<span className="block truncate font-mono text-[10px] text-(--omp-dim)" title={skill.location}>
-				{shortenPath(skill.location)}
-			</span>
 		</div>
-	);
-}
-
-function SkillsTab({
-	rpc,
-	query,
-	onQueryChange,
-}: {
-	rpc: TabRpc<RpcSkillInfo[]>;
-	query: string;
-	onQueryChange: (q: string) => void;
-}) {
-	const t = useT();
-	const mutation = useRowMutation(rpc.refresh);
-	const visible = useMemo(
-		() => filterList(rpc.data, query, skill => [skill.name, skill.description, skill.source]),
-		[rpc.data, query],
-	);
-	return (
-		<TabFrame
-			error={rpc.error}
-			loaded={rpc.data !== null}
-			loading={rpc.loading}
-			onQueryChange={onQueryChange}
-			onRefresh={rpc.refresh}
-			query={query}
-			tabId="skills"
-			total={rpc.data?.length ?? 0}
-			visible={visible.length}
-		>
-			<div className="flex flex-col gap-2">
-				{visible.map(skill => {
-					const key = `${skill.source}:${skill.name}`;
-					const enabled = mutation.effective(key, skill.enabled);
-					return (
-						<SkillRow
-							busy={mutation.busyKey === key}
-							disabled={mutation.busyKey !== null}
-							enabled={enabled}
-							key={key}
-							onToggle={() =>
-								void mutation.run(
-									key,
-									!enabled,
-									() => window.omp.rpc.setSkillEnabled(skill.name, !enabled),
-									t("extPanel.skillToggleFailed"),
-								)
-							}
-							skill={skill}
-						/>
-					);
-				})}
-			</div>
-		</TabFrame>
 	);
 }
 
@@ -502,7 +439,7 @@ function HookRow({
 	const phase = hookPhase(hook.event);
 	const eventVariant: BadgeVariant = phase === "pre" ? "info" : phase === "post" ? "warning" : "default";
 	return (
-		<div className="flex flex-col gap-1 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2">
+		<div className="flex flex-col gap-1 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2">
 			<div className="flex flex-wrap items-center gap-2">
 				<span className="font-mono text-[12px] font-medium text-(--omp-text)">{hook.name}</span>
 				<Badge variant={eventVariant}>{hook.event}</Badge>
@@ -522,10 +459,14 @@ function HooksTab({
 	rpc,
 	query,
 	onQueryChange,
+	showSearch,
+	embedded,
 }: {
 	rpc: TabRpc<RpcHookInfo[]>;
 	query: string;
 	onQueryChange: (q: string) => void;
+	showSearch?: boolean;
+	embedded?: boolean;
 }) {
 	const t = useT();
 	const mutation = useRowMutation(rpc.refresh);
@@ -535,12 +476,14 @@ function HooksTab({
 	}, [rpc.data, query]);
 	return (
 		<TabFrame
+			embedded={embedded}
 			error={rpc.error}
 			loaded={rpc.data !== null}
 			loading={rpc.loading}
 			onQueryChange={onQueryChange}
 			onRefresh={rpc.refresh}
 			query={query}
+			showSearch={showSearch}
 			tabId="hooks"
 			total={rpc.data?.length ?? 0}
 			visible={visibleCount}
@@ -595,10 +538,14 @@ function McpTab({
 	rpc,
 	query,
 	onQueryChange,
+	showSearch,
+	embedded,
 }: {
 	rpc: TabRpc<RpcMcpServerInfo[]>;
 	query: string;
 	onQueryChange: (q: string) => void;
+	showSearch?: boolean;
+	embedded?: boolean;
 }) {
 	const t = useT();
 	const mutation = useRowMutation(rpc.refresh);
@@ -777,6 +724,7 @@ function McpTab({
 	return (
 		<>
 			<TabFrame
+				embedded={embedded}
 				actions={
 					<Button icon={<Plus size={12} />} onClick={() => setWizardOpen(true)} size="sm" variant="secondary">
 						{t("mcp.add")}
@@ -788,6 +736,7 @@ function McpTab({
 				onQueryChange={onQueryChange}
 				onRefresh={rpc.refresh}
 				query={query}
+				showSearch={showSearch}
 				tabId="mcp"
 				total={rpc.data?.length ?? 0}
 				visible={visible.length}
@@ -835,7 +784,7 @@ function McpTab({
 
 function CommandRow({ command }: { command: AvailableCommand }) {
 	return (
-		<div className="flex flex-col gap-1 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2">
+		<div className="flex flex-col gap-1 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2">
 			<div className="flex flex-wrap items-center gap-2">
 				<span className="font-mono text-[12px] font-medium text-(--omp-text)">/{command.name}</span>
 				{command.aliases && command.aliases.length > 0 && (
@@ -860,10 +809,14 @@ function CommandsTab({
 	rpc,
 	query,
 	onQueryChange,
+	showSearch,
+	embedded,
 }: {
 	rpc: TabRpc<AvailableCommand[]>;
 	query: string;
 	onQueryChange: (q: string) => void;
+	showSearch?: boolean;
+	embedded?: boolean;
 }) {
 	const t = useT();
 	const { groups, visibleCount } = useMemo(() => {
@@ -877,12 +830,14 @@ function CommandsTab({
 	}, [rpc.data, query]);
 	return (
 		<TabFrame
+			embedded={embedded}
 			error={rpc.error}
 			loaded={rpc.data !== null}
 			loading={rpc.loading}
 			onQueryChange={onQueryChange}
 			onRefresh={rpc.refresh}
 			query={query}
+			showSearch={showSearch}
 			tabId="commands"
 			total={rpc.data?.length ?? 0}
 			visible={visibleCount}
@@ -907,15 +862,64 @@ function CommandsTab({
 }
 
 // ---------------------------------------------------------------------------
+// Settings pages
+// ---------------------------------------------------------------------------
+
+export function ExtensionSettingsPage({ tabId, query }: { tabId: TabId; query: string }) {
+	const t = useT();
+	const hooks = useTabRpc(true, tabId === "hooks", fetchHooks, pickHooks);
+	const mcp = useTabRpc(true, tabId === "mcp", fetchMcpServers, pickMcpServers);
+	const commands = useTabRpc(true, tabId === "commands", fetchCommands, pickCommands);
+	const onQueryChange = useCallback(() => {}, []);
+	const icon =
+		tabId === "mcp" ? (
+			<Network aria-hidden="true" size={17} />
+		) : tabId === "hooks" ? (
+			<Webhook aria-hidden="true" size={17} />
+		) : (
+			<Braces aria-hidden="true" size={17} />
+		);
+
+	return (
+		<div className="space-y-5">
+			<header>
+				<div className="flex items-center gap-2 text-(--omp-accent)">
+					{icon}
+					<h2 className="text-[16px] font-semibold tracking-[-0.01em] text-(--omp-text)">
+						{t(`settings.extensions.${tabId}.title`)}
+					</h2>
+				</div>
+				<p className="mt-1.5 max-w-2xl text-[11.5px] leading-relaxed text-(--omp-muted)">
+					{t(`settings.extensions.${tabId}.description`)}
+				</p>
+			</header>
+			<div className="settings-embedded-panel flex flex-col">
+				{tabId === "hooks" && (
+					<HooksTab embedded onQueryChange={onQueryChange} query={query} rpc={hooks} showSearch={false} />
+				)}
+				{tabId === "mcp" && (
+					<McpTab embedded onQueryChange={onQueryChange} query={query} rpc={mcp} showSearch={false} />
+				)}
+				{tabId === "commands" && (
+					<CommandsTab embedded onQueryChange={onQueryChange} query={query} rpc={commands} showSearch={false} />
+				)}
+				<div className="shrink-0 border-t border-(--omp-border-muted) px-4 py-2 text-[10.5px] leading-relaxed text-(--omp-dim)">
+					{t(`extPanel.footer.${tabId}`)}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
 
-export function ExtensionsPanel({ open, onClose, initialTab = "skills" }: ExtensionsPanelProps) {
+export function ExtensionsPanel({ open, onClose, initialTab = "hooks" }: ExtensionsPanelProps) {
 	const t = useT();
 	const [tab, setTab] = useState<TabId>(initialTab);
 	const [query, setQuery] = useState("");
 
-	const skills = useTabRpc(open, tab === "skills", fetchSkills, pickSkills);
 	const hooks = useTabRpc(open, tab === "hooks", fetchHooks, pickHooks);
 	const mcp = useTabRpc(open, tab === "mcp", fetchMcpServers, pickMcpServers);
 	const commands = useTabRpc(open, tab === "commands", fetchCommands, pickCommands);
@@ -930,12 +934,11 @@ export function ExtensionsPanel({ open, onClose, initialTab = "skills" }: Extens
 
 	const tabs: TabItem[] = useMemo(
 		() => [
-			{ id: "skills", label: t("extPanel.tabs.skills"), badge: skills.data?.length },
 			{ id: "hooks", label: t("extPanel.tabs.hooks"), badge: hooks.data?.length },
 			{ id: "mcp", label: t("extPanel.tabs.mcp"), badge: mcp.data?.length },
 			{ id: "commands", label: t("extPanel.tabs.commands"), badge: commands.data?.length },
 		],
-		[t, skills.data, hooks.data, mcp.data, commands.data],
+		[t, hooks.data, mcp.data, commands.data],
 	);
 
 	const handleTabChange = useCallback((id: string) => {
@@ -953,7 +956,6 @@ export function ExtensionsPanel({ open, onClose, initialTab = "skills" }: Extens
 					onChange={handleTabChange}
 					tabs={tabs}
 				/>
-				{tab === "skills" && <SkillsTab onQueryChange={setQuery} query={query} rpc={skills} />}
 				{tab === "hooks" && <HooksTab onQueryChange={setQuery} query={query} rpc={hooks} />}
 				{tab === "mcp" && <McpTab onQueryChange={setQuery} query={query} rpc={mcp} />}
 				{tab === "commands" && <CommandsTab onQueryChange={setQuery} query={query} rpc={commands} />}

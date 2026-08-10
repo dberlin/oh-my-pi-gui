@@ -559,7 +559,7 @@ export function App() {
 		<div className="omp-surface-depth flex h-screen w-screen overflow-hidden text-[var(--omp-text)]">
 			{sidebarVisible && <Sidebar />}
 
-			<main className="relative flex min-w-0 flex-1 flex-col">
+			<main className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">
 				<TitleBar onToggleStats={() => useUiStore.getState().openStatsDashboard()} />
 				<TabBar />
 				<SidecarBanner />

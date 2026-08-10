@@ -5,12 +5,53 @@
  * createPortal children as empty in this repo's test environment.)
  */
 
+import { parseHTML } from "linkedom";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcMarketplaceInfo, RpcPluginInfo, RpcPromptTemplateInfo } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
-import { InventoryPanel } from "./InventoryPanel";
+import { resetTabRoute } from "../../lib/tab-routing";
+import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
+import { InventoryPanel, InventorySettingsPage } from "./InventoryPanel";
 import { filterMarketplaces, filterPlugins, filterTemplates, shortenSource } from "./inventory-utils";
+
+const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+const globals = globalThis as Record<string, unknown>;
+globals.document = document;
+globals.window = window;
+globals.Event = Event;
+globals.HTMLElement = HTMLElement;
+globals.Node = Node;
+globals.IS_REACT_ACT_ENVIRONMENT = true;
+
+interface TestElement {
+	textContent: string | null;
+	remove(): void;
+}
+
+let root: Root | null = null;
+let container: TestElement | null = null;
+
+async function flush(): Promise<void> {
+	await act(async () => {
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+}
+
+afterEach(async () => {
+	if (root) await act(async () => root?.unmount());
+	container?.remove();
+	root = null;
+	container = null;
+	useSessionStore.getState().reset();
+	useTabsStore.getState().reset();
+	resetTabRoute();
+	vi.restoreAllMocks();
+});
 
 function plugin(partial: Partial<RpcPluginInfo> & { name: string }): RpcPluginInfo {
 	return { marketplace: "npm", enabled: true, version: "1.0.0", ...partial };
@@ -114,5 +155,36 @@ describe("InventoryPanel", () => {
 			</I18nProvider>,
 		);
 		expect(html).toBe("");
+	});
+
+	it("loads the active resource automatically and renders an actionable empty state", async () => {
+		const getPlugins = vi.fn(async () => ({ success: true as const, data: { plugins: [] } }));
+		const ompWindow = window as unknown as {
+			omp: { rpc: { getPlugins: typeof getPlugins } };
+		};
+		ompWindow.omp = { rpc: { getPlugins } };
+		useSessionStore.setState({ status: "ready", cwd: "/repo" });
+		useTabsStore.setState({
+			activeTabId: "tab-1",
+			tabs: [{ id: "tab-1", cwd: "/repo", status: "ready", kind: "agent", unreadDone: false }],
+			bundles: new Map(),
+		});
+		resetTabRoute();
+
+		container = document.createElement("div") as unknown as TestElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		await act(async () => {
+			root?.render(
+				<I18nProvider>
+					<InventorySettingsPage query="" />
+				</I18nProvider>,
+			);
+		});
+		await flush();
+
+		expect(getPlugins).toHaveBeenCalledTimes(1);
+		expect(document.body.textContent).toContain("No plugins installed.");
+		expect(document.body.textContent).toContain("Browse marketplaces");
 	});
 });

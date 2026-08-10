@@ -17,6 +17,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import pkg from "electron-updater";
 import type { UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
+import { settleIncompleteUpdateCheck } from "./updater-state";
 
 const { autoUpdater } = pkg;
 
@@ -95,6 +96,8 @@ export function setupUpdater(): void {
 		broadcast({ state: "checking" });
 		try {
 			await autoUpdater.checkForUpdates();
+			const settled = settleIncompleteUpdateCheck(current, true);
+			if (settled !== current) broadcast(settled);
 		} catch (error) {
 			broadcast({ state: "error", message: error instanceof Error ? error.message : String(error) });
 		}
@@ -116,9 +119,21 @@ export function setupUpdater(): void {
 
 	// First check once the app settles; then every 4h.
 	setTimeout(() => {
-		autoUpdater.checkForUpdates().catch(() => broadcast({ state: "idle" }));
+		autoUpdater
+			.checkForUpdates()
+			.then(() => {
+				const settled = settleIncompleteUpdateCheck(current, false);
+				if (settled !== current) broadcast(settled);
+			})
+			.catch(() => broadcast({ state: "idle" }));
 	}, 3000);
 	setInterval(() => {
-		autoUpdater.checkForUpdates().catch(() => {});
+		autoUpdater
+			.checkForUpdates()
+			.then(() => {
+				const settled = settleIncompleteUpdateCheck(current, false);
+				if (settled !== current) broadcast(settled);
+			})
+			.catch(() => {});
 	}, CHECK_INTERVAL_MS);
 }

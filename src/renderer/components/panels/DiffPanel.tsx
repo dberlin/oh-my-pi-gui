@@ -276,9 +276,7 @@ function FileGroupHeader({
 			<span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10px]">
 				<span className="text-(--omp-diff-added)">+{group.adds}</span>
 				<span className="text-(--omp-diff-removed)">-{group.removes}</span>
-				<span className="rounded bg-(--omp-bg-tertiary) px-1 py-px text-[9px] text-(--omp-dim)">
-					×{group.edits.length}
-				</span>
+				<span className="px-1 py-px text-[9px] text-(--omp-dim)">×{group.edits.length}</span>
 			</span>
 		</button>
 	);
@@ -311,13 +309,9 @@ function EditTimelineRow({
 					<span className="text-(--omp-diff-added)">+{entry.adds}</span>
 					<span className="text-(--omp-diff-removed)">-{entry.removes}</span>
 				</span>
-				<span className="shrink-0 rounded bg-(--omp-bg-tertiary) px-1.5 py-px text-[9px] text-(--omp-dim)">
-					{entry.toolName}
-				</span>
+				<span className="shrink-0 px-1.5 py-px text-[9px] text-(--omp-dim)">{entry.toolName}</span>
 				{entry.isError && (
-					<span className="shrink-0 rounded bg-(--omp-bg-tertiary) px-1 py-px text-[9px] text-(--omp-diff-removed)">
-						{t("diffPanel.error")}
-					</span>
+					<span className="shrink-0 px-1 py-px text-[9px] text-(--omp-diff-removed)">{t("diffPanel.error")}</span>
 				)}
 				<span className="ml-auto shrink-0 text-[10px] text-(--omp-dim)" title={formatClock(entry.timestamp)}>
 					{formatTimeAgo(new Date(entry.timestamp).toISOString())}
@@ -569,7 +563,7 @@ export function DiffPanel() {
 								<div className="flex items-center gap-1.5 text-[11px] text-(--omp-muted)">
 									<FileCode2 className="shrink-0 text-(--omp-dim)" size={12} />
 									<span className="truncate font-mono">{selected.file}</span>
-									<span className="ml-auto shrink-0 rounded bg-(--omp-bg-tertiary) px-1.5 py-px text-[9px] text-(--omp-dim)">
+									<span className="ml-auto shrink-0 px-1.5 py-px text-[9px] text-(--omp-dim)">
 										{selected.toolName}
 									</span>
 								</div>

@@ -66,10 +66,10 @@ Every slash command as a menu · full-fidelity rendering · providers, models & 
 
 ### Install
 
-Current release: [**v0.7.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.1)
+Current release: [**v0.7.2**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.2)
 
-- **Apple Silicon (M1/M2/M3/M4):** `omp-0.7.1-arm64.dmg`
-- **Intel:** `omp-0.7.1.dmg`
+- **Apple Silicon (M1/M2/M3/M4):** `omp-0.7.2-arm64.dmg`
+- **Intel:** `omp-0.7.2.dmg`
 
 Open the `.dmg` and drag **omp** into **Applications**. The build is unsigned, so on first launch macOS may block it: **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*).
 
@@ -206,10 +206,10 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 
 ### 安装
 
-当前版本：[**v0.7.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.1)
+当前版本：[**v0.7.2**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.2)
 
-- **Apple Silicon(M1/M2/M3/M4):** `omp-0.7.1-arm64.dmg`
-- **Intel:** `omp-0.7.1.dmg`
+- **Apple Silicon(M1/M2/M3/M4):** `omp-0.7.2-arm64.dmg`
+- **Intel:** `omp-0.7.2.dmg`
 
 打开 `.dmg`,把 **omp** 拖进 **应用程序**。构建未签名,首次打开 macOS 可能拦截:**右键 → 打开**(或 *系统设置 → 隐私与安全性 → 仍要打开*)。
 

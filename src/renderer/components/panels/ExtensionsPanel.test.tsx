@@ -1,7 +1,7 @@
 /**
  * Tests for the extensions window: closed-state rendering plus the pure
  * filtering, path-shortening, hook-grouping, and status-variant contracts
- * that drive the Skills/Hooks/MCP tabs. (Open-state SSR assertions are not
+ * that drive the Hooks/MCP/Commands tabs. (Open-state SSR assertions are not
  * viable: react-dom/server renders createPortal children as empty in this
  * repo's test environment.)
  */
@@ -23,7 +23,18 @@ import {
 import { MCP_STATUS_VARIANT } from "./mcp/McpServerCard";
 
 function skill(partial: Partial<RpcSkillInfo> & { name: string }): RpcSkillInfo {
-	return { description: "", source: "native:project", enabled: true, location: "/tmp/x", ...partial };
+	return {
+		description: "",
+		source: "native:project",
+		enabled: true,
+		location: "/tmp/x",
+		provider: "native",
+		providerName: "OMP",
+		level: "project",
+		managed: false,
+		hidden: false,
+		...partial,
+	};
 }
 
 function hook(partial: Partial<RpcHookInfo> & { id: string; event: string }): RpcHookInfo {

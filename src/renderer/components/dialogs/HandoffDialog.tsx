@@ -86,7 +86,7 @@ export function HandoffDialog() {
 	return (
 		<Modal open={open} onClose={requestClose} title={t("handoff.title")} size="md">
 			<div className="flex flex-col gap-3">
-				<div className="flex items-start gap-2.5 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-3 py-2.5">
+				<div className="flex items-start gap-2.5 rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
 					<Handshake className="mt-0.5 shrink-0 text-(--omp-accent)" size={14} />
 					<p className="text-[11px] leading-relaxed text-(--omp-muted)">{t("handoff.desc")}</p>
 				</div>
@@ -103,12 +103,12 @@ export function HandoffDialog() {
 					value={instructions}
 				/>
 				{blockedReason !== null && (
-					<div className="rounded-md border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-3 py-2 text-[11px] text-(--omp-warning)">
+					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-[11px] text-(--omp-warning)">
 						{blockedReason}
 					</div>
 				)}
 				{error !== null && (
-					<div className="rounded-md border border-[var(--omp-error)] bg-(--omp-bg-tertiary) px-3 py-2 text-[11px] text-[var(--omp-error)]">
+					<div className="rounded-md border border-[var(--omp-error)] bg-transparent px-3 py-2 text-[11px] text-[var(--omp-error)]">
 						{error}
 					</div>
 				)}

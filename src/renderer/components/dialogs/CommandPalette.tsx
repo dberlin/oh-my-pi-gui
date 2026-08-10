@@ -24,6 +24,7 @@ import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Spinner } from "../common";
+import { registerDialogLayer } from "../common/dialog-layer";
 
 const RECENT_KEY = "omp.palette.recent";
 const RECENT_LIMIT = 5;
@@ -160,9 +161,11 @@ export function CommandPalette() {
 	const [submenu, setSubmenu] = useState<CommandMenuItem | null>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
+	const dialogRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		if (!open) return;
+		const unregisterLayer = registerDialogLayer(dialogRef.current);
 		setQuery("");
 		setActiveIndex(0);
 		setSubmenu(null);
@@ -183,6 +186,7 @@ export function CommandPalette() {
 			});
 		return () => {
 			cancelled = true;
+			unregisterLayer();
 		};
 	}, [open]);
 
@@ -453,9 +457,7 @@ export function CommandPalette() {
 						{toggleOn !== null && (
 							<span
 								className={`rounded px-1 text-[9px] font-semibold uppercase ${
-									toggleOn
-										? "bg-(--omp-success)/15 text-(--omp-success)"
-										: "bg-(--omp-bg-tertiary) text-(--omp-dim)"
+									toggleOn ? "text-(--omp-success)" : "text-(--omp-dim)"
 								}`}
 							>
 								{toggleOn ? t("palette.on") : t("palette.off")}
@@ -492,7 +494,7 @@ export function CommandPalette() {
 
 	return (
 		<div
-			className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[14vh] backdrop-blur-[2px]"
+			className="omp-dialog-overlay fixed inset-0 z-50 flex items-start justify-center bg-[var(--omp-overlay-bg)] p-4 pt-[12dvh] backdrop-blur-[2px]"
 			onMouseDown={event => {
 				if (event.target === event.currentTarget) close();
 			}}
@@ -501,7 +503,8 @@ export function CommandPalette() {
 			<div
 				aria-label={t("palette.searchLabel")}
 				aria-modal="true"
-				className="w-[560px] max-w-[92vw] overflow-hidden rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) shadow-2xl shadow-black/60"
+				className="omp-dialog-panel omp-dialog-size-picker overflow-hidden rounded-[14px] border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg)"
+				ref={dialogRef}
 				role="dialog"
 			>
 				<div className="flex items-center gap-2.5 border-b border-(--omp-border-muted) px-3.5 py-2.5">
@@ -530,7 +533,7 @@ export function CommandPalette() {
 						esc
 					</kbd>
 				</div>
-				<div className="max-h-[46vh] overflow-y-auto p-1.5" ref={listRef}>
+				<div className="omp-command-list overflow-y-auto p-1.5" ref={listRef}>
 					{flatList.length === 0 && !loading && (
 						<div className="px-3 py-8 text-center text-xs text-(--omp-dim)">
 							{workingItems.length === 0 ? t("palette.noCommands") : t("palette.noMatch")}

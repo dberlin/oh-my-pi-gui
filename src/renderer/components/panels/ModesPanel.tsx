@@ -326,7 +326,7 @@ function VibeTab({ rpc }: { rpc: ModeRpc<RpcVibeModeState> }) {
 			{state && (
 				<div className="flex flex-col gap-4">
 					<p className="text-[11.5px] leading-relaxed text-(--omp-muted)">{t("modesPanel.vibe.desc")}</p>
-					<div className="rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-1.5">
+					<div className="rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-1.5">
 						<Toggle
 							checked={state.enabled}
 							description={t("modesPanel.vibe.toggleDesc")}
@@ -344,7 +344,7 @@ function VibeTab({ rpc }: { rpc: ModeRpc<RpcVibeModeState> }) {
 						/>
 					</div>
 					{!state.enabled && typeof state.killedWorkers === "number" && state.killedWorkers > 0 && (
-						<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--omp-warning)_10%,transparent)] px-3 py-2 text-[11.5px] text-(--omp-warning)">
+						<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-[11.5px] text-(--omp-warning)">
 							{t("modesPanel.vibe.killedWorkers", { count: state.killedWorkers })}
 						</div>
 					)}
@@ -416,7 +416,7 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 				</div>
 			</div>
 
-			<div className="flex flex-col gap-2 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2.5">
+			<div className="flex flex-col gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
 				{tokenBudget !== null ? (
 					<ProgressBar
 						label={t("modesPanel.goal.budget")}
@@ -549,7 +549,7 @@ function LoopTab({ rpc }: { rpc: ModeRpc<RpcLoopModeState> }) {
 			{state && (
 				<div className="flex flex-col gap-4">
 					<p className="text-[11.5px] leading-relaxed text-(--omp-muted)">{t("modesPanel.loop.desc")}</p>
-					<div className="rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-1.5">
+					<div className="rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-1.5">
 						<Toggle
 							checked={state.enabled}
 							description={t("modesPanel.loop.toggleDesc")}
@@ -569,7 +569,7 @@ function LoopTab({ rpc }: { rpc: ModeRpc<RpcLoopModeState> }) {
 					<div className="flex flex-col gap-1.5">
 						<SectionLabel>{t("modesPanel.loop.promptLabel")}</SectionLabel>
 						{state.prompt ? (
-							<p className="rounded-md border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2 font-mono text-[11.5px] break-words whitespace-pre-wrap text-(--omp-text)">
+							<p className="rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2 font-mono text-[11.5px] break-words whitespace-pre-wrap text-(--omp-text)">
 								{state.prompt}
 							</p>
 						) : (

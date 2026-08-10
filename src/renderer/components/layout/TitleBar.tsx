@@ -197,7 +197,7 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 			<button type="button" onClick={togglePanel} title={t("titlebar.workspace")} className={iconButton}>
 				<PanelRight size={18} className={cx(panelVisible && "text-[var(--omp-text)]")} />
 			</button>
-			<button type="button" onClick={openSettings} title={t("titlebar.settings")} className={iconButton}>
+			<button type="button" onClick={() => openSettings()} title={t("titlebar.settings")} className={iconButton}>
 				<Settings size={17} />
 			</button>
 			<WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} />

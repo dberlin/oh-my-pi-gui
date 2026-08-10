@@ -79,7 +79,7 @@ const SortableQueuedRow = memo(function SortableQueuedRow({
 				transition,
 				opacity: isDragging ? 0.6 : undefined,
 			}}
-			className="group flex items-start gap-1.5 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-2 py-1.5"
+			className="group flex items-start gap-1.5 rounded-md border border-(--omp-border-muted) bg-transparent px-2 py-1.5"
 		>
 			<button
 				{...attributes}

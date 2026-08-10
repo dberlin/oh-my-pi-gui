@@ -20,6 +20,7 @@ import {
 } from "../../lib/themes";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
+import { registerDialogLayer } from "../common/dialog-layer";
 
 const SWATCH_KEYS = [
 	"--omp-bg-primary",
@@ -53,6 +54,7 @@ export function ThemePickerDialog() {
 	const [active, setActive] = useState(0);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
+	const dialogRef = useRef<HTMLDivElement>(null);
 
 	const entries = useMemo<ThemeEntry[]>(
 		() => [
@@ -70,6 +72,7 @@ export function ThemePickerDialog() {
 
 	useEffect(() => {
 		if (!open) return;
+		const unregisterLayer = registerDialogLayer(dialogRef.current);
 		setQuery("");
 		setActive(0);
 		void getPersistedThemeSelection().then(sel => {
@@ -78,6 +81,7 @@ export function ThemePickerDialog() {
 			setActive(sel === "system" ? 0 : Math.max(0, themeIndex + 1));
 		});
 		requestAnimationFrame(() => inputRef.current?.focus());
+		return unregisterLayer;
 	}, [open]);
 
 	const select = (entry: ThemeEntry) => {
@@ -114,14 +118,16 @@ export function ThemePickerDialog() {
 
 	return (
 		<div
-			className="fixed inset-0 z-50 flex items-start justify-center bg-[var(--omp-overlay-bg)] pt-[12vh]"
+			ref={dialogRef}
+			aria-modal="true"
+			className="omp-dialog-overlay fixed inset-0 z-50 flex items-start justify-center bg-[var(--omp-overlay-bg)] p-4 pt-[12dvh] backdrop-blur-[2px]"
 			onClick={close}
 			onKeyDown={onKey}
 			role="dialog"
 			aria-label={t("themePicker.aria")}
 		>
 			<div
-				className="w-[520px] max-w-[92vw] overflow-hidden rounded-2xl border border-[var(--omp-modal-border)] bg-[var(--omp-modal-bg)] shadow-[var(--omp-shadow-lg)]"
+				className="omp-dialog-panel omp-dialog-size-picker overflow-hidden rounded-[14px] border border-[var(--omp-modal-border)] bg-[var(--omp-modal-bg)] shadow-[var(--omp-shadow-lg)]"
 				onClick={e => e.stopPropagation()}
 			>
 				<div className="flex items-center gap-2 border-b border-[var(--omp-border-muted)] px-4 py-3">
@@ -137,7 +143,7 @@ export function ThemePickerDialog() {
 						className="w-full bg-transparent text-[14px] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
 					/>
 				</div>
-				<div ref={listRef} className="max-h-[46vh] overflow-y-auto p-2">
+				<div ref={listRef} className="omp-command-list overflow-y-auto p-2">
 					{filtered.length === 0 && (
 						<div className="px-3 py-8 text-center text-[13px] text-[var(--omp-dim)]">
 							{t("themePicker.empty")}

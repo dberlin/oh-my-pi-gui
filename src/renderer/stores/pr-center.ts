@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import type { RpcPrDetail, RpcPrListItem, RpcPrRepo } from "../../shared/rpc-types";
+import { translate } from "../lib/i18n";
 import { useTabsStore } from "./tabs";
 import { toast } from "./toast";
-import { translate } from "../lib/i18n";
 
 /**
  * PR Center store (plan/21): repo probe → list → detail → per-file lazy
@@ -142,7 +142,8 @@ export const usePrCenterStore = create<PrCenterStore>()((set, get) => ({
 					baseCwd: repo?.available ? repo.repo : "",
 				},
 			});
-			if (tabId) toast({ variant: "success", message: translate("prCenter.checkoutOpened", { number: String(number) }) });
+			if (tabId)
+				toast({ variant: "success", message: translate("prCenter.checkoutOpened", { number: String(number) }) });
 		} catch (error) {
 			toast({ variant: "error", title: translate("prCenter.checkoutFailed"), message: String(error) });
 		}

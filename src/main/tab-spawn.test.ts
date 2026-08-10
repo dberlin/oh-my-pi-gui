@@ -67,7 +67,14 @@ describe("spawnTabForWindow refusal contracts", () => {
 		const result = await spawnTabForWindow(deps, fakeWindow(), { sessionPath: "/s/chat.jsonl" });
 
 		expect(result?.tabId).toEqual(expect.any(String));
-		expect(acquire).toHaveBeenCalledWith("/fallback", expect.anything(), expect.any(String), "/s/chat.jsonl", "chat", undefined);
+		expect(acquire).toHaveBeenCalledWith(
+			"/fallback",
+			expect.anything(),
+			expect.any(String),
+			"/s/chat.jsonl",
+			"chat",
+			undefined,
+		);
 	});
 
 	it("acquires with the requested kind when it matches the file", async () => {
@@ -76,7 +83,14 @@ describe("spawnTabForWindow refusal contracts", () => {
 		const result = await spawnTabForWindow(deps, fakeWindow(), { sessionPath: "/s/chat.jsonl", kind: "chat" });
 
 		expect(result?.tabId).toEqual(expect.any(String));
-		expect(acquire).toHaveBeenCalledWith("/fallback", expect.anything(), expect.any(String), "/s/chat.jsonl", "chat", undefined);
+		expect(acquire).toHaveBeenCalledWith(
+			"/fallback",
+			expect.anything(),
+			expect.any(String),
+			"/s/chat.jsonl",
+			"chat",
+			undefined,
+		);
 	});
 
 	it("owner wins over kind resolution (F-OWN checked first, kindFor not consulted)", async () => {
@@ -105,7 +119,14 @@ describe("spawnTabForWindow refusal contracts", () => {
 		const result = await spawnTabForWindow(deps, fakeWindow(), { cwd: "/work" });
 
 		expect(result?.tabId).toEqual(expect.any(String));
-		expect(acquire).toHaveBeenCalledWith("/work", expect.anything(), expect.any(String), undefined, "agent", undefined);
+		expect(acquire).toHaveBeenCalledWith(
+			"/work",
+			expect.anything(),
+			expect.any(String),
+			undefined,
+			"agent",
+			undefined,
+		);
 		expect(kindFor).not.toHaveBeenCalled();
 	});
 

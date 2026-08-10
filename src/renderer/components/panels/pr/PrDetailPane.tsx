@@ -31,7 +31,8 @@ function checkIcon(conclusion: string | null, status: string) {
 		return <CheckCircle2 size={12} className="shrink-0 text-(--omp-success)" />;
 	}
 	if (conclusion) return <XCircle size={12} className="shrink-0 text-(--omp-error)" />;
-	if (status === "IN_PROGRESS" || status === "QUEUED") return <Loader2 size={12} className="shrink-0 animate-spin text-(--omp-warning)" />;
+	if (status === "IN_PROGRESS" || status === "QUEUED")
+		return <Loader2 size={12} className="shrink-0 animate-spin text-(--omp-warning)" />;
 	return <Circle size={12} className="shrink-0 text-(--omp-dim)" />;
 }
 
@@ -45,7 +46,11 @@ function FileRow({ path, additions, deletions }: { path: string; additions: numb
 				onClick={() => void usePrCenterStore.getState().toggleFile(path)}
 				className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-(--omp-selected-bg)"
 			>
-				{expanded ? <ChevronDown size={11} className="shrink-0" /> : <ChevronRight size={11} className="shrink-0" />}
+				{expanded ? (
+					<ChevronDown size={11} className="shrink-0" />
+				) : (
+					<ChevronRight size={11} className="shrink-0" />
+				)}
 				<span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-(--omp-text)">{path}</span>
 				<span className="shrink-0 text-[10.5px] text-(--omp-success)">+{additions}</span>
 				<span className="shrink-0 text-[10.5px] text-(--omp-error)">-{deletions}</span>
@@ -56,7 +61,9 @@ function FileRow({ path, additions, deletions }: { path: string; additions: numb
 				</div>
 			)}
 			{expanded?.phase === "error" && (
-				<div className="border-t border-(--omp-border-muted) px-3 py-2 text-[11px] text-(--omp-error)">{t("prCenter.diffFailed")}</div>
+				<div className="border-t border-(--omp-border-muted) px-3 py-2 text-[11px] text-(--omp-error)">
+					{t("prCenter.diffFailed")}
+				</div>
 			)}
 			{expanded?.phase === "ready" && (
 				<div className="overflow-x-auto border-t border-(--omp-border-muted) bg-(--omp-code-bg) py-1">
@@ -100,7 +107,7 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 	return (
 		<div className="flex flex-col gap-4 p-4">
 			{/* Header card */}
-			<div className="flex flex-col gap-2 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) p-3">
+			<div className="flex flex-col gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent p-3">
 				<div className="flex items-start gap-2">
 					{detail.isDraft ? (
 						<GitPullRequestDraft size={14} className="mt-0.5 shrink-0 text-(--omp-muted)" />
@@ -137,7 +144,11 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 					<Button variant="secondary" size="sm" onClick={() => void window.omp.system.openExternal(detail.url)}>
 						<ExternalLink size={11} /> {t("prCenter.openInBrowser")}
 					</Button>
-					<Button variant="primary" size="sm" onClick={() => void usePrCenterStore.getState().checkout(detail.number)}>
+					<Button
+						variant="primary"
+						size="sm"
+						onClick={() => void usePrCenterStore.getState().checkout(detail.number)}
+					>
 						<GitBranch size={11} /> {t("prCenter.checkout")}
 					</Button>
 				</div>
@@ -157,7 +168,9 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 								onClick={() => setBodyExpanded(expanded => !expanded)}
 								className="mt-1.5 text-[11px] text-(--omp-accent) hover:underline"
 							>
-								{bodyExpanded ? t("prCenter.collapse") : t("prCenter.expand", { count: String(bodyLines.length - BODY_COLLAPSE_LINES) })}
+								{bodyExpanded
+									? t("prCenter.collapse")
+									: t("prCenter.expand", { count: String(bodyLines.length - BODY_COLLAPSE_LINES) })}
 							</button>
 						)}
 					</div>

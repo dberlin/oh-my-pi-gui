@@ -115,7 +115,7 @@ export function ForceToolDialog() {
 		<Modal onClose={close} open={open} size="picker" title={t("forceTool.title")}>
 			<div className="flex min-h-0 flex-1 flex-col gap-3">
 				{/* Current forced tool + clear */}
-				<div className="flex items-center justify-between rounded-lg bg-(--omp-bg-tertiary) px-3 py-2">
+				<div className="flex items-center justify-between rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2">
 					<div className="flex min-w-0 items-center gap-2 text-sm">
 						<Wrench className="h-4 w-4 shrink-0 text-(--omp-muted)" />
 						{current ? (

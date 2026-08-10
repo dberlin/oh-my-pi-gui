@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>omp GUI — One window. Every session in parallel.</title>
-<meta name="description" content="The resilient desktop GUI for the omp coding agent: parallel session tabs, background agents, crash recovery, runtime diagnostics, voice, collaboration, and auto-update. macOS arm64 / x64." />
+<meta name="description" content="A responsive desktop GUI for the omp coding agent: parallel sessions plus native Skills, MCP, security, SSH host, and update management. macOS arm64 / x64." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -375,26 +375,27 @@
     <div class="nav-links">
       <a href="#tabs">Session Tabs</a>
       <a href="#dock">Activity Dock</a>
+      <a href="#management">Management</a>
       <a href="#native">Native</a>
       <a href="#updates">Updates</a>
       <a href="#install">Install</a>
       <a href="https://github.com/nornzach/oh-my-pi-gui">GitHub</a>
     </div>
-    <a class="btn btn-primary btn-sm" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.1/omp-0.7.1-arm64.dmg">Download v0.7.1</a>
+    <a class="btn btn-primary btn-sm" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2-arm64.dmg">Download v0.7.2</a>
   </div>
 </nav>
 
 <header class="hero" id="top">
   <div class="container">
-    <div class="hero-badge rise d1"><span class="dot"></span>v0.7.1 · Aug 2026 — Faster Tabs &amp; Agent Views</div>
+    <div class="hero-badge rise d1"><span class="dot"></span>v0.7.2 · Aug 2026 — Native Management &amp; Responsive UI</div>
     <h1 class="rise d2">One window.<br /><span class="grad">Every session in parallel.</span></h1>
     <p class="sub rise d3">The desktop GUI for the omp coding agent. Every session tab runs its own agent process — your work keeps moving in the background while you switch. All of the TUI's power, none of its walls.</p>
     <div class="hero-cta rise d4">
-      <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.1/omp-0.7.1-arm64.dmg">
+      <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2-arm64.dmg">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Download for macOS <span class="btn-sub">Apple Silicon</span>
       </a>
-      <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.1/omp-0.7.1.dmg">Intel build <span class="btn-sub">macOS x64</span></a>
+      <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2.dmg">Intel build <span class="btn-sub">macOS x64</span></a>
     </div>
     <p class="hero-fine rise d5">Bundled sidecar — no agent, bun, or Node to install · <a href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a> · <a href="#install">Build from source</a></p>
     <div class="hero-shot-wrap rise d5">
@@ -418,6 +419,8 @@
     <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>Crash recovery &amp; diagnostics</span>
     <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Session stats</span>
     <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Provider &amp; login management</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>Security Center</span>
+    <span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/></svg>Skills &amp; MCP management</span>
   </div>
 </div>
 
@@ -486,6 +489,21 @@
         <img src="docs/screenshots/03-agents-hub.webp" alt="Agents panel showing two labeled sub-agents" loading="lazy" />
         <figcaption>Agents panel — two named sub-agents live in one tab.</figcaption>
       </figure>
+    </div>
+  </div>
+</section>
+
+<section id="management" style="padding-top: 40px;">
+  <div class="container">
+    <div class="center reveal">
+      <span class="eyebrow">Native Management</span>
+      <h2>The command line is no longer the settings screen</h2>
+      <p class="lead" style="max-width: 680px;">Configure the agent from dedicated, responsive surfaces. Selection and status carry the color; the rest stays clean, readable, and sized to your window.</p>
+    </div>
+    <div class="steps">
+      <div class="step reveal"><div class="n">01</div><h3>Skills &amp; MCP</h3><p>Inspect complete skill instructions, control scopes, add servers, test connections, and reauthorize without editing config files by hand.</p></div>
+      <div class="step reveal reveal-late"><div class="n">02</div><h3>Security &amp; SSH</h3><p>Audit the current repository, review findings with evidence, and maintain reusable remote hosts from one operations area.</p></div>
+      <div class="step reveal reveal-later"><div class="n">03</div><h3>One update surface</h3><p>See GUI and omp versions together, resolve update errors clearly, and install a verified package with its published metadata.</p></div>
     </div>
   </div>
 </section>
@@ -576,11 +594,11 @@
       <h2>Up and running in a minute</h2>
       <p class="lead" style="margin-left: auto; margin-right: auto;">Grab the DMG for your Mac. The agent, its runtime and everything else are already inside.</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.1/omp-0.7.1-arm64.dmg">
+        <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2-arm64.dmg">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Apple Silicon <span class="btn-sub">arm64</span>
         </a>
-        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.1/omp-0.7.1.dmg">Intel <span class="btn-sub">x64</span></a>
+        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2.dmg">Intel <span class="btn-sub">x64</span></a>
         <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a>
       </div>
       <div class="install-note">

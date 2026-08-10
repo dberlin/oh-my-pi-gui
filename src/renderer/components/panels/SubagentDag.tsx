@@ -118,7 +118,7 @@ function MainNode({ x, y }: { x: number; y: number }) {
 	const t = useT();
 	return (
 		<div
-			className="absolute flex flex-col justify-center rounded-md border border-dashed border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-2 py-1.5"
+			className="absolute flex flex-col justify-center rounded-md border border-dashed border-(--omp-border-muted) bg-transparent px-2 py-1.5"
 			style={{ left: x, top: y, width: DAG_NODE_WIDTH, height: DAG_NODE_HEIGHT }}
 		>
 			<div className="flex items-center gap-1.5">

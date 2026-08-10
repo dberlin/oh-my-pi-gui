@@ -67,7 +67,12 @@ export function CopyButton({ text, className }: { text: string; className?: stri
 /** Red error box whose message can be copied verbatim (server-side errors). */
 export function CopyableError({ title, text, className }: { title?: string; text: string; className?: string }) {
 	return (
-		<div className={cx("rounded-md bg-(--omp-tool-error-bg) px-2.5 py-1.5", className)}>
+		<div
+			className={cx(
+				"rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2.5 py-1.5",
+				className,
+			)}
+		>
 			<div className="flex items-start gap-2">
 				<div className="min-w-0 flex-1">
 					{title && <span className="mb-0.5 block text-[11px] font-medium text-(--omp-error)">{title}</span>}
@@ -100,7 +105,12 @@ export function McpTestResultView({
 	const t = useT();
 	if (testing) {
 		return (
-			<div className={cx("flex items-center gap-2 rounded-md bg-(--omp-bg-tertiary) px-2.5 py-1.5", className)}>
+			<div
+				className={cx(
+					"flex items-center gap-2 rounded-md border border-(--omp-border-muted) bg-transparent px-2.5 py-1.5",
+					className,
+				)}
+			>
 				<Spinner size="sm" />
 				<span className="text-[11px] text-(--omp-muted)">{t("mcp.wizard.testing")}</span>
 			</div>
@@ -109,7 +119,12 @@ export function McpTestResultView({
 	if (!view) return null;
 	if (view.kind === "error") {
 		return (
-			<div className={cx("rounded-md bg-(--omp-tool-error-bg) px-2.5 py-1.5", className)}>
+			<div
+				className={cx(
+					"rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2.5 py-1.5",
+					className,
+				)}
+			>
 				<div className="flex items-start gap-2">
 					<div className="min-w-0 flex-1">
 						<span className="mb-0.5 block text-[11px] font-medium text-(--omp-error)">

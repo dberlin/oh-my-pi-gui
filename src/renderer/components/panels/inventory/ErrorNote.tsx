@@ -24,7 +24,12 @@ export function CopyableError({
 		return () => window.clearTimeout(timer);
 	}, [copied]);
 	return (
-		<div className={cx("flex items-start gap-2 rounded-md bg-(--omp-tool-error-bg) px-2.5 py-1.5", className)}>
+		<div
+			className={cx(
+				"flex items-start gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2.5 py-1.5",
+				className,
+			)}
+		>
 			<span className="min-w-0 flex-1 text-[11px] break-words whitespace-pre-wrap text-(--omp-error)">
 				{message}
 			</span>

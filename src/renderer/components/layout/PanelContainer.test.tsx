@@ -62,6 +62,7 @@ afterEach(async () => {
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
 	useUiStore.setState({ panelTab: "files", panelVisible: true });
+	Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440 });
 });
 
 function seedActiveTab(kind: "agent" | "chat"): void {
@@ -108,5 +109,13 @@ describe("PanelContainer chat tab filter", () => {
 		for (const visible of ["Todo", "Plan", "Agents", "Queue", "Diff", "Files", "Logs"]) {
 			expect(labels).toContain(visible);
 		}
+	});
+
+	it("uses the available window width instead of a fixed narrow drawer", async () => {
+		Object.defineProperty(window, "innerWidth", { configurable: true, value: 2400 });
+		seedActiveTab("agent");
+		await mount(<PanelContainer />);
+
+		expect((document.querySelector("aside") as HTMLElement | null)?.style.width).toBe("672px");
 	});
 });

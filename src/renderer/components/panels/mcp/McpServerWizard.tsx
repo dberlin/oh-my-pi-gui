@@ -280,7 +280,7 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 									"flex flex-col items-start gap-1 rounded-lg border px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
 									values.transport === transport.id
 										? "border-(--omp-accent) bg-(--omp-selected-bg)"
-										: "border-(--omp-border-muted) bg-(--omp-bg-secondary) hover:border-(--omp-border-strong)",
+										: "border-(--omp-border-muted) bg-transparent hover:border-(--omp-border-strong)",
 								)}
 								disabled={busy}
 								key={transport.id}
@@ -360,7 +360,7 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 									"flex flex-col items-start gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
 									values.scope === scope.id
 										? "border-(--omp-accent) bg-(--omp-selected-bg)"
-										: "border-(--omp-border-muted) bg-(--omp-bg-secondary) hover:border-(--omp-border-strong)",
+										: "border-(--omp-border-muted) bg-transparent hover:border-(--omp-border-strong)",
 								)}
 								disabled={busy}
 								key={scope.id}

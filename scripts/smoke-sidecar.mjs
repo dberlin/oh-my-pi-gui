@@ -16,6 +16,7 @@ import { createInterface } from "node:readline";
 const CLI = new URL("../../coding-agent/src/cli.ts", import.meta.url).pathname;
 const CWD = new URL("../../../", import.meta.url).pathname;
 const WEDGE_MS = 6000;
+const HARD_TIMEOUT_MS = Number(process.env.OMP_SIDECAR_SMOKE_TIMEOUT_MS ?? 40_000);
 
 // Optional: pass an executable to probe the bundled binary instead of source.
 //   bun run packages/gui/scripts/smoke-sidecar.mjs
@@ -66,9 +67,9 @@ child.stderr.on("data", d => {
 });
 
 const hardKill = setTimeout(() => {
-	console.log("HARD_TIMEOUT — sidecar wedged past 40s");
+	console.log(`HARD_TIMEOUT — sidecar wedged past ${HARD_TIMEOUT_MS}ms`);
 	child.kill("SIGKILL");
-}, 40_000);
+}, HARD_TIMEOUT_MS);
 child.on("exit", code => {
 	if (finished) return;
 	console.log(`SIDECAR_EXIT code=${code} readyDone=${readyDone} — aborting`);
@@ -109,10 +110,25 @@ child.on("exit", code => {
 	const mutate = results.at(-1);
 	console.log(`set_thinking_level      ${mutate.ok ? "ok " : "ERR"} ${mutate.ms}ms`);
 
+	const settingsBefore = await send("get_settings", { paths: ["colorBlindMode"] });
+	const originalColorBlindMode = settingsBefore.data?.values?.colorBlindMode;
+	const settingsReadable = settingsBefore.success && typeof originalColorBlindMode === "boolean";
+	console.log(`get_settings            ${settingsReadable ? "ok " : "ERR"} ${results.at(-1).ms}ms`);
+
+	let settingsPersisted = false;
+	if (settingsReadable) {
+		const toggledColorBlindMode = !originalColorBlindMode;
+		const toggle = await send("set_setting", { path: "colorBlindMode", value: toggledColorBlindMode });
+		const settingsAfter = await send("get_settings", { paths: ["colorBlindMode"] });
+		settingsPersisted = toggle.success && settingsAfter.data?.values?.colorBlindMode === toggledColorBlindMode;
+		console.log(`set_setting round-trip  ${settingsPersisted ? "ok " : "ERR"} ${results.at(-2).ms + results.at(-1).ms}ms`);
+		await send("set_setting", { path: "colorBlindMode", value: originalColorBlindMode });
+	}
+
 	const postDiscovery = [follow, mutate];
 	const wedged = postDiscovery.some(r => r.ms > WEDGE_MS);
 	const modelsReturned = models.ms <= WEDGE_MS;
-	const pass = !wedged && modelsReturned;
+	const pass = !wedged && modelsReturned && settingsReadable && settingsPersisted;
 	console.log(
 		`\nVERDICT ${pass ? "PASS" : "FAIL"}  postDiscoveryMax=${Math.max(...postDiscovery.map(r => r.ms))}ms  models=${models.ms}ms  commands=${results.length}`,
 	);

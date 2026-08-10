@@ -316,7 +316,7 @@ function SessionRow({
 				"flex w-full flex-col gap-1 rounded-lg border px-3 py-2 text-left transition-colors",
 				selected
 					? "border-(--omp-accent) bg-(--omp-selected-bg)"
-					: "border-(--omp-border-muted) bg-(--omp-bg-secondary) hover:border-(--omp-border-strong)",
+					: "border-(--omp-border-muted) bg-transparent hover:border-(--omp-border-strong)",
 			)}
 			onClick={onSelect}
 			type="button"
@@ -348,7 +348,7 @@ function ThreadsTable({
 	}
 	return (
 		<div className="overflow-hidden rounded-lg border border-(--omp-border-muted)">
-			<div className="grid grid-cols-[48px_1fr_auto] gap-2 bg-(--omp-bg-secondary) px-3 py-1.5 text-[10px] font-medium tracking-wide text-(--omp-dim) uppercase">
+			<div className="grid grid-cols-[48px_1fr_auto] gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-[10px] font-medium tracking-wide text-(--omp-dim) uppercase">
 				<span>{t("debug.col.id")}</span>
 				<span>{t("debug.col.name")}</span>
 				<span>{t("debug.col.state")}</span>
@@ -439,7 +439,7 @@ function SnapshotCard({
 	const location = summaryLocation(snapshot);
 	const frame = [snapshot.frameName, location].filter((part): part is string => Boolean(part)).join(" @ ");
 	return (
-		<div className="flex flex-col gap-1.5 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2.5">
+		<div className="flex flex-col gap-1.5 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
 			<div className="flex flex-wrap items-center gap-2">
 				<span className="font-mono text-[12px] font-medium text-(--omp-text)">{snapshot.adapter}</span>
 				<StatusBadge status={snapshot.status} t={t} />
@@ -645,7 +645,7 @@ export function DebugConsoleDialog() {
 					) : (
 						<div className="flex max-h-40 flex-col gap-1.5 overflow-auto">
 							{sessionsError ? (
-								<div className="rounded-md bg-[color-mix(in_srgb,var(--omp-error)_10%,transparent)] px-3 py-1.5 text-[11px] text-(--omp-error)">
+								<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-1.5 text-[11px] text-(--omp-error)">
 									{sessionsError}
 								</div>
 							) : null}
@@ -679,7 +679,7 @@ export function DebugConsoleDialog() {
 				</div>
 
 				{error ? (
-					<div className="rounded-md bg-[color-mix(in_srgb,var(--omp-error)_10%,transparent)] p-3 text-sm text-(--omp-error)">
+					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent p-3 text-sm text-(--omp-error)">
 						{error}
 					</div>
 				) : null}
@@ -689,7 +689,7 @@ export function DebugConsoleDialog() {
 						<span className="text-xs font-medium text-(--omp-text)">{t("debug.result")}</span>
 						{pending > 0 ? <Spinner label={t("debug.running")} size="sm" /> : null}
 					</div>
-					<div className="max-h-72 min-h-28 overflow-auto rounded-lg bg-(--omp-bg-tertiary) p-3">
+					<div className="max-h-72 min-h-28 overflow-auto rounded-lg border border-(--omp-border-muted) bg-transparent p-3">
 						{result ? (
 							<ResultBody result={result} t={t} />
 						) : (

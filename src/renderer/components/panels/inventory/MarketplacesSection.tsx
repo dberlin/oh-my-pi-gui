@@ -62,7 +62,7 @@ export function AddMarketplaceForm({ onAdded }: { onAdded: () => Promise<void> }
 	};
 
 	return (
-		<div className="flex flex-col gap-2 rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-3 py-2.5">
+		<div className="flex flex-col gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
 			<span className="text-[12px] font-medium text-(--omp-text)">{t("marketplace.addTitle")}</span>
 			<div className="flex items-start gap-2">
 				<input
@@ -116,7 +116,7 @@ function AvailablePluginRow({
 }) {
 	const t = useT();
 	return (
-		<div className="flex items-center gap-3 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-2.5 py-2">
+		<div className="flex items-center gap-3 rounded-md border border-(--omp-border-muted) bg-transparent px-2.5 py-2">
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex flex-wrap items-center gap-1.5">
 					<span className="text-[12px] font-medium text-(--omp-text)">{plugin.name}</span>
@@ -279,7 +279,7 @@ export function MarketplaceCard({
 			: t("marketplace.cacheNote");
 
 	return (
-		<div className="overflow-hidden rounded-lg border border-(--omp-border-muted) bg-(--omp-bg-secondary)">
+		<div className="overflow-hidden rounded-lg border border-(--omp-border-muted) bg-transparent">
 			<div className="flex items-center gap-2 px-3 py-2.5">
 				<button
 					aria-expanded={expanded}
@@ -325,7 +325,7 @@ export function MarketplaceCard({
 					<span className="flex shrink-0 items-center gap-0.5">
 						<button
 							aria-label={t("marketplace.removeConfirm")}
-							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md bg-(--omp-error-dim) text-(--omp-error) disabled:opacity-40"
+							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent text-(--omp-error) disabled:opacity-40"
 							disabled={busyAction !== null}
 							onClick={() => void removeMarketplace()}
 							title={t("marketplace.removeConfirm")}

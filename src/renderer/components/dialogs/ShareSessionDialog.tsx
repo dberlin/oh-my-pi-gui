@@ -89,7 +89,7 @@ export function ShareSessionDialog() {
 						</div>
 					</div>
 					{result.truncated ? (
-						<div className="flex items-start gap-2 rounded-lg bg-(--omp-bg-tertiary) p-3 text-xs text-(--omp-warning)">
+						<div className="flex items-start gap-2 rounded-lg border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent p-3 text-xs text-(--omp-warning)">
 							<AlertTriangle className="mt-px shrink-0" size={14} />
 							{t("shareDialog.truncated")}
 						</div>

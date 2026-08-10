@@ -159,7 +159,7 @@ export function LogPanel() {
 				{!pinned && (
 					<button
 						aria-label={t("logPanel.jumpLabel")}
-						className="absolute right-3 bottom-3 flex items-center gap-1 rounded-full border border-(--omp-border-muted) bg-(--omp-bg-secondary) px-2 py-1 text-[10px] text-(--omp-muted) shadow-lg shadow-black/40 transition-colors hover:text-(--omp-text)"
+						className="absolute right-3 bottom-3 flex items-center gap-1 rounded-full border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2 py-1 text-[10px] text-(--omp-muted) shadow-(--omp-shadow-sm) transition-colors hover:text-(--omp-text)"
 						onClick={jumpToBottom}
 						type="button"
 					>
