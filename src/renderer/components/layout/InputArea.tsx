@@ -3,6 +3,7 @@ import type { ClipboardEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FsTreeEntry } from "../../../shared/ipc-types";
 import type { AgentMessage, AvailableCommand, ImageContent } from "../../../shared/rpc-types";
+import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { hydrateSession } from "../../hooks/use-rpc-events";
 import { isGuiOnlyBuiltinCommand, planComposerSubmit, settleComposerResponse } from "../../lib/composer-submit";
 import { expandEmoticons, getEmojiSuggestions, tryEmojiInlineReplace } from "../../lib/emoji";
@@ -11,7 +12,7 @@ import { useT } from "../../lib/i18n";
 import { parseComposerMode } from "../../lib/input-modes";
 import { clearSessionContext } from "../../lib/messages";
 import {
-	clearPastes,
+	dropReferencedPastes,
 	expandPasteMarkers,
 	isMarkerSized,
 	pasteMarkerText,
@@ -20,6 +21,7 @@ import {
 	wrapPasteInAttachmentBlock,
 } from "../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../lib/queue-input";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../lib/tab-routing";
 import {
 	cancelVoiceRecording,
 	evaluateSttSubmitTrigger,
@@ -27,13 +29,13 @@ import {
 	recordAndTranscribe,
 	stopVoiceRecording,
 } from "../../lib/voice";
-import { useComposerStore } from "../../stores/composer";
+import { type ComposerImage, useComposerStore } from "../../stores/composer";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
-import { useActiveTabKind } from "../../stores/tabs";
+import { restoreTabComposer, useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { ActivityStrip } from "../chat/ActivityStrip";
@@ -59,11 +61,6 @@ interface CompletionMenu {
 }
 
 type SendMode = "prompt" | "steer" | "followUp";
-
-interface PastedImage {
-	content: ImageContent;
-	preview: string;
-}
 
 const MAX_MENU_ITEMS = 8;
 /** Cap on fuzzy file results shown above the scheme entries in the @ menu. */
@@ -150,8 +147,8 @@ function listMentionFiles(cwd: string): Promise<string[]> {
 	return task;
 }
 
-function fileToImage(file: File): Promise<PastedImage> {
-	const { promise, resolve, reject } = Promise.withResolvers<PastedImage>();
+function fileToImage(file: File): Promise<ComposerImage> {
+	const { promise, resolve, reject } = Promise.withResolvers<ComposerImage>();
 	const reader = new FileReader();
 	reader.onload = () => {
 		const dataUrl = String(reader.result);
@@ -174,9 +171,11 @@ function fileToImage(file: File): Promise<PastedImage> {
 export function InputArea() {
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const t = useT();
+	const routeReady = useActiveTabRouteReady();
 	/** Chat tabs are tool-free: approval/mode chrome is meaningless there. */
 	const isChat = useActiveTabKind() === "chat";
 	const status = useSessionStore(s => s.status);
+	const sessionId = useSessionStore(s => s.sessionId);
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
 	const contextUsage = useSessionStore(s => s.contextUsage);
 	const cwd = useSessionStore(s => s.cwd);
@@ -197,7 +196,8 @@ export function InputArea() {
 	// drop-in for the old useState pair.
 	const text = useComposerStore(s => s.draft);
 	const setText = useComposerStore(s => s.setDraft);
-	const [images, setImages] = useState<PastedImage[]>([]);
+	const images = useComposerStore(s => s.images);
+	const setImages = useComposerStore(s => s.setImages);
 	const [mode, setMode] = useState<SendMode>("prompt");
 	const [menu, setMenu] = useState<CompletionMenu | null>(null);
 	const [commands, setCommands] = useState<AvailableCommand[]>([]);
@@ -278,20 +278,30 @@ export function InputArea() {
 	useEffect(() => {
 		let cancelled = false;
 		const unsubscribe = window.omp.events.onCommandsUpdate(next => {
-			if (!cancelled) setCommands(next);
+			if (!cancelled && acceptsActiveTabEvents()) setCommands(next);
 		});
-		if (status === "ready") {
+		const load = () => {
+			if (status !== "ready" || !acceptsActiveTabEvents()) return;
 			void window.omp.rpc.getAvailableCommands().then(res => {
-				if (cancelled || !res.success) return;
+				if (
+					cancelled ||
+					!acceptsActiveTabEvents() ||
+					useSessionStore.getState().sessionId !== sessionId ||
+					!res.success
+				)
+					return;
 				const data = res.data as { commands?: AvailableCommand[] } | undefined;
 				setCommands(data?.commands ?? []);
 			});
-		}
+		};
+		const unsubscribeRoute = onActiveTabRouteSettled(load);
+		load();
 		return () => {
 			cancelled = true;
 			unsubscribe();
+			unsubscribeRoute();
 		};
-	}, [status]);
+	}, [status, sessionId]);
 
 	// Auto-grow the textarea to fit its content (up to ~40% of the viewport).
 	useEffect(() => {
@@ -479,6 +489,7 @@ export function InputArea() {
 	// Lazy-load workspace files for @mention completion: debounced so a fleeting
 	// "@" doesn't trigger the walk, then cached per cwd for instant filtering.
 	useEffect(() => {
+		if (!routeReady) return;
 		if (mentionFileCache.has(cwd)) return;
 		const el = textareaRef.current;
 		const before = text.slice(0, el?.selectionStart ?? text.length);
@@ -490,7 +501,7 @@ export function InputArea() {
 			});
 		}, MENTION_FS_DEBOUNCE_MS);
 		return () => clearTimeout(timer);
-	}, [text, cwd]);
+	}, [text, cwd, routeReady]);
 
 	useEffect(() => {
 		const onInsertMention = (event: Event) => {
@@ -512,7 +523,7 @@ export function InputArea() {
 			const restoredImages = detail?.images ?? [];
 			if (!next && restoredImages.length === 0) return;
 			// The editor dialog writes back fully-inline text — consume the blobs.
-			if (detail?.clearPastes) clearPastes();
+			if (detail?.clearPastes) dropReferencedPastes(useComposerStore.getState().draft);
 			// prepend (dequeue restore): queued text goes ahead of any draft, TUI-style;
 			// otherwise replace (starter cards, history recall).
 			setText(current => {
@@ -541,6 +552,7 @@ export function InputArea() {
 		// prepend (dequeue restore): queued text goes ahead of any draft, TUI-style;
 		// otherwise replace (starter cards, history recall).
 		setText,
+		setImages,
 	]);
 
 	const insertCompletion = useCallback(
@@ -645,10 +657,17 @@ export function InputArea() {
 		(overrideText?: string, forceMode?: SendMode) => {
 			const message = (overrideText ?? text).trim();
 			if ((!message && images.length === 0) || sending) return;
+			if (!routeReady || !acceptsActiveTabEvents()) return;
 			if (status !== "ready") {
 				toast({ variant: "warning", message: t("input.agentConnecting") });
 				return;
 			}
+			const originTabId = useTabsStore.getState().activeTabId;
+			const originSessionId = useSessionStore.getState().sessionId;
+			const originStillActive = () =>
+				useTabsStore.getState().activeTabId === originTabId &&
+				useSessionStore.getState().sessionId === originSessionId &&
+				acceptsActiveTabEvents();
 
 			// Paste markers expand to full blob content BEFORE mode/queue parsing and
 			// every dispatch path (bash, python, prompt, queue items) — the wire only
@@ -663,6 +682,10 @@ export function InputArea() {
 			const parsed = parseComposerMode(expandedMessage);
 			if (parsed?.mode === "bash" && parsed.body) {
 				useInputHistoryStore.getState().record(message);
+				const previousImages = images;
+				setText("");
+				setImages([]);
+				setMenu(null);
 				setSending(true);
 				const pending: AgentMessage = {
 					role: "bashExecution",
@@ -675,19 +698,19 @@ export function InputArea() {
 				void window.omp.rpc
 					.bash(parsed.body, parsed.excluded)
 					.then(async response => {
-						useMessagesStore.getState().removeMessage(pending);
+						if (originStillActive()) useMessagesStore.getState().removeMessage(pending);
 						if (!response.success) {
+							restoreTabComposer(originTabId, originSessionId, message, previousImages);
 							toast({ variant: "error", title: t("input.bashFailed"), message: response.error });
 							return;
 						}
-						setText("");
-						setImages([]);
-						setMenu(null);
-						clearPastes();
+						if (!originStillActive()) return;
+						dropReferencedPastes(message);
 						await hydrateSession();
 					})
 					.catch(error => {
-						useMessagesStore.getState().removeMessage(pending);
+						if (originStillActive()) useMessagesStore.getState().removeMessage(pending);
+						restoreTabComposer(originTabId, originSessionId, message, previousImages);
 						toast({ variant: "error", title: t("input.bashFailed"), message: String(error) });
 					})
 					.finally(() => setSending(false));
@@ -700,6 +723,10 @@ export function InputArea() {
 			// today and the GUI tracks no kernel state to source it from.
 			if (parsed?.mode === "python" && parsed.body) {
 				useInputHistoryStore.getState().record(message);
+				const previousImages = images;
+				setText("");
+				setImages([]);
+				setMenu(null);
 				setSending(true);
 				const pending: AgentMessage = {
 					role: "pythonExecution",
@@ -711,19 +738,19 @@ export function InputArea() {
 				void window.omp.rpc
 					.eval(parsed.body, undefined, parsed.excluded)
 					.then(async response => {
-						useMessagesStore.getState().removeMessage(pending);
+						if (originStillActive()) useMessagesStore.getState().removeMessage(pending);
 						if (!response.success) {
+							restoreTabComposer(originTabId, originSessionId, message, previousImages);
 							toast({ variant: "error", title: t("input.evalFailed"), message: response.error });
 							return;
 						}
-						setText("");
-						setImages([]);
-						setMenu(null);
-						clearPastes();
+						if (!originStillActive()) return;
+						dropReferencedPastes(message);
 						await hydrateSession();
 					})
 					.catch(error => {
-						useMessagesStore.getState().removeMessage(pending);
+						if (originStillActive()) useMessagesStore.getState().removeMessage(pending);
+						restoreTabComposer(originTabId, originSessionId, message, previousImages);
 						toast({ variant: "error", title: t("input.evalFailed"), message: String(error) });
 					})
 					.finally(() => setSending(false));
@@ -766,6 +793,7 @@ export function InputArea() {
 					let sent = 0;
 					try {
 						for (let index = 0; index < dispatchItems.length; index++) {
+							if (!originStillActive()) throw new Error("Tab changed during queue dispatch");
 							const item = dispatchItems[index] ?? "";
 							const itemImages = index === 0 ? payload : undefined;
 							const isExtensionCommand =
@@ -779,25 +807,24 @@ export function InputArea() {
 							if (!response.success) throw new Error(response.error ?? "queue dispatch failed");
 							sent += 1;
 						}
-						clearPastes();
+						if (originStillActive()) dropReferencedPastes(message);
 					} catch (error) {
 						if (sent === 0) {
 							// Zero items sent: restore the original draft (markers) and images.
-							setText(current => (current ? `${message}\n${current}` : message));
-							setImages(current => [...previousImages, ...current]);
+							restoreTabComposer(originTabId, originSessionId, message, previousImages);
 						} else {
 							// Partial failure: restore the remainder in the exact shorthand
 							// shape the parser can consume again. Continuation indentation
 							// prevents marker-looking lines inside one item from splitting.
 							const remaining = dispatchItems.slice(sent);
-							setText(
+							const remainingDraft =
 								remaining.length === 1
 									? `=> ${remaining[0]}`
 									: `=>\n${remaining
 											.map((item, index) => `${index + 1}. ${item.replaceAll("\n", "\n   ")}`)
-											.join("\n")}`,
-							);
-							clearPastes();
+											.join("\n")}`;
+							restoreTabComposer(originTabId, originSessionId, remainingDraft, []);
+							if (originStillActive()) dropReferencedPastes(message);
 						}
 						toast({
 							variant: "error",
@@ -829,7 +856,7 @@ export function InputArea() {
 				setText("");
 				setImages([]);
 				setMenu(null);
-				clearPastes();
+				dropReferencedPastes(message);
 				return;
 			}
 			// Native /clear: drop context in place via clear_context RPC; the draft
@@ -841,11 +868,10 @@ export function InputArea() {
 				setMenu(null);
 				void clearSessionContext().then(cleared => {
 					if (cleared) {
-						clearPastes();
+						if (originStillActive()) dropReferencedPastes(message);
 						return;
 					}
-					setText(current => (current ? `${message}\n${current}` : message));
-					setImages(current => [...previousImages, ...current]);
+					restoreTabComposer(originTabId, originSessionId, message, previousImages);
 				});
 				return;
 			}
@@ -853,24 +879,47 @@ export function InputArea() {
 			setText("");
 			setImages([]);
 			setMenu(null);
-			void submit.request
-				.then(async response => {
-					if (!response.success) {
-						setText(current => (current ? `${message}\n${current}` : message));
-						setImages(current => [...previousImages, ...current]);
-						toast({ variant: "error", title: t("input.sendFailed"), message: response.error });
-						return;
-					}
-					clearPastes();
-					await settleComposerResponse(response);
-				})
-				.catch(error => {
-					setText(current => (current ? `${message}\n${current}` : message));
-					setImages(current => [...previousImages, ...current]);
-					toast({ variant: "error", title: t("input.sendFailed"), message: String(error) });
-				});
+			// Let React commit the cleared draft before contextBridge serializes the
+			// request payload. On large sessions/attachments that synchronous bridge
+			// work used to make Enter look ignored for a noticeable beat.
+			setTimeout(() => {
+				if (!originStillActive()) {
+					restoreTabComposer(originTabId, originSessionId, message, previousImages);
+					return;
+				}
+				void submit
+					.request()
+					.then(async response => {
+						if (!response.success) {
+							restoreTabComposer(originTabId, originSessionId, message, previousImages);
+							toast({ variant: "error", title: t("input.sendFailed"), message: response.error });
+							return;
+						}
+						if (!originStillActive()) return;
+						dropReferencedPastes(message);
+						await settleComposerResponse(response);
+					})
+					.catch(error => {
+						restoreTabComposer(originTabId, originSessionId, message, previousImages);
+						toast({ variant: "error", title: t("input.sendFailed"), message: String(error) });
+					});
+			}, 0);
 		},
-		[text, images, sending, status, isStreaming, mode, queuedMessageCount, commands, emojiAutocomplete, t, setText],
+		[
+			text,
+			images,
+			sending,
+			status,
+			isStreaming,
+			mode,
+			queuedMessageCount,
+			commands,
+			emojiAutocomplete,
+			routeReady,
+			t,
+			setText,
+			setImages,
+		],
 	);
 
 	// Mic dictation (stt.enabled): click starts capture, click again stops and
@@ -1246,7 +1295,11 @@ export function InputArea() {
 
 					{argHint && <div className="px-3.5 pb-1 font-mono text-[11px] text-[var(--omp-dim)]">💡 {argHint}</div>}
 
-					<div className="flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5">
+					<div
+						aria-busy={!routeReady}
+						className="flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5"
+						inert={!routeReady}
+					>
 						<button
 							type="button"
 							onClick={() => fileInputRef.current?.click()}
@@ -1349,6 +1402,7 @@ export function InputArea() {
 							<div className="flex shrink-0 items-center gap-1.5">
 								<button
 									type="button"
+									disabled={!routeReady}
 									onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
 									title={modeTitle}
 									className="omp-pressable h-8 rounded-lg border border-[var(--omp-border)] bg-[var(--omp-bg-primary)] px-3 text-[12px] font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
@@ -1357,6 +1411,7 @@ export function InputArea() {
 								</button>
 								<button
 									type="button"
+									disabled={!routeReady}
 									onClick={() => void window.omp.rpc.abort()}
 									title={t("input.abort")}
 									className="omp-pressable flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--omp-error-dim)] text-[var(--omp-error)] hover:bg-[var(--omp-error)] hover:text-[var(--omp-btn-danger-text)]"
@@ -1368,7 +1423,7 @@ export function InputArea() {
 							<button
 								type="button"
 								onClick={() => send()}
-								disabled={status !== "ready" || sending || (!text.trim() && images.length === 0)}
+								disabled={!routeReady || status !== "ready" || sending || (!text.trim() && images.length === 0)}
 								title={t("input.send")}
 								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] transition-[box-shadow,filter,transform,opacity] duration-150 hover:brightness-110 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:brightness-100 disabled:active:translate-y-0"
 							>

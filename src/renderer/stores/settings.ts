@@ -3,6 +3,8 @@ import type { RpcSessionState } from "../../shared/rpc-types";
 
 export type ApprovalMode = "always-ask" | "write" | "yolo";
 const APPROVAL_MODES = new Set<string>(["always-ask", "write", "yolo"]);
+let approvalSyncVersion = 0;
+let displaySyncVersion = 0;
 
 interface SettingsStore {
 	approvalMode: ApprovalMode;
@@ -90,6 +92,7 @@ const initialState = {
 
 /** Read the live tools.approvalMode config setting into the store. */
 async function syncApprovalMode(set: (partial: Partial<SettingsStore>) => void): Promise<void> {
+	const version = ++approvalSyncVersion;
 	try {
 		// Migrate the legacy launch pref once, then config.yml is the source of truth.
 		const pref = await window.omp.prefs.get("approvalMode");
@@ -98,6 +101,7 @@ async function syncApprovalMode(set: (partial: Partial<SettingsStore>) => void):
 			await window.omp.prefs.set("approvalMode", null);
 		}
 		const res = await window.omp.rpc.getSettings(["tools.approvalMode"]);
+		if (version !== approvalSyncVersion) return;
 		if (res.success) {
 			const value = (res.data as { values?: Record<string, unknown> } | undefined)?.values?.["tools.approvalMode"];
 			if (typeof value === "string" && APPROVAL_MODES.has(value)) set({ approvalMode: value as ApprovalMode });
@@ -152,8 +156,10 @@ const DISPLAY_NUM_KEYS = Object.keys(DISPLAY_NUM_MAP);
  * TUI or the GUI settings window apply to rendering immediately.
  */
 async function syncDisplaySettings(set: (partial: Partial<SettingsStore>) => void): Promise<void> {
+	const version = ++displaySyncVersion;
 	try {
 		const res = await window.omp.rpc.getSettings([...DISPLAY_SYNC_KEYS, ...DISPLAY_NUM_KEYS]);
+		if (version !== displaySyncVersion) return;
 		if (res.success) {
 			const values = (res.data as { values?: Record<string, unknown> } | undefined)?.values;
 			const partial: Partial<SettingsStore> = {};

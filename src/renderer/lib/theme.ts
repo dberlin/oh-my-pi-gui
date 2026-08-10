@@ -10,13 +10,14 @@
 export type ThemeMode = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 
-// SSR-safe: `window` is undefined under react-dom/server (tests, SSR smoke).
-const darkMedia: MediaQueryList | null =
-	typeof window !== "undefined" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+function getDarkMedia(): MediaQueryList | null {
+	if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
+	return window.matchMedia("(prefers-color-scheme: dark)");
+}
 
 /** Resolve "system" against the OS preference; identity otherwise. */
 export function resolveTheme(mode: ThemeMode): ResolvedTheme {
-	return mode === "system" ? (darkMedia?.matches ? "dark" : "light") : mode;
+	return mode === "system" ? (getDarkMedia()?.matches ? "dark" : "light") : mode;
 }
 
 /**
@@ -86,6 +87,7 @@ export function applyFontSize(size: number): void {
  * Returns an unsubscribe function.
  */
 export function watchSystemTheme(mode: ThemeMode, onResolved: (theme: ResolvedTheme) => void): () => void {
+	const darkMedia = getDarkMedia();
 	if (mode !== "system" || !darkMedia) return () => {};
 	const handler = (e: MediaQueryListEvent) => onResolved(e.matches ? "dark" : "light");
 	darkMedia.addEventListener("change", handler);

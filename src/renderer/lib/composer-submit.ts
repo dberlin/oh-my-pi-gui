@@ -26,8 +26,8 @@ export type ComposerSubmit =
 	| { kind: "clear" }
 	/** A GUI-native command opened/executed its affordance synchronously. */
 	| { kind: "handled" }
-	/** Dispatch this request; on success call {@link settleComposerResponse}. */
-	| { kind: "send"; request: Promise<RpcResponse> };
+	/** Dispatch this lazy request; on success call {@link settleComposerResponse}. */
+	| { kind: "send"; request: () => Promise<RpcResponse> };
 
 function runGuiAffordance(affordance: CommandAffordance, args?: string): boolean {
 	const reportFailure = (cause: unknown): void => {
@@ -114,11 +114,11 @@ export function planComposerSubmit(input: {
 	if (!isSlashCommand && isStreaming) {
 		return {
 			kind: "send",
-			request:
+			request: () =>
 				mode === "followUp" ? window.omp.rpc.followUp(message, images) : window.omp.rpc.steer(message, images),
 		};
 	}
-	return { kind: "send", request: window.omp.rpc.prompt(message, images) };
+	return { kind: "send", request: () => window.omp.rpc.prompt(message, images) };
 }
 
 /** Post-success settle: rehydrate after local-only slash commands. */

@@ -6,7 +6,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SubagentSnapshot } from "../../../shared/rpc-types";
+import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
@@ -29,7 +29,7 @@ const getSubagentMessages = vi.fn(async () => ({
 	type: "response",
 	command: "get_subagent_messages",
 	success: true,
-	data: { messages: [] },
+	data: { messages: [] as AgentMessage[] },
 }));
 const ompWindow = window as unknown as { omp: { rpc: { getSubagentMessages: typeof getSubagentMessages } } };
 ompWindow.omp = { rpc: { getSubagentMessages } };
@@ -68,6 +68,13 @@ afterEach(async () => {
 	useToolsStore.getState().reset();
 	useSubagentsStore.getState().reset();
 	useMessagesStore.getState().reset();
+	getSubagentMessages.mockClear();
+	getSubagentMessages.mockResolvedValue({
+		type: "response",
+		command: "get_subagent_messages",
+		success: true,
+		data: { messages: [] },
+	});
 });
 
 describe("panels under running state", () => {
@@ -145,18 +152,29 @@ describe("panels under running state", () => {
 		expect(document.body.textContent).toContain("src/a.ts");
 	});
 
-	it("SubagentPanel mounts with a live subagent and survives expand", async () => {
+	it("SubagentPanel expands a transcript and switches to graph view", async () => {
 		const snapshot: SubagentSnapshot = {
 			id: "sub-1",
 			agent: "scout",
-			description: "read-only research",
+			description: "Read-only research",
+			assignment: "# Target\nRead every related source file and report the implementation details.",
 			status: "started",
 			index: 0,
+			sessionFile: "/tmp/sub-1.jsonl",
 			lastUpdate: Date.now(),
 		};
+		getSubagentMessages.mockResolvedValueOnce({
+			type: "response",
+			command: "get_subagent_messages",
+			success: true,
+			data: {
+				messages: [{ role: "assistant", content: "Transcript loaded" }],
+			},
+		});
 		useSubagentsStore.getState().setSnapshots([snapshot]);
 		await mount(<SubagentPanel />);
-		expect(document.body.textContent).toContain("scout");
+		expect(document.body.textContent).toContain("Read-only research");
+		expect(document.body.textContent).not.toContain("# Target");
 
 		const row = Array.from(document.querySelectorAll("button")).find(b => b.textContent?.includes("scout"));
 		expect(row).toBeDefined();
@@ -165,5 +183,16 @@ describe("panels under running state", () => {
 			row.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 		});
 		await flush();
+		expect(getSubagentMessages).toHaveBeenCalledWith("sub-1", "/tmp/sub-1.jsonl", 0);
+		expect(document.body.textContent).toContain("Transcript loaded");
+
+		const graphButton = Array.from(document.querySelectorAll('button[aria-pressed="false"]')).at(-1);
+		expect(graphButton).toBeDefined();
+		if (!graphButton) return;
+		await act(async () => {
+			graphButton.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		expect(graphButton.getAttribute("aria-pressed")).toBe("true");
+		expect(document.querySelector('[role="tree"]')).toBeNull();
 	});
 });

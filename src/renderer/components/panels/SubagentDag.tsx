@@ -26,8 +26,9 @@ import {
 	extractTaskToolCallIds,
 	formatElapsed,
 	isLiveSubagentStatus,
-	noteFirstSeen,
 	statusMeta,
+	subagentElapsedMs,
+	subagentPrimaryLabel,
 	useSubagentGraphStore,
 } from "./subagent-graph";
 
@@ -65,11 +66,11 @@ const DagAgentNode = memo(function DagAgentNode({
 }) {
 	const t = useT();
 	const meta = statusMeta(agent.status);
-	const elapsed = isLiveSubagentStatus(agent.status) ? now - noteFirstSeen(agent.id) : 0;
+	const elapsed = subagentElapsedMs(agent, now);
 	const line =
 		isLiveSubagentStatus(agent.status) && agent.progress?.description
 			? agent.progress.description
-			: agent.description;
+			: `${agent.agent} #${agent.index + 1}`;
 
 	return (
 		<button
@@ -87,7 +88,7 @@ const DagAgentNode = memo(function DagAgentNode({
 			<div className="flex items-center gap-1.5">
 				<Bot className="shrink-0 text-(--omp-status-subagents)" size={12} />
 				<span className="min-w-0 flex-1 truncate text-[11px] font-medium text-(--omp-text)">
-					{agent.agent}
+					{subagentPrimaryLabel(agent, 36)}
 					{agent.index > 0 && <span className="ml-1 text-[9px] text-(--omp-dim)">#{agent.index + 1}</span>}
 				</span>
 				<Badge dot={meta.live} pulse={meta.live} variant={meta.variant}>
@@ -105,7 +106,7 @@ const DagAgentNode = memo(function DagAgentNode({
 				>
 					{line ?? ""}
 				</span>
-				{isLiveSubagentStatus(agent.status) && (
+				{elapsed !== null && (
 					<span className="shrink-0 text-[9px] tabular-nums text-(--omp-dim)">{formatElapsed(elapsed)}</span>
 				)}
 			</div>
@@ -212,10 +213,7 @@ export function SubagentDag() {
 					<div className="flex items-center gap-2 px-3 pt-1.5">
 						<Bot className="shrink-0 text-(--omp-status-subagents)" size={13} />
 						<span className="min-w-0 flex-1 truncate text-xs font-medium text-(--omp-text)">
-							{selected.agent}
-							{selected.index > 0 && (
-								<span className="ml-1 text-[10px] text-(--omp-dim)">#{selected.index + 1}</span>
-							)}
+							{subagentPrimaryLabel(selected)}
 						</span>
 						<Badge
 							dot={statusMeta(selected.status).live}

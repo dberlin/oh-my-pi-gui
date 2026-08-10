@@ -186,7 +186,9 @@ describe("SidecarPool tabs", () => {
 		a?.emitAgentEvents(["agent_start"]);
 		b?.emitAgentEvents(["agent_start"]);
 		// Only the active tab's batch reaches the full channel…
-		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
+		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-a", payload: [{ type: "agent_start" }] },
+		]);
 		// …but both tabs pushed TAB_STATUS for their running transition.
 		const statuses = fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data as IpcTabStatusPayload);
 		expect(statuses).toEqual([
@@ -206,7 +208,9 @@ describe("SidecarPool tabs", () => {
 		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAME)).toHaveLength(0);
 		expect(fw.sentTo(IPC_EVENTS.PROMPT_RESULT)).toHaveLength(0);
 		a?.emit("promptResult", { type: "prompt_result" });
-		expect(fw.sentTo(IPC_EVENTS.PROMPT_RESULT)).toHaveLength(1);
+		expect(fw.sentTo(IPC_EVENTS.PROMPT_RESULT).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-a", payload: { type: "prompt_result" } },
+		]);
 	});
 
 	it("synthesizes running/ready per tab from the agent event stream", () => {
@@ -503,7 +507,7 @@ describe("SidecarPool session cwd tracking", () => {
 		// stops showing the spawn workspace.
 		const pushes = fw.sentTo(IPC_EVENTS.TAB_STATUS);
 		expect(pushes).toHaveLength(1);
-		expect((pushes[0]?.data as IpcTabStatusPayload).cwd).toBe("/live-b");
+		expect((pushes[0]!.data as IpcTabStatusPayload).cwd).toBe("/live-b");
 
 		// Same cwd / unknown tab / empty cwd are no-ops (no push, no mutation).
 		expect(pool.adoptSessionCwd("tab-a", "/live-b")).toBe(false);
@@ -524,7 +528,18 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 
 		// Tab A raises the request while active; the dialog is forwarded…
 		a?.emitExtensionUi("req-1");
-		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
+		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI).map(item => item.data)).toEqual([
+			{
+				tabId: "tab-a",
+				request: {
+					type: "extension_ui_request",
+					id: "req-1",
+					method: "confirm",
+					title: "Proceed?",
+					message: "ok?",
+				},
+			},
+		]);
 
 		// …the user switches to tab B, THEN the response arrives. It must go to
 		// A's sidecar — B never saw the request and would drop/misroute it.

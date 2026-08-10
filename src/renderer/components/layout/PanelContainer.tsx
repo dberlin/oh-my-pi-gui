@@ -1,11 +1,12 @@
 import { Bot, ClipboardList, Diff, FolderTree, ListOrdered, ListTodo, ScrollText, X } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useRef, useState } from "react";
+import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useQueueStore } from "../../stores/queue";
 import { useSubagentsStore } from "../../stores/subagents";
-import { useActiveTabKind } from "../../stores/tabs";
+import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
 import type { PanelTab } from "../../stores/ui";
 import { useUiStore } from "../../stores/ui";
@@ -47,9 +48,12 @@ export function PanelContainer() {
 	const togglePanel = useUiStore(s => s.togglePanel);
 	const subagents = useSubagentsStore(s => s.subagents);
 	const phases = useTodoStore(s => s.phases);
+	const activeTabId = useTabsStore(s => s.activeTabId);
+	const routeReady = useActiveTabRouteReady();
 	/** Chat tabs only expose files + logs — the rest can't exist without tools. */
 	const isChat = useActiveTabKind() === "chat";
 	const visibleTabs = isChat ? TABS.filter(tab => CHAT_TAB_IDS.has(tab.id)) : TABS;
+	const visiblePanelTab = isChat && !CHAT_TAB_IDS.has(panelTab) ? "files" : panelTab;
 
 	const [width, setWidth] = useState(DEFAULT_WIDTH);
 	const dragging = useRef(false);
@@ -79,7 +83,11 @@ export function PanelContainer() {
 
 	return (
 		<aside
-			className="omp-inspector relative flex h-full shrink-0 flex-col border-l border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
+			aria-busy={!routeReady}
+			className={cx(
+				"omp-inspector relative flex h-full shrink-0 flex-col border-l border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]",
+				!routeReady && "pointer-events-none",
+			)}
 			style={{ width }}
 		>
 			<div className="flex h-[52px] shrink-0 items-center border-b border-[var(--omp-border-muted)] px-4">
@@ -98,7 +106,7 @@ export function PanelContainer() {
 			</div>
 			<div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--omp-border-muted)] px-2">
 				{visibleTabs.map(({ id, labelKey, icon: Icon }) => {
-					const active = panelTab === id;
+					const active = visiblePanelTab === id;
 					const badge =
 						id === "agents" && runningAgents > 0
 							? runningAgents
@@ -141,14 +149,14 @@ export function PanelContainer() {
 				})}
 			</div>
 			<div className="min-h-0 flex-1 overflow-hidden">
-				<PanelErrorBoundary key={panelTab}>
-					{panelTab === "todo" && <TodoPanel />}
-					{panelTab === "plan" && <PlanPanel />}
-					{panelTab === "agents" && <SubagentPanel />}
-					{panelTab === "queue" && <QueuePanel />}
-					{panelTab === "diff" && <DiffPanel />}
-					{panelTab === "files" && <FilesPanel />}
-					{panelTab === "logs" && <LogPanel />}
+				<PanelErrorBoundary key={`${activeTabId ?? "no-tab"}:${visiblePanelTab}`}>
+					{visiblePanelTab === "todo" && <TodoPanel />}
+					{visiblePanelTab === "plan" && <PlanPanel />}
+					{visiblePanelTab === "agents" && <SubagentPanel />}
+					{visiblePanelTab === "queue" && <QueuePanel />}
+					{visiblePanelTab === "diff" && <DiffPanel />}
+					{visiblePanelTab === "files" && <FilesPanel />}
+					{visiblePanelTab === "logs" && <LogPanel />}
 				</PanelErrorBoundary>
 			</div>
 			<div

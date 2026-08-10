@@ -1,6 +1,7 @@
 import { Brain, ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThinkingLevel } from "../../../shared/rpc-types";
+import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
 import { cx, durationBetween, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
@@ -73,7 +74,12 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 
 	const content = live ? streamingThinking : (text ?? "");
 	const isLive = live && content.length > 0;
-	const formatted = useMemo(() => formatThinkingForDisplay(content, proseOnly), [content, proseOnly]);
+	// Raw length still drives the live speed gauge, but formatting, word/line
+	// counts, and Markdown parse share the same bounded cadence as reply text.
+	// Previously a long reasoning stream reprocessed its entire growing prefix
+	// on every 16 ms event batch, even while the block was collapsed.
+	const displayContent = useThrottledText(content, live ? STREAM_FORMAT_FLUSH_MS : 0);
+	const formatted = useMemo(() => formatThinkingForDisplay(displayContent, proseOnly), [displayContent, proseOnly]);
 
 	const resolvedLevel: ThinkingLevel = level ?? storeLevel ?? "medium";
 	// Theme tokens only go up to xhigh; "max" shares its color.

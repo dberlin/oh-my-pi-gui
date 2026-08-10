@@ -157,6 +157,8 @@ interface UiStore {
 	closeSessionInfo: () => void;
 	requestSessionSwitch: (session: SessionInfo) => void;
 	closeSessionSwitch: () => void;
+	/** Close UI whose data or actions belong to the outgoing tab. */
+	closeSessionOverlays: () => void;
 	setSidecarError: (error: string | null) => void;
 	clearSidecarError: () => void;
 	setTheme: (theme: ThemeMode) => void;
@@ -324,6 +326,40 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	sessionSwitchPrompt: null as SessionInfo | null,
 	requestSessionSwitch: session => set({ sessionSwitchPrompt: session }),
 	closeSessionSwitch: () => set({ sessionSwitchPrompt: null }),
+	closeSessionOverlays: () =>
+		set({
+			commandPaletteOpen: false,
+			modelPickerOpen: false,
+			settingsOpen: false,
+			extensionsOpen: false,
+			inventoryOpen: false,
+			modesOpen: false,
+			agentHubOpen: false,
+			importDialogOpen: false,
+			copySelectorOpen: false,
+			contextReportOpen: false,
+			activeToolsOpen: false,
+			shareSessionOpen: false,
+			jobsOpen: false,
+			workspaceDirsOpen: false,
+			forceToolOpen: false,
+			btwRequest: null,
+			collabOpen: false,
+			collabJoinLink: null,
+			debugOpen: false,
+			liveOpen: false,
+			composerEditorOpen: false,
+			composerEditorInitial: null,
+			renameDialogOpen: false,
+			worktreeDialog: null,
+			worktreeClosePrompt: null,
+			prCenterOpen: false,
+			sessionPickerOpen: false,
+			branchPickerOpen: false,
+			sessionTreeOpen: false,
+			sessionInfoOpen: false,
+			sessionSwitchPrompt: null,
+		}),
 	sidecarError: null as string | null,
 	setSidecarError: (error: string | null) => set({ sidecarError: error }),
 	clearSidecarError: () => set({ sidecarError: null }),

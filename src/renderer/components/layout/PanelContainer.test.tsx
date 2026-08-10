@@ -90,6 +90,15 @@ describe("PanelContainer chat tab filter", () => {
 		}
 	});
 
+	it("falls back to the files surface when an agent-only tab was selected before entering chat", async () => {
+		seedActiveTab("chat");
+		useUiStore.setState({ panelTab: "agents", panelVisible: true });
+		await mount(<PanelContainer />);
+
+		expect(document.querySelector('button[aria-label="Refresh file tree"]')).not.toBeNull();
+		expect(container.textContent).not.toContain("No agents yet");
+	});
+
 	it("renders all drawer tabs in an agent tab", async () => {
 		seedActiveTab("agent");
 		useUiStore.setState({ panelTab: "files", panelVisible: true });

@@ -93,3 +93,10 @@ export function referencedPasteIds(draft: string): number[] {
 	}
 	return ids;
 }
+
+/** Remove only blobs consumed by one composer draft. Other tabs can hold their
+ * own paste markers at the same time, so successful submit must not clear the
+ * process-wide store. */
+export function dropReferencedPastes(draft: string): void {
+	for (const id of referencedPasteIds(draft)) blobs.delete(id);
+}

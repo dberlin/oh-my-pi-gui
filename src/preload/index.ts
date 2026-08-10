@@ -8,11 +8,12 @@ import type {
 	CustomProviderInput,
 	CustomProviderView,
 	DeepLinkPayload,
+	IpcActiveTabEnvelope,
 	IpcFsListResult,
+	IpcFsReadImageResult,
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
-	IpcFsReadImageResult,
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionOwner,
 	IpcSidecarStatusPayload,
@@ -96,6 +97,14 @@ function subscribe<T>(channel: string, callback: (data: T) => void): () => void 
 	};
 }
 
+let activeTabId: string | null = null;
+
+function subscribeActiveTab<T>(channel: string, callback: (data: T) => void): () => void {
+	return subscribe<IpcActiveTabEnvelope<T>>(channel, envelope => {
+		if (activeTabId === null || envelope.tabId === activeTabId) callback(envelope.payload);
+	});
+}
+
 const api: OmpApi = {
 	runtime: {
 		report: (error: RuntimeErrorReport) => ipcRenderer.send(IPC_COMMANDS.RUNTIME_ERROR_REPORT, error),
@@ -105,7 +114,11 @@ const api: OmpApi = {
 	rpc: {
 		command: (cmd: RpcCommand, timeoutMs?: number) => rpcCommand(cmd, timeoutMs),
 		commandForTab: (tabId: string, cmd: RpcCommand, timeoutMs?: number) =>
-			ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, { tabId, command: cmd, timeoutMs }) as Promise<RpcResponse>,
+			ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, {
+				tabId,
+				command: cmd,
+				timeoutMs,
+			}) as Promise<RpcResponse>,
 		getState: () => ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, { command: { type: "get_state" } }),
 		prompt: (message: string, images?: ImageContent[], streamingBehavior?: "steer" | "followUp") =>
 			rpcCommand({ type: "prompt", message, images, streamingBehavior }),
@@ -292,35 +305,37 @@ const api: OmpApi = {
 
 	events: {
 		onBatch: (callback: (events: AgentSessionEvent[]) => void) =>
-			subscribe<{ events: AgentSessionEvent[] }>(IPC_EVENTS.EVENTS_BATCH, data => callback(data.events)),
+			subscribeActiveTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
 		onSidecarStatus: (callback: (status: IpcSidecarStatusPayload) => void) =>
-			subscribe<IpcSidecarStatusPayload>(IPC_EVENTS.SIDECAR_STATUS, callback),
+			subscribeActiveTab<IpcSidecarStatusPayload>(IPC_EVENTS.SIDECAR_STATUS, callback),
 		onTabStatus: (callback: (payload: IpcTabStatusPayload) => void) =>
 			subscribe<IpcTabStatusPayload>(IPC_EVENTS.TAB_STATUS, callback),
-		onExtensionUi: (callback: (request: ExtensionUIRequest) => void) =>
-			subscribe<{ request: ExtensionUIRequest }>(IPC_EVENTS.EXTENSION_UI, data => callback(data.request)),
+		onExtensionUi: (callback: (request: ExtensionUIRequest, tabId: string) => void) =>
+			subscribe<{ request: ExtensionUIRequest; tabId: string }>(IPC_EVENTS.EXTENSION_UI, data =>
+				callback(data.request, data.tabId),
+			),
 		onHostToolCall: (callback: (request: HostToolCallRequest) => void) =>
 			subscribe<{ request: HostToolCallRequest }>(IPC_EVENTS.HOST_TOOL_CALL, data => callback(data.request)),
 		onHostUriRequest: (callback: (request: HostUriRequest) => void) =>
 			subscribe<{ request: HostUriRequest }>(IPC_EVENTS.HOST_URI_REQUEST, data => callback(data.request)),
 		onSubagentFrame: (callback: (frame: SubagentFrame) => void) =>
-			subscribe<{ frame: SubagentFrame }>(IPC_EVENTS.SUBAGENT_FRAME, data => callback(data.frame)),
+			subscribeActiveTab<SubagentFrame>(IPC_EVENTS.SUBAGENT_FRAME, callback),
 		onLiveUpdate: (callback: (frame: RpcLiveUpdateFrame) => void) =>
-			subscribe<RpcLiveUpdateFrame>(IPC_EVENTS.LIVE_UPDATE, callback),
+			subscribeActiveTab<RpcLiveUpdateFrame>(IPC_EVENTS.LIVE_UPDATE, callback),
 		onCommandsUpdate: (callback: (commands: AvailableCommand[]) => void) =>
-			subscribe<{ commands: AvailableCommand[] }>(IPC_EVENTS.COMMANDS_UPDATE, data => callback(data.commands)),
+			subscribeActiveTab<AvailableCommand[]>(IPC_EVENTS.COMMANDS_UPDATE, callback),
 		onConfigUpdate: (callback: (payload: ConfigUpdateFrame) => void) =>
-			subscribe<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, data => callback(data)),
+			subscribeActiveTab<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, callback),
 		onSessionsChanged: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.SESSIONS_CHANGED, () => callback()),
 		onLogLines: (callback: (lines: string[]) => void) => subscribe<string[]>(IPC_EVENTS.LOG_LINE, callback),
 		onPromptResult: (callback: (frame: PromptResultFrame) => void) =>
-			subscribe<PromptResultFrame>(IPC_EVENTS.PROMPT_RESULT, callback),
+			subscribeActiveTab<PromptResultFrame>(IPC_EVENTS.PROMPT_RESULT, callback),
 		onCommandOutput: (callback: (frame: CommandOutputFrame) => void) =>
-			subscribe<CommandOutputFrame>(IPC_EVENTS.COMMAND_OUTPUT, callback),
+			subscribeActiveTab<CommandOutputFrame>(IPC_EVENTS.COMMAND_OUTPUT, callback),
 		onSessionInfoUpdate: (callback: (frame: SessionInfoUpdateFrame) => void) =>
-			subscribe<SessionInfoUpdateFrame>(IPC_EVENTS.SESSION_INFO_UPDATE, callback),
+			subscribeActiveTab<SessionInfoUpdateFrame>(IPC_EVENTS.SESSION_INFO_UPDATE, callback),
 		onExtensionError: (callback: (frame: ExtensionErrorFrame) => void) =>
-			subscribe<ExtensionErrorFrame>(IPC_EVENTS.EXTENSION_ERROR, callback),
+			subscribeActiveTab<ExtensionErrorFrame>(IPC_EVENTS.EXTENSION_ERROR, callback),
 		onMenuAction: (callback: (action: MenuAction, payload?: MenuActionPayload) => void) =>
 			subscribe<{ action: MenuAction } & MenuActionPayload>(IPC_EVENTS.MENU_ACTION, data =>
 				callback(data.action, data),
@@ -371,7 +386,11 @@ const api: OmpApi = {
 		spawn: (payload: IpcSpawnTabPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SPAWN_TAB, payload) as Promise<IpcSpawnTabResult | null>,
 		close: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.CLOSE_TAB, { tabId }) as Promise<boolean>,
-		setActive: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.SET_ACTIVE_TAB, { tabId }) as Promise<boolean>,
+		setActive: async (tabId: string) => {
+			const switched = (await ipcRenderer.invoke(IPC_COMMANDS.SET_ACTIVE_TAB, { tabId })) as boolean;
+			if (switched) activeTabId = tabId;
+			return switched;
+		},
 		getSessionOwner: (sessionPath: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.GET_SESSION_OWNER, { sessionPath }) as Promise<IpcSessionOwner | null>,
 	},

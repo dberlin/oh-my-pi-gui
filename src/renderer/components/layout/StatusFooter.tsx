@@ -1,14 +1,16 @@
 import { Brain, Cpu, FolderOpen, Gauge, GitBranch, Keyboard, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { useGitStatus } from "../../hooks/use-git-status";
 import { shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { loopLimitText, parseLoopLimit } from "../../lib/loop-mode";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../lib/tab-routing";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
-import { useActiveTabKind } from "../../stores/tabs";
+import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { Badge, type BadgeVariant } from "../common";
-import { loopLimitText, parseLoopLimit } from "../panels/ModesPanel";
 
 /**
  * GUI status footer — the analog of the TUI status line, honoring
@@ -73,6 +75,8 @@ export function StatusFooter() {
 	const loopMode = useSessionStore(s => s.loopMode);
 	const vibeModeEnabled = useSessionStore(s => s.vibeModeEnabled);
 	const agentsPaused = useSessionStore(s => s.agentsPaused);
+	const activeTabId = useTabsStore(s => s.activeTabId);
+	const routeReady = useActiveTabRouteReady();
 	/** Chat tabs are tool-free: agent-mode badges can't be armed there. */
 	const isChat = useActiveTabKind() === "chat";
 	const { status: git, refresh: refreshGit } = useGitStatus();
@@ -81,21 +85,34 @@ export function StatusFooter() {
 	// Read the preset at mount, then re-read on every config_update push
 	// (TUI settings selector, /set, another window) so changes apply live.
 	useEffect(() => {
+		void activeTabId;
 		let cancelled = false;
 		const sync = async () => {
+			if (!acceptsActiveTabEvents()) return;
+			const requestTabId = useTabsStore.getState().activeTabId;
 			const res = await window.omp.rpc.getSettings(["statusLine.preset"]);
-			if (cancelled || !res.success) return;
+			if (
+				cancelled ||
+				!acceptsActiveTabEvents() ||
+				useTabsStore.getState().activeTabId !== requestTabId ||
+				!res.success
+			)
+				return;
 			const values = (res.data as { values?: Record<string, unknown> } | undefined)?.values;
 			const value = values?.["statusLine.preset"];
 			if (typeof value === "string" && KNOWN_PRESETS[value]) setPreset(value as StatusLinePreset);
 		};
 		void sync();
-		const unsubscribe = window.omp.events.onConfigUpdate(() => void sync());
+		const unsubscribe = window.omp.events.onConfigUpdate(() => {
+			if (acceptsActiveTabEvents()) void sync();
+		});
+		const unsubscribeRoute = onActiveTabRouteSettled(() => void sync());
 		return () => {
 			cancelled = true;
 			unsubscribe();
+			unsubscribeRoute();
 		};
-	}, []);
+	}, [activeTabId]);
 
 	// minimal: model + context only. compact hides the optional cost/time
 	// segments, which this subset never renders, so it matches default here.
@@ -188,7 +205,10 @@ export function StatusFooter() {
 	}
 
 	return (
-		<footer className="flex h-7 shrink-0 items-center overflow-hidden border-t border-[var(--omp-border-muted)] px-3 whitespace-nowrap text-[11px] text-[var(--omp-muted)]">
+		<footer
+			aria-busy={!routeReady}
+			className={`flex h-7 shrink-0 items-center overflow-hidden border-t border-[var(--omp-border-muted)] px-3 whitespace-nowrap text-[11px] text-[var(--omp-muted)] ${routeReady ? "" : "pointer-events-none"}`}
+		>
 			<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
 				<button
 					type="button"

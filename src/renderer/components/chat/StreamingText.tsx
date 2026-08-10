@@ -1,42 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useMessagesStore } from "../../stores/messages";
-
-/** Max markdown re-parse rate for the streaming tail (ms between flushes). */
-const STREAM_FLUSH_MS = 120;
-
-/**
- * Throttles a fast-growing string: flushes immediately at paragraph
- * boundaries ("\n\n" — stable markdown parse points) and otherwise at most
- * once per `intervalMs` (trailing flush with the latest text).
- */
-function useThrottledText(text: string, intervalMs: number): string {
-	const [displayed, setDisplayed] = useState(text);
-	const latestRef = useRef(text);
-	const timerRef = useRef<number | undefined>(undefined);
-
-	useEffect(
-		() => () => {
-			window.clearTimeout(timerRef.current);
-		},
-		[],
-	);
-
-	useEffect(() => {
-		latestRef.current = text;
-		if (timerRef.current !== undefined) return; // a flush is already pending
-		if (text.endsWith("\n\n")) {
-			setDisplayed(text);
-			return;
-		}
-		timerRef.current = window.setTimeout(() => {
-			timerRef.current = undefined;
-			setDisplayed(latestRef.current);
-		}, intervalMs);
-	}, [text, intervalMs]);
-
-	return displayed;
-}
 
 /**
  * Live tail of the assistant's in-flight reply. The store accumulates
@@ -48,7 +12,7 @@ function useThrottledText(text: string, intervalMs: number): string {
  */
 export function StreamingText() {
 	const streamingText = useMessagesStore(s => s.streamingText);
-	const throttledText = useThrottledText(streamingText, STREAM_FLUSH_MS);
+	const throttledText = useThrottledText(streamingText, STREAM_FORMAT_FLUSH_MS);
 	if (!streamingText) return null;
 	// Geometry matches the finalized MessageBubble (StreamingRows already pads
 	// px-6; no inner max-width) so the reply doesn't jump when it finalizes.

@@ -1,10 +1,13 @@
 import { create } from "zustand";
 import type { ExtensionUIRequest } from "../../shared/rpc-types";
 
-interface ExtensionUiStore {
+export interface ExtensionUiSnapshot {
 	pendingRequests: ExtensionUIRequest[];
 	statusWidgets: Record<string, string>;
 	widgetPanels: Record<string, string[]>;
+}
+
+interface ExtensionUiStore extends ExtensionUiSnapshot {
 	pushRequest: (request: ExtensionUIRequest) => void;
 	removeRequest: (id: string) => void;
 	setStatus: (key: string, text: string | undefined) => void;
@@ -12,37 +15,34 @@ interface ExtensionUiStore {
 	clearAll: () => void;
 }
 
+/** Pure request reducer shared by the visible store and parked tab bundles. */
+export function applyExtensionUiRequest(
+	snapshot: ExtensionUiSnapshot,
+	request: ExtensionUIRequest,
+): ExtensionUiSnapshot {
+	if (request.method === "setStatus") {
+		const statusWidgets = { ...snapshot.statusWidgets };
+		if (request.statusText) statusWidgets[request.statusKey] = request.statusText;
+		else delete statusWidgets[request.statusKey];
+		return { ...snapshot, statusWidgets };
+	}
+	if (request.method === "setWidget") {
+		const widgetPanels = { ...snapshot.widgetPanels };
+		if (request.widgetLines && request.widgetLines.length > 0) widgetPanels[request.widgetKey] = request.widgetLines;
+		else delete widgetPanels[request.widgetKey];
+		return { ...snapshot, widgetPanels };
+	}
+	if (request.method === "cancel") {
+		return { ...snapshot, pendingRequests: snapshot.pendingRequests.filter(item => item.id !== request.targetId) };
+	}
+	return { ...snapshot, pendingRequests: [...snapshot.pendingRequests, request] };
+}
+
 export const useExtensionUiStore = create<ExtensionUiStore>()((set, get) => ({
 	pendingRequests: [],
 	statusWidgets: {},
 	widgetPanels: {},
-	pushRequest: request => {
-		if (request.method === "setStatus") {
-			const next = { ...get().statusWidgets };
-			if (request.statusText) {
-				next[request.statusKey] = request.statusText;
-			} else {
-				delete next[request.statusKey];
-			}
-			set({ statusWidgets: next });
-			return;
-		}
-		if (request.method === "setWidget") {
-			const next = { ...get().widgetPanels };
-			if (request.widgetLines && request.widgetLines.length > 0) {
-				next[request.widgetKey] = request.widgetLines;
-			} else {
-				delete next[request.widgetKey];
-			}
-			set({ widgetPanels: next });
-			return;
-		}
-		if (request.method === "cancel") {
-			set({ pendingRequests: get().pendingRequests.filter(r => r.id !== request.targetId) });
-			return;
-		}
-		set({ pendingRequests: [...get().pendingRequests, request] });
-	},
+	pushRequest: request => set(state => applyExtensionUiRequest(state, request)),
 	removeRequest: id => set({ pendingRequests: get().pendingRequests.filter(r => r.id !== id) }),
 	setStatus: (key, text) => {
 		const next = { ...get().statusWidgets };

@@ -27,16 +27,29 @@ import type {
 	SubagentSnapshot,
 	TodoPhase,
 } from "../../shared/rpc-types";
+import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useComposerStore } from "./composer";
+import { useExtensionUiStore } from "./extension-ui";
+import { useForkHandoffStore } from "./fork-handoff";
 import { useMessagesStore } from "./messages";
 import { useModelStore } from "./model";
+import { usePlanApprovalStore } from "./plan-approval";
 import { useQueueStore } from "./queue";
 import { useSessionStore } from "./session";
 import { useSubagentsStore } from "./subagents";
-import { type SessionTab, tabChipLabel, useSessionTabs, useTabsStore } from "./tabs";
+import {
+	pushTabExtensionUiRequest,
+	restoreTabComposer,
+	type SessionTab,
+	settleTabPlanApproval,
+	tabChipLabel,
+	useSessionTabs,
+	useTabsStore,
+} from "./tabs";
 import { useToastStore } from "./toast";
 import { useTodoStore } from "./todo";
 import { useToolsStore } from "./tools";
+import { useUiStore } from "./ui";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -170,6 +183,26 @@ function fillLiveStores(tag: string): void {
 		fastModeEnabled: true,
 	});
 	useComposerStore.getState().setDraft(`draft-${tag}`);
+	useComposerStore
+		.getState()
+		.setImages([
+			{ content: { type: "image", data: `image-${tag}`, mimeType: "image/png" }, preview: `preview-${tag}` },
+		]);
+	usePlanApprovalStore.getState().showProposal({
+		planFilePath: `/plan-${tag}.md`,
+		planContent: `plan-${tag}`,
+		options: ["execute"],
+	});
+	usePlanApprovalStore.getState().setFeedback(`feedback-${tag}`);
+	useExtensionUiStore.getState().pushRequest({
+		type: "extension_ui_request",
+		id: `ui-${tag}`,
+		method: "confirm",
+		title: `Confirm ${tag}`,
+		message: `Message ${tag}`,
+	});
+	useExtensionUiStore.getState().setStatus(`status-${tag}`, `Status ${tag}`);
+	useExtensionUiStore.getState().setWidget(`widget-${tag}`, [`Widget ${tag}`]);
 }
 
 let omp: MockOmp;
@@ -185,6 +218,11 @@ function resetAll(): void {
 	useSubagentsStore.getState().reset();
 	useModelStore.getState().reset();
 	useToolsStore.getState().reset();
+	usePlanApprovalStore.getState().clearProposal();
+	useExtensionUiStore.getState().clearAll();
+	useUiStore.getState().closeSessionOverlays();
+	useUiStore.getState().closeStatsDashboard();
+	useForkHandoffStore.getState().closeHandoffDialog();
 }
 
 afterEach(() => {
@@ -246,6 +284,30 @@ describe("tabs store switch", () => {
 		expect(useTabsStore.getState().activeTabId).toBe("t1");
 	});
 
+	it("hydrates a fresh tab when its ready push beats full route wiring", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
+		await useTabsStore.getState().reconcileTabs();
+		useSessionStore.setState({ cwd: "/alpha", status: "ready" });
+		omp.tabs.spawn.mockResolvedValue({ tabId: "t1" });
+		const route = Promise.withResolvers<boolean>();
+		omp.tabs.setActive.mockReturnValueOnce(route.promise);
+
+		const opening = useTabsStore.getState().openTab({ kind: "chat" });
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(omp.tabs.setActive).toHaveBeenCalledWith("t1");
+
+		// The light per-tab channel reports ready before main finishes attaching
+		// the full active-tab channel, so no full ready event will replay.
+		useTabsStore.getState().applyTabStatus({ kind: "chat", tabId: "t1", cwd: "/alpha", status: "ready" });
+		route.resolve(true);
+		await opening;
+
+		expect(useSessionStore.getState().status).toBe("ready");
+		expect(useSessionStore.getState().sessionId).toBe("srv");
+		expect(omp.rpc.getState).toHaveBeenCalled();
+	});
+
 	it("reports the pool cap without mutating the tab list", async () => {
 		seedTabs();
 		omp.tabs.spawn.mockResolvedValue(null);
@@ -284,6 +346,54 @@ describe("tabs store switch", () => {
 		expect(setActiveOrder!).toBeLessThan(getStateOrder!);
 	});
 
+	it("closes outgoing session overlays while keeping global windows open", async () => {
+		seedTabs();
+		useUiStore.getState().openSettings();
+		useUiStore.getState().openContextReport();
+		useUiStore.getState().openModes("goal");
+		useUiStore.getState().openStatsDashboard();
+		useForkHandoffStore.getState().openHandoffDialog();
+
+		await useTabsStore.getState().switchTab("t1");
+
+		expect(useUiStore.getState().settingsOpen).toBe(false);
+		expect(useUiStore.getState().contextReportOpen).toBe(false);
+		expect(useUiStore.getState().modesOpen).toBe(false);
+		expect(useForkHandoffStore.getState().handoffDialogOpen).toBe(false);
+		expect(useUiStore.getState().statsDashboardOpen).toBe(true);
+	});
+
+	it("serializes rapid switches and hydrates only the latest visible tab", async () => {
+		seedTabs();
+		const firstRoute = Promise.withResolvers<boolean>();
+		const secondRoute = Promise.withResolvers<boolean>();
+		omp.tabs.setActive.mockReturnValueOnce(firstRoute.promise).mockReturnValueOnce(secondRoute.promise);
+
+		const firstSwitch = useTabsStore.getState().switchTab("t1");
+		const secondSwitch = useTabsStore.getState().switchTab("t2");
+		await Promise.resolve();
+
+		// UI selection remains immediate even while main-process routing catches up.
+		expect(useTabsStore.getState().activeTabId).toBe("t2");
+		expect(acceptsActiveTabEvents()).toBe(false);
+		expect(omp.tabs.setActive).toHaveBeenCalledTimes(1);
+
+		firstRoute.resolve(true);
+		await firstSwitch;
+		expect(omp.tabs.setActive).toHaveBeenCalledTimes(2);
+		// The superseded t1 route must not hydrate into t2's visible stores.
+		expect(acceptsActiveTabEvents()).toBe(false);
+		expect(omp.rpc.getState).not.toHaveBeenCalled();
+
+		secondRoute.resolve(true);
+		await Promise.all([firstSwitch, secondSwitch]);
+
+		expect(omp.tabs.setActive.mock.calls.map(call => call[0])).toEqual(["t1", "t2"]);
+		expect(omp.rpc.getState).toHaveBeenCalledTimes(1);
+		expect(useTabsStore.getState().activeTabId).toBe("t2");
+		expect(acceptsActiveTabEvents()).toBe(true);
+	});
+
 	it("snapshots the current tab's slices and restores the target's — draft included", async () => {
 		seedTabs();
 		fillLiveStores("t0");
@@ -295,8 +405,11 @@ describe("tabs store switch", () => {
 
 		// t1 has no bundle: stores reset to empty instantly, before any RPC settles.
 		expect(useComposerStore.getState().draft).toBe("");
+		expect(useComposerStore.getState().images).toEqual([]);
 		expect(useMessagesStore.getState().messages).toEqual([]);
 		expect(useSessionStore.getState().sessionId).toBe("");
+		expect(useExtensionUiStore.getState().pendingRequests).toEqual([]);
+		expect(useExtensionUiStore.getState().statusWidgets).toEqual({});
 
 		gate.resolve(ok({ messages: [msg("server-t1")] }));
 		await firstSwitch;
@@ -307,12 +420,21 @@ describe("tabs store switch", () => {
 
 		// t0's bundle is parked; t1 now gets its own recognizable live state.
 		fillLiveStores("t1");
+		pushTabExtensionUiRequest("t0", {
+			type: "extension_ui_request",
+			id: "ui-t0-late",
+			method: "confirm",
+			title: "Late t0 request",
+			message: "Still belongs to t0",
+		});
+		expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["ui-t1"]);
 		const gate2 = Promise.withResolvers<RpcResponse>();
 		omp.rpc.getTranscript.mockReturnValueOnce(gate2.promise);
 		const secondSwitch = useTabsStore.getState().switchTab("t0");
 
 		// Instant restore of t0's parked bundle — every slice, before hydrate.
 		expect(useComposerStore.getState().draft).toBe("draft-t0");
+		expect(useComposerStore.getState().images[0]?.content.data).toBe("image-t0");
 		expect(useMessagesStore.getState().messages.map(m => messageText(m))).toEqual(["hello-t0"]);
 		expect(useSessionStore.getState().sessionId).toBe("s-t0");
 		expect(useSessionStore.getState().sessionName).toBe("Session t0");
@@ -323,6 +445,14 @@ describe("tabs store switch", () => {
 		expect(useSubagentsStore.getState().subagents.has("a-t0")).toBe(true);
 		expect(useModelStore.getState().model?.id).toBe("m-t0");
 		expect(useModelStore.getState().fastModeEnabled).toBe(true);
+		expect(usePlanApprovalStore.getState().pending?.planContent).toBe("plan-t0");
+		expect(usePlanApprovalStore.getState().feedback).toBe("feedback-t0");
+		expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual([
+			"ui-t0",
+			"ui-t0-late",
+		]);
+		expect(useExtensionUiStore.getState().statusWidgets).toEqual({ "status-t0": "Status t0" });
+		expect(useExtensionUiStore.getState().widgetPanels).toEqual({ "widget-t0": ["Widget t0"] });
 
 		gate2.resolve(ok({ messages: [msg("hello-t0")] }));
 		await secondSwitch;
@@ -333,6 +463,47 @@ describe("tabs store switch", () => {
 		// …and t1's bundle parked its own draft, restored on the way back.
 		await useTabsStore.getState().switchTab("t1");
 		expect(useComposerStore.getState().draft).toBe("draft-t1");
+		expect(useComposerStore.getState().images[0]?.content.data).toBe("image-t1");
+		expect(usePlanApprovalStore.getState().pending?.planContent).toBe("plan-t1");
+		expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["ui-t1"]);
+	});
+
+	it("settles an approval in its background tab without mutating the visible session", async () => {
+		seedTabs();
+		fillLiveStores("t0");
+		const proposal = usePlanApprovalStore.getState().pending;
+		expect(proposal).not.toBeNull();
+
+		await useTabsStore.getState().switchTab("t1");
+		fillLiveStores("t1");
+		settleTabPlanApproval("t0", "s-t0", proposal!, { clear: true, exitPlanMode: true });
+
+		expect(useSessionStore.getState().sessionId).toBe("s-t1");
+		expect(useSessionStore.getState().planModeEnabled).toBe(true);
+		expect(usePlanApprovalStore.getState().pending?.planContent).toBe("plan-t1");
+
+		await useTabsStore.getState().switchTab("t0");
+		expect(useSessionStore.getState().planModeEnabled).toBe(false);
+		expect(usePlanApprovalStore.getState().pending).toBeNull();
+	});
+
+	it("restores a failed submit to its background tab without touching the visible composer", async () => {
+		seedTabs();
+		fillLiveStores("t0");
+		await useTabsStore.getState().switchTab("t1");
+		useComposerStore.getState().setDraft("visible-t1");
+
+		restoreTabComposer("t0", "replaced-session", "stale-submit", []);
+		restoreTabComposer("t0", "s-t0", "failed-t0", [
+			{ content: { type: "image", data: "failed-image", mimeType: "image/png" }, preview: "failed-preview" },
+		]);
+
+		expect(useComposerStore.getState().draft).toBe("visible-t1");
+		expect(useComposerStore.getState().images).toEqual([]);
+
+		await useTabsStore.getState().switchTab("t0");
+		expect(useComposerStore.getState().draft).toBe("failed-t0\ndraft-t0");
+		expect(useComposerStore.getState().images.map(image => image.content.data)).toEqual(["failed-image", "image-t0"]);
 	});
 
 	it("derives run state from the tab entry when restoring a background-running tab", async () => {
@@ -365,7 +536,7 @@ describe("tabs store switch", () => {
 		expect(t0?.status).toBe("running");
 	});
 
-	it("surfaces a SET_ACTIVE_TAB failure, re-converges from GET_TABS, and skips hydrate", async () => {
+	it("surfaces a SET_ACTIVE_TAB failure, re-converges from GET_TABS, and hydrates after the retry", async () => {
 		seedTabs();
 		useToastStore.setState({ toasts: [] });
 		omp.tabs.setActive.mockRejectedValueOnce(new Error("routing wedged"));
@@ -379,7 +550,30 @@ describe("tabs store switch", () => {
 		// renderer's pick, so a transient failure re-points routing here…
 		expect(omp.tabs.list).toHaveBeenCalled();
 		expect(omp.tabs.setActive).toHaveBeenCalledTimes(2);
-		// …and hydrate never pulled the still-misrouted sidecar into this tab.
+		// …then hydrate paints the target instead of leaving the restored empty
+		// bundle on screen after the successful retry.
+		expect(omp.rpc.getTranscript).toHaveBeenCalledTimes(1);
+	});
+
+	it("treats a false SET_ACTIVE_TAB reply as a routing failure and recovers on retry", async () => {
+		seedTabs();
+		useToastStore.setState({ toasts: [] });
+		omp.tabs.setActive.mockResolvedValueOnce(false);
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha"), tabInfo("t1", "/beta"), tabInfo("t2", "/gamma")]);
+
+		await useTabsStore.getState().switchTab("t1");
+
+		expect(useToastStore.getState().toasts.some(toast => toast.title === "Could not switch tab")).toBe(true);
+		expect(omp.rpc.getTranscript).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not hydrate when both the tab route and reconciliation route fail", async () => {
+		seedTabs();
+		omp.tabs.setActive.mockResolvedValueOnce(false).mockResolvedValueOnce(false);
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha"), tabInfo("t1", "/beta"), tabInfo("t2", "/gamma")]);
+
+		await useTabsStore.getState().switchTab("t1");
+
 		expect(omp.rpc.getTranscript).not.toHaveBeenCalled();
 	});
 });
@@ -455,6 +649,19 @@ describe("tabs store applyTabStatus", () => {
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t0")?.unreadDone).toBe(false);
 	});
 
+	it("mirrors only the active tab's keyed connection status into the composer", () => {
+		seedTabs();
+		useSessionStore.setState({ status: "starting", cwd: "" });
+
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready" });
+		expect(useSessionStore.getState().status).toBe("ready");
+		expect(useSessionStore.getState().cwd).toBe("/alpha");
+
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "exited" });
+		expect(useSessionStore.getState().status).toBe("ready");
+		expect(useSessionStore.getState().cwd).toBe("/alpha");
+	});
+
 	it("upserts unknown tabs and preserves title/sessionId across pushes", () => {
 		seedTabs();
 		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t9", cwd: "/new", status: "starting" });
@@ -507,6 +714,29 @@ describe("useSessionTabs hook", () => {
 		expect(omp.events.onTabStatus).toHaveBeenCalled();
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0"]);
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
+	});
+
+	it("hydrates an active fresh tab when ready only arrives on the light channel", async () => {
+		useTabsStore.setState({
+			tabs: [{ kind: "chat", id: "t1", cwd: "/beta", status: "starting", unreadDone: false }],
+			activeTabId: "t1",
+			bundles: new Map(),
+		});
+		useSessionStore.setState({ status: "starting" });
+		await mount();
+
+		await act(async () => {
+			emitTabStatus({ kind: "chat", tabId: "t1", cwd: "/beta", status: "ready" });
+		});
+		await act(async () => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 0);
+			await promise;
+		});
+
+		expect(useSessionStore.getState().status).toBe("ready");
+		expect(omp.rpc.getState).toHaveBeenCalled();
+		expect(omp.rpc.getTranscript).toHaveBeenCalled();
 	});
 
 	it("applies a tab's pending session path on its first ready push while active", async () => {

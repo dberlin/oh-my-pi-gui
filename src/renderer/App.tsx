@@ -27,10 +27,10 @@ import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
 import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
 import { SessionTreeDialog } from "./components/dialogs/SessionTreeDialog";
 import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
-import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
-import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
 import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
 import { WorkspaceDirsDialog } from "./components/dialogs/WorkspaceDirsDialog";
+import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
+import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
 import { InputArea } from "./components/layout/InputArea";
 import { PanelContainer } from "./components/layout/PanelContainer";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -48,6 +48,7 @@ import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
 import { restoreQueuedMessages } from "./lib/messages";
+import { acceptsActiveTabEvents } from "./lib/tab-routing";
 import { applyFontSize, applyTheme, watchSystemTheme } from "./lib/theme";
 import { applyThemeByName, getPersistedThemeSelection, initAgentThemeSync } from "./lib/themes";
 import { startVoiceAutoSpeak } from "./lib/voice";
@@ -128,6 +129,7 @@ export function App() {
 	const providerConfigOpen = useUiStore(s => s.providerConfigOpen);
 	const providerConfigEdit = useUiStore(s => s.providerConfigEdit);
 	const closeProviderConfig = useUiStore(s => s.closeProviderConfig);
+	const activeTabId = useTabsStore(s => s.activeTabId);
 	const { setLang } = useLang();
 	const t = useT();
 
@@ -291,6 +293,9 @@ export function App() {
 		// One dispatch switch keyed by actionId: the compiled-map lookup below and
 		// the default chords share these handlers (they were the hardcoded chains).
 		const dispatchKeymapAction = (actionId: KeymapActionId) => {
+			// The visible tab changes before main finishes moving the RPC/event route.
+			// Never let a shortcut mutate the outgoing sidecar during that gap.
+			if (!acceptsActiveTabEvents()) return;
 			const ui = useUiStore.getState();
 			switch (actionId) {
 				case "model.cycleForward":
@@ -412,7 +417,12 @@ export function App() {
 			if (event.key === "Escape") {
 				// Don't abort when an overlay/dropdown already consumed this Escape to
 				// dismiss itself (its handler ran first + preventDefault).
-				if (!event.defaultPrevented && !overlayOpen && !document.querySelector('[role="dialog"]'))
+				if (
+					acceptsActiveTabEvents() &&
+					!event.defaultPrevented &&
+					!overlayOpen &&
+					!document.querySelector('[role="dialog"]')
+				)
 					void window.omp.rpc.abort();
 				return;
 			}
@@ -423,6 +433,7 @@ export function App() {
 			// role. Focus-gated and NOT remappable.
 			if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
 				if (
+					acceptsActiveTabEvents() &&
 					!overlayOpen &&
 					!event.defaultPrevented &&
 					!document.querySelector('[role="dialog"]') &&
@@ -471,6 +482,24 @@ export function App() {
 				ui.togglePanel();
 				return;
 			}
+			if (action === "toggle-language") {
+				const current = typeof localStorage !== "undefined" ? localStorage.getItem("omp.lang") : null;
+				setLang(current === "zh" ? "en" : "zh");
+				return;
+			}
+			// New tab actions never touch the live run — they must stay OUT of the
+			// streaming busy-guard below (unlike new-session/open-project).
+			if (action === "new-tab") {
+				void useTabsStore.getState().openTab();
+				return;
+			}
+			if (action === "new-chat-tab") {
+				void useTabsStore.getState().openTab({ kind: "chat" });
+				return;
+			}
+			// Menu commands below read or mutate the selected sidecar. Ignore the
+			// short selected-vs-routed gap instead of sending them to the old tab.
+			if (!acceptsActiveTabEvents()) return;
 			if (action === "open-settings") {
 				ui.openSettings();
 				return;
@@ -489,21 +518,6 @@ export function App() {
 			}
 			if (action === "set-approval") {
 				if (payload?.approvalMode) useSettingsStore.getState().setApprovalMode(payload.approvalMode);
-				return;
-			}
-			if (action === "toggle-language") {
-				const current = typeof localStorage !== "undefined" ? localStorage.getItem("omp.lang") : null;
-				setLang(current === "zh" ? "en" : "zh");
-				return;
-			}
-			// New tab actions never touch the live run — they must stay OUT of the
-			// streaming busy-guard below (unlike new-session/open-project).
-			if (action === "new-tab") {
-				void useTabsStore.getState().openTab();
-				return;
-			}
-			if (action === "new-chat-tab") {
-				void useTabsStore.getState().openTab({ kind: "chat" });
 				return;
 			}
 			if (
@@ -551,7 +565,7 @@ export function App() {
 				<SidecarBanner />
 				<UpdateBanner />
 				<ChatStream />
-				<InputArea />
+				<InputArea key={activeTabId ?? "no-tab"} />
 				<StatusFooter />
 			</main>
 

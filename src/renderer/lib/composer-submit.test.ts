@@ -101,7 +101,8 @@ describe("planComposerSubmit", () => {
 		});
 		expect(submit.kind).toBe("send");
 		if (submit.kind !== "send") return;
-		await submit.request;
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+		await submit.request();
 		expect(omp.rpc.prompt).toHaveBeenCalledWith("/compact", []);
 	});
 
@@ -116,7 +117,7 @@ describe("planComposerSubmit", () => {
 		});
 		expect(submit.kind).toBe("send");
 		if (submit.kind !== "send") return;
-		await submit.request;
+		await submit.request();
 		expect(omp.rpc.prompt).toHaveBeenCalledWith("/compact", []);
 		expect(omp.rpc.steer).not.toHaveBeenCalled();
 		expect(omp.rpc.followUp).not.toHaveBeenCalled();
@@ -132,7 +133,7 @@ describe("planComposerSubmit", () => {
 			commands: [],
 		});
 		if (steerSubmit.kind !== "send") throw new Error("expected send");
-		await steerSubmit.request;
+		await steerSubmit.request();
 		expect(omp.rpc.steer).toHaveBeenCalledWith("hello", []);
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 
@@ -144,7 +145,7 @@ describe("planComposerSubmit", () => {
 			commands: [],
 		});
 		if (followUpSubmit.kind !== "send") throw new Error("expected send");
-		await followUpSubmit.request;
+		await followUpSubmit.request();
 		expect(omp.rpc.followUp).toHaveBeenCalledWith("again", []);
 	});
 
@@ -172,7 +173,7 @@ describe("planComposerSubmit", () => {
 		});
 		expect(submit.kind).toBe("send");
 		if (submit.kind !== "send") return;
-		await submit.request;
+		await submit.request();
 		expect(omp.rpc.prompt).toHaveBeenCalledWith("/clear extra", []);
 	});
 

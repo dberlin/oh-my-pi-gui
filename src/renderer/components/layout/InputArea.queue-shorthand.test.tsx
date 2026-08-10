@@ -9,11 +9,13 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { InputArea } from "./InputArea";
 
@@ -119,6 +121,14 @@ async function mount(): Promise<void> {
 		sessionId: "s1",
 		sessionName: null,
 	});
+	useTabsStore.setState({
+		tabs: [
+			{ kind: "agent", id: "t0", cwd: "/tmp", status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t1", cwd: "/other", status: "ready", unreadDone: false },
+		],
+		activeTabId: "t0",
+		bundles: new Map(),
+	});
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
@@ -139,6 +149,7 @@ afterEach(async () => {
 	useMessagesStore.getState().reset();
 	useComposerStore.getState().reset();
 	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
+	useTabsStore.getState().reset();
 	useUiStore.getState().closeComposerEditor();
 	vi.restoreAllMocks();
 });
@@ -203,5 +214,60 @@ describe("InputArea queue shorthand submit", () => {
 
 		expect(steer).toHaveBeenCalledWith("plain guidance", []);
 		expect(followUp).not.toHaveBeenCalled();
+	});
+
+	it("does not dispatch a deferred prompt through a tab selected after Enter", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await typeInto(findTextarea(), "stay in t0");
+		vi.useFakeTimers();
+		try {
+			await pressEnter(findTextarea());
+			useTabsStore.setState({ activeTabId: "t1" });
+			await act(async () => {
+				vi.runOnlyPendingTimers();
+				await Promise.resolve();
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+
+		expect(prompt).not.toHaveBeenCalled();
+	});
+
+	it("does not dispatch or restore a deferred prompt after the tab replaces its session", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await typeInto(findTextarea(), "old session message");
+		vi.useFakeTimers();
+		try {
+			await pressEnter(findTextarea());
+			await act(async () => useSessionStore.setState({ sessionId: "s2" }));
+			await act(async () => {
+				vi.runOnlyPendingTimers();
+				await Promise.resolve();
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+
+		expect(prompt).not.toHaveBeenCalled();
+		expect(useComposerStore.getState().draft).toBe("");
+	});
+
+	it("stops a multi-item queue before a later item can cross into another tab", async () => {
+		await mount();
+		const first = Promise.withResolvers<RpcResponse>();
+		followUp.mockReturnValueOnce(first.promise);
+		await typeInto(findTextarea(), "->\n1. alpha\n2. beta");
+		await pressEnter(findTextarea());
+		expect(followUp).toHaveBeenCalledTimes(1);
+
+		useTabsStore.setState({ activeTabId: "t1" });
+		first.resolve(ok());
+		await flush();
+		await flush();
+
+		expect(followUp).toHaveBeenCalledTimes(1);
 	});
 });

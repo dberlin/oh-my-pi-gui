@@ -10,7 +10,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AgentSessionEvent } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
-import { goalStatusVariant, LOOP_STATE_VARIANT, ModesPanel, normalizeLoopUpdate, parseLoopLimit } from "./ModesPanel";
+import { normalizeLoopUpdate, parseLoopLimit } from "../../lib/loop-mode";
+import { goalStatusVariant, LOOP_STATE_VARIANT, ModesPanel } from "./ModesPanel";
 
 describe("ModesPanel closed state", () => {
 	it("renders nothing while closed", () => {

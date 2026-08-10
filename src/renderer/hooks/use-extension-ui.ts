@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import type { ExtensionUIRequest, ExtensionUIResponse } from "../../shared/rpc-types";
 import { useExtensionUiStore } from "../stores/extension-ui";
+import { pushTabExtensionUiRequest } from "../stores/tabs";
 
 interface ExtensionUiResult {
 	currentRequest: ExtensionUIRequest | null;
@@ -13,15 +14,14 @@ interface ExtensionUiResult {
  */
 export function useExtensionUi(): ExtensionUiResult {
 	const pendingRequests = useExtensionUiStore(s => s.pendingRequests);
-	const pushRequest = useExtensionUiStore(s => s.pushRequest);
 	const removeRequest = useExtensionUiStore(s => s.removeRequest);
 
 	useEffect(() => {
-		const unsubscribe = window.omp.events.onExtensionUi(request => {
-			pushRequest(request);
+		const unsubscribe = window.omp.events.onExtensionUi((request, tabId) => {
+			pushTabExtensionUiRequest(tabId, request);
 		});
 		return unsubscribe;
-	}, [pushRequest]);
+	}, []);
 
 	const respond = useCallback(
 		(response: ExtensionUIResponse) => {

@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanModeState } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../lib/tab-routing";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
@@ -160,6 +161,7 @@ export function PlanPanel() {
 
 	const load = useCallback(
 		async (options?: { quiet?: boolean }) => {
+			if (!acceptsActiveTabEvents()) return;
 			const quiet = options?.quiet === true;
 			if (!quiet) setLoading(true);
 			if (!quiet) setError(null);
@@ -210,6 +212,16 @@ export function PlanPanel() {
 			}
 		},
 		[t],
+	);
+
+	// A tab paints its parked state before main finishes re-routing IPC. If the
+	// target is already in plan mode, load only after that route is authoritative.
+	useEffect(
+		() =>
+			onActiveTabRouteSettled(() => {
+				if (useSessionStore.getState().planModeEnabled) void load();
+			}),
+		[load],
 	);
 
 	// Initial load + reset when plan mode flips.

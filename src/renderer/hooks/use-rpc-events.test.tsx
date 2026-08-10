@@ -25,6 +25,7 @@ import { TurnStatusRow } from "../components/chat/ChatStream";
 import { I18nProvider } from "../lib/i18n";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
+import { useSettingsStore } from "../stores/settings";
 import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useToolsStore } from "../stores/tools";
@@ -87,6 +88,10 @@ interface MockOmp {
 	sidecar: { getStatus: Mock<() => Promise<unknown>> };
 	sessions: { consumePendingOpen: Mock<() => Promise<unknown>> };
 	system: { notify: Mock<(title: string, body: string) => void> };
+	prefs: {
+		get: Mock<(key: string) => Promise<unknown>>;
+		set: Mock<(key: string, value: unknown) => Promise<void>>;
+	};
 }
 
 function installMockOmp(): {
@@ -154,6 +159,10 @@ function installMockOmp(): {
 		// null = none pending (the plain-attach path this suite drives).
 		sessions: { consumePendingOpen: vi.fn(async () => null) },
 		system: { notify: vi.fn() },
+		prefs: {
+			get: vi.fn(async () => null),
+			set: vi.fn(async () => {}),
+		},
 	};
 	const ompWindow = window as unknown as { omp: MockOmp };
 	ompWindow.omp = omp;
@@ -211,6 +220,8 @@ afterEach(async () => {
 	useSessionStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useToolsStore.getState().reset();
+	useSettingsStore.getState().reset();
+	useTabsStore.getState().reset();
 });
 
 describe("useRpcEvents awaiting-model marker", () => {
@@ -409,10 +420,41 @@ describe("useRpcEvents non-transcript frames", () => {
 		expect(omp.rpc.getState.mock.calls.length).toBeGreaterThan(stateCallsBefore);
 		expect(omp.rpc.getTranscript.mock.calls.length).toBeGreaterThan(transcriptCallsBefore);
 	});
+
+	it("drops session events while the selected tab and main-process route disagree", async () => {
+		const { omp, emitCommandOutput } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		const route = Promise.withResolvers<boolean>();
+		omp.tabs.setActive.mockReturnValueOnce(route.promise);
+
+		const switching = useTabsStore.getState().switchTab("t1");
+		await act(async () => {
+			emitCommandOutput({ type: "command_output", text: "belongs to t0" });
+		});
+		expect(useMessagesStore.getState().messages).toEqual([]);
+
+		route.resolve(true);
+		await act(async () => switching);
+		await act(async () => {
+			emitCommandOutput({ type: "command_output", text: "belongs to t1" });
+		});
+
+		expect(useMessagesStore.getState().messages).toContainEqual(
+			expect.objectContaining({ content: [{ type: "text", text: "belongs to t1" }] }),
+		);
+	});
 });
 
 describe("useRpcEvents mode-state sync", () => {
-	it("hydrates loop and vibe mode into the session store", async () => {
+	it("hydrates loop, vibe, and project-scoped display settings into the active tab", async () => {
 		const { omp } = installMockOmp();
 		// Loop/vibe aren't on the get_state wire — hydration must pull the
 		// dedicated RPCs so composer chips and footer badges are right at boot.
@@ -425,6 +467,14 @@ describe("useRpcEvents mode-state sync", () => {
 			}),
 		);
 		omp.rpc.getVibeMode.mockImplementation(async () => success({ enabled: true }));
+		omp.rpc.getSettings.mockImplementation(async () =>
+			success({
+				values: {
+					"display.showTokenUsage": false,
+					"tools.approvalMode": "always-ask",
+				},
+			}),
+		);
 		await mount(<RpcEventsProbe />);
 
 		expect(useSessionStore.getState().loopMode).toEqual({
@@ -434,6 +484,8 @@ describe("useRpcEvents mode-state sync", () => {
 			limit: { kind: "iterations", initial: 10, remaining: 7 },
 		});
 		expect(useSessionStore.getState().vibeModeEnabled).toBe(true);
+		expect(useSettingsStore.getState().showTokenUsage).toBe(false);
+		expect(useSettingsStore.getState().approvalMode).toBe("always-ask");
 	});
 
 	it("applies loop_mode_update frames to the session store, including disable", async () => {
@@ -574,6 +626,98 @@ describe("TurnStatusRow", () => {
 });
 
 describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
+	it("discards an older hydration when a newer session finishes first", async () => {
+		const { omp } = installMockOmp();
+		const oldState = Promise.withResolvers<RpcResponse>();
+		const oldTranscript = Promise.withResolvers<RpcResponse>();
+		const oldGoal = Promise.withResolvers<RpcResponse>();
+		const oldMessage: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "old transcript" }],
+			timestamp: 1,
+		};
+		const newMessage: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "new transcript" }],
+			timestamp: 2,
+		};
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise).mockResolvedValue(
+			success({
+				sessionId: "new-session",
+				sessionName: "New",
+				sessionFile: "/new.jsonl",
+				cwd: "/new",
+				isStreaming: false,
+				isCompacting: false,
+				contextUsage: null,
+				messageCount: 1,
+				queuedMessageCount: 0,
+				planModeEnabled: false,
+				todoPhases: [],
+			}),
+		);
+		omp.rpc.getTranscript
+			.mockReturnValueOnce(oldTranscript.promise)
+			.mockResolvedValue(success({ messages: [newMessage] }));
+		omp.rpc.getGoal.mockReturnValueOnce(oldGoal.promise).mockResolvedValue(success({ enabled: false }));
+
+		const olderHydration = hydrateSession();
+		await hydrateSession();
+		oldState.resolve(
+			success({
+				sessionId: "old-session",
+				sessionName: "Old",
+				sessionFile: "/old.jsonl",
+				cwd: "/old",
+				isStreaming: false,
+				isCompacting: false,
+				contextUsage: null,
+				messageCount: 1,
+				queuedMessageCount: 0,
+				planModeEnabled: false,
+				todoPhases: [],
+			}),
+		);
+		oldTranscript.resolve(success({ messages: [oldMessage] }));
+		oldGoal.resolve(success({ enabled: true, objective: "old goal", status: "active" }));
+		await olderHydration;
+
+		expect(useSessionStore.getState().sessionId).toBe("new-session");
+		expect(useSessionStore.getState().goal).toBeNull();
+		expect(useMessagesStore.getState().messages).toEqual([newMessage]);
+	});
+
+	it("paints the core transcript before slower subagent and secondary hydration settles", async () => {
+		const { omp } = installMockOmp();
+		const subagents = Promise.withResolvers<RpcResponse>();
+		const goal = Promise.withResolvers<RpcResponse>();
+		const hydrated: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "new session transcript" }],
+			timestamp: 2,
+		};
+		omp.rpc.getTranscript.mockResolvedValue(success({ messages: [hydrated] }));
+		omp.rpc.getSubagents.mockReturnValue(subagents.promise);
+		omp.rpc.getGoal.mockReturnValue(goal.promise);
+		const transcriptPainted = Promise.withResolvers<void>();
+		const unsubscribe = useMessagesStore.subscribe(state => {
+			if (state.messages.length === 1 && state.messages[0] === hydrated) transcriptPainted.resolve();
+		});
+
+		let settled = false;
+		const hydration = hydrateSession().then(() => {
+			settled = true;
+		});
+		await transcriptPainted.promise;
+		unsubscribe();
+		expect(useMessagesStore.getState().messages).toEqual([hydrated]);
+
+		expect(settled).toBe(false);
+		subagents.resolve(success({ subagents: [] }));
+		goal.resolve(success({ enabled: false }));
+		await hydration;
+	});
+
 	it("clears the stale streaming bubble when the hydrated tab has settled", async () => {
 		const { omp } = installMockOmp();
 		const finalized: AgentMessage = {

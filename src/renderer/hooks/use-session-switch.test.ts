@@ -14,8 +14,10 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
 import type { RpcResponse, RpcSessionState } from "../../shared/rpc-types";
 import { useComposerStore } from "../stores/composer";
+import { useForkHandoffStore } from "../stores/fork-handoff";
 import { useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
+import { usePlanApprovalStore } from "../stores/plan-approval";
 import { useQueueStore } from "../stores/queue";
 import { useSessionStore } from "../stores/session";
 import { useSubagentsStore } from "../stores/subagents";
@@ -23,6 +25,7 @@ import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
+import { useUiStore } from "../stores/ui";
 import { switchSessionNow } from "./use-session-switch";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -141,6 +144,9 @@ function resetAll(): void {
 	useSubagentsStore.getState().reset();
 	useModelStore.getState().reset();
 	useToolsStore.getState().reset();
+	usePlanApprovalStore.getState().clearProposal();
+	useUiStore.getState().closeSessionOverlays();
+	useForkHandoffStore.getState().closeHandoffDialog();
 	useToastStore.setState({ toasts: [] });
 }
 
@@ -195,6 +201,90 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		// The existing flow hydrated after the switch.
 		expect(omp.rpc.getState).toHaveBeenCalled();
 		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+	});
+
+	it("removes the previous transcript as soon as the sidecar accepts an in-place switch", async () => {
+		seedTabs();
+		useComposerStore.setState({
+			draft: "old draft",
+			images: [{ content: { type: "image", data: "old-image", mimeType: "image/png" }, preview: "old-preview" }],
+		});
+		useMessagesStore.setState({
+			messages: [{ role: "user", content: [{ type: "text", text: "old session" }], timestamp: 1 }],
+			totalMessages: 1,
+		});
+		useToolsStore.setState({
+			activeTools: new Map([
+				[
+					"old-tool",
+					{
+						toolName: "read",
+						args: {},
+						status: "done",
+						partialResult: null,
+						streamingArgs: "",
+						result: null,
+						isError: false,
+						startTime: 1,
+						endTime: 2,
+					},
+				],
+			]),
+		});
+		useSubagentsStore.setState({
+			subagents: new Map([
+				["old-agent", { id: "old-agent", index: 0, agent: "explore", status: "completed", lastUpdate: 1 }],
+			]),
+		});
+		useQueueStore.setState({
+			steering: [{ id: "old-queue", text: "old follow-up", timestamp: 1 }],
+			followUp: [],
+		});
+		useTodoStore.getState().setPhases([{ name: "old phase", tasks: [] }]);
+		useModelStore.setState({ model: { provider: "old", id: "old-model" } });
+		usePlanApprovalStore.getState().showProposal({
+			planFilePath: "/old-plan.md",
+			planContent: "old plan",
+			options: ["execute"],
+		});
+		useUiStore.getState().openContextReport();
+		useForkHandoffStore.getState().openHandoffDialog();
+		useSessionStore.setState({
+			goal: { objective: "old goal" },
+			loopMode: { enabled: true, state: "running" },
+			vibeModeEnabled: true,
+		});
+		const transcript = Promise.withResolvers<RpcResponse>();
+		const transcriptStarted = Promise.withResolvers<void>();
+		omp.rpc.getTranscript.mockImplementation(() => {
+			transcriptStarted.resolve();
+			return transcript.promise;
+		});
+
+		const switching = switchSessionNow(session("/sessions/x.jsonl"));
+		await transcriptStarted.promise;
+
+		expect(useMessagesStore.getState().messages).toEqual([]);
+		expect(useComposerStore.getState()).toMatchObject({ draft: "", images: [] });
+		expect(useToolsStore.getState().activeTools.size).toBe(0);
+		expect(useSubagentsStore.getState().subagents.size).toBe(0);
+		expect(useTodoStore.getState().phases).toEqual([]);
+		expect(useModelStore.getState().model).toBeNull();
+		expect(useQueueStore.getState().steering).toEqual([]);
+		expect(usePlanApprovalStore.getState().pending).toBeNull();
+		expect(useUiStore.getState().contextReportOpen).toBe(false);
+		expect(useForkHandoffStore.getState().handoffDialogOpen).toBe(false);
+		expect(useSessionStore.getState()).toMatchObject({ goal: null, vibeModeEnabled: false });
+		expect(useSessionStore.getState()).toMatchObject({
+			sessionId: "/sessions/x.jsonl",
+			sessionName: "Session X",
+			sessionFile: "/sessions/x.jsonl",
+			cwd: "/srv",
+		});
+		expect(useSessionStore.getState().loopMode?.enabled ?? false).toBe(false);
+
+		transcript.resolve(ok({ messages: [] }));
+		await expect(switching).resolves.toBe(true);
 	});
 
 	it("routes a raced session_owned_elsewhere refusal to the payload owner", async () => {

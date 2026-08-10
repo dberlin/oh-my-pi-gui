@@ -356,11 +356,19 @@ export function ChatStream() {
 	const collapseCompacted = useSettingsStore(s => s.collapseCompacted);
 	const transcriptDetail = useUiStore(s => s.transcriptDetail);
 	const [preCompactionOpen, setPreCompactionOpen] = useState(false);
+	const [pinned, setPinned] = useState(true);
+	// Virtualizer measurements and programmatic scrollToIndex both emit scroll
+	// events. Only an actual wheel/touch/scrollbar/keyboard gesture may unpin the
+	// transcript; otherwise a session hydrate can mistake its own layout shift
+	// for user intent and strand the view in arbitrary history.
+	const userScrollIntentRef = useRef(false);
 	useEffect(() => {
-		// Session identity is the reset signal; process/history rows below are
-		// rebuilt from the new transcript in the same render cycle.
 		void sessionId;
+		// Scroll intent belongs to one transcript. Carrying an unpinned offset
+		// into another session made the virtualizer land in arbitrary history.
 		setPreCompactionOpen(false);
+		userScrollIntentRef.current = false;
+		setPinned(true);
 	}, [sessionId]);
 
 	const lastCompactionIndex = messages.findLastIndex(message => message.role === "compactionSummary");
@@ -396,34 +404,43 @@ export function ChatStream() {
 	// in place via queue_remove.
 	const queued = useQueuedMessages();
 
-	const rows: Row[] = [];
-	const timelineMarkers: Array<TimelineMarkerSeed | null> = [];
-	if (hiddenCount > 0) {
-		rows.push({ kind: "expander", count: hiddenCount });
-		timelineMarkers.push(null);
-	}
-	rows.push(...historyRows);
-	timelineMarkers.push(...buildTimelineMarkers(historyRows));
-	if (hasStreamedContent) {
-		rows.push({ kind: "streaming" });
-		timelineMarkers.push({ state: "running", toolIds: [] });
-	}
-	if (showStatusRow) {
-		rows.push({ kind: "pending" });
-		timelineMarkers.push({ state: "running", toolIds: [] });
-	}
-	for (const item of queued.steering) {
-		rows.push({ kind: "queued", item, lane: "steering" });
-		timelineMarkers.push(null);
-	}
-	for (const item of queued.followUp) {
-		rows.push({ kind: "queued", item, lane: "followUp" });
-		timelineMarkers.push(null);
-	}
-	const rowKeys = buildTranscriptRowKeys(rows);
+	// Streaming deltas rerender this component for the live row, but they do not
+	// change finalized history. Keep the O(history) row/key/timeline projection
+	// stable so a long transcript does not get rebuilt for every token.
+	const historyMarkers = useMemo(() => buildTimelineMarkers(historyRows), [historyRows]);
+	const { rows, timelineMarkers, rowKeys } = useMemo(() => {
+		const nextRows: Row[] = [];
+		const nextMarkers: Array<TimelineMarkerSeed | null> = [];
+		if (hiddenCount > 0) {
+			nextRows.push({ kind: "expander", count: hiddenCount });
+			nextMarkers.push(null);
+		}
+		nextRows.push(...historyRows);
+		nextMarkers.push(...historyMarkers);
+		if (hasStreamedContent) {
+			nextRows.push({ kind: "streaming" });
+			nextMarkers.push({ state: "running", toolIds: [] });
+		}
+		if (showStatusRow) {
+			nextRows.push({ kind: "pending" });
+			nextMarkers.push({ state: "running", toolIds: [] });
+		}
+		for (const item of queued.steering) {
+			nextRows.push({ kind: "queued", item, lane: "steering" });
+			nextMarkers.push(null);
+		}
+		for (const item of queued.followUp) {
+			nextRows.push({ kind: "queued", item, lane: "followUp" });
+			nextMarkers.push(null);
+		}
+		return {
+			rows: nextRows,
+			timelineMarkers: nextMarkers,
+			rowKeys: buildTranscriptRowKeys(nextRows),
+		};
+	}, [hiddenCount, historyRows, historyMarkers, hasStreamedContent, showStatusRow, queued.steering, queued.followUp]);
 
 	const parentRef = useRef<HTMLDivElement>(null);
-	const [pinned, setPinned] = useState(true);
 
 	const STARTERS = [
 		{ icon: Code2, title: t("chat.starter.understand.title"), prompt: t("chat.starter.understand.prompt") },
@@ -444,6 +461,12 @@ export function ChatStream() {
 	const virtualizer = useVirtualizer({
 		count: rows.length,
 		getItemKey: index => rowKeys[index] ?? index,
+		// Chat is an end-anchored feed. Keep the live edge stable while measured
+		// row heights replace estimates, and follow newly appended rows only while
+		// the viewport is already at that edge.
+		anchorTo: "end",
+		followOnAppend: true,
+		scrollEndThreshold: 80,
 		// Row measurements can arrive while React is committing hydrated history.
 		// Async rerenders avoid react-dom flushSync re-entry and the stale compositor
 		// layers it produced on large transcripts.
@@ -469,6 +492,8 @@ export function ChatStream() {
 	// the bottom while pinned.
 	useEffect(() => {
 		if (!pinned || rows.length === 0) return;
+		void sessionId;
+		void historyRows;
 		// Read the delta lengths so biome sees them used; they are the trigger
 		// signal that re-fires this effect as the streaming row grows.
 		void streamingTextLen;
@@ -476,21 +501,42 @@ export function ChatStream() {
 		// TanStack Virtual performs a synchronous measurement while scrolling.
 		// Schedule it after React's lifecycle work so hydration/resize cannot
 		// re-enter rendering (which previously left stale, ghosted row layers).
-		const frame = requestAnimationFrame(() => virtualizer.scrollToIndex(rows.length - 1, { align: "end" }));
+		const frame = requestAnimationFrame(() => virtualizer.scrollToEnd());
 		return () => cancelAnimationFrame(frame);
-	}, [virtualizer, rows.length, pinned, streamingTextLen, streamingThinkingLen]);
+	}, [virtualizer, rows.length, pinned, streamingTextLen, streamingThinkingLen, sessionId, historyRows]);
 
 	const handleScroll = useCallback(() => {
+		if (!userScrollIntentRef.current) return;
 		const el = parentRef.current;
 		if (!el) return;
 		const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-		setPinned(distanceFromBottom < 80);
+		const nextPinned = distanceFromBottom < 80;
+		setPinned(nextPinned);
+		// Once the user reaches the live edge, subsequent layout growth belongs to
+		// the pinning system again until another explicit scroll gesture.
+		if (nextPinned) userScrollIntentRef.current = false;
+	}, []);
+
+	const markUserScrollIntent = useCallback(() => {
+		userScrollIntentRef.current = true;
+	}, []);
+
+	const handleScrollPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+		const right = event.currentTarget.getBoundingClientRect().right;
+		if (event.clientX >= right - 20) userScrollIntentRef.current = true;
+	}, []);
+
+	const handleScrollKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+		if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) {
+			userScrollIntentRef.current = true;
+		}
 	}, []);
 
 	const jumpToLatest = useCallback(() => {
+		userScrollIntentRef.current = false;
 		setPinned(true);
-		virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
-	}, [virtualizer, rows.length]);
+		virtualizer.scrollToEnd();
+	}, [virtualizer]);
 
 	// Messages hydrate via hydrateSession (use-rpc-events) on sidecar ready —
 	// no separate fetch here (that would double-download the transcript).
@@ -500,6 +546,10 @@ export function ChatStream() {
 			<div
 				ref={parentRef}
 				onScroll={handleScroll}
+				onWheel={markUserScrollIntent}
+				onTouchMove={markUserScrollIntent}
+				onPointerDown={handleScrollPointerDown}
+				onKeyDown={handleScrollKeyDown}
 				className="omp-transcript-scroll h-full overflow-y-auto overscroll-contain"
 			>
 				{status === "starting" && (

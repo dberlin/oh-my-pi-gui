@@ -26,7 +26,13 @@ import { useSubagentsStore } from "../../stores/subagents";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Modal, Spinner, type TabItem, Tabs } from "../common";
 import { SubagentTranscript } from "./SubagentTranscript";
-import { formatElapsed, isLiveSubagentStatus, noteFirstSeen, statusMeta } from "./subagent-graph";
+import {
+	formatElapsed,
+	isLiveSubagentStatus,
+	statusMeta,
+	subagentElapsedMs,
+	subagentPrimaryLabel,
+} from "./subagent-graph";
 
 export interface AgentHubWindowProps {
 	open: boolean;
@@ -648,23 +654,6 @@ function hubStatusOrder(status: string): number {
 	return 3;
 }
 
-const PRIMARY_LABEL_MAX = 60;
-
-/**
- * Card title: assignment ?? description ?? task, hard-truncated. Assignment
- * ranks first because the wire's `task` is the FULL rendered prompt template
- * for task-tool spawns (renderSubagentUserPrompt, task/index.ts) while
- * `assignment` carries the raw task text. Truncation keeps runaway texts from
- * blowing out the card — this label is exactly how two same-type agents are
- * told apart.
- */
-function primaryLabel(agent: SubagentSnapshot): string | undefined {
-	const raw = agent.assignment ?? agent.description ?? agent.task;
-	if (!raw) return undefined;
-	const text = raw.trim();
-	return text.length > PRIMARY_LABEL_MAX ? `${text.slice(0, PRIMARY_LABEL_MAX - 1)}…` : text;
-}
-
 const HubRow = memo(function HubRow({
 	agent,
 	now,
@@ -688,10 +677,9 @@ const HubRow = memo(function HubRow({
 	const t = useT();
 	const meta = statusMeta(agent.status);
 	const live = isLiveSubagentStatus(agent.status);
-	// Live rows tick from first-seen; terminal rows fall back to the server's
-	// final duration when a progress payload survived.
-	const elapsed = live ? now - noteFirstSeen(agent.id) : (agent.progress?.durationMs ?? null);
-	const title = primaryLabel(agent);
+	// Live rows advance the sidecar sample; terminal rows keep its final value.
+	const elapsed = subagentElapsedMs(agent, now);
+	const title = subagentPrimaryLabel(agent);
 	const lastUpdate = agent.progress?.description;
 	const model = agent.progress?.resolvedModel;
 	const parked = agent.status === "parked";
@@ -710,9 +698,7 @@ const HubRow = memo(function HubRow({
 						{t(meta.labelKey)}
 					</Badge>
 					<span className="shrink-0 font-mono text-[10.5px] text-(--omp-dim) tabular-nums">#{agent.index}</span>
-					<span className="min-w-0 truncate text-[12px] font-medium text-(--omp-text)">
-						{title ?? agent.agent}
-					</span>
+					<span className="min-w-0 truncate text-[12px] font-medium text-(--omp-text)">{title}</span>
 					<span className="ml-auto shrink-0 text-[10.5px] text-(--omp-dim) tabular-nums">
 						{elapsed !== null ? formatElapsed(elapsed) : "—"}
 					</span>
@@ -827,7 +813,7 @@ function AgentTranscriptDrawer({ agent, onClose }: { agent: SubagentSnapshot; on
 					{t(meta.labelKey)}
 				</Badge>
 				<span className="min-w-0 truncate text-[12px] font-medium text-(--omp-text)">
-					{primaryLabel(agent) ?? agent.agent}
+					{subagentPrimaryLabel(agent)}
 				</span>
 				<span className="shrink-0 text-[10.5px] text-(--omp-dim)">{agent.agent}</span>
 			</div>

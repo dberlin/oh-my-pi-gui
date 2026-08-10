@@ -294,6 +294,7 @@ export interface IpcSidecarStatusPayload {
 }
 
 export interface IpcExtensionUiPayload {
+	tabId: string;
 	request: ExtensionUIRequest;
 }
 
@@ -530,6 +531,13 @@ export interface IpcTabInfo {
 
 /** TAB_STATUS push payload — a full tab snapshot from any tab, active or background. */
 export type IpcTabStatusPayload = IpcTabInfo;
+
+/** Full sidecar event tagged with the tab that emitted it. The preload drops
+ * envelopes from a previously active tab after SET_ACTIVE_TAB resolves. */
+export interface IpcActiveTabEnvelope<T> {
+	tabId: string;
+	payload: T;
+}
 
 /** Spawn a tab bound to the calling window. Defaults: caller's cwd, fresh session. */
 export interface IpcSpawnTabPayload {
@@ -788,7 +796,7 @@ export interface OmpApi {
 		onBatch(callback: (events: AgentSessionEvent[]) => void): () => void;
 		onSidecarStatus(callback: (status: IpcSidecarStatusPayload) => void): () => void;
 		onTabStatus(callback: (payload: IpcTabStatusPayload) => void): () => void;
-		onExtensionUi(callback: (request: ExtensionUIRequest) => void): () => void;
+		onExtensionUi(callback: (request: ExtensionUIRequest, tabId: string) => void): () => void;
 		onHostToolCall(callback: (request: HostToolCallRequest) => void): () => void;
 		onHostUriRequest(callback: (request: HostUriRequest) => void): () => void;
 		onLiveUpdate(callback: (frame: RpcLiveUpdateFrame) => void): () => void;

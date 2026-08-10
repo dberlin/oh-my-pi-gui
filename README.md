@@ -33,7 +33,7 @@ Every slash command as a menu · full-fidelity rendering · providers, models & 
 
 - **Every `/` command, as a menu.** Commands aren't just text you type — they're grouped, searchable menus. Open the **Command Palette (`⌘K`)** for fuzzy access to everything, or browse grouped categories (Workspace, Providers, Model, Session…). Sub-menus, argument prompts, and toggles all run the underlying RPC — never a fake input box.
 
-- **Full-fidelity rendering.** The chat renders what omp's TUI renders: streaming text, collapsible **thinking** blocks, live **tool cards** (bash, edit, read, grep, task, …) with real diffs, markdown, **KaTeX math**, mermaid diagrams, and syntax-highlighted code — streamed token-by-token.
+- **Full-fidelity rendering.** The chat renders what omp's TUI renders: streaming text, collapsible **thinking** blocks, live **tool cards** (bash, edit, read, grep, task, …) with real diffs, local/remote markdown images, **KaTeX math**, mermaid diagrams, and syntax-highlighted code — streamed token-by-token.
 
 - **Providers & login.** Sign in with OAuth or API keys, add third-party providers, edit `models.json` config, and see auth status at a glance.
 
@@ -41,11 +41,13 @@ Every slash command as a menu · full-fidelity rendering · providers, models & 
 
 - **Usage & quotas.** A full stats dashboard — requests, tokens, cost, cache-hit, speed, errors, per-agent breakdown — with time ranges and charts.
 
-- **Workspace panels.** Todo, Plan, Subagents, Diff, Files, and Logs in a collapsible side panel, kept in sync with the agent in real time.
+- **Workspace panels.** Todo, Plan, Agents, Queue, Diff, Files, and Logs in a collapsible side panel, kept in sync with the active tab. Agent runs appear as a timed parent/child list or spawn graph with expandable transcripts.
 
 - **Sessions.** Search, group, rename, branch, fork/handoff, and resume sessions across projects. Global and per-project history.
 
-- **Parallel, protected sessions.** Open up to 10 windows, each with its own sidecar. Switching away from a busy session offers a new window, explicit abort, or cancel instead of silently killing work.
+- **Parallel, protected sessions.** Open up to 10 tabs/windows, each with its own sidecar, session, queue, draft, subagents, and optional git worktree. Background tabs keep running; ownership guards prevent two sidecars from attaching to the same session file.
+
+- **Crash-aware desktop runtime.** React failures, renderer/process exits, and preload errors are written to a bounded JSONL log; abnormal renderer exits recover automatically, and packaged resource replacement triggers a clean relaunch instead of a white screen.
 
 - **OMP capabilities, not generic toggles.** Settings leads with TTSR, parallel subagents, model roles, Advisor, goal/loop modes, memory, and native tools. Schema-driven controls distinguish live settings from restart-required ones, and full-row switches persist across reconnects.
 
@@ -64,10 +66,10 @@ Every slash command as a menu · full-fidelity rendering · providers, models & 
 
 ### Install
 
-Current release: [**v0.6.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.6.1)
+Current release: [**v0.7.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.1)
 
-- **Apple Silicon (M1/M2/M3/M4):** `omp-0.7.0-arm64.dmg`
-- **Intel:** `omp-0.7.0.dmg`
+- **Apple Silicon (M1/M2/M3/M4):** `omp-0.7.1-arm64.dmg`
+- **Intel:** `omp-0.7.1.dmg`
 
 Open the `.dmg` and drag **omp** into **Applications**. The build is unsigned, so on first launch macOS may block it: **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*).
 
@@ -171,7 +173,7 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 
 - **所有 `/` 命令,全部做成菜单。** 命令不再只是手敲的文本——而是分组、可搜索的菜单。打开**命令面板(`⌘K`)**模糊直达任意命令,或浏览分组(工作区、Provider、模型、会话…)。子菜单、参数输入、开关项都走真实 RPC,绝不是套个输入框。
 
-- **完整渲染。** 聊天区渲染 omp TUI 的全部内容:流式文本、可折叠的**思考块**、实时**工具卡**(bash、edit、read、grep、task…,带真实 diff)、markdown、**KaTeX 公式**、mermaid 图、语法高亮代码——逐 token 流式呈现。
+- **完整渲染。** 聊天区渲染 omp TUI 的全部内容:流式文本、可折叠的**思考块**、实时**工具卡**(bash、edit、read、grep、task…,带真实 diff)、本地/远程 markdown 图片、**KaTeX 公式**、mermaid 图、语法高亮代码——逐 token 流式呈现。
 
 - **Provider 与登录。** 支持 OAuth 或 API key 登录、添加第三方 provider、编辑 `models.json` 配置,认证状态一目了然。
 
@@ -179,11 +181,13 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 
 - **用量与配额。** 完整的统计仪表盘——请求数、token、花费、缓存命中、速度、错误、按 agent 类型拆分,支持时间范围与图表。
 
-- **工作区面板。** 待办、计划、子 agent、Diff、文件、日志,集成在可折叠侧栏,与 agent 实时同步。
+- **工作区面板。** 待办、计划、Agent、队列、Diff、文件、日志集成在可折叠侧栏,并与当前标签页实时同步。子 Agent 可按带计时的父子列表或派生图展示,记录可直接展开。
 
 - **会话管理。** 搜索、分组、重命名、分支、fork/交接、跨项目恢复会话,支持全局与项目级历史。
 
-- **并行且受保护的会话。** 最多同时打开 10 个窗口,每个窗口拥有独立 sidecar。离开繁忙会话时会明确提供“新窗口打开”“中止后切换”或取消,不会静默终止正在进行的工作。
+- **并行且受保护的会话。** 最多同时打开 10 个标签页/窗口,每个都拥有独立 sidecar、会话、队列、草稿、子 Agent 和可选 git worktree。后台标签页持续运行,所有权守卫确保同一会话文件不会被两个 sidecar 同时挂载。
+
+- **可诊断、可恢复的桌面运行时。** React 异常、渲染进程/子进程退出和 preload 错误会写入有界 JSONL 日志；渲染进程异常退出会自动恢复,运行中替换安装资源会干净重启,不再留下原因不明的白屏。
 
 - **围绕 OMP 能力组织的设置。** 设置首页直接呈现 TTSR、并行子 agent、角色模型、顾问、目标/循环模式、记忆和原生工具；schema 控件会区分即时生效与需要重启的设置,整行滑块在重连后也保持正确状态。
 
@@ -202,10 +206,10 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 
 ### 安装
 
-当前版本：[**v0.6.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.6.1)
+当前版本：[**v0.7.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.1)
 
-- **Apple Silicon(M1/M2/M3/M4):** `omp-0.7.0-arm64.dmg`
-- **Intel:** `omp-0.7.0.dmg`
+- **Apple Silicon(M1/M2/M3/M4):** `omp-0.7.1-arm64.dmg`
+- **Intel:** `omp-0.7.1.dmg`
 
 打开 `.dmg`,把 **omp** 拖进 **应用程序**。构建未签名,首次打开 macOS 可能拦截:**右键 → 打开**(或 *系统设置 → 隐私与安全性 → 仍要打开*)。
 

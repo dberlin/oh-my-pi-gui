@@ -6,6 +6,7 @@
 import { ArrowDown, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../lib/i18n";
+import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 
 const MAX_LINES = 1000;
 
@@ -53,6 +54,7 @@ export function LogPanel() {
 		// Lines arrive batched (LogWatcher flushes every 150ms): one setState
 		// per batch instead of one per line.
 		const unsubscribe = window.omp.events.onLogLines(batch => {
+			if (!acceptsActiveTabEvents()) return;
 			setLines(prev => {
 				const appended = batch.map(text => ({ seq: nextSeq++, text, level: detectLevel(text) }));
 				const next = [...prev, ...appended];

@@ -12,9 +12,19 @@
 
 import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
 import { translate } from "../lib/i18n";
+import { useComposerStore } from "../stores/composer";
+import { useExtensionUiStore } from "../stores/extension-ui";
+import { useForkHandoffStore } from "../stores/fork-handoff";
+import { useMessagesStore } from "../stores/messages";
+import { useModelStore } from "../stores/model";
+import { usePlanApprovalStore } from "../stores/plan-approval";
+import { useQueueStore } from "../stores/queue";
 import { useSessionStore } from "../stores/session";
+import { useSubagentsStore } from "../stores/subagents";
 import { useTabsStore } from "../stores/tabs";
 import { toast } from "../stores/toast";
+import { useTodoStore } from "../stores/todo";
+import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
 import { hydrateSession } from "./use-rpc-events";
 
@@ -96,6 +106,43 @@ export async function switchSessionNow(session: SessionInfo): Promise<boolean> {
 			toast({ variant: "info", message: translate("sidebar.openCancelled") });
 			return false;
 		}
+		// The sidecar has already switched. Remove the previous session's surface
+		// immediately instead of leaving stale history interactive while the new
+		// transcript hydrates. Events arriving during the fetch are preserved by
+		// hydrateSession's streamed-tail merge.
+		useMessagesStore.getState().reset();
+		useComposerStore.getState().reset();
+		useToolsStore.getState().reset();
+		useSubagentsStore.getState().reset();
+		useTodoStore.getState().reset();
+		useModelStore.getState().reset();
+		useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
+		useExtensionUiStore.getState().clearAll();
+		usePlanApprovalStore.getState().clearProposal();
+		useForkHandoffStore.getState().closeHandoffDialog();
+		useUiStore.getState().closeSessionOverlays();
+		useSessionStore.setState({
+			sessionId: session.id,
+			sessionName: session.title || session.firstMessage || null,
+			sessionFile: session.path,
+			cwd: session.cwd,
+			isStreaming: false,
+			isCompacting: false,
+			awaitingModelSince: null,
+			retryInfo: null,
+			compactionInfo: null,
+			contextUsage: null,
+			messageCount: session.messageCount,
+			queuedMessageCount: 0,
+			planModeEnabled: false,
+			prewalkArmed: false,
+			agentsPaused: false,
+			agentsPausedAt: null,
+			goal: null,
+			goalState: null,
+			loopMode: null,
+			vibeModeEnabled: false,
+		});
 		// `||` not `??`: an empty title slot (auto-title never ran) must fall
 		// through to the first message, not hydrate as an empty name.
 		await hydrateSession(session.title || session.firstMessage);

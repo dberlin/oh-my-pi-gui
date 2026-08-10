@@ -20,6 +20,7 @@
  */
 
 import type { RpcThemeColorsResult } from "../../shared/rpc-types";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "./tab-routing";
 import { applyTheme, markCustomThemeTokens, resolveTheme } from "./theme";
 
 /** Canonical token keys, in stylesheet order. Every theme defines all of them. */
@@ -1739,6 +1740,7 @@ let agentOverrides: Partial<Record<ThemeTokenKey, string>> | null = null;
 let lastOverlaySignature: string | null = null;
 /** Monotonic id — a slow get_theme_colors response must never clobber a newer overlay. */
 let agentThemeRequestId = 0;
+let agentThemeSettingsRequestId = 0;
 
 /**
  * Fetches one agent theme's resolved colors from the sidecar and maps them
@@ -1827,8 +1829,11 @@ async function refreshAgentThemeOverrides(): Promise<void> {
 
 /** Reads theme.dark / theme.light from the agent and forces a re-layer. */
 async function syncAgentThemeSettings(): Promise<void> {
+	if (!acceptsActiveTabEvents()) return;
+	const requestId = ++agentThemeSettingsRequestId;
 	try {
 		const res = await window.omp.rpc.getSettings([...AGENT_THEME_SETTING_PATHS]);
+		if (requestId !== agentThemeSettingsRequestId || !acceptsActiveTabEvents()) return;
 		const values = res.success ? (res.data as { values?: Record<string, unknown> } | undefined)?.values : undefined;
 		const dark = values?.["theme.dark"];
 		const light = values?.["theme.light"];
@@ -1837,6 +1842,7 @@ async function syncAgentThemeSettings(): Promise<void> {
 			light: typeof light === "string" ? light : "",
 		};
 	} catch {
+		if (requestId !== agentThemeSettingsRequestId || !acceptsActiveTabEvents()) return;
 		agentThemeNames = null;
 	}
 	lastOverlaySignature = null;
@@ -1855,16 +1861,19 @@ async function syncAgentThemeSettings(): Promise<void> {
 export function initAgentThemeSync(): () => void {
 	void syncAgentThemeSettings();
 	const unsubscribe = window.omp.events.onConfigUpdate(() => {
-		void syncAgentThemeSettings();
+		if (acceptsActiveTabEvents()) void syncAgentThemeSettings();
 	});
+	const unsubscribeRoute = onActiveTabRouteSettled(() => void syncAgentThemeSettings());
 	const observer = new MutationObserver(() => {
 		void refreshAgentThemeOverrides();
 	});
 	observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 	return () => {
 		unsubscribe();
+		unsubscribeRoute();
 		observer.disconnect();
 		agentThemeRequestId++;
+		agentThemeSettingsRequestId++;
 		agentThemeNames = null;
 		lastOverlaySignature = null;
 		applyAgentOverrides(null);

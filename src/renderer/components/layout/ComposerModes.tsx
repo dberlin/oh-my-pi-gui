@@ -11,10 +11,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { loopLimitText, parseLoopLimit } from "../../lib/loop-mode";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { useUiStore } from "../../stores/ui";
-import { loopLimitText, parseLoopLimit } from "../panels/ModesPanel";
 
 // ON state = accent background + a check beside the mode icon, so an active
 // mode reads at a glance; the transparent border keeps the box stable across

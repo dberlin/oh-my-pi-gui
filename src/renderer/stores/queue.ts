@@ -17,14 +17,14 @@ export type QueueLane = "steering" | "followUp";
 interface QueueStore {
 	steering: RpcQueuedMessage[];
 	followUp: RpcQueuedMessage[];
-	/** Hydrate fallback pull via get_queue; concurrent refreshes share it. */
+	/** Hydrate fallback pull via get_queue; only the latest response may apply. */
 	refresh: () => Promise<void>;
 	/** Apply an authoritative queue_update frame. */
 	setFromFrame: (snapshot: RpcGetQueueResult) => void;
 }
 
-/** Guards against overlapping get_queue fetches; latest call wins on settle. */
-let refreshInFlight: Promise<void> | undefined;
+/** Invalidates stale get_queue responses across rapid session/tab switches. */
+let refreshVersion = 0;
 
 const EMPTY_QUEUE: RpcGetQueueResult = { steering: [], followUp: [] };
 
@@ -32,25 +32,24 @@ export const useQueueStore = create<QueueStore>()(set => ({
 	steering: [],
 	followUp: [],
 	refresh: async () => {
-		if (refreshInFlight) return refreshInFlight;
-		refreshInFlight = (async () => {
-			try {
-				const response = await window.omp.rpc.getQueue();
-				const data = response.success ? (response.data as RpcGetQueueResult | undefined) : undefined;
-				set({
-					steering: data?.steering ?? EMPTY_QUEUE.steering,
-					followUp: data?.followUp ?? EMPTY_QUEUE.followUp,
-				});
-			} catch {
-				// Sidecar mid-restart or a stale session: keep the last snapshot;
-				// the next hydrate/queue_update refetches.
-			} finally {
-				refreshInFlight = undefined;
-			}
-		})();
-		return refreshInFlight;
+		const version = ++refreshVersion;
+		try {
+			const response = await window.omp.rpc.getQueue();
+			if (version !== refreshVersion) return;
+			const data = response.success ? (response.data as RpcGetQueueResult | undefined) : undefined;
+			set({
+				steering: data?.steering ?? EMPTY_QUEUE.steering,
+				followUp: data?.followUp ?? EMPTY_QUEUE.followUp,
+			});
+		} catch {
+			// Sidecar mid-restart or a stale session: keep the last snapshot;
+			// the next hydrate/queue_update refetches.
+		}
 	},
-	setFromFrame: snapshot => set({ steering: snapshot.steering, followUp: snapshot.followUp }),
+	setFromFrame: snapshot => {
+		refreshVersion += 1;
+		set({ steering: snapshot.steering, followUp: snapshot.followUp });
+	},
 }));
 
 /**

@@ -51,16 +51,25 @@ export function isLiveSubagentStatus(status: string): boolean {
 	return statusMeta(status).live;
 }
 
-/** First time each agent id was observed, for elapsed-time display. */
-const firstSeen = new Map<string, number>();
-
-/** Record (once) when an agent id was first observed; returns that timestamp. */
-export function noteFirstSeen(id: string): number {
-	const existing = firstSeen.get(id);
-	if (existing !== undefined) return existing;
-	const seen = Date.now();
-	firstSeen.set(id, seen);
-	return seen;
+/**
+ * Elapsed runtime from the agent's own progress clock.
+ *
+ * `durationMs` is sampled by the sidecar when a progress frame is emitted;
+ * `lastUpdate` is when the renderer received that frame. Advancing the sample
+ * by the time since `lastUpdate` keeps a live row moving without inventing a
+ * new start time when the panel happens to open. Terminal rows stay frozen at
+ * their final duration. Bare live registry snapshots have no duration sample,
+ * so their first lifecycle timestamp is the only honest fallback.
+ */
+export function subagentElapsedMs(agent: SubagentSnapshot, now: number): number | null {
+	const live = isLiveSubagentStatus(agent.status);
+	const sampled = agent.progress?.durationMs;
+	if (typeof sampled === "number" && Number.isFinite(sampled)) {
+		const sinceSample = live && Number.isFinite(agent.lastUpdate) ? Math.max(0, now - agent.lastUpdate) : 0;
+		return Math.max(0, sampled + sinceSample);
+	}
+	if (live && Number.isFinite(agent.lastUpdate)) return Math.max(0, now - agent.lastUpdate);
+	return null;
 }
 
 export function formatElapsed(ms: number): string {
@@ -149,14 +158,19 @@ export interface SubagentDagLayout {
 	unresolved: string[];
 }
 
-/**
- * Reads the spawn-parent link off a snapshot. The field is on the wire
- * (RpcSubagentSnapshot.parentSubagentId — the spawning subagent's registry
- * id, absent for root spawns) but not yet mirrored into shared/rpc-types.ts,
- * hence the structural read. Drop the cast once the mirror lands.
- */
+/** The spawning subagent id, absent for root spawns from the main session. */
 export function parentSubagentIdOf(agent: SubagentSnapshot): string | undefined {
-	return (agent as SubagentSnapshot & { parentSubagentId?: string }).parentSubagentId;
+	return agent.parentSubagentId;
+}
+
+/** Human task label used consistently by list, graph, and hub surfaces. */
+export function subagentPrimaryLabel(agent: SubagentSnapshot, maxLength = 60): string {
+	// `description` is the sidecar's tiny-model UI label. `assignment` is the
+	// complete delegated prompt and may include markdown/system scaffolding, so
+	// it belongs in the transcript rather than the compact row heading.
+	const raw = agent.description ?? agent.assignment ?? agent.task ?? agent.agent;
+	const text = raw.trim() || agent.agent;
+	return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
 function resolveParent(
@@ -305,4 +319,43 @@ export function buildSubagentDag(
 		height: DAG_PAD * 2 + Math.max(1, leafCount) * rowPitch - DAG_GAP_Y,
 		unresolved,
 	};
+}
+
+export interface SubagentListRow {
+	agent: SubagentSnapshot;
+	depth: number;
+}
+
+/** Pre-order list projection of the same resolved spawn graph used by the DAG. */
+export function buildSubagentList(
+	agents: SubagentSnapshot[],
+	rootToolCallIds: ReadonlySet<string>,
+	toolCallOwners: ReadonlyMap<string, string>,
+): SubagentListRow[] {
+	const layout = buildSubagentDag(agents, rootToolCallIds, toolCallOwners);
+	const agentById = new Map(agents.map(agent => [agent.id, agent]));
+	const depthById = new Map(layout.nodes.map(node => [node.id, node.depth]));
+	const children = new Map<string, string[]>();
+	for (const edge of layout.edges) {
+		const ids = children.get(edge.parentId);
+		if (ids) ids.push(edge.childId);
+		else children.set(edge.parentId, [edge.childId]);
+	}
+	for (const ids of children.values()) {
+		ids.sort((a, b) => (agentById.get(a)?.index ?? 0) - (agentById.get(b)?.index ?? 0));
+	}
+
+	const rows: SubagentListRow[] = [];
+	const visited = new Set<string>();
+	const visit = (parentId: string): void => {
+		for (const id of children.get(parentId) ?? []) {
+			if (visited.has(id)) continue;
+			visited.add(id);
+			const agent = agentById.get(id);
+			if (agent) rows.push({ agent, depth: Math.max(0, (depthById.get(id) ?? 1) - 1) });
+			visit(id);
+		}
+	};
+	visit(MAIN_NODE_ID);
+	return rows;
 }

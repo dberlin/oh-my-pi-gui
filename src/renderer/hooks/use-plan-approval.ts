@@ -8,11 +8,13 @@
  */
 
 import { useEffect } from "react";
+import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { usePlanApprovalStore } from "../stores/plan-approval";
 
 export function usePlanApproval(): void {
 	useEffect(() => {
 		const unsubscribe = window.omp.events.onBatch(events => {
+			if (!acceptsActiveTabEvents()) return;
 			for (const event of events) {
 				if (event.type !== "plan_proposal") continue;
 				usePlanApprovalStore.getState().showProposal({

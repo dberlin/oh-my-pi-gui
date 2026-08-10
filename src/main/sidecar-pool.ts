@@ -29,7 +29,13 @@
  * it to the newly active sidecar, which never saw the request).
  */
 import type { BrowserWindow } from "electron";
-import { IPC_EVENTS, type IpcSessionOwner, type IpcTabInfo, type IpcTabStatusPayload, type IpcTabWorktree } from "../shared/ipc-types";
+import {
+	IPC_EVENTS,
+	type IpcSessionOwner,
+	type IpcTabInfo,
+	type IpcTabStatusPayload,
+	type IpcTabWorktree,
+} from "../shared/ipc-types";
 import type {
 	AgentSessionEvent,
 	AvailableCommand,
@@ -251,6 +257,9 @@ export class SidecarPool {
 		if (entry.detachFull) return;
 		const { sidecar, win } = entry;
 		const removers: (() => void)[] = [];
+		const forwardActive = <T>(channel: string, payload: T): void => {
+			forwardToWindow(win, channel, { tabId: entry.tabId, payload });
+		};
 		const wire = <T>(event: string, listener: (payload: T) => void): void => {
 			sidecar.on(event, listener);
 			removers.push(() => {
@@ -258,16 +267,16 @@ export class SidecarPool {
 			});
 		};
 		wire("events", (events: AgentSessionEvent[]) => {
-			forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { events });
+			forwardActive(IPC_EVENTS.EVENTS_BATCH, events);
 		});
 		wire("status", (payload: StatusPayload) => {
-			forwardToWindow(win, IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
+			forwardActive(IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
 		});
 		wire("extensionUi", (request: ExtensionUIRequest) => {
 			// F-UI-ORIGIN: the response must reach THIS sidecar even if the user
 			// switches tabs while the dialog is open — track the request id.
 			this.#requestOwners.set(request.id, entry);
-			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { request });
+			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
 		});
 		wire("hostToolCall", (request: HostToolCallRequest) => {
 			// Answered-inline tools never reach the renderer, so only forwarded
@@ -280,28 +289,28 @@ export class SidecarPool {
 			forwardToWindow(win, IPC_EVENTS.HOST_URI_REQUEST, { request });
 		});
 		wire("subagentFrame", (frame: SubagentFrame) => {
-			forwardToWindow(win, IPC_EVENTS.SUBAGENT_FRAME, { frame });
+			forwardActive(IPC_EVENTS.SUBAGENT_FRAME, frame);
 		});
 		wire("liveUpdate", (frame: RpcLiveUpdateFrame) => {
-			forwardToWindow(win, IPC_EVENTS.LIVE_UPDATE, frame);
+			forwardActive(IPC_EVENTS.LIVE_UPDATE, frame);
 		});
 		wire("commandsUpdate", (commands: AvailableCommand[]) => {
-			forwardToWindow(win, IPC_EVENTS.COMMANDS_UPDATE, { commands });
+			forwardActive(IPC_EVENTS.COMMANDS_UPDATE, commands);
 		});
 		wire("configUpdate", (payload: ConfigUpdateFrame) => {
-			forwardToWindow(win, IPC_EVENTS.CONFIG_UPDATE, payload);
+			forwardActive(IPC_EVENTS.CONFIG_UPDATE, payload);
 		});
 		wire("promptResult", (frame: PromptResultFrame) => {
-			forwardToWindow(win, IPC_EVENTS.PROMPT_RESULT, frame);
+			forwardActive(IPC_EVENTS.PROMPT_RESULT, frame);
 		});
 		wire("commandOutput", (frame: CommandOutputFrame) => {
-			forwardToWindow(win, IPC_EVENTS.COMMAND_OUTPUT, frame);
+			forwardActive(IPC_EVENTS.COMMAND_OUTPUT, frame);
 		});
 		wire("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
-			forwardToWindow(win, IPC_EVENTS.SESSION_INFO_UPDATE, frame);
+			forwardActive(IPC_EVENTS.SESSION_INFO_UPDATE, frame);
 		});
 		wire("extensionError", (frame: ExtensionErrorFrame) => {
-			forwardToWindow(win, IPC_EVENTS.EXTENSION_ERROR, frame);
+			forwardActive(IPC_EVENTS.EXTENSION_ERROR, frame);
 		});
 		entry.detachFull = () => {
 			entry.detachFull = null;

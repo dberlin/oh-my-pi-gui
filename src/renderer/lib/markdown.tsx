@@ -364,10 +364,7 @@ function TaskCheckbox(props: ComponentPropsWithoutRef<"input">) {
 // Local paths go through the fs:read-image IPC (sniffed mime + size cap) and
 // come back as data URLs.
 
-export type MarkdownImageSrc =
-	| { kind: "direct"; src: string }
-	| { kind: "local"; path: string }
-	| { kind: "none" };
+export type MarkdownImageSrc = { kind: "direct"; src: string } | { kind: "local"; path: string } | { kind: "none" };
 
 /** Classifies an <img> src after sanitize: direct-load URL, local path, or unusable. */
 export function classifyImageSrc(src: string | undefined): MarkdownImageSrc {
@@ -389,7 +386,8 @@ export function classifyImageSrc(src: string | undefined): MarkdownImageSrc {
 	return { kind: "local", path: src };
 }
 
-const MARKDOWN_IMAGE_CLASS = "my-1 max-h-72 max-w-full rounded-md border border-[var(--omp-border-muted)] object-contain";
+const MARKDOWN_IMAGE_CLASS =
+	"my-1 max-h-72 max-w-full rounded-md border border-[var(--omp-border-muted)] object-contain";
 
 function MarkdownImageFallback({ alt, path }: { alt: string; path?: string }) {
 	return (
@@ -436,7 +434,13 @@ function MarkdownImage({ src, alt, title, ...props }: ComponentPropsWithoutRef<"
 	const altText = typeof alt === "string" ? alt : "";
 	if (classified.kind === "none") return <MarkdownImageFallback alt={altText} />;
 	if (classified.kind === "local") {
-		return <LocalMarkdownImage path={classified.path} alt={altText} title={typeof title === "string" ? title : undefined} />;
+		return (
+			<LocalMarkdownImage
+				path={classified.path}
+				alt={altText}
+				title={typeof title === "string" ? title : undefined}
+			/>
+		);
 	}
 	return <img {...props} src={classified.src} alt={altText} title={title} className={MARKDOWN_IMAGE_CLASS} />;
 }

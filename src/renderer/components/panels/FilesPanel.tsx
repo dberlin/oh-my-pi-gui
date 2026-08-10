@@ -9,6 +9,7 @@ import { AtSign, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FsTreeEntry } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../lib/tab-routing";
 import { Button, Modal, Spinner } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
 
@@ -42,6 +43,7 @@ export function FilesPanel() {
 	const [preview, setPreview] = useState<PreviewState | null>(null);
 
 	const load = useCallback(async () => {
+		if (!acceptsActiveTabEvents()) return;
 		setLoading(true);
 		setError(null);
 		try {
@@ -64,7 +66,10 @@ export function FilesPanel() {
 	}, [t]);
 
 	useEffect(() => {
-		void load();
+		const run = () => void load();
+		const unsubscribeRoute = onActiveTabRouteSettled(run);
+		run();
+		return unsubscribeRoute;
 	}, [load]);
 
 	const openPreview = useCallback(

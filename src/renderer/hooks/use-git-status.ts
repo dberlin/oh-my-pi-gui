@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { RpcGitStatus } from "../../shared/rpc-types";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../lib/tab-routing";
 import { useSessionStore } from "../stores/session";
 import { useTabsStore } from "../stores/tabs";
 
@@ -18,24 +19,31 @@ export function useGitStatus(): { status: RpcGitStatus | null; refresh: () => vo
 	const refreshRef = useRef<() => void>(() => {});
 
 	useEffect(() => {
+		void activeTabId;
+		void cwd;
 		let cancelled = false;
 		const refresh = async () => {
+			if (!acceptsActiveTabEvents()) return;
+			const requestTabId = useTabsStore.getState().activeTabId;
 			try {
 				const response = await window.omp.rpc.getGitStatus();
-				if (!cancelled) setStatus(response.success ? (response.data as RpcGitStatus) : null);
+				if (!cancelled && acceptsActiveTabEvents() && useTabsStore.getState().activeTabId === requestTabId) {
+					setStatus(response.success ? (response.data as RpcGitStatus) : null);
+				}
 			} catch {
-				if (!cancelled) setStatus(null);
+				if (!cancelled && useTabsStore.getState().activeTabId === requestTabId) setStatus(null);
 			}
 		};
 		refreshRef.current = () => void refresh();
 		setStatus(null);
 		void refresh();
+		const unsubscribeRoute = onActiveTabRouteSettled(() => void refresh());
 		const timer = window.setInterval(() => void refresh(), 2500);
 		return () => {
 			cancelled = true;
+			unsubscribeRoute();
 			window.clearInterval(timer);
 		};
-		// biome-ignore lint/correctness/useExhaustiveDependencies: activeTabId/cwd are invalidation SIGNALS — the effect re-arms (reset + refetch) when they change, though the body never reads them.
 	}, [activeTabId, cwd]);
 
 	const wasStreaming = useRef(false);

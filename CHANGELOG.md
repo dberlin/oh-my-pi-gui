@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-10
+
+### Added
+
+- **Six designed light themes**: Porcelain, Linen, Sage Paper, Sakura Mist, Glacier, and Sandstone add distinct low-glare palettes while preserving the complete GUI token contract.
+- **Markdown image rendering**: assistant output can display remote, data/blob, and local image sources; local files are read through the bounded preload bridge and failures degrade to an explicit fallback instead of an empty block.
+
+### Changed
+
+- **Subagent workspace views**: the Agents drawer now presents a real parent/child spawn tree plus a graph view, uses the sidecar's concise UI label instead of dumping the full delegated prompt into the heading, keeps completed rows legible, exposes expandable transcripts, and derives elapsed time from the agent's own runtime sample so opening the drawer never restarts the clock.
+- **Lower-churn streaming renderer**: text/thinking updates are throttled at the presentation edge, hidden or empty rows stay out of the virtual layout, and the transcript follows appended content only while the reader remains near the end.
+
+### Fixed
+
+- **Active-tab routing and hydration races**: tab status, session hydration, queue/subagent state, approvals, extension UI, composer drafts, and streaming snapshots are now applied only to the tab and session that own them. Fresh tabs can become usable even when their ready event beats the full route wiring, and rapid switches discard stale hydration replies.
+- **Long-transcript session switching**: switching to a session anchors the transcript at its real end instead of an arbitrary virtualized position, while intentional user scrolling is preserved during subsequent streaming.
+- **Composer dispatch isolation**: delayed submits, queued shorthand, paste blobs, and restored failures keep their originating tab/session identity and cannot leak into a tab selected after Enter.
+- **Chat-tab workspace safety**: agent-only drawer tabs and modes are clamped out of tool-free chat sessions instead of showing stale data from the previous agent tab.
+- **Unknown subagent statuses**: future or provider-specific status strings now degrade to a muted label instead of dereferencing missing metadata and crashing the renderer.
+
 ## [0.7.0] - 2026-08-08
 
 ### Added

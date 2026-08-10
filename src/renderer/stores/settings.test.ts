@@ -67,4 +67,29 @@ describe("settings store display sync", () => {
 		await useSettingsStore.getState().syncDisplaySettings();
 		expect(useSettingsStore.getState().collapseCompacted).toBe(false);
 	});
+
+	it("keeps the latest sync when an older sidecar reply arrives last", async () => {
+		const older = Promise.withResolvers<RpcResponse>();
+		const newer = Promise.withResolvers<RpcResponse>();
+		getSettings.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+
+		const firstSync = useSettingsStore.getState().syncDisplaySettings();
+		const secondSync = useSettingsStore.getState().syncDisplaySettings();
+		newer.resolve({
+			type: "response",
+			command: "get_settings",
+			success: true,
+			data: { values: { "tui.titleState": false } },
+		});
+		await secondSync;
+		older.resolve({
+			type: "response",
+			command: "get_settings",
+			success: true,
+			data: { values: { "tui.titleState": true } },
+		});
+		await firstSync;
+
+		expect(useSettingsStore.getState().titleState).toBe(false);
+	});
 });

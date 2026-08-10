@@ -16,7 +16,8 @@ import {
 	type SubagentSnapshot,
 	type ThinkingLevel,
 } from "../../shared/rpc-types";
-import { normalizeLoopUpdate } from "../components/panels/ModesPanel";
+import { normalizeLoopUpdate } from "../lib/loop-mode";
+import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { messageIdentityKey, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
@@ -25,6 +26,7 @@ import { useQueueStore } from "../stores/queue";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { useSubagentsStore } from "../stores/subagents";
+import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
@@ -148,9 +150,18 @@ function applySessionState(state: RpcSessionState, fallbackName?: string): void 
  * event, so turn start is the sync point that keeps planModeEnabled honest.
  */
 async function refreshSessionState(): Promise<void> {
+	if (!acceptsActiveTabEvents()) return;
+	const tabId = useTabsStore.getState().activeTabId;
+	const sessionId = useSessionStore.getState().sessionId;
 	try {
 		const res = await window.omp.rpc.getState();
-		if (res.success && res.data != null) {
+		if (
+			acceptsActiveTabEvents() &&
+			useTabsStore.getState().activeTabId === tabId &&
+			useSessionStore.getState().sessionId === sessionId &&
+			res.success &&
+			res.data != null
+		) {
 			applySessionState(res.data as RpcSessionState);
 		}
 	} catch {
@@ -191,11 +202,13 @@ function goalPatchFromEvent(
 	return { goal: { objective: goalInfo.objective }, goalState: { status } };
 }
 
+type HydrationGuard = () => boolean;
+
 /** Fetch the live goal state (get_goal) into the session store; clears when no goal is active. */
-async function syncGoal(): Promise<void> {
+async function syncGoal(isCurrent: HydrationGuard): Promise<void> {
 	try {
 		const res = await window.omp.rpc.getGoal();
-		if (!res.success) return;
+		if (!isCurrent() || !res.success) return;
 		// get_goal wire payload is RpcGoalState; `data` crosses the bridge as unknown.
 		const data = res.data as RpcGoalState | undefined;
 		if (data?.enabled !== true) {
@@ -212,10 +225,10 @@ async function syncGoal(): Promise<void> {
 }
 
 /** Fetch the live loop-mode state (get_loop_mode) into the session store; null on failure. */
-async function syncLoopMode(): Promise<void> {
+async function syncLoopMode(isCurrent: HydrationGuard): Promise<void> {
 	try {
 		const res = await window.omp.rpc.getLoopMode();
-		if (!res.success) return;
+		if (!isCurrent() || !res.success) return;
 		// get_loop_mode wire payload is RpcLoopModeState; `data` crosses the bridge as unknown.
 		useSessionStore.setState({ loopMode: (res.data as RpcLoopModeState | undefined) ?? null });
 	} catch {
@@ -224,10 +237,10 @@ async function syncLoopMode(): Promise<void> {
 }
 
 /** Fetch the live vibe-mode state (get_vibe_mode) into the session store; no event exists. */
-async function syncVibeMode(): Promise<void> {
+async function syncVibeMode(isCurrent: HydrationGuard): Promise<void> {
 	try {
 		const res = await window.omp.rpc.getVibeMode();
-		if (!res.success) return;
+		if (!isCurrent() || !res.success) return;
 		const data = res.data as RpcVibeModeState | undefined;
 		useSessionStore.setState({ vibeModeEnabled: data?.enabled === true });
 	} catch {
@@ -235,29 +248,44 @@ async function syncVibeMode(): Promise<void> {
 	}
 }
 
+let hydrationVersion = 0;
+
 /** Reload every renderer store that belongs to the active sidecar session. */
 export async function hydrateSession(fallbackName?: string): Promise<void> {
+	const version = ++hydrationVersion;
+	if (!acceptsActiveTabEvents()) return;
+	const tabId = useTabsStore.getState().activeTabId;
+	const isCurrent = (): boolean =>
+		version === hydrationVersion &&
+		acceptsActiveTabEvents() &&
+		(tabId === null || useTabsStore.getState().activeTabId === tabId);
 	// Capture before the fetch: messages the live stream appends while the
 	// transcript RPC is in flight must survive the merge below.
 	const beforeMessages = useMessagesStore.getState().messages;
 
-	const [stateResult, messagesResult, subagentsResult] = await Promise.allSettled([
-		window.omp.rpc.getState(),
-		window.omp.rpc.getTranscript(),
-		window.omp.rpc.getSubagents(),
+	const coreResult = Promise.allSettled([window.omp.rpc.getState(), window.omp.rpc.getTranscript()]);
+	const subagentsResult = Promise.allSettled([window.omp.rpc.getSubagents()]);
+	const secondaryResult = Promise.allSettled([
 		// Goal state isn't on the get_state wire — fetch alongside so the
 		// composer chip reflects an active goal after boot/session switches,
 		// not only on goal_updated events.
-		syncGoal(),
+		syncGoal(isCurrent),
 		// Loop and vibe mode likewise: loop_mode_update frames keep loop fresh
 		// afterwards; vibe emits nothing, so the Modes window mirrors toggles.
-		syncLoopMode(),
-		syncVibeMode(),
+		syncLoopMode(isCurrent),
+		syncVibeMode(isCurrent),
 		// Queue snapshot: queue_update frames keep it fresh afterwards;
 		// get_queue is only the hydrate fallback (boot/reconnect/session
 		// switch all land here). refresh() swallows its own failures.
 		useQueueStore.getState().refresh(),
+		// Project-scoped agent settings can differ between tab workspaces. The
+		// settings store is renderer-global, so re-read the active sidecar on
+		// every hydrate; both methods already reject stale out-of-order replies.
+		useSettingsStore.getState().syncDisplaySettings(),
+		useSettingsStore.getState().syncApproval(),
 	]);
+	const [stateResult, messagesResult] = await coreResult;
+	if (!isCurrent()) return;
 
 	if (stateResult.status === "fulfilled" && stateResult.value.success && stateResult.value.data != null) {
 		const wire = stateResult.value.data as RpcSessionState;
@@ -315,10 +343,14 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 		useToolsStore.getState().hydrateMessages(merged);
 	}
 
-	if (subagentsResult.status === "fulfilled" && subagentsResult.value.success) {
-		const data = subagentsResult.value.data as { subagents?: SubagentSnapshot[] } | undefined;
+	// Subagents and secondary chips do not hold the transcript hostage. Their
+	// requests still begin in parallel, but the core session can paint first.
+	const [settledSubagents] = await subagentsResult;
+	if (isCurrent() && settledSubagents.status === "fulfilled" && settledSubagents.value.success) {
+		const data = settledSubagents.value.data as { subagents?: SubagentSnapshot[] } | undefined;
 		useSubagentsStore.getState().setSnapshots(data?.subagents ?? []);
 	}
+	await secondaryResult;
 }
 
 /**
@@ -329,6 +361,7 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 export function useRpcEvents(): void {
 	useEffect(() => {
 		const unsubscribe = window.omp.events.onBatch((events: AgentSessionEvent[]) => {
+			if (!acceptsActiveTabEvents()) return;
 			useMessagesStore.getState().applyEvents(events);
 			useToolsStore.getState().applyEvents(events);
 
@@ -549,17 +582,21 @@ export function useRpcEvents(): void {
 			if (heartbeat) return;
 			heartbeat = setInterval(() => {
 				if (probing) return;
+				if (!acceptsActiveTabEvents()) return;
 				if (useSessionStore.getState().status !== "ready") return;
 				probing = true;
+				const probeTabId = useTabsStore.getState().activeTabId;
 				void window.omp.rpc
 					.getState()
 					.then(res => {
 						probing = false;
+						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== probeTabId) return;
 						if (res.success) useUiStore.getState().clearSidecarError();
 						else useUiStore.getState().setSidecarError(brickMessage);
 					})
 					.catch(() => {
 						probing = false;
+						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== probeTabId) return;
 						useUiStore.getState().setSidecarError(brickMessage);
 					});
 			}, 15_000);
@@ -572,6 +609,8 @@ export function useRpcEvents(): void {
 		};
 
 		const handleStatus = (payload: IpcSidecarStatusPayload) => {
+			if (!acceptsActiveTabEvents()) return;
+			const statusTabId = useTabsStore.getState().activeTabId;
 			if (payload.status === "starting") {
 				stopHeartbeat();
 				retryPending = false;
@@ -606,6 +645,7 @@ export function useRpcEvents(): void {
 							}
 						}
 						const res = await window.omp.rpc.getState();
+						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== statusTabId) return;
 						if (!res.success) {
 							useUiStore.getState().setSidecarError("Sidecar ready but not responding to commands");
 						} else {
@@ -614,6 +654,7 @@ export function useRpcEvents(): void {
 							void window.omp.rpc.setSubagentSubscription("events");
 						}
 					} catch {
+						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== statusTabId) return;
 						useUiStore.getState().setSidecarError("Sidecar health check failed — agent process may be stuck");
 					}
 				})();
@@ -627,6 +668,7 @@ export function useRpcEvents(): void {
 		void window.omp.sidecar.getStatus().then(handleStatus);
 
 		const unsubSubagent = window.omp.events.onSubagentFrame(frame => {
+			if (!acceptsActiveTabEvents()) return;
 			useSubagentsStore.getState().applyFrame(frame);
 		});
 
@@ -634,17 +676,20 @@ export function useRpcEvents(): void {
 		// changes) push config_update — re-read the thinking-display settings so
 		// ThinkingBlock re-renders with the live hide/prose-only policy.
 		const unsubConfig = window.omp.events.onConfigUpdate(() => {
+			if (!acceptsActiveTabEvents()) return;
 			void useSettingsStore.getState().syncDisplaySettings();
 			void useSettingsStore.getState().syncApproval();
 		});
 		// Extension slash commands can settle locally after the prompt response
 		// has already resolved; prompt_result carries the deferred rehydrate signal.
 		const unsubPromptResult = window.omp.events.onPromptResult((frame: PromptResultFrame) => {
+			if (!acceptsActiveTabEvents()) return;
 			if (!frame.agentInvoked) void hydrateSession();
 		});
 		// Text-mode slash commands write outside the transcript. Surface their
 		// output as local custom messages instead of silently dropping the frame.
 		const unsubCommandOutput = window.omp.events.onCommandOutput((frame: CommandOutputFrame) => {
+			if (!acceptsActiveTabEvents()) return;
 			if (!frame.text) return;
 			useMessagesStore.getState().appendMessage({
 				role: "custom",
@@ -655,6 +700,7 @@ export function useRpcEvents(): void {
 		});
 
 		const unsubSessionInfo = window.omp.events.onSessionInfoUpdate((frame: SessionInfoUpdateFrame) => {
+			if (!acceptsActiveTabEvents()) return;
 			useSessionStore.setState(state => ({
 				sessionName: frame.title ?? state.sessionName,
 				sessionId: frame.sessionId ?? state.sessionId,
@@ -662,6 +708,7 @@ export function useRpcEvents(): void {
 		});
 
 		const unsubExtensionError = window.omp.events.onExtensionError((frame: ExtensionErrorFrame) => {
+			if (!acceptsActiveTabEvents()) return;
 			useToastStore.getState().push({
 				variant: "error",
 				title: "Extension error",
@@ -671,9 +718,10 @@ export function useRpcEvents(): void {
 
 		// Ask/extension-UI requests that block for input (ask tool, approvals,
 		// confirms, …) — notify when the window is unfocused.
-		const unsubExtensionUi = window.omp.events.onExtensionUi(request => {
+		const unsubExtensionUi = window.omp.events.onExtensionUi((request, tabId) => {
 			if (!BLOCKING_UI_METHODS[request.method]) return;
-			const sessionName = useSessionStore.getState().sessionName || "Oh My Pi";
+			const tab = useTabsStore.getState().tabs.find(item => item.id === tabId);
+			const sessionName = tab?.title || "Oh My Pi";
 			const body =
 				"title" in request && typeof request.title === "string" && request.title
 					? request.title

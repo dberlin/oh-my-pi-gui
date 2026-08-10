@@ -17,24 +17,22 @@
  */
 
 import { ClipboardList, History, ListCollapse, Play, Send } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { usePlanApproval } from "../../hooks/use-plan-approval";
 import { basename } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
-import { type PendingPlanProposal, usePlanApprovalStore } from "../../stores/plan-approval";
+import {
+	type PlanApprovalOption,
+	type PlanApprovalSubmitState,
+	usePlanApprovalStore,
+} from "../../stores/plan-approval";
 import { useSessionStore } from "../../stores/session";
+import { settleTabPlanApproval, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Button, Modal, TextArea } from "../common";
 
-type PlanApprovalOption = "execute" | "compact" | "keep_context";
-type SubmitKind = "approve" | "refine" | "dismiss";
-
-/** Which control is in flight; `option` distinguishes the approve buttons. */
-interface SubmitState {
-	kind: SubmitKind;
-	option?: PlanApprovalOption;
-}
+type SubmitKind = PlanApprovalSubmitState["kind"];
 
 /** Wire result of the `plan_approval` command (RpcPlanApprovalResult). */
 interface PlanApprovalResult {
@@ -77,33 +75,19 @@ export function PlanApprovalDialog() {
 	const pending = usePlanApprovalStore(state => state.pending);
 	const feedback = usePlanApprovalStore(state => state.feedback);
 	const setFeedback = usePlanApprovalStore(state => state.setFeedback);
-	const clearProposal = usePlanApprovalStore(state => state.clearProposal);
-
-	const [submitting, setSubmitting] = useState<SubmitState | null>(null);
-	const [notice, setNotice] = useState<string | null>(null);
-
-	// A new proposal replaces the old one (latest wins) — reset transient UI
-	// state during render (React's adjust-state-when-props-change pattern).
-	// Feedback resets in the store alongside the proposal.
-	const [lastPending, setLastPending] = useState<PendingPlanProposal | null>(null);
-	if (pending !== lastPending) {
-		setLastPending(pending);
-		setSubmitting(null);
-		setNotice(null);
-	}
+	const notice = usePlanApprovalStore(state => state.notice);
+	const submitting = usePlanApprovalStore(state => state.submitting);
+	const setSubmitting = usePlanApprovalStore(state => state.setSubmitting);
 
 	if (!pending) return null;
-
-	/** Clear the store only when the answered proposal is still the one shown. */
-	const clearIfCurrent = (target: PendingPlanProposal) => {
-		if (usePlanApprovalStore.getState().pending === target) clearProposal();
-	};
 
 	const respond = async (kind: SubmitKind, option?: PlanApprovalOption) => {
 		if (submitting !== null) return;
 		const target = pending;
+		const originTabId = useTabsStore.getState().activeTabId;
+		const originSessionId = useSessionStore.getState().sessionId;
 		const trimmed = feedback.trim();
-		setSubmitting({ kind, option });
+		setSubmitting(kind === "approve" ? { kind, option } : { kind });
 		try {
 			const response =
 				kind === "approve"
@@ -112,16 +96,9 @@ export function PlanApprovalDialog() {
 						? await window.omp.rpc.planApproval(false, undefined, trimmed)
 						: await window.omp.rpc.planApproval(false);
 			if (!response.success) {
+				settleTabPlanApproval(originTabId, originSessionId, target, { submitting: null });
 				toast({ variant: "error", title: t("planApproval.failed"), message: response.error });
 				return;
-			}
-			if (kind === "approve") {
-				// Accepting exits plan mode server-side (rpc-plan.ts resolve) but
-				// emits no event — sync the store now so the composer chip and
-				// titlebar badge turn off immediately instead of waiting for the
-				// next get_state. Holds even when dispatched=false (compaction
-				// failed): the server exited plan mode before compacting.
-				useSessionStore.setState({ planModeEnabled: false });
 			}
 			const result = response.data as PlanApprovalResult | null | undefined;
 			if (result && !result.dispatched) {
@@ -129,14 +106,21 @@ export function PlanApprovalDialog() {
 					// Approval stands but nothing was dispatched (e.g. compaction
 					// failed) — surface the reason and stay open so the host can
 					// pick another option.
-					setNotice(result.reason ?? t("planApproval.notDispatched"));
+					settleTabPlanApproval(originTabId, originSessionId, target, {
+						exitPlanMode: true,
+						notice: result.reason ?? t("planApproval.notDispatched"),
+						submitting: null,
+					});
 					return;
 				}
 				// Plain reject / empty refine: resolved with nothing dispatched.
-				clearIfCurrent(target);
+				settleTabPlanApproval(originTabId, originSessionId, target, { clear: true });
 				return;
 			}
-			clearIfCurrent(target);
+			settleTabPlanApproval(originTabId, originSessionId, target, {
+				clear: true,
+				exitPlanMode: kind === "approve",
+			});
 			toast({
 				variant: "success",
 				message:
@@ -147,9 +131,8 @@ export function PlanApprovalDialog() {
 							: t("planApproval.dismissed"),
 			});
 		} catch (cause) {
+			settleTabPlanApproval(originTabId, originSessionId, target, { submitting: null });
 			toast({ variant: "error", title: t("planApproval.failed"), message: String(cause) });
-		} finally {
-			setSubmitting(null);
 		}
 	};
 

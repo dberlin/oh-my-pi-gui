@@ -2,6 +2,7 @@ import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { RpcLiveState } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
+import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Modal, Spinner } from "../common";
@@ -24,8 +25,9 @@ export function LiveVoiceDialog() {
 	useEffect(() => {
 		if (!open) return;
 		let cancelled = false;
+		setState(INITIAL_STATE);
 		const unsubscribe = window.omp.events.onLiveUpdate(frame => {
-			if (!cancelled) setState(frame.state);
+			if (!cancelled && acceptsActiveTabEvents()) setState(frame.state);
 		});
 		setStarting(true);
 		void window.omp.rpc

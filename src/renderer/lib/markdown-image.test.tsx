@@ -24,12 +24,21 @@ describe("classifyImageSrc", () => {
 	it("passes data:, blob:, and http(s): URLs through directly", () => {
 		expect(classifyImageSrc(TINY_PNG)).toEqual({ kind: "direct", src: TINY_PNG });
 		expect(classifyImageSrc("blob:https://app/uuid")).toEqual({ kind: "direct", src: "blob:https://app/uuid" });
-		expect(classifyImageSrc("https://example.com/x.png")).toEqual({ kind: "direct", src: "https://example.com/x.png" });
-		expect(classifyImageSrc("http://localhost:8080/x.png")).toEqual({ kind: "direct", src: "http://localhost:8080/x.png" });
+		expect(classifyImageSrc("https://example.com/x.png")).toEqual({
+			kind: "direct",
+			src: "https://example.com/x.png",
+		});
+		expect(classifyImageSrc("http://localhost:8080/x.png")).toEqual({
+			kind: "direct",
+			src: "http://localhost:8080/x.png",
+		});
 	});
 
 	it("upgrades protocol-relative URLs to https", () => {
-		expect(classifyImageSrc("//cdn.example.com/x.png")).toEqual({ kind: "direct", src: "https://cdn.example.com/x.png" });
+		expect(classifyImageSrc("//cdn.example.com/x.png")).toEqual({
+			kind: "direct",
+			src: "https://cdn.example.com/x.png",
+		});
 	});
 
 	it("routes bare absolute, relative, and plain paths to the local read", () => {

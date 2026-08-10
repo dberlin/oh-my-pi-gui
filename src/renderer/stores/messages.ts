@@ -3,9 +3,9 @@ import type { AgentMessage, AgentSessionEvent, MessagesPage } from "../../shared
 
 /**
  * Session-tab snapshot of the message stream: the zustand fields PLUS the
- * module-level streaming buffers and run-dedupe set. Without the buffers a
- * mid-stream switch-away would lose the already-streamed prefix — deltas
- * landing after switch-back join onto whatever the chunks still hold.
+ * streaming fields and run-dedupe set. The accumulated strings are sufficient
+ * to resume after a tab switch; keeping a second chunk-array copy only made
+ * every snapshot and every join progressively more expensive.
  */
 export interface MessagesSnapshot {
 	messages: AgentMessage[];
@@ -16,8 +16,6 @@ export interface MessagesSnapshot {
 	totalMessages: number;
 	nextCursor: string | undefined;
 	isLoadingPage: boolean;
-	textChunks: string[];
-	thinkingChunks: string[];
 	deliveredKeys: string[];
 }
 
@@ -78,20 +76,6 @@ export function messageIdentityKey(message: AgentMessage): string {
 }
 
 /**
- * Append-only streaming buffers. Delta batches land many times per second;
- * re-concatenating the whole accumulated string from state on every batch is
- * O(total) each time — quadratic over a long stream. Chunks push in O(1) and
- * the joined view is materialized once per batch that actually carries deltas.
- */
-let streamTextChunks: string[] = [];
-let streamThinkingChunks: string[] = [];
-
-function resetStreamingBuffers(): void {
-	streamTextChunks = [];
-	streamThinkingChunks = [];
-}
-
-/**
  * Keys of messages appended during the current agent run. turn_end re-sends
  * the turn's assistant message (already appended via message_end), and batch
  * boundaries make a batch-local guard insufficient — dedupe run-wide.
@@ -146,7 +130,6 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 				}
 				case "message_start": {
 					streamingStart = event.message;
-					resetStreamingBuffers();
 					textAccum = "";
 					thinkAccum = "";
 					break;
@@ -201,12 +184,10 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 			patch.streamingThinking = "";
 		}
 		if (textAccum) {
-			streamTextChunks.push(textAccum);
-			patch.streamingText = streamTextChunks.join("");
+			patch.streamingText = `${streamingStart ? "" : state.streamingText}${textAccum}`;
 		}
 		if (thinkAccum) {
-			streamThinkingChunks.push(thinkAccum);
-			patch.streamingThinking = streamThinkingChunks.join("");
+			patch.streamingThinking = `${streamingStart ? "" : state.streamingThinking}${thinkAccum}`;
 		}
 
 		let messages = state.messages;
@@ -229,7 +210,6 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 			patch.streamingMessage = null;
 			patch.streamingText = "";
 			patch.streamingThinking = "";
-			resetStreamingBuffers();
 		}
 
 		if (Object.keys(patch).length > 0) {
@@ -255,7 +235,6 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 			return { messages, totalMessages: Math.max(0, s.totalMessages - removed) };
 		}),
 	clearStreaming: () => {
-		resetStreamingBuffers();
 		set({ streamingMessage: null, streamingText: "", streamingThinking: "" });
 	},
 	snapshot: () => {
@@ -269,8 +248,6 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 			totalMessages: state.totalMessages,
 			nextCursor: state.nextCursor,
 			isLoadingPage: state.isLoadingPage,
-			textChunks: [...streamTextChunks],
-			thinkingChunks: [...streamThinkingChunks],
 			deliveredKeys: [...deliveredThisRun],
 		};
 	},
@@ -279,8 +256,6 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 			get().reset();
 			return;
 		}
-		streamTextChunks = [...snapshot.textChunks];
-		streamThinkingChunks = [...snapshot.thinkingChunks];
 		deliveredThisRun = new Set(snapshot.deliveredKeys);
 		set({
 			messages: snapshot.messages,
@@ -294,7 +269,6 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 		});
 	},
 	reset: () => {
-		resetStreamingBuffers();
 		deliveredThisRun = new Set();
 		set(initialState);
 	},

@@ -29,6 +29,7 @@ import type {
 } from "../../shared/ipc-types";
 import type {
 	ContextUsage,
+	ExtensionUIRequest,
 	ModelInfo,
 	RpcLoopModeState,
 	RpcQueuedMessage,
@@ -39,15 +40,31 @@ import type {
 import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
-import { useComposerStore } from "./composer";
+import {
+	acceptsActiveTabEvents,
+	beginTabRoute,
+	reconcileTabRoute,
+	resetTabRoute,
+	settleTabRoute,
+} from "../lib/tab-routing";
+import { type ComposerImage, useComposerStore } from "./composer";
+import { applyExtensionUiRequest, type ExtensionUiSnapshot, useExtensionUiStore } from "./extension-ui";
+import { useForkHandoffStore } from "./fork-handoff";
 import { type MessagesSnapshot, useMessagesStore } from "./messages";
 import { useModelStore } from "./model";
+import {
+	type PendingPlanProposal,
+	type PlanApprovalSnapshot,
+	type PlanApprovalSubmitState,
+	usePlanApprovalStore,
+} from "./plan-approval";
 import { useQueueStore } from "./queue";
 import { useSessionStore } from "./session";
 import { type SubagentNode, useSubagentsStore } from "./subagents";
 import { toast } from "./toast";
 import { type UiTodoPhase, useTodoStore } from "./todo";
 import { useToolsStore } from "./tools";
+import { useUiStore } from "./ui";
 
 export interface SessionTab {
 	id: string;
@@ -114,7 +131,9 @@ interface SessionTabBundle {
 	subagents: Map<string, SubagentNode>;
 	queue: { steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] };
 	model: ModelSlice;
-	composerDraft: string;
+	composer: { draft: string; images: ComposerImage[] };
+	planApproval: PlanApprovalSnapshot;
+	extensionUi: ExtensionUiSnapshot;
 }
 
 const EMPTY_MODEL_SLICE: ModelSlice = {
@@ -128,12 +147,31 @@ const EMPTY_MODEL_SLICE: ModelSlice = {
 	availableModels: [],
 };
 
+// IPC routing is window-global. Serialize switches so rapid tab clicks cannot
+// resolve out of order and leave main forwarding the wrong sidecar. The version
+// makes superseded switches skip hydration; only the latest visible tab may
+// project sidecar state back into the shared renderer stores.
+let switchVersion = 0;
+let routingChain: Promise<void> = Promise.resolve();
+
+function routeActiveTab(tabId: string): Promise<boolean> {
+	const request = routingChain.then(() => window.omp.tabs.setActive(tabId));
+	routingChain = request.then(
+		() => undefined,
+		() => undefined,
+	);
+	return request;
+}
+
 /** Snapshot the session-scoped slices of the currently attached tab. */
 function captureBundle(): SessionTabBundle {
 	const session = useSessionStore.getState();
 	const todos = useTodoStore.getState();
 	const queue = useQueueStore.getState();
 	const model = useModelStore.getState();
+	const composer = useComposerStore.getState();
+	const planApproval = usePlanApprovalStore.getState();
+	const extensionUi = useExtensionUiStore.getState();
 	return {
 		session: {
 			sessionId: session.sessionId,
@@ -168,7 +206,21 @@ function captureBundle(): SessionTabBundle {
 			tokensPerSecond: model.tokensPerSecond,
 			availableModels: model.availableModels,
 		},
-		composerDraft: useComposerStore.getState().draft,
+		composer: {
+			draft: composer.draft,
+			images: composer.images,
+		},
+		planApproval: {
+			pending: planApproval.pending,
+			feedback: planApproval.feedback,
+			notice: planApproval.notice,
+			submitting: planApproval.submitting,
+		},
+		extensionUi: {
+			pendingRequests: extensionUi.pendingRequests,
+			statusWidgets: { ...extensionUi.statusWidgets },
+			widgetPanels: { ...extensionUi.widgetPanels },
+		},
 	};
 }
 
@@ -212,7 +264,11 @@ function restoreBundle(bundle: SessionTabBundle | null, tab: SessionTab | undefi
 	useSubagentsStore.setState({ subagents: bundle ? new Map(bundle.subagents) : new Map() });
 	useQueueStore.setState(bundle?.queue ?? { steering: [], followUp: [] });
 	useModelStore.setState(bundle?.model ?? EMPTY_MODEL_SLICE);
-	useComposerStore.getState().setDraft(bundle?.composerDraft ?? "");
+	useComposerStore.setState(bundle?.composer ?? { draft: "", images: [] });
+	usePlanApprovalStore.setState(
+		bundle?.planApproval ?? { pending: null, feedback: "", notice: null, submitting: null },
+	);
+	useExtensionUiStore.setState(bundle?.extensionUi ?? { pendingRequests: [], statusWidgets: {}, widgetPanels: {} });
 	// Tool cards derive from the transcript; rebuild them for the restored
 	// messages so the switch paints this tab's tools, not the previous tab's.
 	useToolsStore.getState().hydrateMessages(useMessagesStore.getState().messages);
@@ -259,13 +315,18 @@ interface TabsStore {
 	/** Boot reconciliation with the main-process pool: the window's initial
 	 * sidecar arrives as tab 0 and must never be duplicated — entries merge by
 	 * id, preserving local flags (unreadDone, pendingSessionPath). */
-	reconcileTabs: () => Promise<void>;
+	reconcileTabs: () => Promise<boolean>;
 	/** Spawn a new background tab (same cwd unless given) and switch to it.
 	 * Returns the tabId, or null at the pool cap. `kind` is immutable once
 	 * the tab's sidecar is spawned ("agent" default; "chat" = tool-free).
 	 * `worktree` binds the tab to a git worktree created by a prior
 	 * worktree_create RPC (cwd must be the worktree path). */
-	openTab: (args?: { cwd?: string; sessionPath?: string; kind?: SessionKind; worktree?: IpcTabWorktree }) => Promise<string | null>;
+	openTab: (args?: {
+		cwd?: string;
+		sessionPath?: string;
+		kind?: SessionKind;
+		worktree?: IpcTabWorktree;
+	}) => Promise<string | null>;
 	/** Park the current tab's session state, restore the target's, re-point
 	 * main's event routing (SET_ACTIVE_TAB), then hydrate from its sidecar. */
 	switchTab: (id: string) => Promise<void>;
@@ -289,7 +350,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		} catch {
 			// Pre-tabs main (dev mismatch) or bridge down — the tab strip simply
 			// stays empty and TAB_STATUS pushes rebuild it.
-			return;
+			return false;
 		}
 		set(state => {
 			const leftovers = new Map(state.tabs.map(tab => [tab.id, tab]));
@@ -320,13 +381,19 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// After a renderer reload with multiple tabs, re-converge main's active
 		// tab with the renderer's pick (main defaults to the oldest).
 		const activeTabId = get().activeTabId;
-		if (list.length > 1 && activeTabId) {
+		const needsRoute = get().tabs.length > 1 && activeTabId !== null;
+		reconcileTabRoute(activeTabId, !needsRoute);
+		if (needsRoute && activeTabId) {
 			try {
-				await window.omp.tabs.setActive(activeTabId);
+				const routed = await routeActiveTab(activeTabId);
+				if (routed) settleTabRoute(activeTabId);
+				return routed;
 			} catch {
 				// Best-effort — the next explicit switchTab re-points routing.
+				return false;
 			}
 		}
+		return true;
 	},
 
 	openTab: async args => {
@@ -403,6 +470,14 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (id === state.activeTabId) return;
 		const target = state.tabs.find(tab => tab.id === id);
 		if (!target) return;
+		const version = ++switchVersion;
+		beginTabRoute(state.activeTabId, id);
+		// Live voice owns the currently routed sidecar and audio device. Close it
+		// immediately, then stop that sidecar before routing the window elsewhere.
+		const ui = useUiStore.getState();
+		const stopLive = ui.liveOpen ? window.omp.rpc.liveStop() : null;
+		ui.closeSessionOverlays();
+		useForkHandoffStore.getState().closeHandoffDialog();
 		// 1. Park the CURRENT tab's session state; stamp its run state from
 		//    foreground knowledge so the chip keeps the streaming dot until the
 		//    pool's next status push for that tab.
@@ -425,8 +500,17 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// 3. Re-point main's event routing at the target's sidecar, THEN hydrate
 		//    (hydrate's RPCs resolve through the active tab server-side).
 		try {
-			await window.omp.tabs.setActive(id);
+			if (stopLive) {
+				const stopped = await stopLive;
+				if (!stopped.success) {
+					toast({ variant: "error", title: translate("tabs.switchFailed"), message: stopped.error });
+				}
+			}
+			const routed = await routeActiveTab(id);
+			if (!routed) throw new Error(`Tab ${id} is no longer available`);
+			settleTabRoute(id);
 		} catch (error) {
+			if (version !== switchVersion) return;
 			// Routing never re-pointed: main still forwards the PREVIOUS tab's
 			// events, so hydrating here would pull that sidecar's session into
 			// this tab's restored stores. Surface the failure and re-converge
@@ -434,10 +518,22 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			// renderer's pick, re-pointing routing when the failure was
 			// transient — instead of silently diverging.
 			toast({ variant: "error", title: translate("tabs.switchFailed"), message: String(error) });
-			await get().reconcileTabs();
+			const converged = await get().reconcileTabs();
+			if (version !== switchVersion) return;
+			if (converged && get().activeTabId === id) await hydrateSession();
 			return;
 		}
-		await hydrateSession();
+		if (version !== switchVersion) return;
+		// A freshly spawned sidecar can become ready on the light TAB_STATUS
+		// channel before SET_ACTIVE_TAB wires its full status channel. In that
+		// case no ready event will replay after routing, so hydrate from the
+		// tab's latest status here. A still-starting sidecar will deliver its
+		// normal full ready event after the route is attached.
+		const routedTab = get().tabs.find(tab => tab.id === id);
+		if (routedTab?.status === "ready" || routedTab?.status === "running") {
+			useSessionStore.getState().setStatus("ready", routedTab.cwd);
+			await hydrateSession();
+		}
 	},
 
 	closeTab: async id => {
@@ -465,6 +561,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	},
 
 	applyTabStatus: payload => {
+		const active = get().activeTabId === payload.tabId;
 		set(state => {
 			const index = state.tabs.findIndex(tab => tab.id === payload.tabId);
 			const previous = index >= 0 ? state.tabs[index] : undefined;
@@ -487,10 +584,118 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			tabs[index] = next;
 			return { tabs };
 		});
+		// TAB_STATUS is keyed, so it remains safe while the window-global route
+		// is converging. Keep the visible session's connection state aligned with
+		// its chip; routeReady still prevents commands until SET_ACTIVE_TAB lands.
+		if (active) {
+			useSessionStore.getState().setStatus(payload.status === "running" ? "ready" : payload.status, payload.cwd);
+		}
 	},
 
-	reset: () => set({ tabs: [], activeTabId: null, bundles: new Map() }),
+	reset: () => {
+		switchVersion += 1;
+		resetTabRoute();
+		set({ tabs: [], activeTabId: null, bundles: new Map() });
+	},
 }));
+
+/** Route an extension UI frame into the tab that raised it. Blocking dialogs,
+ * status text, and widgets disappear while that tab is parked and return with
+ * it; a late IPC delivery can never leak into the newly selected tab. */
+export function pushTabExtensionUiRequest(tabId: string, request: ExtensionUIRequest): void {
+	const state = useTabsStore.getState();
+	if (state.activeTabId === tabId) {
+		useExtensionUiStore.getState().pushRequest(request);
+		return;
+	}
+	const bundle = state.bundles.get(tabId);
+	if (!bundle) return;
+	const bundles = new Map(state.bundles);
+	bundles.set(tabId, { ...bundle, extensionUi: applyExtensionUiRequest(bundle.extensionUi, request) });
+	useTabsStore.setState({ bundles });
+}
+
+/** Restore a failed submit to the tab that issued it, even when that tab is now
+ * parked in the background. A response from one sidecar must never inject its
+ * draft or attachments into whichever tab happens to be visible later. */
+export function restoreTabComposer(
+	tabId: string | null,
+	sessionId: string,
+	draft: string,
+	images: ComposerImage[],
+): void {
+	if (!tabId) return;
+	const prependDraft = (current: string): string => (current ? `${draft}\n${current}` : draft);
+	const state = useTabsStore.getState();
+	if (state.activeTabId === tabId) {
+		if (useSessionStore.getState().sessionId !== sessionId) return;
+		useComposerStore.setState(current => ({
+			draft: prependDraft(current.draft),
+			images: [...images, ...current.images],
+		}));
+		return;
+	}
+	const bundle = state.bundles.get(tabId);
+	if (!bundle || bundle.session.sessionId !== sessionId) return;
+	const bundles = new Map(state.bundles);
+	bundles.set(tabId, {
+		...bundle,
+		composer: {
+			draft: prependDraft(bundle.composer.draft),
+			images: [...images, ...bundle.composer.images],
+		},
+	});
+	useTabsStore.setState({ bundles });
+}
+
+/** Finish a plan-approval request in the tab that issued it. The response may
+ * arrive after the user switched elsewhere, so both the proposal UI and the
+ * plan-mode flag are updated in that tab's parked bundle instead of whichever
+ * session happens to be visible. */
+export function settleTabPlanApproval(
+	tabId: string | null,
+	sessionId: string,
+	target: PendingPlanProposal,
+	result: {
+		clear?: boolean;
+		notice?: string | null;
+		submitting?: PlanApprovalSubmitState | null;
+		exitPlanMode?: boolean;
+	},
+): void {
+	const tabs = useTabsStore.getState();
+	if (tabId === null || tabs.activeTabId === tabId) {
+		if (useSessionStore.getState().sessionId !== sessionId) return;
+		const plan = usePlanApprovalStore.getState();
+		if (plan.pending !== target) return;
+		usePlanApprovalStore.setState({
+			pending: result.clear ? null : target,
+			feedback: result.clear ? "" : plan.feedback,
+			notice: result.clear ? null : result.notice === undefined ? plan.notice : result.notice,
+			submitting: result.clear ? null : result.submitting === undefined ? plan.submitting : result.submitting,
+		});
+		if (result.exitPlanMode) useSessionStore.setState({ planModeEnabled: false });
+		return;
+	}
+	const bundle = tabs.bundles.get(tabId);
+	if (!bundle || bundle.session.sessionId !== sessionId || bundle.planApproval.pending !== target) return;
+	const bundles = new Map(tabs.bundles);
+	bundles.set(tabId, {
+		...bundle,
+		session: result.exitPlanMode ? { ...bundle.session, planModeEnabled: false } : bundle.session,
+		planApproval: {
+			pending: result.clear ? null : target,
+			feedback: result.clear ? "" : bundle.planApproval.feedback,
+			notice: result.clear ? null : result.notice === undefined ? bundle.planApproval.notice : result.notice,
+			submitting: result.clear
+				? null
+				: result.submitting === undefined
+					? bundle.planApproval.submitting
+					: result.submitting,
+		},
+	});
+	useTabsStore.setState({ bundles });
+}
 
 /**
  * Boot wiring for session tabs: GET_TABS reconciliation (the window's initial
@@ -514,7 +719,20 @@ export function useSessionTabs(): void {
 			// the ACTIVE tab — so subscribe at each tab's ready-while-active
 			// moment. Background tabs can't be routed to; hydrateSession
 			// re-asserts the subscription on switch-in.
-			if (payload.tabId === state.activeTabId) void window.omp.rpc.setSubagentSubscription("events");
+			if (payload.tabId === state.activeTabId) {
+				void window.omp.rpc.setSubagentSubscription("events");
+				if (!tab?.pendingSessionPath) {
+					// Light TAB_STATUS is registered before the full active-tab channel.
+					// If ready raced SET_ACTIVE_TAB, the full ready event was already
+					// missed. Give a concurrently delivered full event one turn to run;
+					// otherwise make the light event authoritative and hydrate here.
+					setTimeout(() => {
+						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== payload.tabId) return;
+						if (useSessionStore.getState().sessionId) return;
+						void hydrateSession();
+					}, 0);
+				}
+			}
 			if (!tab?.pendingSessionPath || tab.id !== state.activeTabId) return;
 			// Clear before the RPC so a duplicate ready push can't re-enter.
 			const sessionPath = tab.pendingSessionPath;

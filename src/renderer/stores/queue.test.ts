@@ -2,9 +2,10 @@
  * queue store: queue_update frames are the authoritative update channel
  * (setFromFrame) — they cover enqueue, drain/consume, remove, move, and
  * clear with zero RPC traffic. get_queue survives only as the hydrate
- * fallback (refresh), deduped while in flight and tolerant of failures.
+ * fallback (refresh), latest-response-wins and tolerant of failures.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RpcResponse } from "../../shared/rpc-types";
 import { useQueueStore } from "./queue";
 
 const getQueue = vi.fn();
@@ -14,7 +15,7 @@ function queued(id: string, text: string) {
 	return { id, text, timestamp: 1 };
 }
 
-function ok(data: unknown) {
+function ok(data: unknown): RpcResponse {
 	return { type: "response", command: "get_queue", success: true, data };
 }
 
@@ -39,13 +40,20 @@ describe("queue store", () => {
 		expect(getQueue).not.toHaveBeenCalled();
 	});
 
-	it("refresh hydrates from get_queue and dedupes overlapping pulls", async () => {
-		getQueue.mockResolvedValue(ok({ steering: [queued("s1", "one")], followUp: [] }));
+	it("keeps a slower old-session refresh from overwriting the latest queue", async () => {
+		const oldSession = Promise.withResolvers<RpcResponse>();
+		const newSession = Promise.withResolvers<RpcResponse>();
+		getQueue.mockReturnValueOnce(oldSession.promise).mockReturnValueOnce(newSession.promise);
 
-		await Promise.all([useQueueStore.getState().refresh(), useQueueStore.getState().refresh()]);
+		const oldRefresh = useQueueStore.getState().refresh();
+		const newRefresh = useQueueStore.getState().refresh();
+		newSession.resolve(ok({ steering: [queued("new", "latest")], followUp: [] }));
+		await newRefresh;
+		oldSession.resolve(ok({ steering: [queued("old", "stale")], followUp: [] }));
+		await oldRefresh;
 
-		expect(getQueue).toHaveBeenCalledTimes(1);
-		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1"]);
+		expect(getQueue).toHaveBeenCalledTimes(2);
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["new"]);
 	});
 
 	it("failed refresh keeps the last frame-driven snapshot", async () => {

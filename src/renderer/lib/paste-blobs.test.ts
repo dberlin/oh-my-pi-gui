@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	clearPastes,
 	dropPaste,
+	dropReferencedPastes,
 	expandPasteMarkers,
 	isMarkerSized,
 	pasteMarkerText,
@@ -84,5 +85,17 @@ describe("expansion", () => {
 		const marker = pasteMarkerText(blob.id, blob.content);
 		clearPastes();
 		expect(expandPasteMarkers(marker)).toBe(marker);
+	});
+
+	it("drops only the markers consumed by one tab's draft", () => {
+		const active = storePaste("active".repeat(300));
+		const background = storePaste("background".repeat(200));
+		const activeMarker = pasteMarkerText(active.id, active.content);
+		const backgroundMarker = pasteMarkerText(background.id, background.content);
+
+		dropReferencedPastes(activeMarker);
+
+		expect(expandPasteMarkers(activeMarker)).toBe(activeMarker);
+		expect(expandPasteMarkers(backgroundMarker)).toBe(background.content);
 	});
 });
