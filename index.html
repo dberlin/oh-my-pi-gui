@@ -374,33 +374,33 @@
     </a>
     <div class="nav-links">
       <a href="#tabs">Session Tabs</a>
-      <a href="#dock">Activity Dock</a>
+      <a href="#dock">Conversation Dock</a>
       <a href="#management">Management</a>
       <a href="#native">Native</a>
       <a href="#updates">Updates</a>
       <a href="#install">Install</a>
       <a href="https://github.com/nornzach/oh-my-pi-gui">GitHub</a>
     </div>
-    <a class="btn btn-primary btn-sm" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2-arm64.dmg">Download v0.7.2</a>
+    <a class="btn btn-primary btn-sm" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.3/omp-0.7.3-arm64.dmg">Download v0.7.3</a>
   </div>
 </nav>
 
 <header class="hero" id="top">
   <div class="container">
-    <div class="hero-badge rise d1"><span class="dot"></span>v0.7.2 · Aug 2026 — Native Management &amp; Responsive UI</div>
+    <div class="hero-badge rise d1"><span class="dot"></span>v0.7.3 · Aug 2026 — Conversation Dock &amp; Responsive UI</div>
     <h1 class="rise d2">One window.<br /><span class="grad">Every session in parallel.</span></h1>
     <p class="sub rise d3">The desktop GUI for the omp coding agent. Every session tab runs its own agent process — your work keeps moving in the background while you switch. All of the TUI's power, none of its walls.</p>
     <div class="hero-cta rise d4">
-      <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2-arm64.dmg">
+      <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.3/omp-0.7.3-arm64.dmg">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Download for macOS <span class="btn-sub">Apple Silicon</span>
       </a>
-      <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2.dmg">Intel build <span class="btn-sub">macOS x64</span></a>
+      <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.3/omp-0.7.3.dmg">Intel build <span class="btn-sub">macOS x64</span></a>
     </div>
     <p class="hero-fine rise d5">Bundled sidecar — no agent, bun, or Node to install · <a href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a> · <a href="#install">Build from source</a></p>
     <div class="hero-shot-wrap rise d5">
       <div class="hero-shot" id="tilt">
-        <img src="docs/screenshots/01-session-tabs.webp" alt="omp GUI with three parallel session tabs, activity dock and workspace drawer" loading="eager" />
+        <img src="docs/screenshots/02-conversation-dock.webp" alt="omp GUI conversation with an inline live todo dock card" loading="eager" />
       </div>
     </div>
   </div>
@@ -466,30 +466,24 @@
 <section id="dock" style="padding-top: 40px;">
   <div class="container split flip">
     <div class="split-text reveal">
-      <span class="eyebrow">Activity Dock</span>
-      <h2>Watch the whole fleet from one dock</h2>
-      <p class="lead">Queued work, steering replies and sub-agent runs surface in a single strip — across every tab, without losing your place.</p>
+      <span class="eyebrow">Conversation Dock</span>
+      <h2>Execution state, exactly where the work happens</h2>
+      <p class="lead">Todos, plan review, sub-agents and queued work now live between the transcript and composer — always current, collapsible, and attached to the conversation that drives them.</p>
       <div class="points">
         <div class="point">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
-          <div><strong>Queue panel</strong><p>Pending follow-ups per session, visible at a glance.</p></div>
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+          <div><strong>Live todo &amp; plan cards</strong><p>Edit tasks, review plans, approve steps, and preserve todo changes in the transcript.</p></div>
         </div>
         <div class="point">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg></span>
-          <div><strong>Labeled sub-agents</strong><p>Named task agents with live progress, per tab.</p></div>
+          <div><strong>Agents &amp; queue in context</strong><p>Expand agent transcripts, reorder messages, or move work between steering and follow-up lanes.</p></div>
         </div>
       </div>
     </div>
-    <div class="duo reveal reveal-late">
-      <figure class="shot">
-        <img src="docs/screenshots/02-queue-panel.webp" alt="Queue panel with pending follow-ups" loading="lazy" />
-        <figcaption>Queue panel — two follow-ups parked behind a running task.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="docs/screenshots/03-agents-hub.webp" alt="Agents panel showing two labeled sub-agents" loading="lazy" />
-        <figcaption>Agents panel — two named sub-agents live in one tab.</figcaption>
-      </figure>
-    </div>
+    <figure class="shot reveal reveal-late">
+      <img src="docs/screenshots/02-conversation-dock.webp" alt="Live todo card rendered between the transcript and composer" loading="lazy" />
+      <figcaption>One centered workspace — transcript, live execution state and composer stay aligned.</figcaption>
+    </figure>
   </div>
 </section>
 
@@ -594,11 +588,11 @@
       <h2>Up and running in a minute</h2>
       <p class="lead" style="margin-left: auto; margin-right: auto;">Grab the DMG for your Mac. The agent, its runtime and everything else are already inside.</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2-arm64.dmg">
+        <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.3/omp-0.7.3-arm64.dmg">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Apple Silicon <span class="btn-sub">arm64</span>
         </a>
-        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.2/omp-0.7.2.dmg">Intel <span class="btn-sub">x64</span></a>
+        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.3/omp-0.7.3.dmg">Intel <span class="btn-sub">x64</span></a>
         <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a>
       </div>
       <div class="install-note">
