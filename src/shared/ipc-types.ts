@@ -724,6 +724,7 @@ export interface OmpApi {
 		abortEval(): Promise<RpcResponse>;
 		dequeue(): Promise<RpcResponse>;
 		getQueue(): Promise<RpcResponse>;
+		queueEdit(queueId: string, text: string): Promise<RpcResponse>;
 		queueRemove(queueId: string): Promise<RpcResponse>;
 		queueMove(queueId: string, toIndex: number, toLane?: "steering" | "followUp"): Promise<RpcResponse>;
 		queueClear(lane?: "steering" | "followUp"): Promise<RpcResponse>;

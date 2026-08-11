@@ -3,6 +3,7 @@ import { DiffView } from "../../lib/diff";
 import { basename, cx, dirname } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { CodeBlock } from "../chat/CodeBlock";
+import { editArgumentPaths } from "./edit-args";
 import { resultBodyText, resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -202,16 +203,11 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		? args.edits.filter((entry): entry is Record<string, unknown> => entry != null && typeof entry === "object")
 		: [];
 	const firstEdit = argEdits[0];
-	const totalFiles = new Set(argEdits.map(entry => asString(entry.path)).filter(Boolean)).size;
+	const argPaths = editArgumentPaths(args);
+	const totalFiles = argPaths.length;
 
 	const op = asOp(args.op) ?? asOp(firstEdit?.op) ?? asOp(details?.op);
-	const rawPath =
-		asString(details?.sourcePath) ??
-		asString(args.file_path) ??
-		asString(args.path) ??
-		asString(firstEdit?.path) ??
-		asString(details?.path) ??
-		"";
+	const rawPath = asString(details?.sourcePath) ?? argPaths[0] ?? asString(details?.path) ?? "";
 	const rename =
 		asString(args.rename) ?? asString(firstEdit?.rename) ?? asString(firstEdit?.move) ?? asString(details?.move);
 	const detailDiff = typeof details?.diff === "string" ? details.diff : "";

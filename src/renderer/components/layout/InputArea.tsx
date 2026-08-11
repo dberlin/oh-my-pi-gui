@@ -1,16 +1,12 @@
 import { ArrowUp, ChevronDown, Mic, Paperclip, Square, X, Zap } from "lucide-react";
 import type { ClipboardEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FsTreeEntry } from "../../../shared/ipc-types";
-import type { AgentMessage, AvailableCommand, ImageContent } from "../../../shared/rpc-types";
+import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
-import { hydrateSession } from "../../hooks/use-rpc-events";
-import { isGuiOnlyBuiltinCommand, planComposerSubmit, settleComposerResponse } from "../../lib/composer-submit";
-import { expandEmoticons, getEmojiSuggestions, tryEmojiInlineReplace } from "../../lib/emoji";
+import { tryEmojiInlineReplace } from "../../lib/emoji";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { parseComposerMode } from "../../lib/input-modes";
-import { clearSessionContext } from "../../lib/messages";
 import {
 	dropReferencedPastes,
 	expandPasteMarkers,
@@ -29,139 +25,26 @@ import {
 	recordAndTranscribe,
 	stopVoiceRecording,
 } from "../../lib/voice";
-import { type ComposerImage, useComposerStore } from "../../stores/composer";
+import { useComposerStore } from "../../stores/composer";
 import { useInputHistoryStore } from "../../stores/input-history";
-import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
-import { restoreTabComposer, useActiveTabKind, useTabsStore } from "../../stores/tabs";
+import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { ApprovalControl } from "./ApprovalControl";
 import { ComposerModes } from "./ComposerModes";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
+import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
 import { ThinkingControl } from "./ThinkingControl";
-
-interface CompletionItem {
-	value: string;
-	label: string;
-	description?: string;
-	hint?: string;
-}
-
-/** Completion menu state: the winning provider's items + replace range. */
-interface CompletionMenu {
-	source: "slash-arg" | "github-ref" | "command" | "mention" | "emoji";
-	rangeStart: number;
-	rangeEnd: number;
-	items: CompletionItem[];
-	index: number;
-}
+import { type CompletionItem, type CompletionMenu, useCompletionMenu } from "./use-completion-menu";
+import { useComposerSubmit } from "./use-composer-submit";
 
 type SendMode = "prompt" | "steer" | "followUp";
 
-const MAX_MENU_ITEMS = 8;
-/** Cap on fuzzy file results shown above the scheme entries in the @ menu. */
-const MAX_MENTION_FILE_ITEMS = 20;
-const MENTION_FS_DEPTH = 8;
-const MENTION_FS_MAX_ENTRIES = 2000;
 const MENTION_FS_DEBOUNCE_MS = 150;
-
-/** Internal URL schemes always offered in the @ menu, below file results. */
-const MENTION_SCHEMES = ["skill://", "memory://", "artifact://", "issue://", "pr://", "local://plan.md"];
-
-/**
- * Commands that are silent no-ops in a tool-free chat session: mode toggles
- * whose wiring is gated by restrictToolNames (plan/goal/loop/vibe/modes) and
- * tool-spawning commands (task/tan/security). They stay OFF the slash menu in
- * chat tabs — the menu must never offer a command that does nothing.
- * Session/transport commands (/compact, /clear, /model, /export…) still work
- * tool-free and stay.
- */
-const CHAT_DEAD_COMMANDS: ReadonlySet<string> = new Set([
-	"plan",
-	"goal",
-	"loop",
-	"vibe",
-	"modes",
-	"task",
-	"tan",
-	"security",
-]);
-
-/** Subsequence fuzzy score; null = no match. Earlier + denser wins. */
-function fuzzyScore(query: string, target: string): number | null {
-	const q = query.toLowerCase();
-	const t = target.toLowerCase();
-	if (q.length === 0) return 0;
-	let qi = 0;
-	let score = 0;
-	let last = -2;
-	for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-		if (t[ti] === q[qi]) {
-			score += ti === last + 1 ? 2 : 1;
-			last = ti;
-			qi++;
-		}
-	}
-	return qi === q.length ? score : null;
-}
-
-/** Collect workspace-relative file paths from an fs:list tree (files only). */
-function flattenFilePaths(entries: FsTreeEntry[], out: string[]): void {
-	for (const entry of entries) {
-		if (entry.kind === "file") out.push(entry.path);
-		else if (entry.children) flattenFilePaths(entry.children, out);
-	}
-}
-
-/** @mention file lists, cached per session cwd; inflight dedupes concurrent walks. */
-const mentionFileCache = new Map<string, string[]>();
-const mentionFileInflight = new Map<string, Promise<string[]>>();
-
-function listMentionFiles(cwd: string): Promise<string[]> {
-	const cached = mentionFileCache.get(cwd);
-	if (cached) return Promise.resolve(cached);
-	const inflight = mentionFileInflight.get(cwd);
-	if (inflight) return inflight;
-	const task = window.omp.fs
-		.list(undefined, MENTION_FS_DEPTH, MENTION_FS_MAX_ENTRIES)
-		.then(result => {
-			const paths: string[] = [];
-			if (result.ok) flattenFilePaths(result.entries, paths);
-			paths.sort();
-			mentionFileCache.set(cwd, paths);
-			return paths;
-		})
-		.catch(() => {
-			// Best-effort: on IPC failure the @ menu falls back to scheme entries
-			// only; nothing is cached so the next attempt retries the walk.
-			return [] as string[];
-		})
-		.finally(() => {
-			mentionFileInflight.delete(cwd);
-		});
-	mentionFileInflight.set(cwd, task);
-	return task;
-}
-
-function fileToImage(file: File): Promise<ComposerImage> {
-	const { promise, resolve, reject } = Promise.withResolvers<ComposerImage>();
-	const reader = new FileReader();
-	reader.onload = () => {
-		const dataUrl = String(reader.result);
-		const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
-		resolve({
-			content: { type: "image", data: base64, mimeType: file.type || "image/png" },
-			preview: dataUrl,
-		});
-	};
-	reader.onerror = () => reject(reader.error);
-	reader.readAsDataURL(file);
-	return promise;
-}
 
 /**
  * Composer: auto-growing textarea, Enter to send / Shift+Enter for newline,
@@ -177,7 +60,6 @@ export function InputArea() {
 	const status = useSessionStore(s => s.status);
 	const sessionId = useSessionStore(s => s.sessionId);
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
-	const contextUsage = useSessionStore(s => s.contextUsage);
 	const cwd = useSessionStore(s => s.cwd);
 	const steeringMode = useSettingsStore(s => s.steeringMode);
 	const model = useModelStore(s => s.model);
@@ -312,174 +194,15 @@ export function InputArea() {
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 	}, [text]);
 
-	// Derive the completion menu from the draft around the caret. Provider
-	// chain (TUI getSuggestions order): slash-arg → github-ref → slash names →
-	// @mention → emoji. First provider with items wins; async providers (emoji
-	// buckets, dynamic arg RPC) resolve through a cancel token + debounce.
-	useEffect(() => {
-		const el = textareaRef.current;
-		if (!el) {
-			setMenu(null);
-			return;
-		}
-		let cancelled = false;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const cursor = el.selectionStart ?? text.length;
-		const before = text.slice(0, cursor);
-		const apply = (result: Omit<CompletionMenu, "index" | "rangeEnd"> | null) => {
-			if (cancelled) return;
-			setMenu(result && result.items.length > 0 ? { ...result, rangeEnd: cursor, index: 0 } : null);
-		};
-
-		// 1. Slash-command ARGUMENTS: "/cmd <args>" with the slash at buffer start.
-		const argMatch = /^\/([a-z-]+)\s(.+)$/i.exec(before);
-		if (argMatch) {
-			const name = (argMatch[1] ?? "").toLowerCase();
-			const command = commands.find(
-				candidate =>
-					candidate.name.toLowerCase() === name || candidate.aliases?.some(alias => alias.toLowerCase() === name),
-			);
-			if (command && command.allowArgs === false) {
-				apply(null); // args not accepted — hard close (TUI parity)
-				return () => {
-					cancelled = true;
-				};
-			}
-			if (command) {
-				const argPrefix = argMatch[2] ?? "";
-				const rangeStart = cursor - argPrefix.length;
-				if (!argPrefix.includes(" ")) {
-					// Still typing the subcommand (or a one-word arg): static list first.
-					if (command.subcommands?.length) {
-						const lower = argPrefix.toLowerCase();
-						const items = command.subcommands
-							.filter(sub => sub.name.startsWith(lower))
-							.map(sub => ({
-								value: `${sub.name} `,
-								label: sub.name,
-								description: sub.description,
-								hint: sub.usage,
-							}));
-						if (items.length > 0) {
-							apply({ source: "slash-arg", rangeStart, items });
-							return () => {
-								cancelled = true;
-							};
-						}
-					}
-				}
-				if (command.hasDynamicArgCompletion) {
-					timer = setTimeout(() => {
-						void window.omp.rpc.getCommandArgCompletions(command.name, argPrefix).then(response => {
-							if (!response.success) {
-								apply(null);
-								return;
-							}
-							const data = response.data as { items?: CompletionItem[] } | undefined;
-							apply(data?.items?.length ? { source: "slash-arg", rangeStart, items: data.items } : null);
-						});
-					}, 120);
-					return () => {
-						cancelled = true;
-						clearTimeout(timer);
-					};
-				}
-				apply(null);
-				return () => {
-					cancelled = true;
-				};
-			}
-		}
-
-		// 2. GitHub #ref: standalone #<positive-int> at a token boundary (no network).
-		const refMatch = /(?:^|[\s"'`(<=])(?:(pr|pull|issue)(\s+))?#([1-9]\d*)$/i.exec(before);
-		if (refMatch) {
-			const qualifier = refMatch[1]?.toLowerCase();
-			const number = refMatch[3] ?? "";
-			const rangeStart = cursor - number.length - 1; // include the '#'
-			const items =
-				qualifier === "pr" || qualifier === "pull"
-					? [{ value: `pr://${number} `, label: `pr://${number}` }]
-					: qualifier === "issue"
-						? [{ value: `issue://${number} `, label: `issue://${number}` }]
-						: [
-								{ value: `pr://${number} `, label: `pr://${number}`, description: "pull request" },
-								{ value: `issue://${number} `, label: `issue://${number}`, description: "issue" },
-							];
-			apply({ source: "github-ref", rangeStart, items });
-			return () => {
-				cancelled = true;
-			};
-		}
-
-		// 3. Slash command NAMES at a word boundary.
-		const cmdMatch = /(^|\s)\/([a-z-]*)$/i.exec(before);
-		if (cmdMatch) {
-			const query = (cmdMatch[2] ?? "").toLowerCase();
-			const items = commands
-				.filter(
-					command =>
-						// Chat tabs: never offer commands that are silent no-ops there.
-						(!isChat || !CHAT_DEAD_COMMANDS.has(command.name)) &&
-						(!query ||
-							command.name.toLowerCase().includes(query) ||
-							command.aliases?.some(alias => alias.toLowerCase().includes(query))),
-				)
-				.slice(0, MAX_MENU_ITEMS)
-				.map(command => ({
-					value: `/${command.name} `,
-					label: `/${command.name}`,
-					description: command.description,
-				}));
-			apply({ source: "command", rangeStart: cursor - query.length - 1, items });
-			return () => {
-				cancelled = true;
-			};
-		}
-
-		// 4. @ mention: workspace files (fuzzy) above internal URL schemes.
-		const mentionMatch = /(^|\s)@([\w./-]*)$/.exec(before);
-		if (mentionMatch) {
-			const q = mentionMatch[2] ?? "";
-			const items: CompletionItem[] = [];
-			const scored: { path: string; score: number }[] = [];
-			for (const path of filePaths) {
-				const score = fuzzyScore(q, path);
-				if (score !== null) scored.push({ path, score });
-			}
-			scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-			for (const { path } of scored.slice(0, MAX_MENTION_FILE_ITEMS)) {
-				items.push({ value: `@${path} `, label: path });
-			}
-			const lowerQuery = q.toLowerCase();
-			for (const scheme of MENTION_SCHEMES) {
-				if (scheme.toLowerCase().includes(lowerQuery)) items.push({ value: scheme, label: scheme });
-			}
-			apply({ source: "mention", rangeStart: cursor - q.length - 1, items });
-			return () => {
-				cancelled = true;
-			};
-		}
-
-		// 5. Emoji (async; the bucket JSON lazy-loads on first trigger).
-		if (emojiAutocomplete) {
-			void getEmojiSuggestions(before).then(result => {
-				if (!result) {
-					apply(null);
-					return;
-				}
-				apply({ source: "emoji", rangeStart: cursor - result.prefix.length, items: result.items });
-			});
-			return () => {
-				cancelled = true;
-			};
-		}
-
-		apply(null);
-		return () => {
-			cancelled = true;
-		};
-	}, [text, filePaths, commands, emojiAutocomplete, isChat]);
+	useCompletionMenu({
+		text,
+		filePaths,
+		commands,
+		emojiAutocomplete,
+		isChat,
+		textareaRef,
+		setMenu,
+	});
 
 	// Reset the mention file list when the session cwd changes (cache is per-cwd).
 	useEffect(() => {
@@ -650,277 +373,22 @@ export function InputArea() {
 		})();
 	}, [insertPasteBlob, pasteMenu, text, t, setText]);
 
-	const send = useCallback(
-		// `overrideText` sends a freshly computed value (voice dictation submit
-		// trigger) instead of the rendered `text` state, which lags a setText.
-		// `forceMode` overrides the steer/followUp toggle for one send (⌃Enter).
-		(overrideText?: string, forceMode?: SendMode) => {
-			const message = (overrideText ?? text).trim();
-			if ((!message && images.length === 0) || sending) return;
-			if (!routeReady || !acceptsActiveTabEvents()) return;
-			if (status !== "ready") {
-				toast({ variant: "warning", message: t("input.agentConnecting") });
-				return;
-			}
-			const originTabId = useTabsStore.getState().activeTabId;
-			const originSessionId = useSessionStore.getState().sessionId;
-			const originStillActive = () =>
-				useTabsStore.getState().activeTabId === originTabId &&
-				useSessionStore.getState().sessionId === originSessionId &&
-				acceptsActiveTabEvents();
-
-			// Paste markers expand to full blob content BEFORE mode/queue parsing and
-			// every dispatch path (bash, python, prompt, queue items) — the wire only
-			// ever sees expanded text (TUI getExpandedText parity, regression #3737).
-			// History records the raw typed text (markers included), matching the TUI.
-			// Emoticon expansion also runs at submit time over the whole message
-			// (input-controller.ts:617 — Enter without a trailing space after `:)`).
-			const expandedMessage = emojiAutocomplete
-				? expandEmoticons(expandPasteMarkers(message))
-				: expandPasteMarkers(message);
-
-			const parsed = parseComposerMode(expandedMessage);
-			if (parsed?.mode === "bash" && parsed.body) {
-				useInputHistoryStore.getState().record(message);
-				const previousImages = images;
-				setText("");
-				setImages([]);
-				setMenu(null);
-				setSending(true);
-				const pending: AgentMessage = {
-					role: "bashExecution",
-					command: parsed.body,
-					excludeFromContext: parsed.excluded,
-					timestamp: Date.now(),
-					running: true,
-				};
-				useMessagesStore.getState().appendMessage(pending);
-				void window.omp.rpc
-					.bash(parsed.body, parsed.excluded)
-					.then(async response => {
-						if (originStillActive()) useMessagesStore.getState().removeMessage(pending);
-						if (!response.success) {
-							restoreTabComposer(originTabId, originSessionId, message, previousImages);
-							toast({ variant: "error", title: t("input.bashFailed"), message: response.error });
-							return;
-						}
-						if (!originStillActive()) return;
-						dropReferencedPastes(message);
-						await hydrateSession();
-					})
-					.catch(error => {
-						if (originStillActive()) useMessagesStore.getState().removeMessage(pending);
-						restoreTabComposer(originTabId, originSessionId, message, previousImages);
-						toast({ variant: "error", title: t("input.bashFailed"), message: String(error) });
-					})
-					.finally(() => setSending(false));
-				return;
-			}
-
-			// `$ code` → python mode (TUI parity): run through the eval RPC, showing a
-			// running ExecutionBubble (cancel → abortEval) until the transcript record
-			// lands. Language is left to the sidecar — interactive eval is python-only
-			// today and the GUI tracks no kernel state to source it from.
-			if (parsed?.mode === "python" && parsed.body) {
-				useInputHistoryStore.getState().record(message);
-				const previousImages = images;
-				setText("");
-				setImages([]);
-				setMenu(null);
-				setSending(true);
-				const pending: AgentMessage = {
-					role: "pythonExecution",
-					code: parsed.body,
-					timestamp: Date.now(),
-					running: true,
-				};
-				useMessagesStore.getState().appendMessage(pending);
-				void window.omp.rpc
-					.eval(parsed.body, undefined, parsed.excluded)
-					.then(async response => {
-						if (originStillActive()) useMessagesStore.getState().removeMessage(pending);
-						if (!response.success) {
-							restoreTabComposer(originTabId, originSessionId, message, previousImages);
-							toast({ variant: "error", title: t("input.evalFailed"), message: response.error });
-							return;
-						}
-						if (!originStillActive()) return;
-						dropReferencedPastes(message);
-						await hydrateSession();
-					})
-					.catch(error => {
-						if (originStillActive()) useMessagesStore.getState().removeMessage(pending);
-						restoreTabComposer(originTabId, originSessionId, message, previousImages);
-						toast({ variant: "error", title: t("input.evalFailed"), message: String(error) });
-					})
-					.finally(() => setSending(false));
-				return;
-			}
-
-			// `->` / `=>` yield-queue shorthand (TUI #queueForYield parity): split an
-			// enumerated list into one queue entry per item; first item prompts with
-			// streamingBehavior:"followUp" when idle, everything else followUps;
-			// images ride on the first item only.
-			const queueBody = parseQueueShorthand(expandedMessage);
-			if (queueBody !== undefined) {
-				const payload = images.map(image => image.content);
-				const items = splitQueuedMessages(queueBody);
-				// Bare prefix + no images hits the usage warning, it does NOT enqueue
-				// (input-controller.ts:1186-1190). Images alone queue a single empty item.
-				if (items.length === 0 && payload.length === 0) {
-					toast({ variant: "warning", message: t("input.queue.usage") });
-					return;
-				}
-				useInputHistoryStore.getState().record(message);
-				const previousImages = images;
-				setText("");
-				setImages([]);
-				setMenu(null);
-				const dispatchItems = items.length > 0 ? items : [""];
-				if (dispatchItems.some(item => isGuiOnlyBuiltinCommand(item, commands))) {
-					setText(message);
-					setImages(previousImages);
-					toast({ variant: "warning", message: t("input.queue.guiCommand") });
-					return;
-				}
-				const startImmediately = !isStreaming && queuedMessageCount === 0;
-				// session.followUp throws on extension-command text (agent-session.ts:5508-5510),
-				// so those items go through prompt, whose slash chain executes them.
-				const extensionCommandNames = new Set(
-					commands.filter(command => command.source === "extension").map(command => command.name),
-				);
-				void (async () => {
-					let sent = 0;
-					try {
-						for (let index = 0; index < dispatchItems.length; index++) {
-							if (!originStillActive()) throw new Error("Tab changed during queue dispatch");
-							const item = dispatchItems[index] ?? "";
-							const itemImages = index === 0 ? payload : undefined;
-							const isExtensionCommand =
-								item.startsWith("/") && extensionCommandNames.has(/^\/([a-z0-9-]+)/i.exec(item)?.[1] ?? "");
-							const response =
-								startImmediately && index === 0
-									? await window.omp.rpc.prompt(item, itemImages, "followUp")
-									: isExtensionCommand
-										? await window.omp.rpc.prompt(item, itemImages)
-										: await window.omp.rpc.followUp(item, itemImages);
-							if (!response.success) throw new Error(response.error ?? "queue dispatch failed");
-							sent += 1;
-						}
-						if (originStillActive()) dropReferencedPastes(message);
-					} catch (error) {
-						if (sent === 0) {
-							// Zero items sent: restore the original draft (markers) and images.
-							restoreTabComposer(originTabId, originSessionId, message, previousImages);
-						} else {
-							// Partial failure: restore the remainder in the exact shorthand
-							// shape the parser can consume again. Continuation indentation
-							// prevents marker-looking lines inside one item from splitting.
-							const remaining = dispatchItems.slice(sent);
-							const remainingDraft =
-								remaining.length === 1
-									? `=> ${remaining[0]}`
-									: `=>\n${remaining
-											.map((item, index) => `${index + 1}. ${item.replaceAll("\n", "\n   ")}`)
-											.join("\n")}`;
-							restoreTabComposer(originTabId, originSessionId, remainingDraft, []);
-							if (originStillActive()) dropReferencedPastes(message);
-						}
-						toast({
-							variant: "error",
-							title: t("input.sendFailed"),
-							message:
-								sent > 0 ? t("input.queue.partial", { sent, total: dispatchItems.length }) : String(error),
-						});
-					}
-				})();
-				return;
-			}
-
-			useInputHistoryStore.getState().record(message);
-
-			// Routing/guarding/hydration policy lives in lib/composer-submit:
-			// slash commands always go through prompt (server parses them even
-			// while streaming), session-replacing commands are blocked while
-			// busy, and local-only resolutions rehydrate the transcript.
-			const payload = images.map(image => image.content);
-			const submit = planComposerSubmit({
-				message: expandedMessage,
-				images: payload,
-				isStreaming,
-				mode: forceMode ?? mode,
-				commands,
-			});
-			if (submit.kind === "blocked") return;
-			if (submit.kind === "handled") {
-				setText("");
-				setImages([]);
-				setMenu(null);
-				dropReferencedPastes(message);
-				return;
-			}
-			// Native /clear: drop context in place via clear_context RPC; the draft
-			// is restored when the server refuses (busy).
-			if (submit.kind === "clear") {
-				const previousImages = images;
-				setText("");
-				setImages([]);
-				setMenu(null);
-				void clearSessionContext().then(cleared => {
-					if (cleared) {
-						if (originStillActive()) dropReferencedPastes(message);
-						return;
-					}
-					restoreTabComposer(originTabId, originSessionId, message, previousImages);
-				});
-				return;
-			}
-			const previousImages = images;
-			setText("");
-			setImages([]);
-			setMenu(null);
-			// Let React commit the cleared draft before contextBridge serializes the
-			// request payload. On large sessions/attachments that synchronous bridge
-			// work used to make Enter look ignored for a noticeable beat.
-			setTimeout(() => {
-				if (!originStillActive()) {
-					restoreTabComposer(originTabId, originSessionId, message, previousImages);
-					return;
-				}
-				void submit
-					.request()
-					.then(async response => {
-						if (!response.success) {
-							restoreTabComposer(originTabId, originSessionId, message, previousImages);
-							toast({ variant: "error", title: t("input.sendFailed"), message: response.error });
-							return;
-						}
-						if (!originStillActive()) return;
-						dropReferencedPastes(message);
-						await settleComposerResponse(response);
-					})
-					.catch(error => {
-						restoreTabComposer(originTabId, originSessionId, message, previousImages);
-						toast({ variant: "error", title: t("input.sendFailed"), message: String(error) });
-					});
-			}, 0);
-		},
-		[
-			text,
-			images,
-			sending,
-			status,
-			isStreaming,
-			mode,
-			queuedMessageCount,
-			commands,
-			emojiAutocomplete,
-			routeReady,
-			t,
-			setText,
-			setImages,
-		],
-	);
+	const send = useComposerSubmit({
+		text,
+		images,
+		sending,
+		status,
+		isStreaming,
+		mode,
+		queuedMessageCount,
+		commands,
+		emojiAutocomplete,
+		routeReady,
+		setText,
+		setImages,
+		setMenu,
+		setSending,
+	});
 
 	// Mic dictation (stt.enabled): click starts capture, click again stops and
 	// transcribes; the transcript inserts at the textarea caret. The
@@ -1297,7 +765,7 @@ export function InputArea() {
 
 					<div
 						aria-busy={!routeReady}
-						className="flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5"
+						className="omp-composer-toolbar flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5"
 						inert={!routeReady}
 					>
 						<button
@@ -1352,7 +820,7 @@ export function InputArea() {
 							className="omp-pressable flex h-8 min-w-0 max-w-52 items-center gap-2 rounded-lg px-2.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 						>
 							<span className="h-2 w-2 shrink-0 rounded-full bg-[var(--omp-status-model)]" />
-							<span className="truncate">{model?.id ?? t("input.chooseModel")}</span>
+							<span className="omp-composer-model-label truncate">{model?.id ?? t("input.chooseModel")}</span>
 							<ChevronDown size={13} className="shrink-0 text-[var(--omp-dim)]" />
 						</button>
 
@@ -1368,29 +836,13 @@ export function InputArea() {
 							)}
 						>
 							<Zap size={14} fill={fastModeActive ? "currentColor" : "none"} />
-							<span className="hidden sm:inline">{t("input.fast.label")}</span>
+							<span className="omp-composer-control-label hidden sm:inline">{t("input.fast.label")}</span>
 						</button>
 
 						{!isChat && <ApprovalControl />}
 						{!isChat && <ComposerModes />}
 
 						<div className="flex-1" />
-
-						{contextUsage && (
-							<div
-								title={t("input.contextTooltip", { percent: Math.round(contextUsage.percent) })}
-								className="hidden items-center gap-2 px-1 text-omp-sm tabular-nums text-[var(--omp-dim)] sm:flex"
-							>
-								<span>{t("input.context")}</span>
-								<div className="h-1.5 w-12 overflow-hidden rounded-full bg-[var(--omp-progress-bg)]">
-									<div
-										className="h-full rounded-full bg-[var(--omp-status-context)]"
-										style={{ width: `${Math.min(100, contextUsage.percent)}%` }}
-									/>
-								</div>
-								<span>{Math.round(contextUsage.percent)}%</span>
-							</div>
-						)}
 
 						{queueSplitCount > 1 && (
 							<span className="mr-1 shrink-0 rounded-md border border-[var(--omp-warning)] px-2 py-1 text-omp-sm font-medium text-[var(--omp-warning)]">

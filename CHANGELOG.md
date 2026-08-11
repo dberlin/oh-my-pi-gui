@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-08-12
+
+### Fixed
+
+- **Edit tool summaries**: freeform hashline and apply-patch invocations now derive edited paths from their payload headers, so collapsed transcript rows and streaming fallback headers no longer render without a target file.
+- **Transcript timeline spacing**: timestamped phase markers now reserve enough row height and use a tighter marker-to-time stack, preventing adjacent completion and background-task markers from overlapping.
+- **Transcript delivery identity**: `agent_end` payloads that contain post-maintenance rewrites of already streamed tool results are now deduplicated by stable delivery fields, preventing a full result and its `[Shaken]` replacement from rendering as separate conversation rows.
+- **Conversation hierarchy**: composer mode controls now collapse into one stateful menu, prompt bubbles size to their content, queue management uses a wider layout with full-size controls, and repeated identical notices coalesce into a counted toast.
+- **Provider credential editing**: provider-row edit actions now resolve the exact editable resource. Custom `models.yml` providers open their own configuration, while registered API-key providers such as Tavily and DeepSeek reopen their credential flow instead of opening an unrelated custom-provider form or exposing no edit action.
+- **Todo transcript snapshots**: automatic cleanup after all todos complete now clears only the live state and preserves the final completed snapshot instead of appending a contradictory "Todos cleared" row.
+- **Live todo transcript updates**: successful todo tool results now update the active todo state and append the transcript snapshot immediately, without waiting for the run to finish or the session to be reopened.
+- **Editable, sortable pending messages**: the message-queue panel now edits plain steering and follow-up text in place, keeps reorder controls visible without hover, persists the visible order through the agent queue RPCs, and rolls back optimistic changes when RPC responses or transport calls fail.
+
 ## [0.7.3] - 2026-08-11
 
 ### Changed

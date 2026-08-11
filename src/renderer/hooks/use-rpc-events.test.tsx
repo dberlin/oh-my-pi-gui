@@ -20,6 +20,7 @@ import type {
 	PromptResultFrame,
 	RpcResponse,
 	SessionInfoUpdateFrame,
+	TodoPhase,
 } from "../../shared/rpc-types";
 import { TurnStatusRow } from "../components/chat/ChatStream";
 import { I18nProvider } from "../lib/i18n";
@@ -28,6 +29,7 @@ import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
+import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { hydrateSession, useRpcEvents } from "./use-rpc-events";
 
@@ -220,6 +222,7 @@ afterEach(async () => {
 	useSessionStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useToolsStore.getState().reset();
+	useTodoStore.getState().reset();
 	useSettingsStore.getState().reset();
 	useTabsStore.getState().reset();
 });
@@ -384,6 +387,56 @@ describe("useRpcEvents awaiting-model marker", () => {
 		await mount(<RpcEventsProbe />);
 		expect(useSessionStore.getState().isStreaming).toBe(true);
 		expect(useSessionStore.getState().awaitingModelSince).not.toBeNull();
+	});
+});
+
+describe("useRpcEvents todo lifecycle", () => {
+	it("archives a todo tool result immediately without waiting for agent_end", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		const pending: TodoPhase[] = [{ name: "Build", tasks: [{ content: "scaffold", status: "pending" }] }];
+
+		await act(async () => {
+			emitBatch([
+				{
+					type: "tool_execution_end",
+					toolCallId: "todo-1",
+					toolName: "todo",
+					result: {
+						content: [{ type: "text", text: "Todo list updated" }],
+						details: { op: "init", phases: pending, storage: "session" },
+					},
+					isError: false,
+				},
+			]);
+		});
+
+		const state = useTodoStore.getState();
+		expect(state.phases[0]?.tasks[0]?.status).toBe("pending");
+		expect(state.history).toHaveLength(1);
+		expect(state.history[0]?.phases).toEqual(pending);
+	});
+
+	it("keeps one completed snapshot when automatic cleanup clears the live todos", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		useTodoStore.getState().reset();
+		const pending: TodoPhase[] = [{ name: "Build", tasks: [{ content: "scaffold", status: "pending" }] }];
+		const completed: TodoPhase[] = [{ name: "Build", tasks: [{ content: "scaffold", status: "completed" }] }];
+		useTodoStore.getState().setPhases(pending);
+		useTodoStore.getState().showReminder(completed[0]!.tasks);
+		useTodoStore.getState().setPhases(completed);
+
+		await act(async () => {
+			emitBatch([{ type: "todo_auto_clear" }]);
+		});
+
+		const state = useTodoStore.getState();
+		expect(state.phases).toEqual([]);
+		expect(state.reminderVisible).toBe(false);
+		expect(state.reminderTodos).toEqual([]);
+		expect(state.history).toHaveLength(1);
+		expect(state.history[0]?.phases[0]?.tasks[0]?.status).toBe("completed");
 	});
 });
 

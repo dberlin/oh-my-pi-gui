@@ -1,0 +1,59 @@
+/**
+ * AdvancedTab: searchable flat list of settings without UI metadata.
+ */
+
+import { Search } from "lucide-react";
+import { useMemo, useState } from "react";
+import type { SettingEntry } from "../../../../shared/rpc-types";
+import { Input } from "../../common";
+import { SchemaSettingRow } from "../SchemaSettingRow";
+import { isSettingVisibleInGui } from "../settings-schema-utils";
+
+function AdvancedTab({
+	entries,
+	values,
+	onCommitted,
+}: {
+	entries: SettingEntry[];
+	values: Record<string, unknown>;
+	onCommitted: (path: string, value: unknown) => void;
+}) {
+	const [query, setQuery] = useState("");
+	const advanced = useMemo(
+		() =>
+			entries.filter(
+				entry => (entry.advanced === true || entry.tab === undefined) && isSettingVisibleInGui(entry, values),
+			),
+		[entries, values],
+	);
+	const filtered = useMemo(() => {
+		const q = query.trim().toLowerCase();
+		if (q.length === 0) return advanced;
+		return advanced.filter(
+			entry => entry.path.toLowerCase().includes(q) || (entry.label ?? "").toLowerCase().includes(q),
+		);
+	}, [advanced, query]);
+
+	return (
+		<>
+			<div className="relative mb-3">
+				<Search className="absolute top-1/2 left-2.5 -translate-y-1/2 text-(--omp-dim)" size={13} />
+				<Input
+					className="pl-7"
+					onChange={event => setQuery(event.target.value)}
+					placeholder={`Filter ${advanced.length} advanced settings…`}
+					value={query}
+				/>
+			</div>
+			{filtered.length === 0 ? (
+				<div className="py-10 text-center text-xs text-(--omp-dim)">No advanced settings match.</div>
+			) : (
+				filtered.map(entry => (
+					<SchemaSettingRow entry={entry} key={entry.path} onCommitted={onCommitted} value={values[entry.path]} />
+				))
+			)}
+		</>
+	);
+}
+
+export { AdvancedTab };

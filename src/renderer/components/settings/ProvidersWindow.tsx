@@ -6,35 +6,13 @@
 
 import { Edit, ExternalLink, Globe, LogIn, LogOut, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import type { CustomProviderView } from "../../../shared/ipc-types";
 import type { ProviderInfo, ProvidersResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, Modal, Spinner } from "../common";
-
-/** Built-in provider ids that cannot be edited in GUI (catalog-shipped). */
-const BUILTIN_PROVIDERS: Record<string, true> = {
-	anthropic: true,
-	openai: true,
-	gemini: true,
-	google: true,
-	groq: true,
-	mistral: true,
-	openrouter: true,
-	deepseek: true,
-	xai: true,
-	azure: true,
-	bedrock: true,
-	vertex: true,
-	ollama: true,
-	"lm-studio": true,
-	fireworks: true,
-	cerebras: true,
-	together: true,
-	cohere: true,
-	perplexity: true,
-};
 
 function AuthBadge({ provider, t }: { provider: ProviderInfo; t: (k: string) => string }) {
 	if (!provider.authenticated) return <Badge variant="muted">{t("providers.badge.noAuth")}</Badge>;
@@ -51,8 +29,24 @@ function AuthBadge({ provider, t }: { provider: ProviderInfo; t: (k: string) => 
 		</Badge>
 	);
 }
-function ProviderRow({
+
+type ProviderEditAction = { kind: "login" } | { kind: "config"; provider: CustomProviderView } | null;
+
+/**
+ * Resolve the provider's editable resource: registered credential flow first,
+ * then a user-owned models.yml entry. Catalog-only providers are read-only.
+ */
+export function resolveProviderEditAction(
+	provider: ProviderInfo,
+	customConfigs: CustomProviderView[],
+): ProviderEditAction {
+	if (provider.loginAvailable) return { kind: "login" };
+	const config = customConfigs.find(candidate => candidate.id === provider.id);
+	return config && !config.builtin ? { kind: "config", provider: config } : null;
+}
+export function ProviderRow({
 	provider,
+	customConfigs,
 	onLogin,
 	onLogout,
 	onEdit,
@@ -60,13 +54,15 @@ function ProviderRow({
 	t,
 }: {
 	provider: ProviderInfo;
+	customConfigs: CustomProviderView[];
 	onLogin: (id: string) => void;
 	onLogout: (id: string) => void;
 	onEdit: (id: string) => void;
 	busy: boolean;
 	t: (k: string, p?: Record<string, string | number>) => string;
 }) {
-	const isCustom = !BUILTIN_PROVIDERS[provider.id];
+	const editAction = resolveProviderEditAction(provider, customConfigs);
+	const showEdit = editAction?.kind === "config" || (editAction?.kind === "login" && provider.authenticated);
 	return (
 		<div className="flex items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] px-3 py-2.5">
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -87,17 +83,22 @@ function ProviderRow({
 				</div>
 			</div>
 			<div className="flex shrink-0 items-center gap-1.5">
-				{isCustom && (
+				{showEdit && editAction && (
 					<Button
 						size="sm"
 						variant="ghost"
 						icon={<Edit size={12} />}
 						disabled={busy}
 						onClick={() => onEdit(provider.id)}
-						aria-label={t("providers.edit")}
+						aria-label={
+							editAction.kind === "login"
+								? t("providers.updateCredentials", { provider: provider.name })
+								: t("providers.edit")
+						}
 					/>
 				)}
-				{provider.oauth && !provider.authenticated && (
+				{/* Login: any unauthenticated provider with a registered credential flow. */}
+				{provider.loginAvailable && !provider.authenticated && (
 					<Button
 						size="sm"
 						variant="primary"
@@ -131,10 +132,10 @@ export function ProvidersWindow() {
 	const t = useT();
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
 	const [result, setResult] = useState<ProvidersResult | null>(null);
+	const [customConfigs, setCustomConfigs] = useState<CustomProviderView[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [busyProvider, setBusyProvider] = useState<string | null>(null);
-
 	const load = useCallback(async () => {
 		setLoading(true);
 		setError(null);
@@ -144,9 +145,14 @@ export function ProvidersWindow() {
 			return;
 		}
 		try {
-			const res = await window.omp.rpc.getProviders();
-			if (res.success) setResult(res.data as ProvidersResult);
-			else setError(res.error);
+			const [providerResult, configsResult] = await Promise.allSettled([
+				window.omp.rpc.getProviders(),
+				window.omp.models.listProviders(),
+			]);
+			if (providerResult.status === "rejected") throw providerResult.reason;
+			if (providerResult.value.success) setResult(providerResult.value.data as ProvidersResult);
+			else setError(providerResult.value.error);
+			setCustomConfigs(configsResult.status === "fulfilled" ? configsResult.value : []);
 		} catch (cause) {
 			setError(String(cause));
 		} finally {
@@ -194,9 +200,16 @@ export function ProvidersWindow() {
 
 	const handleEdit = async (providerId: string) => {
 		try {
+			const provider = result?.providers.find(p => p.id === providerId);
+			if (!provider) return;
 			const views = await window.omp.models.listProviders();
-			const view = views.find(v => v.id === providerId) ?? null;
-			openProviderConfig(view);
+			const action = resolveProviderEditAction(provider, views);
+			if (!action) return;
+			if (action.kind === "login") {
+				await handleLogin(providerId);
+			} else if (action.kind === "config") {
+				openProviderConfig(action.provider);
+			}
 		} catch (cause) {
 			toast({ variant: "error", title: t("providers.editFailed"), message: String(cause) });
 		}
@@ -263,6 +276,7 @@ export function ProvidersWindow() {
 							<ProviderRow
 								key={p.id}
 								provider={p}
+								customConfigs={customConfigs}
 								onLogin={handleLogin}
 								onLogout={handleLogout}
 								onEdit={handleEdit}
@@ -283,6 +297,7 @@ export function ProvidersWindow() {
 								<ProviderRow
 									key={p.id}
 									provider={p}
+									customConfigs={customConfigs}
 									onLogin={handleLogin}
 									onLogout={handleLogout}
 									onEdit={handleEdit}

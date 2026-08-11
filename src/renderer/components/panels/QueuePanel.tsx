@@ -24,17 +24,33 @@ import {
 	useSortable,
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { ArrowLeftRight, ChevronDown, ChevronUp, GripVertical, ListX, X } from "lucide-react";
-import { memo, useCallback } from "react";
+import { ArrowLeftRight, Check, ChevronDown, ChevronUp, GripVertical, ListX, Pencil, X } from "lucide-react";
+import { memo, useCallback, useEffect, useState } from "react";
 import type { RpcQueuedMessage } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { type QueueLane, useQueuedMessages, useQueueStore } from "../../stores/queue";
 import { toast } from "../../stores/toast";
 import { Badge } from "../common";
 
-/** Apply a lane-local mutation optimistically, persist via `persist`, and
- *  resync from get_queue on FAILURE only — success is confirmed by the
- *  authoritative queue_update frame the mutation itself emits. */
+/** Links failed optimistic snapshots to their predecessors so overlapping
+ *  failures can unwind transitively even when the first failure was
+ *  superseded before it settled. Authoritative queue_update arrays never
+ *  enter this map and therefore terminate the rollback chain. */
+const failedOptimisticStates = new WeakMap<RpcQueuedMessage[], RpcQueuedMessage[]>();
+
+function rollbackBase(items: RpcQueuedMessage[]): RpcQueuedMessage[] {
+	let current = items;
+	let previous = failedOptimisticStates.get(current);
+	while (previous && previous !== current) {
+		current = previous;
+		previous = failedOptimisticStates.get(current);
+	}
+	return current;
+}
+
+/** Apply a lane-local mutation optimistically. Failed responses and rejected
+ *  transport calls roll back this mutation unless a newer snapshot superseded
+ *  it, then attempt an authoritative refresh. */
 async function applyLaneMutation(
 	lane: QueueLane,
 	optimistic: (items: RpcQueuedMessage[]) => RpcQueuedMessage[],
@@ -43,12 +59,25 @@ async function applyLaneMutation(
 	t: (key: string) => string,
 ): Promise<void> {
 	const store = useQueueStore.getState();
-	useQueueStore.setState({ [lane]: optimistic(store[lane]) });
-	const response = await persist();
-	if (!response.success) {
-		toast({ variant: "error", title: t(failureKey), message: response.error ?? "RPC call failed" });
-		await store.refresh();
+	const before = store[lane];
+	const optimisticItems = optimistic(before);
+	if (optimisticItems === before) return;
+	useQueueStore.setState({ [lane]: optimisticItems });
+	let failure: string | undefined;
+	try {
+		const response = await persist();
+		if (response.success) return;
+		failure = response.error ?? "RPC call failed";
+	} catch (cause) {
+		failure = cause instanceof Error ? cause.message : String(cause);
 	}
+	failedOptimisticStates.set(optimisticItems, before);
+	if (useQueueStore.getState()[lane] === optimisticItems) {
+		const rollback = rollbackBase(before);
+		useQueueStore.setState(lane === "steering" ? { steering: rollback } : { followUp: rollback });
+	}
+	toast({ variant: "error", title: t(failureKey), message: failure });
+	await useQueueStore.getState().refresh();
 }
 
 interface SortableQueuedRowProps {
@@ -56,6 +85,7 @@ interface SortableQueuedRowProps {
 	lane: QueueLane;
 	index: number;
 	count: number;
+	onEdit: (lane: QueueLane, id: string, text: string) => void;
 	onMove: (lane: QueueLane, id: string, toIndex: number) => void;
 	onMoveToLane: (lane: QueueLane, id: string) => void;
 	onRemove: (lane: QueueLane, id: string) => void;
@@ -63,29 +93,39 @@ interface SortableQueuedRowProps {
 }
 
 /** Optimistically move an entry to the END of the other lane (queue_move with
- *  toLane); failure toasts and resyncs, success is confirmed by the emitted
- *  queue_update frame like every other lane mutation. */
+ *  toLane). Failed responses and rejected transport calls roll back unless a
+ *  newer snapshot superseded this mutation, then attempt a refresh. */
 async function applyCrossLaneMove(lane: QueueLane, id: string, t: (key: string) => string): Promise<void> {
 	const target: QueueLane = lane === "steering" ? "followUp" : "steering";
 	const store = useQueueStore.getState();
 	const item = store[lane].find(entry => entry.id === id);
 	if (!item) return;
-	if (lane === "steering") {
-		useQueueStore.setState({
-			steering: store.steering.filter(entry => entry.id !== id),
-			followUp: [...store.followUp, item],
-		});
-	} else {
-		useQueueStore.setState({
-			followUp: store.followUp.filter(entry => entry.id !== id),
-			steering: [...store.steering, item],
-		});
+	const beforeSteering = store.steering;
+	const beforeFollowUp = store.followUp;
+	const optimisticSteering =
+		lane === "steering" ? beforeSteering.filter(entry => entry.id !== id) : [...beforeSteering, item];
+	const optimisticFollowUp =
+		lane === "followUp" ? beforeFollowUp.filter(entry => entry.id !== id) : [...beforeFollowUp, item];
+	useQueueStore.setState({ steering: optimisticSteering, followUp: optimisticFollowUp });
+	let failure: string | undefined;
+	try {
+		const response = await window.omp.rpc.queueMove(id, Number.MAX_SAFE_INTEGER, target);
+		if (response.success) return;
+		failure = response.error;
+	} catch (cause) {
+		failure = cause instanceof Error ? cause.message : String(cause);
 	}
-	const response = await window.omp.rpc.queueMove(id, Number.MAX_SAFE_INTEGER, target);
-	if (!response.success) {
-		toast({ variant: "error", title: t("queuePanel.moveFailed"), message: response.error });
-		await store.refresh();
+	failedOptimisticStates.set(optimisticSteering, beforeSteering);
+	failedOptimisticStates.set(optimisticFollowUp, beforeFollowUp);
+	const current = useQueueStore.getState();
+	if (current.steering === optimisticSteering) {
+		useQueueStore.setState({ steering: rollbackBase(beforeSteering) });
 	}
+	if (current.followUp === optimisticFollowUp) {
+		useQueueStore.setState({ followUp: rollbackBase(beforeFollowUp) });
+	}
+	toast({ variant: "error", title: t("queuePanel.moveFailed"), message: failure });
+	await useQueueStore.getState().refresh();
 }
 
 const SortableQueuedRow = memo(function SortableQueuedRow({
@@ -94,13 +134,28 @@ const SortableQueuedRow = memo(function SortableQueuedRow({
 	index,
 	count,
 	onMove,
+	onEdit,
 	onMoveToLane,
 	onRemove,
 	removeLabel,
 }: SortableQueuedRowProps) {
-	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
+	const [editing, setEditing] = useState(false);
+	const [draft, setDraft] = useState(item.text);
+	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+		id: item.id,
+		disabled: editing,
+	});
 	const t = useT();
 	const targetLane: QueueLane = lane === "steering" ? "followUp" : "steering";
+	useEffect(() => {
+		if (!editing) setDraft(item.text);
+	}, [editing, item.text]);
+	const saveEdit = () => {
+		const text = draft.trim();
+		if (text.length > 0 && text !== item.text) onEdit(lane, item.id, text);
+		setDraft(text.length > 0 ? text : item.text);
+		setEditing(false);
+	};
 	return (
 		<div
 			ref={setNodeRef}
@@ -109,57 +164,114 @@ const SortableQueuedRow = memo(function SortableQueuedRow({
 				transition,
 				opacity: isDragging ? 0.6 : undefined,
 			}}
-			className="group flex items-start gap-1.5 rounded-md border border-(--omp-border-muted) bg-transparent px-2 py-1.5"
+			className="group flex items-start gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-2.5 py-2"
 		>
 			<button
 				{...attributes}
 				{...listeners}
 				aria-label={t("queuePanel.drag")}
-				className="mt-0.5 shrink-0 cursor-grab touch-none text-(--omp-dim) hover:text-(--omp-text) active:cursor-grabbing"
+				className="omp-pressable mt-0.5 flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text) active:cursor-grabbing"
 				type="button"
 			>
-				<GripVertical size={12} />
+				<GripVertical size={14} />
 			</button>
-			<span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-omp-md leading-snug text-(--omp-text)">
-				{item.text || "…"}
-			</span>
-			{/* Explicit reorder buttons alongside the drag handle (a11y): same
-			    queue_move path, disabled at the lane edges. */}
-			<button
-				aria-label={t("queuePanel.moveUp")}
-				className="mt-0.5 shrink-0 text-(--omp-dim) opacity-0 transition-opacity group-hover:opacity-100 hover:text-(--omp-text) disabled:cursor-not-allowed disabled:hover:text-(--omp-dim)"
-				disabled={index === 0}
-				onClick={() => onMove(lane, item.id, index - 1)}
-				type="button"
-			>
-				<ChevronUp size={12} />
-			</button>
-			<button
-				aria-label={t("queuePanel.moveDown")}
-				className="mt-0.5 shrink-0 text-(--omp-dim) opacity-0 transition-opacity group-hover:opacity-100 hover:text-(--omp-text) disabled:cursor-not-allowed disabled:hover:text-(--omp-dim)"
-				disabled={index === count - 1}
-				onClick={() => onMove(lane, item.id, index + 1)}
-				type="button"
-			>
-				<ChevronDown size={12} />
-			</button>
-			<button
-				aria-label={t("queuePanel.moveToLane", { lane: t(`queuePanel.lane.${targetLane}`) })}
-				className="mt-0.5 shrink-0 text-(--omp-dim) opacity-0 transition-opacity group-hover:opacity-100 hover:text-(--omp-text)"
-				onClick={() => onMoveToLane(lane, item.id)}
-				title={t("queuePanel.moveToLane", { lane: t(`queuePanel.lane.${targetLane}`) })}
-				type="button"
-			>
-				<ArrowLeftRight size={12} />
-			</button>
-			<button
-				aria-label={removeLabel}
-				className="mt-0.5 shrink-0 text-(--omp-dim) opacity-0 transition-opacity group-hover:opacity-100 hover:text-(--omp-error)"
-				onClick={() => onRemove(lane, item.id)}
-				type="button"
-			>
-				<X size={12} />
-			</button>
+			{editing ? (
+				<div className="min-w-0 flex-1">
+					<textarea
+						aria-label={t("queuePanel.editInput")}
+						autoFocus
+						className="w-full resize-y rounded-md border border-(--omp-input-focus-border) bg-(--omp-input-bg) px-2 py-1 text-omp-md leading-snug text-(--omp-text) outline-none"
+						onInput={event => setDraft(event.currentTarget.value)}
+						onKeyDown={event => {
+							if (event.key === "Escape") {
+								setDraft(item.text);
+								setEditing(false);
+							} else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+								event.preventDefault();
+								saveEdit();
+							}
+						}}
+						rows={2}
+						value={draft}
+					/>
+					<div className="mt-1 flex justify-end gap-1">
+						<button
+							aria-label={t("queuePanel.cancelEdit")}
+							className="omp-pressable rounded-sm p-1 text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+							onClick={() => {
+								setDraft(item.text);
+								setEditing(false);
+							}}
+							title={t("queuePanel.cancelEdit")}
+							type="button"
+						>
+							<X size={12} />
+						</button>
+						<button
+							aria-label={t("queuePanel.saveEdit")}
+							className="omp-pressable rounded-sm p-1 text-(--omp-accent) hover:bg-(--omp-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-40"
+							disabled={draft.trim().length === 0}
+							onClick={saveEdit}
+							title={t("queuePanel.saveEditHint")}
+							type="button"
+						>
+							<Check size={12} />
+						</button>
+					</div>
+				</div>
+			) : (
+				<>
+					<span className="min-w-0 flex-1 whitespace-pre-wrap break-words py-1 text-omp-md leading-snug text-(--omp-text)">
+						{item.text || "…"}
+					</span>
+					<button
+						aria-label={t("queuePanel.moveUp")}
+						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text) disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-(--omp-dim)"
+						disabled={index === 0}
+						onClick={() => onMove(lane, item.id, index - 1)}
+						type="button"
+					>
+						<ChevronUp size={14} />
+					</button>
+					<button
+						aria-label={t("queuePanel.moveDown")}
+						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text) disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-(--omp-dim)"
+						disabled={index === count - 1}
+						onClick={() => onMove(lane, item.id, index + 1)}
+						type="button"
+					>
+						<ChevronDown size={14} />
+					</button>
+					{item.editable && (
+						<button
+							aria-label={t("queuePanel.edit")}
+							className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+							onClick={() => setEditing(true)}
+							title={t("queuePanel.edit")}
+							type="button"
+						>
+							<Pencil size={14} />
+						</button>
+					)}
+					<button
+						aria-label={t("queuePanel.moveToLane", { lane: t(`queuePanel.lane.${targetLane}`) })}
+						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+						onClick={() => onMoveToLane(lane, item.id)}
+						title={t("queuePanel.moveToLane", { lane: t(`queuePanel.lane.${targetLane}`) })}
+						type="button"
+					>
+						<ArrowLeftRight size={14} />
+					</button>
+					<button
+						aria-label={removeLabel}
+						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-error)"
+						onClick={() => onRemove(lane, item.id)}
+						type="button"
+					>
+						<X size={14} />
+					</button>
+				</>
+			)}
 		</div>
 	);
 });
@@ -168,6 +280,7 @@ function LaneSection({
 	lane,
 	items,
 	onRemove,
+	onEdit,
 	onClear,
 	onMove,
 	onMoveToLane,
@@ -175,6 +288,7 @@ function LaneSection({
 	lane: QueueLane;
 	items: RpcQueuedMessage[];
 	onRemove: (lane: QueueLane, id: string) => void;
+	onEdit: (lane: QueueLane, id: string, text: string) => void;
 	onClear: (lane: QueueLane) => void;
 	onMove: (lane: QueueLane, id: string, toIndex: number) => void;
 	onMoveToLane: (lane: QueueLane, id: string) => void;
@@ -198,8 +312,8 @@ function LaneSection({
 	);
 
 	return (
-		<section className="mb-2">
-			<div className="flex items-center gap-1.5 px-1 py-1">
+		<section className="mb-3">
+			<div className="flex items-center gap-1.5 px-2 py-1.5">
 				<span className="min-w-0 flex-1 truncate text-omp-sm font-semibold tracking-wide text-(--omp-accent) uppercase">
 					{t(lane === "steering" ? "queuePanel.lane.steering" : "queuePanel.lane.followUp")}
 				</span>
@@ -207,24 +321,25 @@ function LaneSection({
 				{items.length > 0 && (
 					<button
 						aria-label={t("queuePanel.clearLane")}
-						className="omp-pressable flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-omp-xs text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-error)"
+						className="omp-pressable flex items-center gap-1 rounded-md px-2 py-1 text-omp-xs text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-error)"
 						onClick={() => onClear(lane)}
 						type="button"
 					>
-						<ListX size={11} />
+						<ListX size={12} />
 						{t("queuePanel.clearLane")}
 					</button>
 				)}
 			</div>
 			<DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd} sensors={sensors}>
 				<SortableContext items={items.map(item => item.id)} strategy={verticalListSortingStrategy}>
-					<div className="ml-1 flex flex-col gap-1 border-l border-(--omp-border-muted) pl-2">
+					<div className="flex flex-col gap-1.5 px-1">
 						{items.map((item, index) => (
 							<SortableQueuedRow
 								count={items.length}
 								index={index}
 								item={item}
 								key={item.id}
+								onEdit={onEdit}
 								lane={lane}
 								onMove={onMove}
 								onMoveToLane={onMoveToLane}
@@ -254,6 +369,24 @@ export function QueuePanel() {
 				items => items.filter(item => item.id !== id),
 				() => window.omp.rpc.queueRemove(id),
 				"queuePanel.removeFailed",
+				t,
+			);
+		},
+		[t],
+	);
+
+	const editItem = useCallback(
+		(lane: QueueLane, id: string, text: string) => {
+			void applyLaneMutation(
+				lane,
+				items => items.map(item => (item.id === id ? { ...item, text } : item)),
+				async () => {
+					const response = await window.omp.rpc.queueEdit(id, text);
+					return response.success
+						? { success: true as const }
+						: { success: false as const, error: response.error };
+				},
+				"queuePanel.editFailed",
 				t,
 			);
 		},
@@ -320,6 +453,7 @@ export function QueuePanel() {
 						<LaneSection
 							items={steering}
 							lane="steering"
+							onEdit={editItem}
 							onClear={clearLane}
 							onMove={moveItem}
 							onMoveToLane={moveToLane}
@@ -328,6 +462,7 @@ export function QueuePanel() {
 						<LaneSection
 							items={followUp}
 							lane="followUp"
+							onEdit={editItem}
 							onClear={clearLane}
 							onMove={moveItem}
 							onMoveToLane={moveToLane}

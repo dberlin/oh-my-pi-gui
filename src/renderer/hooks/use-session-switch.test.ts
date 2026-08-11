@@ -237,7 +237,7 @@ describe("switchSessionNow F-OWN owner guard", () => {
 			]),
 		});
 		useQueueStore.setState({
-			steering: [{ id: "old-queue", text: "old follow-up", timestamp: 1 }],
+			steering: [{ id: "old-queue", text: "old follow-up", editable: true, timestamp: 1 }],
 			followUp: [],
 		});
 		useTodoStore.getState().setPhases([{ name: "old phase", tasks: [] }]);

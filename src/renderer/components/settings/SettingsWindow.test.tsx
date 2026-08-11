@@ -10,14 +10,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { SettingEntry } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
+import { Toggle } from "./editors/Toggle";
+import { CapabilitiesHome } from "./pages/CapabilitiesHome";
 import {
-	CapabilitiesHome,
 	groupSchemaEntries,
 	isSettingVisibleInGui,
 	resolveSettingsTarget,
 	SchemaTabContent,
 	SettingsWindow,
-	Toggle,
 } from "./SettingsWindow";
 
 function entry(partial: Partial<SettingEntry> & { path: string }): SettingEntry {

@@ -73,6 +73,31 @@ describe("MessageBubble tool messages", () => {
 		).toBe("");
 	});
 
+	it("shows edited files for freeform edit calls in collapsed headers", () => {
+		const message: AgentMessage = {
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "call_edit_patch",
+					name: "edit",
+					arguments: {
+						input: "*** Begin Patch\n[packages/gui/src/first.ts#A1B2] PUT 1.=1:\n+first\n[packages/gui/src/second.ts#C3D4] PUT 1.=1:\n+second\n*** End Patch\n",
+					},
+				},
+			],
+			timestamp: "2026-08-12T00:00:00.000Z",
+		};
+		useToolsStore.getState().hydrateMessages([message]);
+
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble message={message} />
+			</I18nProvider>,
+		);
+		expect(html).toContain("packages/gui/src/first.ts +1");
+	});
+
 	it("keeps repeated provider call ids paired with their own historical results", async () => {
 		const firstCall: AgentMessage = {
 			role: "assistant",

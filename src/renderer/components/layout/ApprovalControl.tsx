@@ -57,7 +57,7 @@ export function ApprovalControl() {
 				)}
 			>
 				<ShieldCheck size={14} />
-				<span className="hidden sm:inline">{t(`input.approval.${mode}`)}</span>
+				<span className="omp-composer-control-label hidden sm:inline">{t(`input.approval.${mode}`)}</span>
 				<ChevronDown size={12} className="shrink-0 text-[var(--omp-dim)]" />
 			</button>
 

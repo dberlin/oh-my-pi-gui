@@ -336,7 +336,7 @@ export function Sidebar() {
 						const groupCollapsed = isCollapsed(group.cwd);
 						const isCurrent = group.cwd === cwd;
 						return (
-							<div key={group.cwd} className="mb-1">
+							<div key={group.cwd} className="mb-0.5">
 								<div
 									data-workspace-group={group.cwd}
 									onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
@@ -412,7 +412,10 @@ export function Sidebar() {
 										</button>
 									)}
 									<span
-										className="flex w-[34px] shrink-0 items-center justify-end gap-0.5"
+										className={cx(
+											"flex shrink-0 items-center justify-end gap-0.5",
+											confirmingGroupDeleteCwd === group.cwd ? "w-[34px]" : "w-4",
+										)}
 										onClick={event => event.stopPropagation()}
 									>
 										{confirmingGroupDeleteCwd === group.cwd ? (
@@ -464,7 +467,7 @@ export function Sidebar() {
 									inert={groupCollapsed}
 								>
 									<div className="omp-sidebar-group-content">
-										<div className="space-y-0.5">
+										<div className="space-y-px">
 											{group.sessions.map(session => {
 												const active = session.id === sessionId;
 												// Signal light: attached session uses live store state; other
@@ -492,7 +495,7 @@ export function Sidebar() {
 															if (event.key === "Enter") void openSession(session);
 														}}
 														className={cx(
-															"group cursor-pointer rounded-md border px-2 py-2 transition-colors duration-150 ease-out",
+															"group cursor-pointer rounded-md border px-2 py-1 transition-colors duration-150 ease-out",
 															active
 																? "border-[var(--omp-border-accent)] bg-[var(--omp-selected-bg)]"
 																: "border-transparent hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]",
@@ -541,7 +544,7 @@ export function Sidebar() {
 																	className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-omp-md font-medium text-[var(--omp-text)] outline-none"
 																/>
 															) : (
-																<span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-omp-lg font-semibold text-[var(--omp-text)]">
+																<span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-omp-lg font-medium leading-5 text-[var(--omp-text)]">
 																	{session.kind === "chat" && (
 																		<MessageCircle
 																			size={11}
@@ -592,7 +595,7 @@ export function Sidebar() {
 																				title={t("sidebar.rename")}
 																				aria-label={t("sidebar.rename")}
 																				onClick={startRename}
-																				className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+																				className="order-2 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
 																			>
 																				<Pencil size={11} />
 																			</button>
@@ -623,7 +626,7 @@ export function Sidebar() {
 																				<Trash2 size={11} />
 																			</button>
 																		) : (
-																			<span className="h-5 w-5 shrink-0" />
+																			<span className="order-1 h-5 w-5 shrink-0" />
 																		)}
 																	</>
 																)}

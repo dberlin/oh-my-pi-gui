@@ -44,10 +44,12 @@ export type RpcCommand =
 	| { id?: string; type: "abort_eval" }
 	| { id?: string; type: "dequeue" }
 	// Queue management: stable per-entry ids (never array indices). queueId is
-	// the entry id surfaced by get_queue; queue_move is a same-lane reorder
-	// with clamped target unless toLane switches lanes; queue_clear drops
+	// the entry id surfaced by get_queue; queue_edit changes plain user text
+	// while preserving attachments; queue_move addresses visible-user order
+	// with a clamped target unless toLane switches lanes; queue_clear drops
 	// user-restorable entries only.
 	| { id?: string; type: "get_queue" }
+	| { id?: string; type: "queue_edit"; queueId: string; text: string }
 	| { id?: string; type: "queue_remove"; queueId: string }
 	| { id?: string; type: "queue_move"; queueId: string; toIndex: number; toLane?: "steering" | "followUp" }
 	| { id?: string; type: "queue_clear"; lane?: "steering" | "followUp" }
@@ -467,30 +469,35 @@ export interface RpcCollabState {
 }
 
 // ============================================================================
-// Queue Management (get_queue / queue_remove / queue_move / queue_clear)
+// Queue Management (get_queue / queue_edit / queue_remove / queue_move / queue_clear)
 // ============================================================================
 
 /**
  * One user-restorable queued message surfaced by get_queue. `id` is the
- * stable per-entry queue id assigned at enqueue time (lane-prefixed counter
- * like `s1`/`f1`), valid for queue_remove/queue_move until the entry is
- * consumed or removed. Advisor cards, hidden companions, and internal steers
- * never appear here.
+ * stable per-entry queue id assigned at enqueue time, valid for queue
+ * operations until the entry is consumed or removed. `editable` distinguishes
+ * plain user prompts from structured command payloads.
  */
 export interface RpcQueuedMessage {
 	id: string;
 	text: string;
 	images?: ImageContent[];
+	editable: boolean;
 	timestamp: number;
 }
 
-/** get_queue result: both lanes in insertion order. */
+/** get_queue result: both lanes in visible execution order. */
 export interface RpcGetQueueResult {
 	steering: RpcQueuedMessage[];
 	followUp: RpcQueuedMessage[];
 }
 
-/** queue_move result: the entry's lane and its final (clamped) index. */
+/** queue_edit result. */
+export interface RpcQueueEditResult {
+	updated: true;
+}
+
+/** queue_move result: the entry's lane and final visible index. */
 export interface RpcQueueMoveResult {
 	lane: "steering" | "followUp";
 	index: number;
@@ -1539,7 +1546,7 @@ export interface ProviderInfo {
 	authenticated: boolean;
 	authKind?: "oauth" | "apikey" | "env";
 	account?: string;
-	oauth: boolean;
+	loginAvailable: boolean;
 	disabled: boolean;
 	baseUrl?: string;
 	modelCount: number;

@@ -139,6 +139,7 @@ const api: OmpApi = {
 		abortEval: () => rpcCommand({ type: "abort_eval" }),
 		dequeue: () => rpcCommand({ type: "dequeue" }),
 		getQueue: () => rpcCommand({ type: "get_queue" }),
+		queueEdit: (queueId: string, text: string) => rpcCommand({ type: "queue_edit", queueId, text }),
 		queueRemove: (queueId: string) => rpcCommand({ type: "queue_remove", queueId }),
 		queueMove: (queueId: string, toIndex: number, toLane?: "steering" | "followUp") =>
 			rpcCommand({ type: "queue_move", queueId, toIndex, toLane }),

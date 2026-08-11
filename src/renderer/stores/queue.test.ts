@@ -12,7 +12,7 @@ const getQueue = vi.fn();
 (globalThis as Record<string, unknown>).window = { omp: { rpc: { getQueue } } };
 
 function queued(id: string, text: string) {
-	return { id, text, timestamp: 1 };
+	return { id, text, editable: true, timestamp: 1 };
 }
 
 function ok(data: unknown): RpcResponse {
@@ -58,10 +58,18 @@ describe("queue store", () => {
 
 	it("failed refresh keeps the last frame-driven snapshot", async () => {
 		useQueueStore.getState().setFromFrame({ steering: [], followUp: [queued("f9", "keep")] });
-		getQueue.mockRejectedValue(new Error("sidecar down"));
+		getQueue.mockResolvedValueOnce({
+			type: "response",
+			command: "get_queue",
+			success: false,
+			error: "unsupported",
+		} satisfies RpcResponse);
 
 		await useQueueStore.getState().refresh();
+		expect(useQueueStore.getState().followUp.map(entry => entry.id)).toEqual(["f9"]);
 
+		getQueue.mockRejectedValueOnce(new Error("sidecar down"));
+		await useQueueStore.getState().refresh();
 		expect(useQueueStore.getState().followUp.map(entry => entry.id)).toEqual(["f9"]);
 	});
 });

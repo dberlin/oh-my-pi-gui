@@ -47,7 +47,7 @@ export function QueueDockChip() {
 				bodyClassName="p-0"
 				onClose={() => setOpen(false)}
 				open={open}
-				size="md"
+				size="lg"
 				title={
 					<span className="flex items-center gap-2">
 						{t("queuePanel.title")}
@@ -55,7 +55,7 @@ export function QueueDockChip() {
 					</span>
 				}
 			>
-				<div className="max-h-[60vh] overflow-y-auto">
+				<div className="max-h-[70vh] overflow-y-auto">
 					<QueuePanel />
 				</div>
 			</Modal>

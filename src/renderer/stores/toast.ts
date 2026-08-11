@@ -13,6 +13,7 @@ export interface Toast {
 	title?: string;
 	message: string;
 	expiresAt: number;
+	count: number;
 }
 
 export interface ToastInput {
@@ -37,16 +38,38 @@ let nextId = 1;
 export const useToastStore = create<ToastStore>()(set => ({
 	toasts: [],
 	push: toast => {
-		const id = nextId++;
-		const entry: Toast = {
-			id,
-			variant: toast.variant ?? "info",
-			title: toast.title,
-			message: toast.message,
-			expiresAt: Date.now() + (toast.durationMs ?? 5000),
-		};
-		set(state => ({ toasts: [...state.toasts, entry].slice(-8) }));
-		return id;
+		const now = Date.now();
+		const variant = toast.variant ?? "info";
+		const expiresAt = now + (toast.durationMs ?? 5000);
+		let resultId = 0;
+		set(state => {
+			const duplicateIndex = state.toasts.findIndex(
+				entry =>
+					entry.expiresAt > now &&
+					entry.variant === variant &&
+					entry.title === toast.title &&
+					entry.message === toast.message,
+			);
+			if (duplicateIndex >= 0) {
+				const duplicate = state.toasts[duplicateIndex];
+				resultId = duplicate.id;
+				const merged: Toast = { ...duplicate, count: duplicate.count + 1, expiresAt };
+				return {
+					toasts: [...state.toasts.slice(0, duplicateIndex), ...state.toasts.slice(duplicateIndex + 1), merged],
+				};
+			}
+			const entry: Toast = {
+				id: nextId++,
+				variant,
+				title: toast.title,
+				message: toast.message,
+				expiresAt,
+				count: 1,
+			};
+			resultId = entry.id;
+			return { toasts: [...state.toasts, entry].slice(-8) };
+		});
+		return resultId;
 	},
 	dismiss: id => set(state => ({ toasts: state.toasts.filter(toast => toast.id !== id) })),
 	pruneExpired: () => {

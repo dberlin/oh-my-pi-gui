@@ -16,7 +16,7 @@ function model(partial: Partial<WireModel> & { provider: string; id: string }): 
 }
 
 function provider(partial: Partial<ProviderInfo> & { id: string }): ProviderInfo {
-	return { name: partial.id, authenticated: true, oauth: false, disabled: false, modelCount: 1, ...partial };
+	return { name: partial.id, authenticated: true, loginAvailable: false, disabled: false, modelCount: 1, ...partial };
 }
 
 function role(partial: Partial<ModelRoleEntry> & { id: string }): ModelRoleEntry {

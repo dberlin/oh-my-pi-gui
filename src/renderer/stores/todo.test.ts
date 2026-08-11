@@ -39,7 +39,7 @@ describe("todo snapshot archive", () => {
 		expect(history[0]?.phases[0]?.tasks.map(task => task.status)).toEqual(["completed", "in_progress"]);
 	});
 
-	it("records the auto-clear transition as an empty snapshot", () => {
+	it("records an explicit clear transition as an empty snapshot", () => {
 		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"])]);
 		useTodoStore.getState().setPhases([]);
 		const history = useTodoStore.getState().history;

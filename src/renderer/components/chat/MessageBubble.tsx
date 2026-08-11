@@ -8,6 +8,7 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { branchSessionFromEntry, isRenderableMessageText } from "../../lib/messages";
 import { toast } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
+import { editArgumentSummary } from "../tools/edit-args";
 import { ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -38,8 +39,10 @@ function toolSummary(toolName: string, input: Record<string, unknown>): string {
 	switch (toolName) {
 		case "read":
 		case "write":
-		case "edit":
 			return pick("path", "file") ?? "";
+		case "edit":
+		case "apply_patch":
+			return editArgumentSummary(input);
 		case "bash":
 			return pick("command", "cmd") ?? "";
 		case "grep":

@@ -26,7 +26,7 @@ import { Badge, Button, Input, Spinner, TextArea } from "../../common";
 import { ArrayChipEditor } from "../../settings/editors/ArrayChipEditor";
 import { EnumerableSelect } from "../../settings/editors/EnumerableSelect";
 import { RecordKvEditor } from "../../settings/editors/RecordKvEditor";
-import { Toggle } from "../../settings/SettingsWindow";
+import { Toggle } from "../../settings/editors/Toggle";
 import { CopyableError } from "./ErrorNote";
 import {
 	type AssembleError,

@@ -35,6 +35,7 @@ interface TodoStore {
 	/** False until the first post-reset setPhases — that one is hydration, not a change. */
 	historyHydrated: boolean;
 	setPhases: (phases: TodoPhase[]) => void;
+	autoClearCompleted: () => void;
 	showReminder: (todos: TodoTask[]) => void;
 	clearReminder: () => void;
 	reset: () => void;
@@ -91,6 +92,13 @@ export const useTodoStore = create<TodoStore>()((set, get) => ({
 		if (history.length > HISTORY_LIMIT) history.shift();
 		set({ phases: next, history, historyHydrated: true });
 	},
+	autoClearCompleted: () =>
+		set({
+			phases: [],
+			reminderVisible: false,
+			reminderTodos: [],
+			historyHydrated: true,
+		}),
 	showReminder: todos => set({ reminderVisible: true, reminderTodos: todos }),
 	clearReminder: () => set({ reminderVisible: false, reminderTodos: [] }),
 	reset: () => set(initialState),

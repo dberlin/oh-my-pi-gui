@@ -1,11 +1,8 @@
 /**
- * Contract tests for mode-state visibility: the composer chips (ComposerModes)
- * and the footer mode badges (StatusFooter) must surface plan/goal/loop/vibe/
- * pause at a glance — accent chip + check + detail tooltip in the composer,
- * small badges beside model/cwd/context in the footer — driven purely by
- * session-store state (loopMode/vibeModeEnabled hydrated from
- * get_loop_mode/get_vibe_mode, loop kept live by loop_mode_update frames).
- * Same linkedom + react-dom harness as use-rpc-events.test.tsx.
+ * Contract tests for mode-state visibility: the compact composer Modes entry
+ * surfaces the active-mode count and keeps each control reachable in its menu;
+ * StatusFooter keeps its glanceable active badges. State comes from the
+ * session store (including loop/vibe hydration and loop updates).
  */
 
 import { parseHTML } from "linkedom";
@@ -37,6 +34,10 @@ interface TestElement {
 	querySelector: (selector: string) => TestElement | null;
 	querySelectorAll: (selector: string) => TestElement[];
 	appendChild: (child: TestElement) => void;
+	title: string;
+	className: string;
+	click: () => void;
+	getAttribute: (name: string) => string | null;
 }
 
 function success(data: unknown): RpcResponse {
@@ -100,12 +101,13 @@ afterEach(async () => {
 });
 
 function buttonByTitle(title: string): TestElement | null {
-	const buttons = container.querySelectorAll("button");
-	return buttons.find(button => (button as unknown as { title: string }).title === title) ?? null;
+	const match = Array.from(document.body.querySelectorAll("button")).find(button => button.title === title);
+	// linkedom's element type and the minimal test facade are structurally equivalent at runtime.
+	return (match ?? null) as unknown as TestElement | null;
 }
 
-describe("ComposerModes chips", () => {
-	it("marks active plan/goal/loop chips with accent styling, a check, and detail tooltips", async () => {
+describe("ComposerModes menu", () => {
+	it("collapses active modes into one highlighted trigger and preserves their detail in the menu", async () => {
 		installMockOmp();
 		useSessionStore.setState({
 			planModeEnabled: true,
@@ -117,46 +119,63 @@ describe("ComposerModes chips", () => {
 				prompt: "keep going",
 				limit: { kind: "iterations", initial: 10, remaining: 7 },
 			},
+			vibeModeEnabled: true,
 		});
 		await mount(<ComposerModes />);
 
-		const plan = buttonByTitle("Plan mode — agent drafts a plan before acting");
-		expect(plan).not.toBeNull();
-		expect((plan as unknown as { className: string }).className).toContain("bg-[var(--omp-accent-dim)]");
-		// Mode icon + check = two svgs on an active chip.
-		expect(plan?.querySelectorAll("svg").length).toBe(2);
+		const trigger = buttonByTitle("Active modes: Plan · Goal · Loop · Vibe");
+		expect(trigger).not.toBeNull();
+		expect(trigger?.className).toContain("bg-[var(--omp-accent-dim)]");
+		expect(trigger?.textContent).toContain("4");
 
-		const goal = buttonByTitle("Goal mode — Ship the activity dock");
-		expect(goal).not.toBeNull();
-		expect((goal as unknown as { className: string }).className).toContain("bg-[var(--omp-accent-dim)]");
-		expect(goal?.querySelectorAll("svg").length).toBe(2);
-
-		const loop = buttonByTitle("Loop mode — 7 of 10 iterations left");
-		expect(loop).not.toBeNull();
-		expect((loop as unknown as { className: string }).className).toContain("bg-[var(--omp-accent-dim)]");
-		expect(loop?.querySelectorAll("svg").length).toBe(2);
-	});
-
-	it("renders inactive chips muted with the static loop tooltip and no check", async () => {
-		installMockOmp();
-		await mount(<ComposerModes />);
-
-		const plan = buttonByTitle("Plan mode — agent drafts a plan before acting");
-		expect((plan as unknown as { className: string }).className).not.toContain("bg-[var(--omp-accent-dim)]");
-		expect(plan?.querySelectorAll("svg").length).toBe(1);
-
-		const loop = buttonByTitle("Loop mode — open the loop panel");
-		expect(loop).not.toBeNull();
-		expect(loop?.querySelectorAll("svg").length).toBe(1);
-	});
-
-	it("opens the Modes window on the loop tab from the loop chip", async () => {
-		installMockOmp();
-		await mount(<ComposerModes />);
-
-		const loop = buttonByTitle("Loop mode — open the loop panel");
 		await act(async () => {
-			(loop as unknown as { click: () => void }).click();
+			trigger?.click();
+		});
+		await flush();
+
+		for (const title of [
+			"Plan mode — agent drafts a plan before acting",
+			"Goal mode — Ship the activity dock",
+			"Loop mode — 7 of 10 iterations left",
+			"Vibe",
+		]) {
+			const row = buttonByTitle(title);
+			expect(row).not.toBeNull();
+			expect(row?.getAttribute("aria-pressed")).toBe("true");
+		}
+	});
+
+	it("keeps inactive controls inside the menu instead of occupying the primary toolbar", async () => {
+		installMockOmp();
+		await mount(<ComposerModes />);
+
+		const trigger = buttonByTitle("Session modes and coding toggles");
+		expect(trigger).not.toBeNull();
+		expect(trigger?.className).not.toContain("bg-[var(--omp-accent-dim)]");
+		expect(container.textContent).toBe("Modes");
+
+		await act(async () => {
+			trigger?.click();
+		});
+		await flush();
+
+		for (const title of ["Plan mode — agent drafts a plan before acting", "Loop mode — open the loop panel"]) {
+			const row = buttonByTitle(title);
+			expect(row).not.toBeNull();
+			expect(row?.getAttribute("aria-pressed")).toBe("false");
+		}
+	});
+
+	it("opens the Modes window on the selected menu tab", async () => {
+		installMockOmp();
+		await mount(<ComposerModes />);
+
+		await act(async () => {
+			buttonByTitle("Session modes and coding toggles")?.click();
+		});
+		await flush();
+		await act(async () => {
+			buttonByTitle("Loop mode — open the loop panel")?.click();
 		});
 		expect(useUiStore.getState().modesOpen).toBe(true);
 		expect(useUiStore.getState().modesTab).toBe("loop");

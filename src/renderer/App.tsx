@@ -13,6 +13,7 @@ import { ContextReportDialog } from "./components/dialogs/ContextReportDialog";
 import { CopySelectorDialog } from "./components/dialogs/CopySelectorDialog";
 import { DebugConsoleDialog } from "./components/dialogs/DebugConsoleDialog";
 import { ExtensionDialog } from "./components/dialogs/ExtensionDialog";
+import { FirstRunOnboardingDialog } from "./components/dialogs/FirstRunOnboardingDialog";
 import { ForceToolDialog } from "./components/dialogs/ForceToolDialog";
 import { HandoffDialog } from "./components/dialogs/HandoffDialog";
 import { HotkeysDialog } from "./components/dialogs/HotkeysDialog";
@@ -573,6 +574,7 @@ export function App() {
 
 			<CommandPalette />
 			<ExtensionDialog />
+			<FirstRunOnboardingDialog />
 			<ModelPicker />
 			<RenameSessionDialog />
 			<WorktreeDialog />

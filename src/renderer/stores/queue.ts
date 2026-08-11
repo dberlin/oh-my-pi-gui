@@ -26,8 +26,6 @@ interface QueueStore {
 /** Invalidates stale get_queue responses across rapid session/tab switches. */
 let refreshVersion = 0;
 
-const EMPTY_QUEUE: RpcGetQueueResult = { steering: [], followUp: [] };
-
 export const useQueueStore = create<QueueStore>()(set => ({
 	steering: [],
 	followUp: [],
@@ -35,12 +33,9 @@ export const useQueueStore = create<QueueStore>()(set => ({
 		const version = ++refreshVersion;
 		try {
 			const response = await window.omp.rpc.getQueue();
-			if (version !== refreshVersion) return;
-			const data = response.success ? (response.data as RpcGetQueueResult | undefined) : undefined;
-			set({
-				steering: data?.steering ?? EMPTY_QUEUE.steering,
-				followUp: data?.followUp ?? EMPTY_QUEUE.followUp,
-			});
+			if (version !== refreshVersion || !response.success) return;
+			const data = response.data as RpcGetQueueResult;
+			set({ steering: data.steering, followUp: data.followUp });
 		} catch {
 			// Sidecar mid-restart or a stale session: keep the last snapshot;
 			// the next hydrate/queue_update refetches.

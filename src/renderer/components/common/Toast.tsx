@@ -48,6 +48,14 @@ export function ToastStack() {
 							)}
 							<div className="text-omp-sm leading-snug break-words text-(--omp-muted)">{entry.message}</div>
 						</div>
+						{entry.count > 1 && (
+							<span
+								className="shrink-0 rounded-full border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xs font-semibold tabular-nums text-(--omp-muted)"
+								title={t("toast.repeated", { count: entry.count })}
+							>
+								×{entry.count}
+							</span>
+						)}
 						<button
 							aria-label={t("common.close")}
 							className="shrink-0 rounded p-0.5 text-(--omp-dim) transition-colors hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"

@@ -43,3 +43,52 @@ describe("messages streaming snapshots", () => {
 		expect(useMessagesStore.getState().streamingText).toBe("new");
 	});
 });
+
+describe("agent-end delivery dedupe", () => {
+	it("does not append a maintenance-rewritten copy of an already delivered tool result", () => {
+		const original: AgentMessage = {
+			role: "toolResult",
+			toolCallId: "call-1",
+			toolName: "read",
+			content: [{ type: "text", text: "full tool output" }],
+			isError: false,
+			timestamp: 10,
+		};
+		const shaken: AgentMessage = {
+			...original,
+			content: [{ type: "text", text: "[Shaken] 35 tokens – recover: artifact://0" }],
+		};
+		const next: AgentMessage = {
+			role: "toolResult",
+			toolCallId: "call-2",
+			toolName: "read",
+			content: [{ type: "text", text: "next result" }],
+			isError: false,
+			timestamp: 11,
+		};
+
+		useMessagesStore.getState().applyEvents([{ type: "agent_start" }, { type: "message_end", message: original }]);
+		useMessagesStore.getState().applyEvents([{ type: "agent_end", messages: [shaken, next] }]);
+
+		expect(useMessagesStore.getState().messages).toEqual([original, next]);
+		expect(useMessagesStore.getState().totalMessages).toBe(2);
+	});
+
+	it("keeps response-id-less assistant tool calls distinct when their wire call ids differ", () => {
+		const first: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "call-a", name: "read", arguments: {} }],
+			timestamp: 20,
+		};
+		const second: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "call-b", name: "read", arguments: {} }],
+			timestamp: 20,
+		};
+
+		useMessagesStore.getState().applyEvents([{ type: "message_end", message: first }]);
+		useMessagesStore.getState().applyEvents([{ type: "agent_end", messages: [second] }]);
+
+		expect(useMessagesStore.getState().messages).toEqual([first, second]);
+	});
+});

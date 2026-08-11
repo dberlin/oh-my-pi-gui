@@ -172,7 +172,10 @@ function fillLiveStores(tag: string): void {
 	});
 	useMessagesStore.setState({ messages: [msg(`hello-${tag}`)], totalMessages: 1 });
 	useTodoStore.getState().setPhases([{ name: `phase-${tag}`, tasks: [] } as TodoPhase]);
-	useQueueStore.setState({ steering: [{ id: `q-${tag}`, text: `steer-${tag}`, timestamp: 1 }], followUp: [] });
+	useQueueStore.setState({
+		steering: [{ id: `q-${tag}`, text: `steer-${tag}`, editable: true, timestamp: 1 }],
+		followUp: [],
+	});
 	useSubagentsStore.setState({
 		subagents: new Map<string, SubagentSnapshot>([
 			[`a-${tag}`, { id: `a-${tag}`, index: 1, agent: "worker", status: "running", lastUpdate: 1, kind: "sub" }],

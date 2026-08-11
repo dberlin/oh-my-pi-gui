@@ -15,6 +15,7 @@ import {
 	type SessionInfoUpdateFrame,
 	type SubagentSnapshot,
 	type ThinkingLevel,
+	type TodoPhase,
 } from "../../shared/rpc-types";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
@@ -42,6 +43,47 @@ const QUIET_NOTICE_SOURCES = new Set(["vision", "xdev"]);
 
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
 const NOTIFY_DEFAULTS = { completion: "on", error: "off", ask: "on" } as const;
+
+function isTodoStatus(value: unknown): value is TodoPhase["tasks"][number]["status"] {
+	return (
+		value === "pending" ||
+		value === "in_progress" ||
+		value === "completed" ||
+		value === "abandoned" ||
+		value === "blocked"
+	);
+}
+
+function isTodoTask(value: unknown): value is TodoPhase["tasks"][number] {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"content" in value &&
+		typeof value.content === "string" &&
+		"status" in value &&
+		isTodoStatus(value.status) &&
+		(!("blocker" in value) || value.blocker === undefined || typeof value.blocker === "string")
+	);
+}
+
+function isTodoPhase(value: unknown): value is TodoPhase {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"name" in value &&
+		typeof value.name === "string" &&
+		"tasks" in value &&
+		Array.isArray(value.tasks) &&
+		value.tasks.every(isTodoTask)
+	);
+}
+
+function todoPhasesFromToolResult(result: unknown): TodoPhase[] | undefined {
+	if (typeof result !== "object" || result === null || !("details" in result)) return undefined;
+	const details = result.details;
+	if (typeof details !== "object" || details === null || !("phases" in details)) return undefined;
+	return Array.isArray(details.phases) && details.phases.every(isTodoPhase) ? details.phases : undefined;
+}
 type NotifyKind = keyof typeof NOTIFY_DEFAULTS;
 
 /**
@@ -401,6 +443,12 @@ export function useRpcEvents(): void {
 						useSessionStore.setState({ awaitingModelSince: null });
 						break;
 					}
+					case "tool_execution_end": {
+						if (event.toolName !== "todo" || event.isError) break;
+						const phases = todoPhasesFromToolResult(event.result);
+						if (phases) useTodoStore.getState().setPhases(phases);
+						break;
+					}
 					case "agent_end": {
 						useSessionStore.setState({ isStreaming: false, awaitingModelSince: null });
 						notifyOnAgentEnd(event);
@@ -488,9 +536,9 @@ export function useRpcEvents(): void {
 						break;
 					}
 					case "todo_auto_clear": {
-						useTodoStore.getState().clearReminder();
-						// Agent auto-cleared completed todos — drop the stale list too.
-						useTodoStore.getState().setPhases([]);
+						// Automatic cleanup is not a second user-visible todo change:
+						// keep the completed snapshot and only clear the live state.
+						useTodoStore.getState().autoClearCompleted();
 						break;
 					}
 					case "thinking_level_changed": {

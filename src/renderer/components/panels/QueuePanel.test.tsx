@@ -27,6 +27,7 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 interface TestElement {
 	textContent: string | null;
 	disabled?: boolean;
+	value?: string;
 	remove(): void;
 	dispatchEvent(event: object): boolean;
 }
@@ -35,7 +36,9 @@ const ok = (data?: unknown) => ({ type: "response" as const, command: "x", succe
 
 let container: TestElement;
 let root: Root;
+let getQueue: Mock;
 let queueMove: Mock;
+let queueEdit: Mock;
 let queueRemove: Mock;
 let queueClear: Mock;
 
@@ -60,19 +63,22 @@ function buttonsByLabel(label: string): TestElement[] {
 	return Array.from(document.querySelectorAll(`button[aria-label="${label}"]`)) as unknown as TestElement[];
 }
 
-function queued(id: string, text: string): RpcQueuedMessage {
-	return { id, text, timestamp: 1 };
+function queued(id: string, text: string, editable = true): RpcQueuedMessage {
+	return { id, text, editable, timestamp: 1 };
 }
 
 async function mount(steering: RpcQueuedMessage[]): Promise<void> {
+	getQueue = vi.fn(async () => ok({ steering, followUp: [] }));
 	queueMove = vi.fn(async () => ok({ lane: "steering", index: 0 }));
+	queueEdit = vi.fn(async () => ok({ updated: true }));
 	queueRemove = vi.fn(async () => ok({ removed: true }));
 	queueClear = vi.fn(async () => ok({ removed: 0 }));
 	(window as unknown as Record<string, unknown>).omp = {
 		rpc: {
 			// The mount-time hydrate pull replaces the store, so it must serve
 			// the same rows the test seeded.
-			getQueue: vi.fn(async () => ok({ steering, followUp: [] })),
+			getQueue,
+			queueEdit,
 			queueMove,
 			queueRemove,
 			queueClear,
@@ -101,6 +107,40 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 });
 
+describe("QueuePanel editing", () => {
+	it("edits a plain queued message in place", async () => {
+		await mount([queued("s1", "before"), queued("s2", "untouched")]);
+		await click(buttonsByLabel("Edit")[0]!);
+		const editor = document.querySelector('textarea[aria-label="Queued message text"]') as unknown as TestElement;
+		editor.value = "after";
+		await act(async () => {
+			editor.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+		});
+		await click(buttonsByLabel("Save")[0]!);
+
+		expect(queueEdit).toHaveBeenCalledWith("s1", "after");
+		expect(useQueueStore.getState().steering.map(entry => entry.text)).toEqual(["after", "untouched"]);
+	});
+
+	it("rolls back an optimistic edit when the transport rejects", async () => {
+		await mount([queued("s1", "before")]);
+		queueEdit.mockRejectedValueOnce(new Error("sidecar unavailable"));
+		await click(buttonsByLabel("Edit")[0]!);
+		const editor = document.querySelector('textarea[aria-label="Queued message text"]') as unknown as TestElement;
+		editor.value = "after";
+		await act(async () => {
+			editor.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+		});
+		await click(buttonsByLabel("Save")[0]!);
+
+		expect(useQueueStore.getState().steering.map(entry => entry.text)).toEqual(["before"]);
+	});
+
+	it("does not offer text editing for structured queued commands", async () => {
+		await mount([queued("s1", "/skill run", false)]);
+		expect(buttonsByLabel("Edit")).toHaveLength(0);
+	});
+});
 describe("QueuePanel move buttons", () => {
 	it("▼ on a middle row calls queue_move with the next index and reorders optimistically", async () => {
 		await mount([queued("s1", "one"), queued("s2", "two"), queued("s3", "three")]);
@@ -138,6 +178,32 @@ describe("QueuePanel move buttons", () => {
 		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1", "s2", "s3"]);
 	});
 
+	it("unwinds overlapping optimistic moves when transport and refresh reject", async () => {
+		await mount([queued("s1", "one"), queued("s2", "two"), queued("s3", "three")]);
+		getQueue.mockRejectedValue(new Error("sidecar unavailable"));
+		const first = Promise.withResolvers<never>();
+		const second = Promise.withResolvers<never>();
+		queueMove.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+		await click(buttonsByLabel("Move down")[0]!);
+		await click(buttonsByLabel("Move down")[1]!);
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s2", "s3", "s1"]);
+
+		await act(async () => {
+			first.reject(new Error("sidecar unavailable"));
+			await Promise.resolve();
+		});
+		await flush();
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s2", "s3", "s1"]);
+
+		await act(async () => {
+			second.reject(new Error("sidecar unavailable"));
+			await Promise.resolve();
+		});
+		await flush();
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1", "s2", "s3"]);
+	});
+
 	it("⇄ on a steering row moves it to the end of the follow-up lane via queue_move with toLane", async () => {
 		await mount([queued("s1", "one"), queued("s2", "two")]);
 		// Seed a non-empty target lane after mount's hydrate pull consumed the mock.
@@ -156,5 +222,15 @@ describe("QueuePanel move buttons", () => {
 		expect(queueMove).toHaveBeenCalledWith("s1", Number.MAX_SAFE_INTEGER, "followUp");
 		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s2"]);
 		expect(useQueueStore.getState().followUp.map(entry => entry.id)).toEqual(["f1", "s1"]);
+	});
+
+	it("rolls back an optimistic cross-lane move when the transport rejects", async () => {
+		await mount([queued("s1", "one"), queued("s2", "two")]);
+		queueMove.mockRejectedValueOnce(new Error("sidecar unavailable"));
+
+		await click(buttonsByLabel("Move to Queued")[0]!);
+
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1", "s2"]);
+		expect(useQueueStore.getState().followUp).toEqual([]);
 	});
 });

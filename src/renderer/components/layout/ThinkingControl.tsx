@@ -86,7 +86,7 @@ export function ThinkingControl() {
 				style={{ color: `var(--omp-thinking-${thinkingLevel ?? "off"})` }}
 			>
 				<Brain size={14} />
-				<span className="hidden sm:inline">{current}</span>
+				<span className="omp-composer-control-label hidden sm:inline">{current}</span>
 				<ChevronDown size={12} className="shrink-0 text-[var(--omp-dim)]" />
 			</button>
 

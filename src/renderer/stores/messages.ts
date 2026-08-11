@@ -60,19 +60,45 @@ const initialState = {
 	isLoadingPage: false,
 };
 
+function assistantToolCallIds(message: AgentMessage): string[] {
+	if (message.role !== "assistant") return [];
+	const content: unknown = message.content;
+	if (!Array.isArray(content)) return [];
+	const blocks: unknown[] = content;
+	const ids: string[] = [];
+	for (const block of blocks) {
+		if (
+			block !== null &&
+			typeof block === "object" &&
+			"type" in block &&
+			block.type === "toolCall" &&
+			"id" in block &&
+			typeof block.id === "string"
+		) {
+			ids.push(block.id);
+		}
+	}
+	return ids;
+}
+
 /**
- * Structural identity for dedupe: the wire assigns no message id, so a message
- * re-delivered across events (message_end → turn_end/agent_end) or fetched
- * while it was streaming (hydration racing the live stream) is matched on the
- * fields that distinguish two transcript entries.
+ * Delivery identity for run-local dedupe. Message content is intentionally
+ * excluded: post-turn maintenance may rewrite a tool result (for example,
+ * replacing its full text with a shake marker) before `agent_end` re-delivers
+ * the run. Those are two representations of one message, not two transcript
+ * entries.
+ *
+ * Provider response ids and tool-call ids strengthen the timestamp identity
+ * where the wire exposes them.
  */
 export function messageIdentityKey(message: AgentMessage): string {
-	return JSON.stringify([
-		message.role,
-		message.toolCallId ?? null,
-		message.timestamp ?? null,
-		message.content ?? null,
-	]);
+	const stableId =
+		message.role === "assistant"
+			? [message.responseId ?? null, assistantToolCallIds(message)]
+			: message.role === "toolResult"
+				? message.toolCallId
+				: null;
+	return JSON.stringify([message.role, stableId, message.timestamp]);
 }
 
 /**
@@ -85,8 +111,8 @@ let deliveredThisRun = new Set<string>();
 /**
  * Merge run-scoped agent_end messages onto the transcript. Messages streamed
  * live via message_end (or hydrated mid-run) already form a suffix of the
- * current list, so find the longest prefix of `run` matching that suffix and
- * append only the remainder. History is never replaced.
+ * current list, so find the longest delivery-identity prefix of `run` matching
+ * that suffix and append only the remainder. History is never replaced.
  */
 function mergeRunMessages(current: AgentMessage[], run: AgentMessage[]): AgentMessage[] {
 	if (run.length === 0) return current;
