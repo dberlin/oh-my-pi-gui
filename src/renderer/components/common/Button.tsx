@@ -22,9 +22,9 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
-	sm: "h-7 gap-1.5 rounded-lg px-2.5 text-[12px]",
-	md: "h-8 gap-1.5 rounded-lg px-3.5 text-[13px]",
-	lg: "h-10 gap-2 rounded-lg px-[18px] text-[14px]",
+	sm: "h-7 gap-1.5 rounded-lg px-2.5 text-omp-md",
+	md: "h-8 gap-1.5 rounded-lg px-3.5 text-omp-lg",
+	lg: "h-10 gap-2 rounded-lg px-[18px] text-omp-lg",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

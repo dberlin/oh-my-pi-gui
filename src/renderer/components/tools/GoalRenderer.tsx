@@ -73,12 +73,12 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 	if (isError) {
 		return (
 			<div className="flex flex-col gap-1.5">
-				<div className="flex items-center gap-1.5 text-[11.5px]">
+				<div className="flex items-center gap-1.5 text-omp-sm">
 					<Target size={12} className="shrink-0 text-[var(--omp-error)]" />
 					<span className="font-semibold text-[var(--omp-text)]">{t("tools.goal.title")}</span>
 					<span className="text-[var(--omp-muted)]">{describeOp(t, op)}</span>
 				</div>
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-error)]">
+				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]">
 					{fallback || t("tools.goal.failed")}
 				</pre>
 			</div>
@@ -87,7 +87,7 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 text-[11.5px]">
+			<div className="flex items-center gap-1.5 text-omp-sm">
 				<Target size={12} className="shrink-0" style={{ color: `var(--omp-${tone})` }} />
 				<span className="font-semibold text-[var(--omp-text)]">{t("tools.goal.title")}</span>
 				<span className="text-[var(--omp-muted)]">{describeOp(t, op)}</span>
@@ -95,9 +95,9 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 				{status && (
 					<span
 						className={cx(
-							"shrink-0 rounded px-1 py-px text-[9.5px] font-semibold",
+							"shrink-0 rounded px-1 py-px text-omp-xxs font-semibold",
 							tone === "muted"
-								? "bg-[var(--omp-bg-tertiary)] text-[var(--omp-muted)]"
+								? "bg-[var(--omp-bg-tertiary)] text-[var(--omp-muted)]" // surface-ok: tiny status pill
 								: tone === "accent"
 									? "bg-[var(--omp-accent)]/15 text-[var(--omp-accent)]"
 									: tone === "success"
@@ -109,12 +109,12 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 					</span>
 				)}
 				{!status && !goal && details != null && (
-					<span className="shrink-0 text-[10px] text-[var(--omp-dim)]">{t("tools.goal.noActive")}</span>
+					<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">{t("tools.goal.noActive")}</span>
 				)}
 			</div>
-			{objective && <div className="text-[11.5px] italic leading-[1.45] text-[var(--omp-muted)]">“{objective}”</div>}
+			{objective && <div className="text-omp-sm italic leading-[1.45] text-[var(--omp-muted)]">“{objective}”</div>}
 			{(tokensUsed != null || tokenBudget != null || timeUsedSeconds > 0) && (
-				<div className="text-[10.5px] tabular-nums text-[var(--omp-dim)]">
+				<div className="text-omp-xs tabular-nums text-[var(--omp-dim)]">
 					{tokensUsed != null && tokenBudget != null
 						? t("tools.goal.tokensOf", {
 								used: formatTokens(tokensUsed),
@@ -131,12 +131,12 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 				</div>
 			)}
 			{report && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-muted)]">
+				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
 					{report}
 				</pre>
 			)}
 			{!objective && !report && goal == null && fallback && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
 					{fallback}
 				</pre>
 			)}

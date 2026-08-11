@@ -21,7 +21,7 @@ export function ImageRenderer({ args, result, isError, isPartial, partialResult 
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-[11px]">
+			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<ImageIcon size={12} className="shrink-0 text-[var(--omp-thinking-xhigh)]" />
 				{path && <span className="min-w-0 flex-1 truncate text-[var(--omp-text)]">{path}</span>}
 				{!path && prompt && <span className="min-w-0 flex-1 truncate text-[var(--omp-muted)]">{prompt}</span>}
@@ -36,7 +36,7 @@ export function ImageRenderer({ args, result, isError, isPartial, partialResult 
 				caption && (
 					<pre
 						className={
-							"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-[11px] leading-[1.45] " +
+							"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45] " +
 							(isError
 								? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 								: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]")
@@ -47,7 +47,7 @@ export function ImageRenderer({ args, result, isError, isPartial, partialResult 
 				)
 			)}
 			{isPartial && !image && !caption && (
-				<div className="text-[11px] italic text-[var(--omp-accent)]">{t("tools.image.generating")}</div>
+				<div className="text-omp-sm italic text-[var(--omp-accent)]">{t("tools.image.generating")}</div>
 			)}
 		</div>
 	);

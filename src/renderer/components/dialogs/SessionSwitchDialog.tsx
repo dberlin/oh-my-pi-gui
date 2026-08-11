@@ -67,7 +67,7 @@ export function SessionSwitchDialog() {
 
 	return (
 		<Modal open={session !== null} onClose={dismiss} title={t("sessionSwitch.title")} size="sm">
-			<p className="text-[13px] leading-relaxed text-(--omp-muted)">{t("sessionSwitch.body", { name })}</p>
+			<p className="text-omp-lg leading-relaxed text-(--omp-muted)">{t("sessionSwitch.body", { name })}</p>
 			<div className="mt-5 flex flex-col gap-2">
 				<Button
 					variant="primary"

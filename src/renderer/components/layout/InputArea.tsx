@@ -38,7 +38,7 @@ import { useSettingsStore } from "../../stores/settings";
 import { restoreTabComposer, useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { ActivityStrip } from "../chat/ActivityStrip";
+import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { ApprovalControl } from "./ApprovalControl";
 import { ComposerModes } from "./ComposerModes";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
@@ -1110,12 +1110,12 @@ export function InputArea() {
 									index === menu.index ? "bg-[var(--omp-selected-bg)]" : "",
 								)}
 							>
-								<span className="font-mono text-[13px] font-medium text-[var(--omp-accent)]">{item.label}</span>
+								<span className="font-mono text-omp-lg font-medium text-[var(--omp-accent)]">{item.label}</span>
 								{item.description && (
-									<span className="truncate text-[12px] text-[var(--omp-muted)]">{item.description}</span>
+									<span className="truncate text-omp-md text-[var(--omp-muted)]">{item.description}</span>
 								)}
 								{item.hint && (
-									<span className="ml-auto shrink-0 font-mono text-[10.5px] text-[var(--omp-dim)]">
+									<span className="ml-auto shrink-0 font-mono text-omp-xs text-[var(--omp-dim)]">
 										{item.hint}
 									</span>
 								)}
@@ -1145,7 +1145,7 @@ export function InputArea() {
 
 				{queueBody !== undefined && (
 					<div
-						className="absolute -top-2 right-5 z-10 flex items-center gap-1.5 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-[10px] font-semibold text-[var(--omp-warning)]"
+						className="absolute -top-2 right-5 z-10 flex items-center gap-1.5 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-omp-xs font-semibold text-[var(--omp-warning)]"
 						style={{ backgroundColor: "var(--omp-bg-primary)" }}
 						title={t("input.queue.title")}
 					>
@@ -1156,12 +1156,12 @@ export function InputArea() {
 				{pasteMenu && (
 					<div className="absolute bottom-full left-0 right-0 z-20 mb-2 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-3 shadow-[var(--omp-shadow-lg)]">
 						<div className="flex items-baseline justify-between gap-3">
-							<span className="text-[12.5px] font-medium text-[var(--omp-text)]">
+							<span className="text-omp-md font-medium text-[var(--omp-text)]">
 								{t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
 							</span>
-							<span className="shrink-0 text-[11px] text-[var(--omp-dim)]">{t("input.paste.hint")}</span>
+							<span className="shrink-0 text-omp-sm text-[var(--omp-dim)]">{t("input.paste.hint")}</span>
 						</div>
-						<pre className="mt-2 max-h-32 overflow-hidden rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-2.5 py-2 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap break-all text-[var(--omp-muted)]">
+						<pre className="mt-2 max-h-32 overflow-hidden rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] px-2.5 py-2 font-mono text-omp-sm leading-[1.5] whitespace-pre-wrap break-all text-[var(--omp-muted)]">
 							{(() => {
 								const lines = pasteMenu.content.split("\n");
 								if (lines.length <= 6) return pasteMenu.content;
@@ -1174,21 +1174,21 @@ export function InputArea() {
 							<button
 								type="button"
 								onClick={choosePasteInline}
-								className="omp-pressable rounded-lg bg-[var(--omp-btn-primary-bg)] px-3 py-1.5 text-[12px] font-medium text-[var(--omp-btn-primary-text)] hover:brightness-110"
+								className="omp-pressable rounded-lg bg-[var(--omp-btn-primary-bg)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-btn-primary-text)] hover:brightness-110"
 							>
 								{t("input.paste.inline")}
 							</button>
 							<button
 								type="button"
 								onClick={choosePasteWrapped}
-								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-[12px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 							>
 								{t("input.paste.wrap")}
 							</button>
 							<button
 								type="button"
 								onClick={choosePasteSaveFile}
-								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-[12px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 							>
 								{t("input.paste.saveFile")}
 							</button>
@@ -1198,16 +1198,16 @@ export function InputArea() {
 
 				{composerMode && modeColor && (
 					<div
-						className="absolute -top-2 left-5 z-10 flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+						className="absolute -top-2 left-5 z-10 flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-omp-xs font-semibold"
 						style={{ borderColor: modeColor, color: modeColor, backgroundColor: "var(--omp-bg-primary)" }}
 						title={composerMode.mode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}
 					>
-						<span className="font-mono text-[11px] leading-none">{composerMode.mode === "bash" ? "!" : "$"}</span>
+						<span className="font-mono text-omp-sm leading-none">{composerMode.mode === "bash" ? "!" : "$"}</span>
 						{composerMode.mode}
 					</div>
 				)}
 
-				<ActivityStrip />
+				<WorkspaceDock />
 
 				<div
 					className="overflow-hidden rounded-lg border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)] transition-[border-color] duration-150 focus-within:border-[var(--omp-input-focus-border)]"
@@ -1289,11 +1289,11 @@ export function InputArea() {
 											? t("input.placeholder.chat")
 											: t("input.placeholder.idle")
 							}
-							className="max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent text-[14.5px] leading-[1.5] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
+							className="max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent text-omp-xl leading-[1.5] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
 						/>
 					</div>
 
-					{argHint && <div className="px-3.5 pb-1 font-mono text-[11px] text-[var(--omp-dim)]">💡 {argHint}</div>}
+					{argHint && <div className="px-3.5 pb-1 font-mono text-omp-sm text-[var(--omp-dim)]">💡 {argHint}</div>}
 
 					<div
 						aria-busy={!routeReady}
@@ -1349,7 +1349,7 @@ export function InputArea() {
 							type="button"
 							onClick={openModelPicker}
 							title={t("input.model")}
-							className="omp-pressable flex h-8 min-w-0 max-w-52 items-center gap-2 rounded-lg px-2.5 text-[12px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							className="omp-pressable flex h-8 min-w-0 max-w-52 items-center gap-2 rounded-lg px-2.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 						>
 							<span className="h-2 w-2 shrink-0 rounded-full bg-[var(--omp-status-model)]" />
 							<span className="truncate">{model?.id ?? t("input.chooseModel")}</span>
@@ -1363,7 +1363,7 @@ export function InputArea() {
 							onClick={() => void useModelStore.getState().toggleFastMode()}
 							title={`${fastModeEnabled ? t("input.fast.on") : t("input.fast.off")}${fastModeActive ? t("input.fast.active") : ""}`}
 							className={cx(
-								"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-medium hover:bg-[var(--omp-selected-bg)]",
+								"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
 								fastModeActive ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
 							)}
 						>
@@ -1379,7 +1379,7 @@ export function InputArea() {
 						{contextUsage && (
 							<div
 								title={t("input.contextTooltip", { percent: Math.round(contextUsage.percent) })}
-								className="hidden items-center gap-2 px-1 text-[11px] tabular-nums text-[var(--omp-dim)] sm:flex"
+								className="hidden items-center gap-2 px-1 text-omp-sm tabular-nums text-[var(--omp-dim)] sm:flex"
 							>
 								<span>{t("input.context")}</span>
 								<div className="h-1.5 w-12 overflow-hidden rounded-full bg-[var(--omp-progress-bg)]">
@@ -1393,7 +1393,7 @@ export function InputArea() {
 						)}
 
 						{queueSplitCount > 1 && (
-							<span className="mr-1 shrink-0 rounded-md border border-[var(--omp-warning)] px-2 py-1 text-[11px] font-medium text-[var(--omp-warning)]">
+							<span className="mr-1 shrink-0 rounded-md border border-[var(--omp-warning)] px-2 py-1 text-omp-sm font-medium text-[var(--omp-warning)]">
 								{t("input.queue.split", { count: queueSplitCount })}
 							</span>
 						)}
@@ -1405,7 +1405,7 @@ export function InputArea() {
 									disabled={!routeReady}
 									onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
 									title={modeTitle}
-									className="omp-pressable h-8 rounded-lg border border-[var(--omp-border)] bg-[var(--omp-bg-primary)] px-3 text-[12px] font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
+									className="omp-pressable h-8 rounded-lg border border-[var(--omp-border)] px-3 text-omp-md font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
 								>
 									{modeLabel}
 								</button>
@@ -1432,7 +1432,7 @@ export function InputArea() {
 						)}
 					</div>
 				</div>
-				<div className="mt-2 text-center text-[11px] text-[var(--omp-dim)]">{t("input.hint")}</div>
+				<div className="mt-2 text-center text-omp-sm text-[var(--omp-dim)]">{t("input.hint")}</div>
 			</div>
 		</div>
 	);

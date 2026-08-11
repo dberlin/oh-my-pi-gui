@@ -76,9 +76,9 @@ export function MetricCard({
 	}[tone];
 	return (
 		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent px-3.5 py-3 transition-colors hover:border-(--omp-border)">
-			<div className="text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">{label}</div>
+			<div className="text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">{label}</div>
 			<div className={`mt-1 text-xl font-semibold tabular-nums ${valueColor}`}>{value}</div>
-			{sub && <div className="mt-0.5 text-[10px] text-(--omp-muted)">{sub}</div>}
+			{sub && <div className="mt-0.5 text-omp-xs text-(--omp-muted)">{sub}</div>}
 		</div>
 	);
 }
@@ -104,12 +104,12 @@ export function StatTable<T>({
 }) {
 	return (
 		<div className="overflow-x-auto rounded-lg border border-(--omp-border-muted)">
-			<table className="w-full border-collapse text-[11px]">
+			<table className="w-full border-collapse text-omp-sm">
 				<thead>
 					<tr className="border-b border-(--omp-border-muted) bg-transparent">
 						{columns.map(column => (
 							<th
-								className={`px-2.5 py-1.5 text-[9px] font-semibold tracking-widest whitespace-nowrap text-(--omp-dim) uppercase ${
+								className={`px-2.5 py-1.5 text-omp-xxs font-semibold tracking-widest whitespace-nowrap text-(--omp-dim) uppercase ${
 									column.align === "right" ? "text-right" : "text-left"
 								}`}
 								key={column.key}
@@ -152,7 +152,7 @@ export function ChartBox({ height = 260, children }: { height?: number; children
 
 export function SectionTitle({ children }: { children: ReactNode }) {
 	return (
-		<h3 className="mb-2 mt-5 text-[10px] font-semibold tracking-widest text-(--omp-dim) uppercase first:mt-0">
+		<h3 className="mb-2 mt-5 text-omp-xs font-semibold tracking-widest text-(--omp-dim) uppercase first:mt-0">
 			{children}
 		</h3>
 	);

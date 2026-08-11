@@ -84,7 +84,7 @@ export function LiveVoiceDialog() {
 				<div className="min-h-24 rounded-lg border border-(--omp-border-muted) bg-transparent p-3 text-sm">
 					{state.transcript ? (
 						<>
-							<div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-(--omp-dim)">
+							<div className="mb-1 text-omp-xs font-semibold uppercase tracking-wide text-(--omp-dim)">
 								{state.transcript.role === "user" ? t("live.you") : t("live.assistant")}
 							</div>
 							<div className="whitespace-pre-wrap text-(--omp-text)">{state.transcript.text}</div>
@@ -113,7 +113,9 @@ function Level({ label, value }: { label: string; value: number }) {
 	return (
 		<div className="grid grid-cols-[5rem_1fr_2.5rem] items-center gap-2 text-xs">
 			<span className="text-(--omp-dim)">{label}</span>
-			<div className="h-2 overflow-hidden rounded-full bg-(--omp-bg-primary)">
+			<div
+				className="h-2 overflow-hidden rounded-full bg-(--omp-bg-primary)" // surface-ok: level meter track
+			>
 				<div className="h-full bg-(--omp-accent) transition-[width] duration-75" style={{ width: `${percent}%` }} />
 			</div>
 			<span className="text-right tabular-nums text-(--omp-dim)">{percent}%</span>

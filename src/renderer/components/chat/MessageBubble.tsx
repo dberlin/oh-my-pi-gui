@@ -111,12 +111,12 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 			<div className="overflow-hidden rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] shadow-[var(--omp-shadow-sm)]">
 				<div className="flex items-center gap-2 border-b border-[var(--omp-border-muted)] px-3.5 py-2">
 					<Terminal className="text-[var(--omp-status-path)]" size={13} />
-					<span className="text-[11.5px] font-semibold text-[var(--omp-text)]">
+					<span className="text-omp-sm font-semibold text-[var(--omp-text)]">
 						{python ? t("chat.exec.python") : t("chat.exec.shell")}
 					</span>
 					<span
 						className={cx(
-							"ml-auto rounded-full px-2 py-0.5 font-mono text-[9.5px] font-medium tracking-wide",
+							"ml-auto rounded-full px-2 py-0.5 font-mono text-omp-xxs font-medium tracking-wide",
 							running && "animate-pulse",
 						)}
 						style={{
@@ -139,19 +139,19 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 								setAbortSent(true);
 								void window.omp.rpc.abortEval();
 							}}
-							className="omp-pressable flex items-center rounded-full px-2 py-0.5 text-[9.5px] font-medium tracking-wide text-[var(--omp-error)] hover:bg-[var(--omp-error-dim)] disabled:opacity-50"
+							className="omp-pressable flex items-center rounded-full px-2 py-0.5 text-omp-xxs font-medium tracking-wide text-[var(--omp-error)] hover:bg-[var(--omp-error-dim)] disabled:opacity-50"
 						>
 							{t("common.cancel")}
 						</button>
 					)}
 				</div>
 				{input && (
-					<pre className="border-b border-[var(--omp-border-muted)] px-3.5 py-2.5 font-mono text-[11.5px] leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-status-path)]">
+					<pre className="border-b border-[var(--omp-border-muted)] px-3.5 py-2.5 font-mono text-omp-sm leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-status-path)]">
 						{python ? input : `$ ${input}`}
 					</pre>
 				)}
 				{!running && (
-					<pre className="max-h-80 overflow-auto px-3.5 py-2.5 font-mono text-[11.5px] leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]">
+					<pre className="max-h-80 overflow-auto px-3.5 py-2.5 font-mono text-omp-sm leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]">
 						{message.output || t("chat.exec.noOutput")}
 						{message.truncated ? `\n${t("chat.exec.truncated")}` : ""}
 					</pre>
@@ -175,8 +175,8 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 
 	return (
 		<div className="omp-context-turn omp-fade-up px-6 py-3">
-			<div className="rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-bg-tertiary)] px-3.5 py-3">
-				<div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold tracking-[0.12em] text-[var(--omp-status-context)] uppercase">
+			<div className="rounded-[10px] border border-[var(--omp-border-muted)] px-3.5 py-3">
+				<div className="mb-2 flex items-center gap-1.5 text-omp-xs font-bold tracking-[0.12em] text-[var(--omp-status-context)] uppercase">
 					{isFiles ? <FileText size={12} /> : <Archive size={12} />}
 					{label}
 				</div>
@@ -187,11 +187,11 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 								className="overflow-hidden rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)]"
 								key={file.path}
 							>
-								<summary className="cursor-pointer px-3 py-2 font-mono text-[11px] text-[var(--omp-status-path)]">
+								<summary className="cursor-pointer px-3 py-2 font-mono text-omp-sm text-[var(--omp-status-path)]">
 									{file.path}
 									{file.skippedReason ? ` — ${file.skippedReason}` : ""}
 								</summary>
-								<pre className="max-h-72 overflow-auto border-t border-[var(--omp-border-muted)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]">
+								<pre className="max-h-72 overflow-auto border-t border-[var(--omp-border-muted)] px-3 py-2.5 font-mono text-omp-xs leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]">
 									{file.content.slice(0, FILE_PREVIEW_CHARS)}
 									{file.content.length > FILE_PREVIEW_CHARS ? `\n${t("chat.context.previewTruncated")}` : ""}
 								</pre>
@@ -283,7 +283,7 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 						<span className="omp-user-bubble-author">{t("live.you")}</span>
 						<div className="omp-user-bubble-content">
 							{isSteering && (
-								<div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
+								<div className="mb-1.5 flex items-center gap-1.5 text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
 									<span className="h-1 w-1 rounded-full bg-current" />
 									{t("chat.steering")}
 								</div>
@@ -291,7 +291,7 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 							{content.map((block, i) => {
 								if (block.type === "text") {
 									return (
-										<div key={i} className="text-[14.5px] leading-[1.6] text-[var(--omp-text)]">
+										<div key={i} className="text-omp-xl leading-[1.6] text-[var(--omp-text)]">
 											<MarkdownRenderer content={block.text} />
 										</div>
 									);
@@ -303,7 +303,7 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 							})}
 						</div>
 					</div>
-					<div className="omp-user-bubble-actions flex items-center gap-1.5 text-[10.5px] tabular-nums text-[var(--omp-dim)]">
+					<div className="omp-user-bubble-actions flex items-center gap-1.5 text-omp-xs tabular-nums text-[var(--omp-dim)]">
 						{timestamp && <span className="font-mono">{timestamp}</span>}
 						<button
 							type="button"
@@ -380,25 +380,25 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 		>
 			<div className="min-w-0 flex-1">
 				{customLabel && (
-					<div className="mb-2 text-[11px] font-bold tracking-[0.1em] text-[var(--omp-status-context)] uppercase">
+					<div className="mb-2 text-omp-sm font-bold tracking-[0.1em] text-[var(--omp-status-context)] uppercase">
 						{customLabel}
 					</div>
 				)}
 				{isSteering && (
-					<div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-[var(--omp-custom-msg-label)]">
+					<div className="mb-2 flex items-center gap-1.5 text-omp-sm font-bold uppercase tracking-[0.1em] text-[var(--omp-custom-msg-label)]">
 						<span className="h-1.5 w-1.5 rounded-full bg-current" />
 						{t("chat.steeringResponse")}
 					</div>
 				)}
 				{blocks}
 				{message.errorMessage && (
-					<div className="omp-message-error mt-2 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5 text-[13px] leading-relaxed text-[var(--omp-error)]">
+					<div className="omp-message-error mt-2 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5 text-omp-lg leading-relaxed text-[var(--omp-error)]">
 						{message.errorMessage}
 					</div>
 				)}
 				<UsageRow message={message} />
 				{!compactChrome && (
-					<div className="mt-2 flex items-center gap-1.5 text-[10.5px] tabular-nums text-[var(--omp-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+					<div className="mt-2 flex items-center gap-1.5 text-omp-xs tabular-nums text-[var(--omp-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
 						{timestamp && <span className="font-mono">{timestamp}</span>}
 						<button
 							type="button"

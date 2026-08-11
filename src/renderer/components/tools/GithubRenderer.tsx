@@ -230,7 +230,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-[11px]">
+			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<Icon
 					size={12}
 					className="shrink-0"
@@ -239,7 +239,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 				<span className="text-[var(--omp-muted)]">{opTitle}</span>
 				{entity.repo && <span className="truncate text-[var(--omp-status-path)]">{entity.repo}</span>}
 				{watch?.state === "watching" && (
-					<span className="ml-auto shrink-0 animate-pulse text-[10px] text-[var(--omp-accent)]">watching…</span>
+					<span className="ml-auto shrink-0 animate-pulse text-omp-xs text-[var(--omp-accent)]">watching…</span>
 				)}
 				{externalUrl && entity.number == null && !entity.title && (
 					<button
@@ -256,16 +256,16 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 			{(entity.title || entity.number != null) && (
 				<div className="flex items-center gap-2 rounded-md bg-[var(--omp-code-bg)] px-2 py-1.5">
 					{entity.number != null && (
-						<span className="shrink-0 font-mono text-[11px] font-semibold text-[var(--omp-dim)]">
+						<span className="shrink-0 font-mono text-omp-sm font-semibold text-[var(--omp-dim)]">
 							#{entity.number}
 						</span>
 					)}
-					<span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--omp-text)]">
+					<span className="min-w-0 flex-1 truncate text-omp-md font-medium text-[var(--omp-text)]">
 						{entity.title ?? t("tools.github.untitled")}
 					</span>
 					{entity.state && (
 						<span
-							className="shrink-0 rounded-full px-1.5 py-px text-[9.5px] font-semibold capitalize"
+							className="shrink-0 rounded-full px-1.5 py-px text-omp-xxs font-semibold capitalize"
 							style={{
 								color: STATE_COLOR[entity.state.toLowerCase()] ?? "var(--omp-muted)",
 								background: "var(--omp-bg-tertiary)",
@@ -289,30 +289,30 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 
 			{watch && (
 				<div className="flex flex-col gap-1">
-					{watch.note && <div className="text-[10.5px] text-[var(--omp-dim)]">{watch.note}</div>}
+					{watch.note && <div className="text-omp-xs text-[var(--omp-dim)]">{watch.note}</div>}
 					{watch.runs.map((run, ri) => (
 						<div
 							key={run.id ?? ri}
-							className="rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.7]"
+							className="rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]"
 						>
 							<div className="flex items-center gap-2">
 								<span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]">{run.label}</span>
 								{run.branch && (
-									<span className="shrink-0 text-[10px] text-[var(--omp-text)]">{run.branch}</span>
+									<span className="shrink-0 text-omp-xs text-[var(--omp-text)]">{run.branch}</span>
 								)}
 								{run.id != null && (
-									<span className="shrink-0 text-[10px] text-[var(--omp-dim)]">#{run.id}</span>
+									<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">#{run.id}</span>
 								)}
 							</div>
 							{run.jobs.length === 0 && (
-								<div className="text-[10px] text-[var(--omp-dim)]">waiting for workflow jobs…</div>
+								<div className="text-omp-xs text-[var(--omp-dim)]">waiting for workflow jobs…</div>
 							)}
 							{run.jobs.map(job => (
 								<div key={job.id ?? job.name} className="flex items-center gap-2">
 									<span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: jobColor(job) }} />
 									<span className="min-w-0 flex-1 truncate text-[var(--omp-muted)]">{job.name}</span>
 									{job.durationSeconds != null && (
-										<span className="shrink-0 text-[10px] tabular-nums text-[var(--omp-dim)]">
+										<span className="shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
 											{job.durationSeconds}s
 										</span>
 									)}
@@ -322,15 +322,15 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 					))}
 					{watch.failedLogs.map((log, i) => (
 						<div key={i} className="rounded bg-[var(--omp-tool-error-bg)]/40 px-2 py-1">
-							<div className="font-mono text-[10.5px] text-[var(--omp-error)]">
+							<div className="font-mono text-omp-xs text-[var(--omp-error)]">
 								{log.jobName ?? "job"} <span className="text-[var(--omp-dim)]">{log.context}</span>
 							</div>
 							{log.available && log.tail ? (
-								<pre className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-[1.45] text-[var(--omp-muted)]">
+								<pre className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-omp-xs leading-[1.45] text-[var(--omp-muted)]">
 									{log.tail}
 								</pre>
 							) : (
-								<div className="text-[10px] text-[var(--omp-dim)]">log tail unavailable</div>
+								<div className="text-omp-xs text-[var(--omp-dim)]">log tail unavailable</div>
 							)}
 						</div>
 					))}
@@ -338,13 +338,13 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 			)}
 
 			{body && (
-				<pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
 					{body}
 				</pre>
 			)}
 
 			{!entity.title && entity.number == null && !watch && !body && (
-				<div className="text-[11px] italic text-[var(--omp-dim)]">
+				<div className="text-omp-sm italic text-[var(--omp-dim)]">
 					{isPartial ? t("tools.github.querying") : t("tools.github.noEntity")}
 				</div>
 			)}

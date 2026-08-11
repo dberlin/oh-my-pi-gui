@@ -207,7 +207,7 @@ export function StatusFooter() {
 	return (
 		<footer
 			aria-busy={!routeReady}
-			className={`flex h-7 shrink-0 items-center overflow-hidden border-t border-[var(--omp-border-muted)] px-3 whitespace-nowrap text-[11px] text-[var(--omp-muted)] ${routeReady ? "" : "pointer-events-none"}`}
+			className={`flex h-7 shrink-0 items-center overflow-hidden border-t border-[var(--omp-border-muted)] px-3 whitespace-nowrap text-omp-sm text-[var(--omp-muted)] ${routeReady ? "" : "pointer-events-none"}`}
 		>
 			<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
 				<button

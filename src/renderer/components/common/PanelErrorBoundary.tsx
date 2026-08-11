@@ -19,14 +19,14 @@ function Fallback({ error, onRetry }: { error: Error; onRetry: () => void }) {
 	const t = useT();
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-8 text-center">
-			<span className="text-[12px] font-medium text-[var(--omp-error)]">{t("errorBoundary.title")}</span>
-			<span className="max-w-full break-words font-mono text-[10.5px] leading-snug text-[var(--omp-dim)]">
+			<span className="text-omp-md font-medium text-[var(--omp-error)]">{t("errorBoundary.title")}</span>
+			<span className="max-w-full break-words font-mono text-omp-xs leading-snug text-[var(--omp-dim)]">
 				{error.message}
 			</span>
 			<button
 				type="button"
 				onClick={onRetry}
-				className="omp-pressable mt-1 rounded-lg border border-[var(--omp-border)] px-3 py-1 text-[11px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+				className="omp-pressable mt-1 rounded-lg border border-[var(--omp-border)] px-3 py-1 text-omp-sm font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 			>
 				{t("errorBoundary.retry")}
 			</button>

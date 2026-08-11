@@ -189,7 +189,7 @@ function SortHeader({
 		<th className={cx("px-3 py-2 font-semibold whitespace-nowrap", className)}>
 			<button
 				className={cx(
-					"inline-flex items-center gap-1 text-[10px] tracking-wider uppercase transition-colors",
+					"inline-flex items-center gap-1 text-omp-xs tracking-wider uppercase transition-colors",
 					active ? "text-(--omp-text)" : "text-(--omp-muted) hover:text-(--omp-text)",
 				)}
 				onClick={() => onSort(sortKey)}
@@ -231,7 +231,7 @@ function RoleTag({ role, metadata }: { role: ModelRoleEntry; metadata?: ModelRol
 	const color = ROLE_COLORS[metadata?.color ?? role.color] ?? ROLE_COLORS.default;
 	return (
 		<span
-			className="rounded px-1.5 py-px text-[9px] font-bold tracking-wider whitespace-nowrap"
+			className="rounded px-1.5 py-px text-omp-xxs font-bold tracking-wider whitespace-nowrap"
 			style={{ backgroundColor: `${color}20`, color }}
 			title={metadata?.name ?? role.name}
 		>
@@ -472,21 +472,25 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 		);
 	} else if (rows.length === 0) {
 		body = (
-			<div className="rounded-md border border-(--omp-border-muted) px-3 py-8 text-center text-[12px] text-(--omp-dim)">
+			<div className="rounded-md border border-(--omp-border-muted) px-3 py-8 text-center text-omp-md text-(--omp-dim)">
 				{t("modelCompare.emptyCatalog")}
 			</div>
 		);
 	} else if (visibleRows.length === 0) {
 		body = (
-			<div className="rounded-md border border-(--omp-border-muted) px-3 py-8 text-center text-[12px] text-(--omp-dim)">
+			<div className="rounded-md border border-(--omp-border-muted) px-3 py-8 text-center text-omp-md text-(--omp-dim)">
 				{t("modelCompare.empty")}
 			</div>
 		);
 	} else {
 		body = (
 			<div className="min-h-0 flex-1 overflow-auto rounded-lg border border-(--omp-border-muted)">
-				<table className="w-full border-collapse text-left text-[12px]">
-					<thead className="sticky top-0 z-10 bg-(--omp-bg-secondary) shadow-[0_1px_0_var(--omp-border-muted)]">
+				<table className="w-full border-collapse text-left text-omp-md">
+					<thead
+						className={
+							"sticky top-0 z-10 bg-(--omp-bg-secondary) shadow-[0_1px_0_var(--omp-border-muted)]" /* surface-ok: sticky thead must paint over scrolling rows */
+						}
+					>
 						<tr>
 							<SortHeader
 								label={t("modelCompare.col.provider")}
@@ -511,7 +515,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 							/>
 							<SortHeader label={t("modelCompare.col.quota")} onSort={handleSort} sort={sort} sortKey="quota" />
 							<SortHeader label={t("modelCompare.col.roles")} onSort={handleSort} sort={sort} sortKey="roles" />
-							<th className="px-3 py-2 text-right text-[10px] font-semibold tracking-wider whitespace-nowrap text-(--omp-muted) uppercase">
+							<th className="px-3 py-2 text-right text-omp-xs font-semibold tracking-wider whitespace-nowrap text-(--omp-muted) uppercase">
 								{t("modelCompare.col.actions")}
 							</th>
 						</tr>
@@ -548,14 +552,14 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 									<td className="max-w-[260px] px-3 py-2">
 										<div className="flex min-w-0 flex-col">
 											<div className="flex items-center gap-1.5">
-												<span className="truncate font-mono text-[11px] text-(--omp-text)">{row.id}</span>
+												<span className="truncate font-mono text-omp-sm text-(--omp-text)">{row.id}</span>
 												{active && (
 													<Badge dot variant="info">
 														{t("modelCompare.current")}
 													</Badge>
 												)}
 											</div>
-											{row.name && <span className="truncate text-[10px] text-(--omp-dim)">{row.name}</span>}
+											{row.name && <span className="truncate text-omp-xs text-(--omp-dim)">{row.name}</span>}
 										</div>
 									</td>
 									<td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
@@ -604,7 +608,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 										<div className="flex items-center justify-end gap-1.5">
 											<select
 												aria-label={t("modelCompare.assignRole")}
-												className="h-6 max-w-[140px] rounded border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-1.5 text-[10px] text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none disabled:opacity-45"
+												className="h-6 max-w-[140px] rounded border border-(--omp-border-muted) bg-(--omp-input-bg) px-1.5 text-omp-xs text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none disabled:opacity-45"
 												disabled={busy || roles === null}
 												onChange={event => void assignRole(row, event.target.value)}
 												value={row.roles[0]?.id ?? ""}
@@ -647,7 +651,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 		<Modal onClose={onClose} open={open} size="full" title={t("modelCompare.title")}>
 			<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
 				<div className="flex shrink-0 flex-wrap items-center gap-2">
-					<div className="flex min-w-[200px] flex-1 items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-1.5">
+					<div className="flex min-w-[200px] flex-1 items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2.5 py-1.5">
 						<Search className="shrink-0 text-(--omp-dim)" size={13} />
 						<input
 							aria-label={t("modelCompare.search")}
@@ -659,7 +663,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 					</div>
 					<select
 						aria-label={t("modelCompare.allProviders")}
-						className="h-7 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-2 text-[11px] text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none"
+						className="h-7 rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2 text-omp-sm text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none"
 						onChange={event => setProviderFilter(event.target.value)}
 						value={providerFilter}
 					>
@@ -673,7 +677,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 					<button
 						aria-pressed={authOnly}
 						className={cx(
-							"flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium whitespace-nowrap transition-colors",
+							"flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-omp-sm font-medium whitespace-nowrap transition-colors",
 							authOnly
 								? "border-(--omp-accent) bg-(--omp-selected-bg) text-(--omp-text)"
 								: "border-(--omp-border-muted) bg-transparent text-(--omp-muted) hover:text-(--omp-text)",
@@ -694,14 +698,14 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 						{t("modelCompare.refresh")}
 					</Button>
 					{models !== null && (
-						<span className="ml-auto text-[10px] whitespace-nowrap text-(--omp-dim) tabular-nums">
+						<span className="ml-auto text-omp-xs whitespace-nowrap text-(--omp-dim) tabular-nums">
 							{t("modelCompare.count", { shown: visibleRows.length, total: rows.length })}
 						</span>
 					)}
 				</div>
 
 				{failedSections.length > 0 && (
-					<div className="shrink-0 rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-[11px] text-(--omp-warning)">
+					<div className="shrink-0 rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-omp-sm text-(--omp-warning)">
 						{t("modelCompare.partialWarning", { what: failedSections.join(", ") })}
 					</div>
 				)}

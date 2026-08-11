@@ -199,7 +199,7 @@ export function SessionPickerDialog() {
 	const showOptions = !error && !loading && filtered.length > 0;
 
 	const toggleButton =
-		"flex h-5 w-5 shrink-0 items-center justify-center rounded border border-(--omp-border-muted) bg-(--omp-bg-tertiary) text-(--omp-dim) transition-colors hover:text-(--omp-text)";
+		"flex h-5 w-5 shrink-0 items-center justify-center rounded border border-(--omp-border-muted) text-(--omp-dim) transition-colors hover:text-(--omp-text)";
 
 	return (
 		<Modal
@@ -254,7 +254,7 @@ export function SessionPickerDialog() {
 					>
 						<FolderTree size={11} />
 					</button>
-					<kbd className="shrink-0 rounded border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-1.5 py-0.5 text-[9px] text-(--omp-dim)">
+					<kbd className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xxs text-(--omp-dim)">
 						esc
 					</kbd>
 				</div>
@@ -313,7 +313,7 @@ export function SessionPickerDialog() {
 										>
 											{title}
 										</span>
-										<span className="block truncate text-[10.5px] text-(--omp-muted)">
+										<span className="block truncate text-omp-xs text-(--omp-muted)">
 											{effectiveShowPath && session.cwd ? session.cwd : basename(session.cwd)} ·{" "}
 											{t("sessionPicker.messageCount", { count: session.messageCount })} ·{" "}
 											{formatTimeAgo(session.modified)}

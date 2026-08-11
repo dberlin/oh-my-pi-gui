@@ -140,7 +140,7 @@ export function ImportForeignDialog() {
 						type="button"
 						onClick={() => setSource(candidate)}
 						className={cx(
-							"rounded-lg px-3 py-1.5 text-[12px] font-medium capitalize",
+							"rounded-lg px-3 py-1.5 text-omp-md font-medium capitalize",
 							source === candidate
 								? "bg-(--omp-btn-primary-bg) text-(--omp-btn-primary-text)"
 								: "border border-(--omp-border) text-(--omp-muted) hover:bg-(--omp-selected-bg)",
@@ -161,13 +161,13 @@ export function ImportForeignDialog() {
 					</div>
 				)}
 				{state?.error && (
-					<div className="px-4 py-6 text-center text-[12px] text-(--omp-muted)">
+					<div className="px-4 py-6 text-center text-omp-md text-(--omp-muted)">
 						{t("import.sourceUnavailable", { source })}
-						<div className="mt-1 text-[11px] text-(--omp-dim)">{state.error}</div>
+						<div className="mt-1 text-omp-sm text-(--omp-dim)">{state.error}</div>
 					</div>
 				)}
 				{!state?.loading && !state?.error && filtered.length === 0 && (
-					<div className="px-4 py-6 text-center text-[12px] text-(--omp-dim)">{t("import.empty")}</div>
+					<div className="px-4 py-6 text-center text-omp-md text-(--omp-dim)">{t("import.empty")}</div>
 				)}
 				{!state?.loading &&
 					!state?.error &&
@@ -183,14 +183,14 @@ export function ImportForeignDialog() {
 								className="mt-1"
 							/>
 							<span className="min-w-0 flex-1">
-								<span className="block truncate text-[12.5px] font-medium text-(--omp-text)">
+								<span className="block truncate text-omp-md font-medium text-(--omp-text)">
 									{session.title ?? session.firstMessage ?? t("import.untitled")}
 								</span>
-								<span className="mt-0.5 block truncate font-mono text-[10.5px] text-(--omp-dim)">
+								<span className="mt-0.5 block truncate font-mono text-omp-xs text-(--omp-dim)">
 									{session.cwd}
 								</span>
 							</span>
-							<span className="shrink-0 text-right text-[10.5px] text-(--omp-dim)">
+							<span className="shrink-0 text-right text-omp-xs text-(--omp-dim)">
 								{formatTimeAgo(session.modified)}
 								{session.messageCount !== undefined && (
 									<span className="block">{t("import.messages", { count: session.messageCount })}</span>
@@ -201,7 +201,7 @@ export function ImportForeignDialog() {
 			</div>
 
 			<div className="mt-3 flex items-center gap-3">
-				<span className="text-[11px] text-(--omp-dim)">{t("import.copyNote")}</span>
+				<span className="text-omp-sm text-(--omp-dim)">{t("import.copyNote")}</span>
 				<span className="ml-auto">
 					<Button
 						disabled={selected.size === 0 || importing}

@@ -138,7 +138,7 @@ export function Modal({
 			>
 				{!chromeless && (
 					<div className="flex shrink-0 items-center justify-between gap-3 border-b border-(--omp-border-muted) px-5 py-3.5">
-						<div className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em] text-(--omp-text)">
+						<div className="min-w-0 truncate text-omp-xl font-semibold tracking-[-0.01em] text-(--omp-text)">
 							{title}
 						</div>
 						<button

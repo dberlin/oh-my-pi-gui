@@ -44,7 +44,7 @@ export function CopyButton({ text, className }: { text: string; className?: stri
 		<button
 			aria-label={copied ? t("mcp.card.copied") : t("mcp.card.copy")}
 			className={cx(
-				"inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[10px] transition-colors",
+				"inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-omp-xs transition-colors",
 				copied ? "text-(--omp-success)" : "text-(--omp-dim) hover:text-(--omp-text)",
 				className,
 			)}
@@ -75,8 +75,8 @@ export function CopyableError({ title, text, className }: { title?: string; text
 		>
 			<div className="flex items-start gap-2">
 				<div className="min-w-0 flex-1">
-					{title && <span className="mb-0.5 block text-[11px] font-medium text-(--omp-error)">{title}</span>}
-					<span className="block whitespace-pre-wrap break-all font-mono text-[10.5px] text-(--omp-error)">
+					{title && <span className="mb-0.5 block text-omp-sm font-medium text-(--omp-error)">{title}</span>}
+					<span className="block whitespace-pre-wrap break-all font-mono text-omp-xs text-(--omp-error)">
 						{text}
 					</span>
 				</div>
@@ -112,7 +112,7 @@ export function McpTestResultView({
 				)}
 			>
 				<Spinner size="sm" />
-				<span className="text-[11px] text-(--omp-muted)">{t("mcp.wizard.testing")}</span>
+				<span className="text-omp-sm text-(--omp-muted)">{t("mcp.wizard.testing")}</span>
 			</div>
 		);
 	}
@@ -127,10 +127,10 @@ export function McpTestResultView({
 			>
 				<div className="flex items-start gap-2">
 					<div className="min-w-0 flex-1">
-						<span className="mb-0.5 block text-[11px] font-medium text-(--omp-error)">
+						<span className="mb-0.5 block text-omp-sm font-medium text-(--omp-error)">
 							{t("mcp.test.failed")}
 						</span>
-						<span className="block whitespace-pre-wrap break-all font-mono text-[10.5px] text-(--omp-error)">
+						<span className="block whitespace-pre-wrap break-all font-mono text-omp-xs text-(--omp-error)">
 							{view.error || t("mcp.test.unknownError")}
 						</span>
 					</div>
@@ -152,7 +152,7 @@ export function McpTestResultView({
 	return (
 		<div className={cx("rounded-md bg-(--omp-tool-success-bg) px-2.5 py-1.5", className)}>
 			<div className="flex items-center gap-2">
-				<span className="min-w-0 flex-1 text-[11px] font-medium text-(--omp-success)">
+				<span className="min-w-0 flex-1 text-omp-sm font-medium text-(--omp-success)">
 					{view.toolCount > 0 ? t("mcp.test.ok", { count: view.toolCount }) : t("mcp.test.okNoTools")}
 				</span>
 				{onDismiss && (
@@ -171,14 +171,14 @@ export function McpTestResultView({
 				<div className="mt-1 flex flex-wrap items-center gap-1">
 					{view.shown.map(name => (
 						<code
-							className="rounded bg-(--omp-bg-tertiary) px-1.5 py-px font-mono text-[10px] text-(--omp-muted)"
+							className="rounded bg-(--omp-code-bg) px-1.5 py-px font-mono text-omp-xs text-(--omp-muted)"
 							key={name}
 						>
 							{name}
 						</code>
 					))}
 					{view.extra > 0 && (
-						<span className="text-[10px] text-(--omp-dim)">{t("mcp.test.more", { count: view.extra })}</span>
+						<span className="text-omp-xs text-(--omp-dim)">{t("mcp.test.more", { count: view.extra })}</span>
 					)}
 				</div>
 			)}

@@ -63,11 +63,11 @@ export function AddMarketplaceForm({ onAdded }: { onAdded: () => Promise<void> }
 
 	return (
 		<div className="flex flex-col gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
-			<span className="text-[12px] font-medium text-(--omp-text)">{t("marketplace.addTitle")}</span>
+			<span className="text-omp-md font-medium text-(--omp-text)">{t("marketplace.addTitle")}</span>
 			<div className="flex items-start gap-2">
 				<input
 					aria-label={t("marketplace.addTitle")}
-					className="min-w-0 flex-1 rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2.5 py-1.5 font-mono text-[11.5px] text-(--omp-text) placeholder:text-(--omp-dim) focus:border-(--omp-input-focus-border) focus:outline-none disabled:opacity-50"
+					className="min-w-0 flex-1 rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2.5 py-1.5 font-mono text-omp-sm text-(--omp-text) placeholder:text-(--omp-dim) focus:border-(--omp-input-focus-border) focus:outline-none disabled:opacity-50"
 					disabled={busy}
 					onChange={event => {
 						setSource(event.target.value);
@@ -91,7 +91,7 @@ export function AddMarketplaceForm({ onAdded }: { onAdded: () => Promise<void> }
 					{t("marketplace.add")}
 				</Button>
 			</div>
-			<span className="text-[10.5px] leading-snug text-(--omp-dim)">{t("marketplace.sourceHint")}</span>
+			<span className="text-omp-xs leading-snug text-(--omp-dim)">{t("marketplace.sourceHint")}</span>
 			{error && <CopyableError copyLabel={t("marketplace.copyError")} message={error} />}
 		</div>
 	);
@@ -119,14 +119,12 @@ function AvailablePluginRow({
 		<div className="flex items-center gap-3 rounded-md border border-(--omp-border-muted) bg-transparent px-2.5 py-2">
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex flex-wrap items-center gap-1.5">
-					<span className="text-[12px] font-medium text-(--omp-text)">{plugin.name}</span>
-					{plugin.version && (
-						<span className="text-[10.5px] tabular-nums text-(--omp-dim)">v{plugin.version}</span>
-					)}
+					<span className="text-omp-md font-medium text-(--omp-text)">{plugin.name}</span>
+					{plugin.version && <span className="text-omp-xs tabular-nums text-(--omp-dim)">v{plugin.version}</span>}
 					{plugin.installed && <Badge variant="success">{t("marketplace.installed")}</Badge>}
 				</div>
 				{plugin.description && (
-					<span className="text-[11px] leading-snug text-(--omp-dim)">{plugin.description}</span>
+					<span className="text-omp-sm leading-snug text-(--omp-dim)">{plugin.description}</span>
 				)}
 			</div>
 			<div className="flex shrink-0 items-center gap-1.5">
@@ -293,7 +291,7 @@ export function MarketplaceCard({
 				</button>
 				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 					<div className="flex flex-wrap items-center gap-1.5">
-						<span className="text-[13px] font-medium text-(--omp-text)">{marketplace.name}</span>
+						<span className="text-omp-lg font-medium text-(--omp-text)">{marketplace.name}</span>
 						{marketplace.pluginCount !== undefined ? (
 							<Badge variant="default">
 								{t("invPanel.marketplaces.pluginCount", { count: marketplace.pluginCount })}
@@ -303,9 +301,9 @@ export function MarketplaceCard({
 						)}
 						{/* Catalogs are cache-backed — the note is always visible; the
 						    timestamp rides along when the wire carries one. */}
-						<span className="text-[10px] text-(--omp-dim)">{cacheNote}</span>
+						<span className="text-omp-xs text-(--omp-dim)">{cacheNote}</span>
 					</div>
-					<div className="flex items-center gap-3 text-[11px] text-(--omp-dim)">
+					<div className="flex items-center gap-3 text-omp-sm text-(--omp-dim)">
 						<span className="truncate font-mono" title={marketplace.source}>
 							{shortenSource(marketplace.source)}
 						</span>
@@ -361,7 +359,7 @@ export function MarketplaceCard({
 				<CopyableError className="mx-3 mb-2" copyLabel={t("marketplace.copyError")} message={cardError} />
 			)}
 			{expanded && (
-				<div className="flex flex-col gap-2 border-t border-(--omp-border-muted) bg-(--omp-bg-primary) px-3 py-2.5">
+				<div className="flex flex-col gap-2 border-t border-(--omp-border-muted) px-3 py-2.5">
 					{available === null && listLoading ? (
 						<div className="flex items-center justify-center py-4">
 							<Spinner label={t("common.loading")} />
@@ -381,9 +379,7 @@ export function MarketplaceCard({
 							</div>
 						</>
 					) : available !== null && available.length === 0 ? (
-						<div className="py-2 text-center text-[11.5px] text-(--omp-dim)">
-							{t("marketplace.availableEmpty")}
-						</div>
+						<div className="py-2 text-center text-omp-sm text-(--omp-dim)">{t("marketplace.availableEmpty")}</div>
 					) : (
 						<>
 							{(available ?? []).map(plugin => (
@@ -403,7 +399,7 @@ export function MarketplaceCard({
 								</div>
 							))}
 							{listLoading && (
-								<div className="flex items-center gap-2 text-[10.5px] text-(--omp-dim)">
+								<div className="flex items-center gap-2 text-omp-xs text-(--omp-dim)">
 									<Spinner size="sm" />
 									{t("common.loading")}
 								</div>

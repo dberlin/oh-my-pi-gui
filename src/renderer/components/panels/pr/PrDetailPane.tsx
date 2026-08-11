@@ -51,17 +51,17 @@ function FileRow({ path, additions, deletions }: { path: string; additions: numb
 				) : (
 					<ChevronRight size={11} className="shrink-0" />
 				)}
-				<span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-(--omp-text)">{path}</span>
-				<span className="shrink-0 text-[10.5px] text-(--omp-success)">+{additions}</span>
-				<span className="shrink-0 text-[10.5px] text-(--omp-error)">-{deletions}</span>
+				<span className="min-w-0 flex-1 truncate font-mono text-omp-sm text-(--omp-text)">{path}</span>
+				<span className="shrink-0 text-omp-xs text-(--omp-success)">+{additions}</span>
+				<span className="shrink-0 text-omp-xs text-(--omp-error)">-{deletions}</span>
 			</button>
 			{expanded?.phase === "loading" && (
-				<div className="flex items-center gap-2 border-t border-(--omp-border-muted) px-3 py-2 text-[11px] text-(--omp-dim)">
+				<div className="flex items-center gap-2 border-t border-(--omp-border-muted) px-3 py-2 text-omp-sm text-(--omp-dim)">
 					<Spinner size="sm" /> {t("prCenter.diffLoading")}
 				</div>
 			)}
 			{expanded?.phase === "error" && (
-				<div className="border-t border-(--omp-border-muted) px-3 py-2 text-[11px] text-(--omp-error)">
+				<div className="border-t border-(--omp-border-muted) px-3 py-2 text-omp-sm text-(--omp-error)">
 					{t("prCenter.diffFailed")}
 				</div>
 			)}
@@ -85,7 +85,7 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 		return (
 			<div className="flex h-full flex-col items-center justify-center gap-3 text-center">
 				<GitPullRequestDraft size={28} className="text-(--omp-dim)" />
-				<p className="text-[12.5px] text-(--omp-dim)">{t("prCenter.noSelection")}</p>
+				<p className="text-omp-md text-(--omp-dim)">{t("prCenter.noSelection")}</p>
 				<Button variant="secondary" size="sm" onClick={onCreateOpen}>
 					{t("prCenter.create")}
 				</Button>
@@ -94,7 +94,7 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 	}
 	if (detailLoading || !detail) {
 		return (
-			<div className="flex h-full items-center justify-center gap-2 text-[12px] text-(--omp-dim)">
+			<div className="flex h-full items-center justify-center gap-2 text-omp-md text-(--omp-dim)">
 				<Spinner size="sm" /> {t("prCenter.loading")}
 			</div>
 		);
@@ -114,16 +114,16 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 					) : (
 						<GitPullRequestClosed size={14} className="mt-0.5 shrink-0 text-(--omp-success)" />
 					)}
-					<h2 className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-(--omp-text)">
+					<h2 className="min-w-0 flex-1 text-omp-lg font-medium leading-snug text-(--omp-text)">
 						<span className="text-(--omp-dim)">#{detail.number}</span> {detail.title}
 					</h2>
 					{detail.isDraft && (
-						<span className="shrink-0 rounded bg-(--omp-bg-primary) px-1.5 py-0.5 text-[10px] text-(--omp-muted)">
+						<span className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xs text-(--omp-muted)">
 							{t("prCenter.draft")}
 						</span>
 					)}
 				</div>
-				<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-(--omp-dim)">
+				<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-omp-sm text-(--omp-dim)">
 					<span className="text-(--omp-muted)">@{detail.authorLogin}</span>
 					<span>·</span>
 					<GitBranch size={10} className="shrink-0" />
@@ -157,16 +157,16 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 			{/* Body */}
 			{detail.body.trim().length > 0 && (
 				<section>
-					<h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-(--omp-dim)">
+					<h3 className="mb-1.5 text-omp-sm font-medium uppercase tracking-wide text-(--omp-dim)">
 						{t("prCenter.section.body")}
 					</h3>
-					<div className="rounded-lg border border-(--omp-border-muted) p-3 text-[12.5px]">
+					<div className="rounded-lg border border-(--omp-border-muted) p-3 text-omp-md">
 						<MarkdownRenderer content={shownBody} />
 						{collapsible && (
 							<button
 								type="button"
 								onClick={() => setBodyExpanded(expanded => !expanded)}
-								className="mt-1.5 text-[11px] text-(--omp-accent) hover:underline"
+								className="mt-1.5 text-omp-sm text-(--omp-accent) hover:underline"
 							>
 								{bodyExpanded
 									? t("prCenter.collapse")
@@ -180,15 +180,15 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 			{/* Checks */}
 			{detail.checks.length > 0 && (
 				<section>
-					<h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-(--omp-dim)">
+					<h3 className="mb-1.5 text-omp-sm font-medium uppercase tracking-wide text-(--omp-dim)">
 						{t("prCenter.section.checks", { count: String(detail.checks.length) })}
 					</h3>
 					<div className="flex flex-col gap-0.5 rounded-lg border border-(--omp-border-muted) p-2">
 						{detail.checks.map(check => (
-							<div key={check.name} className="flex items-center gap-2 px-1 py-0.5 text-[11.5px]">
+							<div key={check.name} className="flex items-center gap-2 px-1 py-0.5 text-omp-sm">
 								{checkIcon(check.conclusion, check.status)}
 								<span className="min-w-0 truncate text-(--omp-text)">{check.name}</span>
-								<span className="ml-auto shrink-0 text-[10.5px] text-(--omp-dim)">
+								<span className="ml-auto shrink-0 text-omp-xs text-(--omp-dim)">
 									{check.conclusion ?? check.status}
 								</span>
 							</div>
@@ -199,7 +199,7 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 
 			{/* Files */}
 			<section>
-				<h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-(--omp-dim)">
+				<h3 className="mb-1.5 text-omp-sm font-medium uppercase tracking-wide text-(--omp-dim)">
 					{t("prCenter.section.files", { count: String(detail.files.length) })}
 				</h3>
 				<div className="flex flex-col gap-1.5">

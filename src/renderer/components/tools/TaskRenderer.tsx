@@ -216,13 +216,13 @@ function extractReviewResult(items: RenderYieldItem[]): ReviewResult | undefined
 
 /** Dim `⟨agent⟩`-style badge for a non-default agent type. */
 function AgentBadge({ agent }: { agent: string }) {
-	return <span className="shrink-0 font-mono text-[9.5px] text-[var(--omp-dim)]">[{agent}]</span>;
+	return <span className="shrink-0 font-mono text-omp-xxs text-[var(--omp-dim)]">[{agent}]</span>;
 }
 
 function StatusBadge({ color, children }: { color: string; children: string }) {
 	return (
 		<span
-			className="shrink-0 rounded px-1 py-px font-mono text-[9.5px] font-semibold"
+			className="shrink-0 rounded px-1 py-px font-mono text-omp-xxs font-semibold"
 			style={{ background: `color-mix(in srgb, ${color} 15%, transparent)`, color }}
 		>
 			{children}
@@ -254,7 +254,7 @@ function AgentStats({ stats }: { stats: StatOpts }) {
 			: stats.resolvedModel
 		: null;
 	return (
-		<span className="flex min-w-0 items-center gap-1.5 truncate font-mono text-[9.5px] tabular-nums text-[var(--omp-dim)]">
+		<span className="flex min-w-0 items-center gap-1.5 truncate font-mono text-omp-xxs tabular-nums text-[var(--omp-dim)]">
 			{stats.toolCount != null && stats.toolCount > 0 && (
 				<span className="flex shrink-0 items-center gap-0.5">
 					{stats.toolCount}
@@ -308,7 +308,7 @@ function YieldLines({ value }: { value: unknown }) {
 	return (
 		<>
 			{visible.map(({ item, labels }, i) => (
-				<div key={i} className="flex gap-1.5 font-mono text-[10px] leading-[1.5]">
+				<div key={i} className="flex gap-1.5 font-mono text-omp-xs leading-[1.5]">
 					<span className="shrink-0 text-[var(--omp-dim)]">└</span>
 					<span className="min-w-0 truncate" title={yieldPreview(item, t("tools.task.yieldLastTurn"))}>
 						<span className="text-[var(--omp-dim)]">
@@ -319,7 +319,7 @@ function YieldLines({ value }: { value: unknown }) {
 				</div>
 			))}
 			{typed.length > visible.length && (
-				<div className="pl-3.5 font-mono text-[10px] text-[var(--omp-dim)]">
+				<div className="pl-3.5 font-mono text-omp-xs text-[var(--omp-dim)]">
 					{t("tools.task.moreYields", {
 						count: typed.length - visible.length,
 						plural: typed.length - visible.length === 1 ? "" : "s",
@@ -347,7 +347,7 @@ function ReviewBlock({ review }: { review: ReviewResult }) {
 	const preview = flat.split(/[.!?]/)[0]?.trim();
 	return (
 		<div className="flex flex-col gap-0.5">
-			<div className="flex items-center gap-1.5 text-[11px]">
+			<div className="flex items-center gap-1.5 text-omp-sm">
 				{correct ? (
 					<Check size={11} className="shrink-0 text-[var(--omp-success)]" />
 				) : (
@@ -358,16 +358,16 @@ function ReviewBlock({ review }: { review: ReviewResult }) {
 						verdict: t(correct ? "tools.task.verdict.correct" : "tools.task.verdict.incorrect"),
 					})}
 				</span>
-				<span className="font-mono text-[10px] text-[var(--omp-dim)]">
+				<span className="font-mono text-omp-xs text-[var(--omp-dim)]">
 					({t("tools.task.confidence", { pct: (review.confidence * 100).toFixed(0) })})
 				</span>
 			</div>
 			{preview && (
-				<div className="truncate pl-4 text-[10.5px] text-[var(--omp-dim)]" title={flat}>
+				<div className="truncate pl-4 text-omp-xs text-[var(--omp-dim)]" title={flat}>
 					{preview}.
 				</div>
 			)}
-			<div className="flex items-center gap-1.5 pl-4 font-mono text-[10px]">
+			<div className="flex items-center gap-1.5 pl-4 font-mono text-omp-xs">
 				<span className="text-[var(--omp-dim)]">
 					{review.findings.length === 0 ? t("tools.task.findingsNone") : t("tools.task.findings")}
 				</span>
@@ -379,20 +379,20 @@ function ReviewBlock({ review }: { review: ReviewResult }) {
 					))}
 			</div>
 			{visible.map((finding, i) => (
-				<div key={i} className="flex min-w-0 items-center gap-1.5 pl-4 text-[10.5px] leading-[1.5]">
+				<div key={i} className="flex min-w-0 items-center gap-1.5 pl-4 text-omp-xs leading-[1.5]">
 					<span className="shrink-0 font-mono font-semibold" style={{ color: PRIORITY_COLOR[finding.priority] }}>
 						[{finding.priority}]
 					</span>
 					<span className="min-w-0 truncate text-[var(--omp-text)]" title={finding.title}>
 						{finding.title}
 					</span>
-					<span className="shrink-0 font-mono text-[9.5px] text-[var(--omp-dim)]">
+					<span className="shrink-0 font-mono text-omp-xxs text-[var(--omp-dim)]">
 						{basename(finding.filePath)}:{finding.lineStart}
 					</span>
 				</div>
 			))}
 			{sorted.length > visible.length && (
-				<div className="pl-4 font-mono text-[10px] text-[var(--omp-dim)]">
+				<div className="pl-4 font-mono text-omp-xs text-[var(--omp-dim)]">
 					{t("tools.task.moreFindings", {
 						count: sorted.length - visible.length,
 						plural: sorted.length - visible.length === 1 ? "" : "s",
@@ -428,14 +428,14 @@ function NestedTaskTree({ list, depth, ctx }: { list: Record<string, unknown>[];
 			{list.map((details, i) => {
 				if (ctx.seen.has(details)) {
 					return (
-						<div key={i} className="font-mono text-[10px] text-[var(--omp-dim)]">
+						<div key={i} className="font-mono text-omp-xs text-[var(--omp-dim)]">
 							{t("tools.task.cycle")}
 						</div>
 					);
 				}
 				if (depth >= MAX_NESTED_DEPTH) {
 					return (
-						<div key={i} className="font-mono text-[10px] text-[var(--omp-dim)]">
+						<div key={i} className="font-mono text-omp-xs text-[var(--omp-dim)]">
 							{t("tools.task.depthLimit")}
 						</div>
 					);
@@ -528,7 +528,7 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 
 	return (
 		<div className="flex flex-col gap-0.5">
-			<div className="flex min-w-0 items-center gap-1.5 text-[11px]">
+			<div className="flex min-w-0 items-center gap-1.5 text-omp-sm">
 				<span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dotColor }} />
 				<span className={cx("shrink-0 font-mono font-semibold", nameColor)}>{id}</span>
 				{description && (
@@ -566,14 +566,14 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 			</div>
 
 			{assignment && !(status === "running" && !description) && (
-				<div className="truncate pl-3 text-[10.5px] text-[var(--omp-dim)]" title={assignment}>
+				<div className="truncate pl-3 text-omp-xs text-[var(--omp-dim)]" title={assignment}>
 					{assignment}
 				</div>
 			)}
 
 			{status === "running" &&
 				(currentTool ? (
-					<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-[10.5px] leading-[1.5]">
+					<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-omp-xs leading-[1.5]">
 						<span className="shrink-0 text-[var(--omp-accent)]">└</span>
 						<span
 							className="min-w-0 truncate text-[var(--omp-muted)]"
@@ -590,7 +590,7 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 					</div>
 				) : (
 					recentTool && (
-						<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-[10.5px] leading-[1.5]">
+						<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-omp-xs leading-[1.5]">
 							<span className="shrink-0 text-[var(--omp-dim)]">└</span>
 							<span className="min-w-0 truncate text-[var(--omp-dim)]">
 								{asString(recentTool.tool)}
@@ -603,7 +603,7 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 				))}
 
 			{retryState && status === "running" && (
-				<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-[10.5px] leading-[1.5]">
+				<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-omp-xs leading-[1.5]">
 					<span className="shrink-0 text-[var(--omp-warning)]">└</span>
 					<span className="min-w-0 truncate text-[var(--omp-warning)]" title={asString(retryState.errorMessage)}>
 						{t(retryRemainingMs > 0 ? "tools.task.retryWait" : "tools.task.retryNow", {
@@ -616,7 +616,7 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 				</div>
 			)}
 			{retryFailure && status !== "running" && (
-				<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-[10.5px] leading-[1.5]">
+				<div className="flex min-w-0 items-center gap-1.5 pl-1 font-mono text-omp-xs leading-[1.5]">
 					<span className="shrink-0 text-[var(--omp-error)]">└</span>
 					<span className="min-w-0 truncate text-[var(--omp-error)]" title={asString(retryFailure.errorMessage)}>
 						{t("tools.task.retryGaveUp", {
@@ -693,7 +693,7 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 
 	return (
 		<div className="flex flex-col gap-0.5">
-			<div className="flex min-w-0 items-center gap-1.5 text-[11px]">
+			<div className="flex min-w-0 items-center gap-1.5 text-omp-sm">
 				<span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: statusColor }} />
 				<span
 					className={cx(
@@ -722,24 +722,24 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 						resolvedModel: asString(row.resolvedModel),
 					}}
 				/>
-				<span className="shrink-0 font-mono text-[9.5px] text-[var(--omp-dim)] tabular-nums">
+				<span className="shrink-0 font-mono text-omp-xxs text-[var(--omp-dim)] tabular-nums">
 					· {formatDuration(asNumber(row.durationMs) ?? 0)}
 				</span>
 				{row.truncated === true && (
-					<span className="shrink-0 font-mono text-[9.5px] text-[var(--omp-warning)]">
+					<span className="shrink-0 font-mono text-omp-xxs text-[var(--omp-warning)]">
 						[{t("tools.task.badge.truncated")}]
 					</span>
 				)}
 			</div>
 
 			{assignment && (
-				<div className="truncate pl-3 text-[10.5px] text-[var(--omp-dim)]" title={assignment}>
+				<div className="truncate pl-3 text-omp-xs text-[var(--omp-dim)]" title={assignment}>
 					{assignment}
 				</div>
 			)}
 
 			{aborted && asString(row.abortReason) && (
-				<div className="flex min-w-0 items-center gap-1.5 pl-1 text-[10.5px]">
+				<div className="flex min-w-0 items-center gap-1.5 pl-1 text-omp-xs">
 					<X size={10} className="shrink-0 text-[var(--omp-error)]" />
 					<span className="min-w-0 truncate text-[var(--omp-dim)]" title={asString(row.abortReason)}>
 						{asString(row.abortReason)}
@@ -759,7 +759,7 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 			)}
 
 			{missingYieldWarning && (
-				<div className="truncate pl-3 font-mono text-[10px] text-[var(--omp-warning)]" title={missingYieldWarning}>
+				<div className="truncate pl-3 font-mono text-omp-xs text-[var(--omp-warning)]" title={missingYieldWarning}>
 					{missingYieldWarning}
 				</div>
 			)}
@@ -767,12 +767,12 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 			{nested.length > 0 && <NestedTaskTree ctx={ctx} depth={depth} list={nested} />}
 
 			{!aborted && (asNumber(row.exitCode) ?? 0) === 0 && asString(row.patchPath) && (
-				<div className="truncate pl-3 font-mono text-[10px] text-[var(--omp-dim)]" title={asString(row.patchPath)}>
+				<div className="truncate pl-3 font-mono text-omp-xs text-[var(--omp-dim)]" title={asString(row.patchPath)}>
 					{t("tools.task.patch", { path: asString(row.patchPath) ?? "" })}
 				</div>
 			)}
 			{!aborted && (asNumber(row.exitCode) ?? 0) === 0 && !asString(row.patchPath) && asString(row.branchName) && (
-				<div className="truncate pl-3 font-mono text-[10px] text-[var(--omp-dim)]" title={asString(row.branchName)}>
+				<div className="truncate pl-3 font-mono text-omp-xs text-[var(--omp-dim)]" title={asString(row.branchName)}>
 					{t("tools.task.branch", { name: asString(row.branchName) ?? "" })}
 				</div>
 			)}
@@ -780,7 +780,7 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 			{error && (!success || mergeFailed) && (!aborted || error !== asString(row.abortReason)) && (
 				<div
 					className={cx(
-						"truncate pl-3 text-[10.5px]",
+						"truncate pl-3 text-omp-xs",
 						mergeFailed ? "text-[var(--omp-warning)]" : "text-[var(--omp-error)]",
 					)}
 					title={error}
@@ -798,11 +798,11 @@ function ResultOutputPreview({ text }: { text: string }) {
 	const { head, omitted } = headLines(text, OUTPUT_PREVIEW_LINES);
 	return (
 		<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1">
-			<pre className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.45] text-[var(--omp-tool-output)]">
+			<pre className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-omp-xs leading-[1.45] text-[var(--omp-tool-output)]">
 				{head}
 			</pre>
 			{omitted > 0 && (
-				<div className="font-mono text-[10px] text-[var(--omp-dim)]">
+				<div className="font-mono text-omp-xs text-[var(--omp-dim)]">
 					{t("tools.read.more", { count: omitted, plural: omitted === 1 ? "" : "s" })}
 				</div>
 			)}
@@ -921,23 +921,23 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 text-[11px]">
+			<div className="flex items-center gap-1.5 text-omp-sm">
 				<Bot size={12} className="shrink-0 text-[var(--omp-status-subagents)]" />
 				{name && <span className="font-mono font-semibold text-[var(--omp-text)]">{name}</span>}
-				<span className="rounded bg-[var(--omp-status-subagents)]/15 px-1 py-px font-mono text-[9.5px] font-medium text-[var(--omp-status-subagents)]">
+				<span className="rounded bg-[var(--omp-status-subagents)]/15 px-1 py-px font-mono text-omp-xxs font-medium text-[var(--omp-status-subagents)]">
 					{agent}
 				</span>
 				<span
-					className={cx("ml-auto flex items-center gap-1 text-[10px] font-medium")}
+					className={cx("ml-auto flex items-center gap-1 text-omp-xs font-medium")}
 					style={{ color: statusColor }}
 				>
 					<span className="h-1.5 w-1.5 rounded-full" style={{ background: statusColor }} />
 					{statusLabel}
 				</span>
 			</div>
-			{description && <div className="text-[11.5px] text-[var(--omp-muted)]">{description}</div>}
+			{description && <div className="text-omp-sm text-[var(--omp-muted)]">{description}</div>}
 			{taskText && (
-				<div className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 text-[11px] leading-[1.45] text-[var(--omp-tool-output)]">
+				<div className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
 					{taskText}
 				</div>
 			)}
@@ -963,7 +963,7 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 			)}
 
 			{hasResults && (
-				<div className="font-mono text-[10.5px] text-[var(--omp-dim)]">
+				<div className="font-mono text-omp-xs text-[var(--omp-dim)]">
 					[
 					{summaryParts.map((part, i) => (
 						<span key={i}>
@@ -976,19 +976,19 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 			)}
 
 			{trailingLines.map((line, i) => (
-				<div key={i} className="font-mono text-[10.5px] text-[var(--omp-dim)]">
+				<div key={i} className="font-mono text-omp-xs text-[var(--omp-dim)]">
 					{line}
 				</div>
 			))}
 
 			{!hasResults && progress.length === 0 && !text.trim() && details != null && (
-				<div className="text-[11px] text-[var(--omp-dim)]">{t("tools.task.noResults")}</div>
+				<div className="text-omp-sm text-[var(--omp-dim)]">{t("tools.task.noResults")}</div>
 			)}
 
 			{details == null && text && (
 				<pre
 					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-[11px] leading-[1.45]",
+						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
 						isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",

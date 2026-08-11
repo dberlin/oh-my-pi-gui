@@ -76,7 +76,7 @@ const DagAgentNode = memo(function DagAgentNode({
 		<button
 			aria-pressed={selected}
 			className={cx(
-				"absolute flex flex-col rounded-md border bg-(--omp-bg-primary) px-2 py-1.5 text-left transition-colors duration-150 hover:bg-(--omp-bg-tertiary)",
+				"absolute flex flex-col rounded-md border px-2 py-1.5 text-left transition-colors duration-150 hover:bg-(--omp-bg-tertiary)",
 				nodeBorderClass(agent),
 				(agent.status === "completed" || agent.status === "cancelled") && "opacity-70",
 				selected && "ring-1 ring-(--omp-link)",
@@ -87,9 +87,9 @@ const DagAgentNode = memo(function DagAgentNode({
 		>
 			<div className="flex items-center gap-1.5">
 				<Bot className="shrink-0 text-(--omp-status-subagents)" size={12} />
-				<span className="min-w-0 flex-1 truncate text-[11px] font-medium text-(--omp-text)">
+				<span className="min-w-0 flex-1 truncate text-omp-sm font-medium text-(--omp-text)">
 					{subagentPrimaryLabel(agent, 36)}
-					{agent.index > 0 && <span className="ml-1 text-[9px] text-(--omp-dim)">#{agent.index + 1}</span>}
+					{agent.index > 0 && <span className="ml-1 text-omp-xxs text-(--omp-dim)">#{agent.index + 1}</span>}
 				</span>
 				<Badge dot={meta.live} pulse={meta.live} variant={meta.variant}>
 					{t(meta.labelKey)}
@@ -98,7 +98,7 @@ const DagAgentNode = memo(function DagAgentNode({
 			<div className="mt-1 flex items-center gap-1.5 pl-[18px]">
 				<span
 					className={cx(
-						"min-w-0 flex-1 truncate text-[9.5px]",
+						"min-w-0 flex-1 truncate text-omp-xxs",
 						isLiveSubagentStatus(agent.status) && agent.progress?.description
 							? "text-(--omp-muted) italic"
 							: "text-(--omp-dim)",
@@ -107,7 +107,7 @@ const DagAgentNode = memo(function DagAgentNode({
 					{line ?? ""}
 				</span>
 				{elapsed !== null && (
-					<span className="shrink-0 text-[9px] tabular-nums text-(--omp-dim)">{formatElapsed(elapsed)}</span>
+					<span className="shrink-0 text-omp-xxs tabular-nums text-(--omp-dim)">{formatElapsed(elapsed)}</span>
 				)}
 			</div>
 		</button>
@@ -123,9 +123,9 @@ function MainNode({ x, y }: { x: number; y: number }) {
 		>
 			<div className="flex items-center gap-1.5">
 				<Terminal className="shrink-0 text-(--omp-dim)" size={12} />
-				<span className="truncate text-[11px] font-medium text-(--omp-muted)">{t("dag.main")}</span>
+				<span className="truncate text-omp-sm font-medium text-(--omp-muted)">{t("dag.main")}</span>
 			</div>
-			<div className="truncate pl-[18px] text-[9px] text-(--omp-dim)">{t("dag.mainSub")}</div>
+			<div className="truncate pl-[18px] text-omp-xxs text-(--omp-dim)">{t("dag.mainSub")}</div>
 		</div>
 	);
 }
@@ -162,7 +162,7 @@ export function SubagentDag() {
 
 	if (agents.length === 0) {
 		return (
-			<div className="px-3 py-8 text-center text-[11px] leading-relaxed text-(--omp-dim)">
+			<div className="px-3 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
 				{t("subagent.empty")}
 				<br />
 				{t("subagent.emptyHint")}
@@ -232,7 +232,7 @@ export function SubagentDag() {
 						</button>
 					</div>
 					{selected.description && (
-						<div className="truncate px-3 pb-1 text-[10px] text-(--omp-dim)">{selected.description}</div>
+						<div className="truncate px-3 pb-1 text-omp-xs text-(--omp-dim)">{selected.description}</div>
 					)}
 					<div className="min-h-0 flex-1 overflow-y-auto">
 						<SubagentTranscript agent={selected} />
@@ -240,9 +240,9 @@ export function SubagentDag() {
 				</div>
 			) : (
 				<div className="shrink-0 space-y-0.5 border-t border-(--omp-border-muted) px-3 py-1.5">
-					<div className="text-[10px] text-(--omp-dim)">{t("dag.clickNode")}</div>
+					<div className="text-omp-xs text-(--omp-dim)">{t("dag.clickNode")}</div>
 					{layout.unresolved.length > 0 && (
-						<div className="text-[9.5px] text-(--omp-dim) italic">
+						<div className="text-omp-xxs text-(--omp-dim) italic">
 							{t("dag.unresolved", {
 								count: layout.unresolved.length,
 								plural: layout.unresolved.length === 1 ? "agent" : "agents",

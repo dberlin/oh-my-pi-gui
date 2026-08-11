@@ -144,7 +144,7 @@ export function TodoRenderer({ args, result, isError, isPartial, partialResult }
 	if (isError) {
 		const errorText = resultBodyText(result).trim() || resultBodyText(partialResult).trim();
 		return (
-			<div className="flex items-start gap-1.5 text-[11px] text-[var(--omp-error)]">
+			<div className="flex items-start gap-1.5 text-omp-sm text-[var(--omp-error)]">
 				<XCircle size={12} className="mt-0.5 shrink-0" />
 				<span className="whitespace-pre-wrap">{errorText || t("todoPanel.updateFailed")}</span>
 			</div>
@@ -154,7 +154,7 @@ export function TodoRenderer({ args, result, isError, isPartial, partialResult }
 	if (phases.length === 0) {
 		// Provider text on the fallback path (todo summary or refusal note).
 		const fallback = resultBodyText(result).trim() || resultBodyText(partialResult).trim();
-		return <div className="text-[11px] italic text-[var(--omp-dim)]">{fallback || t("tools.todo.empty")}</div>;
+		return <div className="text-omp-sm italic text-[var(--omp-dim)]">{fallback || t("tools.todo.empty")}</div>;
 	}
 
 	// Tasks that just transitioned to completed, keyed by phase — rendered in
@@ -175,7 +175,7 @@ export function TodoRenderer({ args, result, isError, isPartial, partialResult }
 
 	return (
 		<div className="flex flex-col gap-2">
-			<div className="flex items-center gap-1.5 text-[11px] text-[var(--omp-muted)]">
+			<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-muted)]">
 				<ListTodo size={12} className="text-[var(--omp-dim)]" />
 				{t("tools.todo.phases", { count: phases.length, plural: phases.length === 1 ? "" : "s" })}
 				<span className="text-[var(--omp-dim)]">·</span>
@@ -191,20 +191,22 @@ export function TodoRenderer({ args, result, isError, isPartial, partialResult }
 						<div className="mb-1 flex items-center gap-2">
 							<span
 								className={cx(
-									"text-[11px] font-semibold",
+									"text-omp-sm font-semibold",
 									isTouched ? "text-[var(--omp-accent)]" : "text-[var(--omp-text)]",
 								)}
 							>
 								{multiPhase ? `${phaseRomanNumeral(phaseIndex + 1)}. ` : ""}
 								{phase.name}
 							</span>
-							<div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--omp-bg-tertiary)]">
+							<div
+								className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--omp-bg-tertiary)]" // surface-ok: progress bar track
+							>
 								<div
 									className="h-full rounded-full bg-[var(--omp-success)] transition-[width] duration-300"
 									style={{ width: `${phase.tasks.length ? (doneCount / phase.tasks.length) * 100 : 0}%` }}
 								/>
 							</div>
-							<span className="font-mono text-[9.5px] tabular-nums text-[var(--omp-dim)]">
+							<span className="font-mono text-omp-xxs tabular-nums text-[var(--omp-dim)]">
 								{doneCount}/{phase.tasks.length}
 							</span>
 						</div>
@@ -217,7 +219,7 @@ export function TodoRenderer({ args, result, isError, isPartial, partialResult }
 								return (
 									<div
 										key={`${taskIndex}:${task.content}`}
-										className="flex items-start gap-1.5 px-1 text-[11.5px]"
+										className="flex items-start gap-1.5 px-1 text-omp-sm"
 									>
 										<Icon size={12} className="mt-0.5 shrink-0" style={{ color: meta.color }} />
 										<span
@@ -236,7 +238,7 @@ export function TodoRenderer({ args, result, isError, isPartial, partialResult }
 											{task.content}
 										</span>
 										{task.status === "blocked" && (
-											<span className="shrink-0 text-[9.5px] font-medium text-[var(--omp-error)]">
+											<span className="shrink-0 text-omp-xxs font-medium text-[var(--omp-error)]">
 												{task.blocker
 													? `${t("todoPanel.status.blocked")}: ${task.blocker}`
 													: t("todoPanel.status.blocked")}

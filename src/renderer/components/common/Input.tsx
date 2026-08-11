@@ -14,7 +14,7 @@ import {
 } from "react";
 
 const BASE_INPUT =
-	"w-full rounded-lg border bg-(--omp-input-bg) px-3 py-[9px] text-[14px] leading-[1.45] text-(--omp-text) placeholder:text-(--omp-dim) shadow-(--omp-shadow-sm) transition-[border-color,box-shadow] duration-150 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
+	"w-full rounded-lg border bg-(--omp-input-bg) px-3 py-[9px] text-omp-lg leading-[1.45] text-(--omp-text) placeholder:text-(--omp-dim) shadow-(--omp-shadow-sm) transition-[border-color,box-shadow] duration-150 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 /** Resting hairline + teal focus ring; error swaps both for the error tokens. */
 function stateClasses(error: boolean): string {
@@ -36,12 +36,12 @@ function FieldShell({
 }) {
 	return (
 		<label className="block">
-			{label && <span className="mb-1.5 block text-[12px] font-medium text-(--omp-text-secondary)">{label}</span>}
+			{label && <span className="mb-1.5 block text-omp-md font-medium text-(--omp-text-secondary)">{label}</span>}
 			{children}
 			{error ? (
-				<span className="mt-1.5 block text-[12px] text-(--omp-error)">{error}</span>
+				<span className="mt-1.5 block text-omp-md text-(--omp-error)">{error}</span>
 			) : hint ? (
-				<span className="mt-1.5 block text-[12px] text-(--omp-dim)">{hint}</span>
+				<span className="mt-1.5 block text-omp-md text-(--omp-dim)">{hint}</span>
 			) : null}
 		</label>
 	);

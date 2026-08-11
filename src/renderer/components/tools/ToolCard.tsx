@@ -98,17 +98,19 @@ export function ToolCard({ toolCallId, toolName, args, summary }: ToolCardProps)
 				) : (
 					<Check size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-success)]" />
 				)}
-				<span className="omp-tool-name shrink-0 font-mono text-[12px] font-semibold tracking-tight text-[var(--omp-text)]">
+				<span className="omp-tool-name shrink-0 font-mono text-omp-md font-semibold tracking-tight text-[var(--omp-text)]">
 					{toolName}
 				</span>
 				{summary && (
-					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-[11.5px] text-[var(--omp-tool-output)]">
+					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-omp-sm text-[var(--omp-tool-output)]">
 						{summary}
 					</span>
 				)}
 				{!summary && <span className="flex-1" />}
 				{duration && (
-					<span className="omp-tool-duration shrink-0 rounded-md bg-[var(--omp-bg-tertiary)] px-1.5 py-0.5 font-mono text-[9.5px] tabular-nums text-[var(--omp-muted)]">
+					<span
+						className="omp-tool-duration shrink-0 rounded-md bg-[var(--omp-bg-tertiary)] px-1.5 py-0.5 font-mono text-omp-xxs tabular-nums text-[var(--omp-muted)]" // surface-ok: tiny duration pill
+					>
 						{duration}
 					</span>
 				)}

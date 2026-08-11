@@ -1,19 +1,28 @@
 /**
- * Subagent panel: live tree of subagent nodes with status badges, elapsed
- * time, progress line, and lazily loaded transcripts (byte pagination).
- * A List/Graph toggle switches the compact spawn tree for the graphical DAG.
+ * Agents dock card: the live subagent roster rendered in the center dock
+ * above the composer (previously the workspace drawer's agents tab). Live
+ * tree of subagent nodes with status badges, elapsed time, progress line,
+ * and lazily loaded transcripts (byte pagination). A List/Graph toggle in
+ * the card header switches the compact spawn tree for the graphical DAG.
+ *
+ * Owns stream-time polling of get_subagents (moved from the ActivityStrip
+ * agents chip): lifecycle/progress frames keep the store fresh while agents
+ * run, but parked/idle transitions ride the AgentRegistry and emit NO wire
+ * frame — without polling, a watchdog-parked agent would show "running"
+ * until the next session hydration.
  */
 
 import { Bot, ChevronRight, List, Network } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { SubagentSnapshot } from "../../../shared/rpc-types";
-import { cx } from "../../lib/format";
-import { useT } from "../../lib/i18n";
-import { useMessagesStore } from "../../stores/messages";
-import { useSubagentsStore } from "../../stores/subagents";
-import { Badge } from "../common";
-import { SubagentDag } from "./SubagentDag";
-import { SubagentTranscript } from "./SubagentTranscript";
+import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import { cx } from "../../../lib/format";
+import { useT } from "../../../lib/i18n";
+import { useMessagesStore } from "../../../stores/messages";
+import { useSessionStore } from "../../../stores/session";
+import { useSubagentsStore } from "../../../stores/subagents";
+import { Badge } from "../../common";
+import { SubagentDag } from "../../panels/SubagentDag";
+import { SubagentTranscript } from "../../panels/SubagentTranscript";
 import {
 	buildSubagentList,
 	extractTaskToolCallIds,
@@ -23,9 +32,13 @@ import {
 	subagentElapsedMs,
 	subagentPrimaryLabel,
 	useSubagentGraphStore,
-} from "./subagent-graph";
+} from "../../panels/subagent-graph";
+import { DockCard } from "./DockCard";
 
 type PanelView = "list" | "graph";
+
+/** Poll cadence while a turn streams (covers frame-less parked/idle transitions). */
+const STREAM_POLL_MS = 3000;
 
 const SubagentRow = memo(function SubagentRow({
 	agent,
@@ -81,17 +94,14 @@ const SubagentRow = memo(function SubagentRow({
 					/>
 					<span className="min-w-0 flex-1">
 						<span className="flex min-w-0 items-center gap-1.5">
-							<span
-								className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-(--omp-text)"
-								title={title}
-							>
+							<span className="min-w-0 flex-1 truncate text-omp-sm font-medium text-(--omp-text)" title={title}>
 								{title}
 							</span>
 							<Badge dot={meta.live} pulse={meta.live} variant={meta.variant}>
 								{t(meta.labelKey)}
 							</Badge>
 						</span>
-						<span className="mt-1 flex min-w-0 items-center gap-1 text-[9.5px] text-(--omp-dim)">
+						<span className="mt-1 flex min-w-0 items-center gap-1 text-omp-xxs text-(--omp-dim)">
 							<Bot className="shrink-0 text-(--omp-status-subagents)" size={10} />
 							<span className="shrink-0">{agent.agent}</span>
 							<span className="shrink-0 tabular-nums">#{agent.index + 1}</span>
@@ -103,7 +113,7 @@ const SubagentRow = memo(function SubagentRow({
 					</span>
 				</button>
 				{detail && (
-					<div className="truncate px-6 pb-2 text-[10px] text-(--omp-muted)" title={detail}>
+					<div className="truncate px-6 pb-2 text-omp-xs text-(--omp-muted)" title={detail}>
 						{detail}
 					</div>
 				)}
@@ -129,9 +139,9 @@ function ViewToggle({ view, onChange }: { view: PanelView; onChange: (view: Pane
 				<button
 					aria-pressed={view === option}
 					className={cx(
-						"flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] transition-colors",
+						"flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-omp-xs transition-colors",
 						view === option
-							? "bg-(--omp-bg-tertiary) text-(--omp-text)"
+							? "bg-(--omp-bg-tertiary) text-(--omp-text)" // surface-ok: aria-pressed selected-view fill
 							: "text-(--omp-dim) hover:text-(--omp-text)",
 					)}
 					key={option}
@@ -147,23 +157,31 @@ function ViewToggle({ view, onChange }: { view: PanelView; onChange: (view: Pane
 	);
 }
 
-export function SubagentPanel() {
+export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number }) {
 	const t = useT();
 	const subagents = useSubagentsStore(state => state.subagents);
 	const toolCallOwners = useSubagentGraphStore(state => state.toolCallOwners);
 	const messages = useMessagesStore(state => state.messages);
+	const isStreaming = useSessionStore(s => s.isStreaming);
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [view, setView] = useState<PanelView>("list");
 	const [now, setNow] = useState(() => Date.now());
 
 	const agents = useMemo(() => [...subagents.values()].sort((a, b) => a.index - b.index), [subagents]);
 	const hasRunning = agents.some(agent => isLiveSubagentStatus(agent.status));
+	const runningCount = agents.filter(agent => isLiveSubagentStatus(agent.status)).length;
 
 	useEffect(() => {
 		if (!hasRunning) return;
 		const timer = setInterval(() => setNow(Date.now()), 1000);
 		return () => clearInterval(timer);
 	}, [hasRunning]);
+
+	useEffect(() => {
+		if (!isStreaming) return;
+		const timer = setInterval(() => void useSubagentsStore.getState().refresh(), pollMs);
+		return () => clearInterval(timer);
+	}, [isStreaming, pollMs]);
 
 	const rootToolCallIds = useMemo(() => new Set(extractTaskToolCallIds(messages)), [messages]);
 	const rows = useMemo(
@@ -180,26 +198,26 @@ export function SubagentPanel() {
 		});
 	}, []);
 
+	if (agents.length === 0) return null;
+
 	return (
-		<div className="flex h-full flex-col">
-			<div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
-				<span className="text-[10px] font-medium tracking-widest text-(--omp-dim) uppercase">
-					{t("subagentPanel.title")} <span className="tabular-nums normal-case">{agents.length}</span>
+		<DockCard
+			actions={<ViewToggle onChange={setView} view={view} />}
+			badge={
+				<span className="shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
+					{runningCount > 0 ? `${runningCount}/${agents.length}` : agents.length}
 				</span>
-				<ViewToggle onChange={setView} view={view} />
-			</div>
-			{agents.length === 0 ? (
-				<div className="px-3 py-8 text-center text-[11px] leading-relaxed text-(--omp-dim)">
-					{t("subagent.empty")}
-					<br />
-					{t("subagent.emptyHint")}
-				</div>
-			) : view === "graph" ? (
-				<div className="min-h-0 flex-1">
+			}
+			icon={Bot}
+			id="agents"
+			title={t("dock.agents")}
+		>
+			{view === "graph" ? (
+				<div className="h-72">
 					<SubagentDag />
 				</div>
 			) : (
-				<div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 pb-2" role="tree">
+				<div className="max-h-72 space-y-1.5 overflow-y-auto px-2 py-1.5" role="tree">
 					{rows.map(({ agent, depth }) => (
 						<SubagentRow
 							agent={agent}
@@ -212,6 +230,6 @@ export function SubagentPanel() {
 					))}
 				</div>
 			)}
-		</div>
+		</DockCard>
 	);
 }

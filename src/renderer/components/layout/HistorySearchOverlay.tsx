@@ -95,14 +95,14 @@ export function HistorySearchOverlay({ onSelect, onClose }: HistorySearchOverlay
 						setIndex(0);
 					}}
 					placeholder={t("input.history.placeholder")}
-					className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
+					className="min-w-0 flex-1 bg-transparent text-omp-lg text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
 				/>
-				<span className="shrink-0 text-[10px] font-medium text-[var(--omp-dim)]">{t("input.history.title")}</span>
+				<span className="shrink-0 text-omp-xs font-medium text-[var(--omp-dim)]">{t("input.history.title")}</span>
 			</div>
 
 			<div ref={listRef} className="max-h-64 overflow-y-auto p-1">
 				{results.length === 0 ? (
-					<div className="px-3 py-2.5 text-[12px] text-[var(--omp-muted)]">
+					<div className="px-3 py-2.5 text-omp-md text-[var(--omp-muted)]">
 						{tokens.length > 0 ? t("input.history.empty") : t("input.history.none")}
 					</div>
 				) : (
@@ -121,14 +121,14 @@ export function HistorySearchOverlay({ onSelect, onClose }: HistorySearchOverlay
 						>
 							<span
 								className={cx(
-									"min-w-0 flex-1 truncate font-mono text-[12px]",
+									"min-w-0 flex-1 truncate font-mono text-omp-md",
 									rowIndex === selected ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)]",
 								)}
 							>
 								<HighlightedPrompt text={entry.prompt.replace(/\s+/g, " ").trim()} tokens={tokens} />
 							</span>
 							{entry.ts > 0 && (
-								<span className="shrink-0 text-[10px] tabular-nums text-[var(--omp-dim)]">
+								<span className="shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
 									{formatTimeAgo(new Date(entry.ts).toISOString())}
 								</span>
 							)}
@@ -137,7 +137,7 @@ export function HistorySearchOverlay({ onSelect, onClose }: HistorySearchOverlay
 				)}
 			</div>
 
-			<div className="border-t border-[var(--omp-border-muted)] px-3 py-1.5 text-[10px] text-[var(--omp-dim)]">
+			<div className="border-t border-[var(--omp-border-muted)] px-3 py-1.5 text-omp-xs text-[var(--omp-dim)]">
 				{t("input.history.hint")}
 			</div>
 		</div>

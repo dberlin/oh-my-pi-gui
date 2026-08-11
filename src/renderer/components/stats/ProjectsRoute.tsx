@@ -26,13 +26,15 @@ interface FolderRow {
 function ShareBar({ fraction }: { fraction: number }) {
 	return (
 		<span className="flex w-24 items-center gap-1.5">
-			<span className="h-1.5 flex-1 overflow-hidden rounded-full bg-(--omp-bg-tertiary)">
+			<span
+				className="h-1.5 flex-1 overflow-hidden rounded-full bg-(--omp-bg-tertiary)" /* surface-ok: progress bar track */
+			>
 				<span
 					className="block h-full rounded-full bg-(--omp-accent)"
 					style={{ width: `${Math.min(100, fraction * 100)}%` }}
 				/>
 			</span>
-			<span className="w-8 text-right text-[10px] tabular-nums text-(--omp-dim)">
+			<span className="w-8 text-right text-omp-xs tabular-nums text-(--omp-dim)">
 				{(fraction * 100).toFixed(0)}%
 			</span>
 		</span>

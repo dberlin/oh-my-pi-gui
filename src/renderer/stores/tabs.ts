@@ -62,7 +62,7 @@ import { useQueueStore } from "./queue";
 import { useSessionStore } from "./session";
 import { type SubagentNode, useSubagentsStore } from "./subagents";
 import { toast } from "./toast";
-import { type UiTodoPhase, useTodoStore } from "./todo";
+import { type TodoSnapshot, type UiTodoPhase, useTodoStore } from "./todo";
 import { useToolsStore } from "./tools";
 import { useUiStore } from "./ui";
 
@@ -127,7 +127,13 @@ interface ModelSlice {
 interface SessionTabBundle {
 	session: SessionSlice;
 	messages: MessagesSnapshot;
-	todos: { phases: UiTodoPhase[]; reminderVisible: boolean; reminderTodos: TodoTask[] };
+	todos: {
+		phases: UiTodoPhase[];
+		reminderVisible: boolean;
+		reminderTodos: TodoTask[];
+		history: TodoSnapshot[];
+		historyHydrated: boolean;
+	};
 	subagents: Map<string, SubagentNode>;
 	queue: { steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] };
 	model: ModelSlice;
@@ -193,7 +199,13 @@ function captureBundle(): SessionTabBundle {
 			vibeModeEnabled: session.vibeModeEnabled,
 		},
 		messages: useMessagesStore.getState().snapshot(),
-		todos: { phases: todos.phases, reminderVisible: todos.reminderVisible, reminderTodos: todos.reminderTodos },
+		todos: {
+			phases: todos.phases,
+			reminderVisible: todos.reminderVisible,
+			reminderTodos: todos.reminderTodos,
+			history: todos.history,
+			historyHydrated: todos.historyHydrated,
+		},
 		subagents: new Map(useSubagentsStore.getState().subagents),
 		queue: { steering: queue.steering, followUp: queue.followUp },
 		model: {
@@ -260,7 +272,9 @@ function restoreBundle(bundle: SessionTabBundle | null, tab: SessionTab | undefi
 		vibeModeEnabled: session?.vibeModeEnabled ?? false,
 	});
 	useMessagesStore.getState().restoreSnapshot(bundle?.messages ?? null);
-	useTodoStore.setState(bundle?.todos ?? { phases: [], reminderVisible: false, reminderTodos: [] });
+	useTodoStore.setState(
+		bundle?.todos ?? { phases: [], reminderVisible: false, reminderTodos: [], history: [], historyHydrated: false },
+	);
 	useSubagentsStore.setState({ subagents: bundle ? new Map(bundle.subagents) : new Map() });
 	useQueueStore.setState(bundle?.queue ?? { steering: [], followUp: [] });
 	useModelStore.setState(bundle?.model ?? EMPTY_MODEL_SLICE);

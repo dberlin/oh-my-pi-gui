@@ -27,7 +27,7 @@ export function AskRenderer({ args, result, isPartial }: ToolRendererProps) {
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-start gap-1.5 text-[11.5px]">
+			<div className="flex items-start gap-1.5 text-omp-sm">
 				<MessageCircleQuestion size={13} className="mt-0.5 shrink-0 text-[var(--omp-md-link)]" />
 				<span className="min-w-0 flex-1 leading-[1.45] text-[var(--omp-text)]">
 					{question || t("tools.ask.questionFallback")}
@@ -41,7 +41,7 @@ export function AskRenderer({ args, result, isPartial }: ToolRendererProps) {
 							<div
 								key={option}
 								className={
-									"flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] " +
+									"flex items-center gap-1.5 rounded-md px-2 py-1 text-omp-sm " +
 									(chosen
 										? "bg-[var(--omp-success)]/10 text-[var(--omp-text)]"
 										: "bg-[var(--omp-code-bg)] text-[var(--omp-muted)]")
@@ -59,7 +59,7 @@ export function AskRenderer({ args, result, isPartial }: ToolRendererProps) {
 				</div>
 			)}
 			{answer && (
-				<div className="pl-5 text-[10.5px] text-[var(--omp-dim)]">
+				<div className="pl-5 text-omp-xs text-[var(--omp-dim)]">
 					{isPartial ? t("tools.ask.waiting") : t("tools.ask.answered", { answer })}
 				</div>
 			)}

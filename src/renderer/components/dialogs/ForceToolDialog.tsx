@@ -160,7 +160,7 @@ export function ForceToolDialog() {
 									<Badge variant={tool.name === current ? "info" : "muted"}>{tool.source}</Badge>
 								</span>
 								<span className="min-w-0">
-									<span className="block truncate font-mono text-[13px] text-(--omp-text)">{tool.name}</span>
+									<span className="block truncate font-mono text-omp-lg text-(--omp-text)">{tool.name}</span>
 									{tool.description ? (
 										<span className="block truncate text-xs text-(--omp-muted)">{tool.description}</span>
 									) : null}

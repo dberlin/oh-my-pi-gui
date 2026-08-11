@@ -19,17 +19,15 @@ interface Row {
 function Section({ title, rows }: { title: string; rows: Row[] }) {
 	return (
 		<section>
-			<h3 className="mb-1 text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">{title}</h3>
+			<h3 className="mb-1 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">{title}</h3>
 			<div className="overflow-hidden rounded-md border border-(--omp-border-muted)">
 				{rows.map(row => (
 					<div
 						className="flex items-center gap-2 border-b border-(--omp-border-muted) px-2.5 py-1.5 last:border-b-0"
 						key={row.label}
 					>
-						<span className="flex-1 text-[11.5px] text-(--omp-muted)">{row.label}</span>
-						<span className="font-mono text-[11.5px] font-medium tabular-nums text-(--omp-text)">
-							{row.value}
-						</span>
+						<span className="flex-1 text-omp-sm text-(--omp-muted)">{row.label}</span>
+						<span className="font-mono text-omp-sm font-medium tabular-nums text-(--omp-text)">{row.value}</span>
 					</div>
 				))}
 			</div>
@@ -126,7 +124,7 @@ export function SessionInfoDialog() {
 						/>
 						{stats.contextUsage && (
 							<section>
-								<h3 className="mb-1 text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">
+								<h3 className="mb-1 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 									{t("sessionInfo.contextWindow")}
 								</h3>
 								<div className="rounded-md border border-(--omp-border-muted) px-2.5 py-2">
@@ -134,7 +132,7 @@ export function SessionInfoDialog() {
 										value={stats.contextUsage.percent / 100}
 										valueText={formatPercent(stats.contextUsage.percent, 1)}
 									/>
-									<div className="mt-1.5 flex items-center justify-between text-[10.5px] text-(--omp-muted)">
+									<div className="mt-1.5 flex items-center justify-between text-omp-xs text-(--omp-muted)">
 										<span>
 											{formatTokens(stats.contextUsage.tokens)} /{" "}
 											{formatTokens(stats.contextUsage.contextWindow)} {t("sessionInfo.tokens")}

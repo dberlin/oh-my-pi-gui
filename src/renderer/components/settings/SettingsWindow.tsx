@@ -192,13 +192,13 @@ export function Toggle({
 					{badge}
 				</span>
 				{description && (
-					<span className="mt-0.5 block text-[11px] leading-snug text-(--omp-muted)">{description}</span>
+					<span className="mt-0.5 block text-omp-sm leading-snug text-(--omp-muted)">{description}</span>
 				)}
 			</span>
 			<span
 				aria-hidden
 				className={`relative mt-0.5 h-4.5 w-8 shrink-0 rounded-full transition-colors duration-150 ${
-					checked ? "bg-(--omp-accent)" : "bg-(--omp-bg-tertiary) border border-(--omp-border-muted)"
+					checked ? "bg-(--omp-accent)" : "bg-(--omp-bg-tertiary) border border-(--omp-border-muted)" // surface-ok: toggle switch track fill
 				}`}
 			>
 				<span
@@ -243,7 +243,7 @@ function RadioGroup<T extends string>({
 					<span className="min-w-0">
 						<span className="block text-xs font-medium text-(--omp-text)">{option.label}</span>
 						{option.description && (
-							<span className="mt-0.5 block text-[11px] leading-snug text-(--omp-muted)">
+							<span className="mt-0.5 block text-omp-sm leading-snug text-(--omp-muted)">
 								{option.description}
 							</span>
 						)}
@@ -257,7 +257,7 @@ function RadioGroup<T extends string>({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
 	return (
 		<section className="mb-5">
-			<h3 className="mb-2 text-[10px] font-semibold tracking-widest text-(--omp-dim) uppercase">{title}</h3>
+			<h3 className="mb-2 text-omp-xs font-semibold tracking-widest text-(--omp-dim) uppercase">{title}</h3>
 			{children}
 		</section>
 	);
@@ -265,10 +265,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 /** Per-setting state indicator: dirty (unsaved edit), saving, or freshly saved. */
 function SettingStatus({ dirty, saving, saved }: { dirty: boolean; saving: boolean; saved: boolean }) {
-	if (saving) return <span className="shrink-0 text-[10px] text-(--omp-muted)">Saving…</span>;
+	if (saving) return <span className="shrink-0 text-omp-xs text-(--omp-muted)">Saving…</span>;
 	if (dirty) {
 		return (
-			<span className="flex shrink-0 items-center gap-1 text-[10px] text-(--omp-warning)">
+			<span className="flex shrink-0 items-center gap-1 text-omp-xs text-(--omp-warning)">
 				<span className="size-1.5 rounded-full bg-(--omp-warning)" />
 				Unsaved
 			</span>
@@ -276,7 +276,7 @@ function SettingStatus({ dirty, saving, saved }: { dirty: boolean; saving: boole
 	}
 	if (saved) {
 		return (
-			<span className="flex shrink-0 items-center gap-0.5 text-[10px] text-(--omp-success)">
+			<span className="flex shrink-0 items-center gap-0.5 text-omp-xs text-(--omp-success)">
 				<Check size={10} />
 				Saved
 			</span>
@@ -294,7 +294,7 @@ function draftFor(entry: SettingEntry, value: unknown): string {
 }
 
 const SELECT_CLASS =
-	"w-full rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-1.5 text-xs text-(--omp-text) transition-colors duration-100 focus:border-(--omp-border-accent) focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
+	"w-full rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2.5 py-1.5 text-xs text-(--omp-text) transition-colors duration-100 focus:border-(--omp-border-accent) focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * One schema-driven setting row. Commits through set_setting: booleans and
@@ -414,7 +414,7 @@ function SchemaSettingRow({
 		entry.restartRequired === true ? (
 			<span
 				title={t("settings.restartRequired.hint")}
-				className="shrink-0 rounded border border-[var(--omp-warning)]/40 px-1 py-px text-[9.5px] font-medium uppercase tracking-wide text-[var(--omp-warning)]"
+				className="shrink-0 rounded border border-[var(--omp-warning)]/40 px-1 py-px text-omp-xxs font-medium uppercase tracking-wide text-[var(--omp-warning)]"
 			>
 				{t("settings.restartRequired.badge")}
 			</span>
@@ -477,10 +477,10 @@ function SchemaSettingRow({
 					{status}
 				</div>
 				{description && (
-					<span className="mt-0.5 block text-[11px] leading-snug text-(--omp-muted)">{description}</span>
+					<span className="mt-0.5 block text-omp-sm leading-snug text-(--omp-muted)">{description}</span>
 				)}
 				{masked ? (
-					<div className="mt-2 flex items-center justify-between rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-2">
+					<div className="mt-2 flex items-center justify-between rounded-md border border-(--omp-border-muted) px-2.5 py-2">
 						<span className="text-xs text-(--omp-muted)">••••••••</span>
 						<Button onClick={() => setRevealed(true)} size="sm" type="button" variant="ghost">
 							<Eye size={12} className="mr-1 inline" />
@@ -695,7 +695,7 @@ function SchemaSettingRow({
 					{status}
 				</div>
 				{description && (
-					<span className="mt-0.5 block text-[11px] leading-snug text-(--omp-muted)">{description}</span>
+					<span className="mt-0.5 block text-omp-sm leading-snug text-(--omp-muted)">{description}</span>
 				)}
 			</div>
 			<div className="settings-field-control">{control}</div>
@@ -867,10 +867,10 @@ function CapabilityCard({
 				</div>
 				<div className="min-w-0 flex-1">
 					<div className="flex flex-wrap items-center gap-2">
-						<h3 className="text-[13px] font-semibold text-(--omp-text)">{title}</h3>
+						<h3 className="text-omp-lg font-semibold text-(--omp-text)">{title}</h3>
 						{status && (
 							<span
-								className={`rounded-full border px-1.5 py-0.5 text-[9.5px] font-medium ${
+								className={`rounded-full border px-1.5 py-0.5 text-omp-xxs font-medium ${
 									statusActive
 										? "border-[color-mix(in_srgb,var(--omp-success)_35%,transparent)] bg-transparent text-(--omp-success)"
 										: "border-(--omp-border-muted) text-(--omp-dim)"
@@ -880,7 +880,7 @@ function CapabilityCard({
 							</span>
 						)}
 					</div>
-					<p className="mt-1 text-[11.5px] leading-relaxed text-(--omp-muted)">{description}</p>
+					<p className="mt-1 text-omp-sm leading-relaxed text-(--omp-muted)">{description}</p>
 				</div>
 			</div>
 			<div className="mt-3 flex flex-wrap items-center gap-2">{children}</div>
@@ -928,14 +928,14 @@ export function CapabilitiesHome({
 	return (
 		<div>
 			<header className="mb-6 max-w-2xl">
-				<div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.14em] text-(--omp-accent) uppercase">
+				<div className="mb-2 flex items-center gap-1.5 text-omp-xs font-semibold tracking-[0.14em] text-(--omp-accent) uppercase">
 					<Sparkles size={12} />
 					{t("settings.capabilities.eyebrow")}
 				</div>
 				<h2 className="text-xl font-semibold tracking-tight text-(--omp-text)">
 					{t("settings.capabilities.title")}
 				</h2>
-				<p className="mt-2 text-[12px] leading-relaxed text-(--omp-muted)">
+				<p className="mt-2 text-omp-md leading-relaxed text-(--omp-muted)">
 					{t("settings.capabilities.description")}
 				</p>
 			</header>
@@ -1435,11 +1435,6 @@ export function SettingsWindow() {
 	const isSchemaTab = schema?.tabs.some(schemaTab => schemaTab.id === tab) === true;
 	const managementTab = MANAGEMENT_TAB_IDS.has(tab);
 	const showGlobalSearch = !managementTab || SEARCHABLE_MANAGEMENT_TAB_IDS.has(tab);
-	const contentWidthClass = managementTab
-		? "max-w-[2560px]"
-		: tab === CAPABILITIES_TAB_ID
-			? "max-w-[1920px]"
-			: "max-w-[1200px]";
 
 	// Global search covers every GUI-relevant schema setting across all tabs.
 	// TUI-only entries never appear in results.
@@ -1531,7 +1526,9 @@ export function SettingsWindow() {
 		<div
 			aria-label={t("settings.title")}
 			aria-modal="true"
-			className="fixed inset-0 z-50 flex flex-col bg-(--omp-bg-primary) text-(--omp-text)"
+			className={
+				"fixed inset-0 z-50 flex flex-col bg-(--omp-bg-primary) text-(--omp-text)" /* surface-ok: fullscreen settings window canvas */
+			}
 			ref={dialogRef}
 			role="dialog"
 			style={
@@ -1547,7 +1544,7 @@ export function SettingsWindow() {
 				<nav className="settings-sidebar flex shrink-0 flex-col border-r border-(--omp-border-muted)">
 					<div className="flex h-14 shrink-0 items-center gap-2 border-b border-(--omp-border-muted) px-4">
 						<PiLogo className="!bg-[#1f2529]" size={24} tile />
-						<span className="settings-nav-label min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.01em] text-(--omp-text)">
+						<span className="settings-nav-label min-w-0 flex-1 truncate text-omp-lg font-semibold tracking-[-0.01em] text-(--omp-text)">
 							{workspaceName}
 						</span>
 						<ChevronDown aria-hidden="true" className="settings-nav-label text-(--omp-dim)" size={13} />
@@ -1555,14 +1552,14 @@ export function SettingsWindow() {
 					<div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
 						{navGroups.map((group, groupIndex) => (
 							<section className={groupIndex === 0 ? "" : "settings-nav-group mt-4"} key={group.id}>
-								<div className="settings-nav-group-label mb-1 px-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-(--omp-dim)">
+								<div className="settings-nav-group-label mb-1 px-3 text-omp-xxs font-semibold uppercase tracking-[0.14em] text-(--omp-dim)">
 									{t(`settings.nav.${group.id}`)}
 								</div>
 								{group.items.map(tb => {
 									const active = tb.id === tab;
 									return (
 										<button
-											className={`settings-nav-item flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[12.5px] transition-colors ${
+											className={`settings-nav-item flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-omp-md transition-colors ${
 												active
 													? "bg-(--omp-selected-bg) font-medium text-(--omp-text)"
 													: "text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
@@ -1598,10 +1595,10 @@ export function SettingsWindow() {
 					</div>
 				</nav>
 				<main className="settings-main-canvas flex min-w-0 flex-1 flex-col overflow-hidden">
-					<header className="flex h-14 shrink-0 items-center gap-3 border-b border-(--omp-border-muted) px-4 min-[1080px]:px-6">
+					<header className="omp-column omp-column-workspace flex h-14 shrink-0 items-center gap-3 border-b border-(--omp-border-muted)">
 						<div className="min-w-0 flex-1">
 							{!managementTab && (
-								<h1 className="truncate text-[15px] font-semibold tracking-[-0.015em] text-(--omp-text)">
+								<h1 className="truncate text-omp-xl font-semibold tracking-[-0.015em] text-(--omp-text)">
 									{tabTitle({ id: tab, label: tab })}
 								</h1>
 							)}
@@ -1611,13 +1608,13 @@ export function SettingsWindow() {
 								<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--omp-dim)" size={13} />
 								<input
 									aria-label={t("settings.searchPlaceholder")}
-									className="h-8 w-full rounded-lg border border-(--omp-input-border) bg-(--omp-input-bg) pr-12 pl-8 text-[11px] text-(--omp-text) outline-none transition-colors placeholder:text-(--omp-dim) focus:border-(--omp-input-focus-border)"
+									className="h-8 w-full rounded-lg border border-(--omp-input-border) bg-(--omp-input-bg) pr-12 pl-8 text-omp-sm text-(--omp-text) outline-none transition-colors placeholder:text-(--omp-dim) focus:border-(--omp-input-focus-border)"
 									onChange={event => setQuery(event.target.value)}
 									placeholder={t("settings.searchPlaceholder")}
 									spellCheck={false}
 									value={query}
 								/>
-								<span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-[8px] text-(--omp-dim)">
+								<span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xxs text-(--omp-dim)">
 									⌘K
 								</span>
 							</div>
@@ -1631,402 +1628,390 @@ export function SettingsWindow() {
 							<X size={16} />
 						</button>
 					</header>
-					<div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 min-[1080px]:px-6 min-[1440px]:px-8 min-[1080px]:py-5">
-						<div className={`settings-content mx-auto w-full ${contentWidthClass}`}>
-							{searchGroups === null ? (
-								<>
-									{tab === SKILLS_TAB_ID && <SkillsSettingsPage query={query} />}
-									{tab === MCP_TAB_ID && <ExtensionSettingsPage query={query} tabId="mcp" />}
-									{tab === RESOURCES_TAB_ID && (
-										<InventorySettingsPage initialTab={resourceTab} query={query} />
-									)}
-									{tab === HOOKS_TAB_ID && <ExtensionSettingsPage query={query} tabId="hooks" />}
-									{tab === COMMANDS_TAB_ID && <ExtensionSettingsPage query={query} tabId="commands" />}
-									{tab === SECURITY_TAB_ID && <SecuritySettingsPage />}
-									{tab === SSH_TAB_ID && <SshSettingsPage />}
-									{tab === UPDATES_TAB_ID && <UpdatesSettingsPage />}
-									{tab === CAPABILITIES_TAB_ID && (
-										<CapabilitiesHome
-											advisorActive={advisorActive}
-											advisorEnabled={values["advisor.enabled"] === true}
-											memoryBackend={
-												typeof values["memory.backend"] === "string" ? values["memory.backend"] : ""
-											}
-											onConfigureAdvisor={() => {
-												setTab("model");
-												setQuery("advisor");
-											}}
-											onConfigureTtsr={() => {
-												setTab("context");
-												setQuery("ttsr");
-											}}
-											onOpenAgents={() => {
-												close();
-												useUiStore.getState().openAgentHub("definitions");
-											}}
-											onOpenGoal={() => {
-												close();
-												useUiStore.getState().openModes("goal");
-											}}
-											onOpenLoop={() => {
-												close();
-												useUiStore.getState().openModes("loop");
-											}}
-											onOpenMemory={() => {
-												setTab("memory");
-												setQuery("");
-											}}
-											onOpenTools={() => {
-												setTab("tools");
-												setQuery("");
-											}}
-											onOpenModelRoles={() => {
-												close();
-												useUiStore.getState().openModelRoles();
-											}}
-											ready={loadState === "ready" && sidecarReady}
-											ttsrEnabled={values["ttsr.enabled"] === true}
-										/>
-									)}
+					<div className="settings-content omp-column omp-column-workspace min-h-0 flex-1 overflow-y-auto py-4 min-[1080px]:py-5">
+						{searchGroups === null ? (
+							<>
+								{tab === SKILLS_TAB_ID && <SkillsSettingsPage query={query} />}
+								{tab === MCP_TAB_ID && <ExtensionSettingsPage query={query} tabId="mcp" />}
+								{tab === RESOURCES_TAB_ID && <InventorySettingsPage initialTab={resourceTab} query={query} />}
+								{tab === HOOKS_TAB_ID && <ExtensionSettingsPage query={query} tabId="hooks" />}
+								{tab === COMMANDS_TAB_ID && <ExtensionSettingsPage query={query} tabId="commands" />}
+								{tab === SECURITY_TAB_ID && <SecuritySettingsPage />}
+								{tab === SSH_TAB_ID && <SshSettingsPage />}
+								{tab === UPDATES_TAB_ID && <UpdatesSettingsPage />}
+								{tab === CAPABILITIES_TAB_ID && (
+									<CapabilitiesHome
+										advisorActive={advisorActive}
+										advisorEnabled={values["advisor.enabled"] === true}
+										memoryBackend={
+											typeof values["memory.backend"] === "string" ? values["memory.backend"] : ""
+										}
+										onConfigureAdvisor={() => {
+											setTab("model");
+											setQuery("advisor");
+										}}
+										onConfigureTtsr={() => {
+											setTab("context");
+											setQuery("ttsr");
+										}}
+										onOpenAgents={() => {
+											close();
+											useUiStore.getState().openAgentHub("definitions");
+										}}
+										onOpenGoal={() => {
+											close();
+											useUiStore.getState().openModes("goal");
+										}}
+										onOpenLoop={() => {
+											close();
+											useUiStore.getState().openModes("loop");
+										}}
+										onOpenMemory={() => {
+											setTab("memory");
+											setQuery("");
+										}}
+										onOpenTools={() => {
+											setTab("tools");
+											setQuery("");
+										}}
+										onOpenModelRoles={() => {
+											close();
+											useUiStore.getState().openModelRoles();
+										}}
+										ready={loadState === "ready" && sidecarReady}
+										ttsrEnabled={values["ttsr.enabled"] === true}
+									/>
+								)}
 
-									{tab === GUI_TAB_ID && (
-										<>
-											{/* Theme + language live in the Sidebar's bottom rail — the only
+								{tab === GUI_TAB_ID && (
+									<>
+										{/* Theme + language live in the Sidebar's bottom rail — the only
 										    home they need; approval mode is Interaction › Approvals'. */}
-											<Section title={t("settings.gui.fontSize")}>
-												<div className="w-40">
-													<Input
-														max={20}
-														min={10}
-														onBlur={commitFontSize}
-														onChange={event => setFontSizeDraft(event.target.value)}
-														onKeyDown={event => {
-															if (event.key === "Enter") event.currentTarget.blur();
-														}}
-														type="number"
-														value={fontSizeDraft ?? String(fontSize)}
-													/>
-												</div>
-												<p className="mt-1.5 text-[11px] text-(--omp-muted)">
-													{t("settings.gui.fontSizeDesc")}
-												</p>
-											</Section>
-											<Section title={t("settings.gui.panelDefault")}>
-												<RadioGroup
-													name="defaultPanelTab"
-													onChange={applyPanelTab}
-													options={[
-														{ value: "todo", label: t("settings.gui.panel.todo") },
-														{ value: "agents", label: t("settings.gui.panel.agents") },
-														{ value: "diff", label: t("settings.gui.panel.diff") },
-														{ value: "files", label: t("settings.gui.panel.files") },
-														{ value: "logs", label: t("settings.gui.panel.logs") },
-													]}
-													value={panelTab}
-												/>
-											</Section>
-											<Section title={t("settings.gui.notifications")}>
-												<Toggle
-													checked={notifications}
-													description={t("settings.gui.notificationsDesc")}
-													label={t("settings.gui.notifications")}
-													onChange={applyNotifications}
-												/>
-											</Section>
-											<Section title={t("settings.gui.thinkingExpanded")}>
-												<Toggle
-													checked={thinkingExpanded}
-													description={t("settings.gui.thinkingExpandedDesc")}
-													label={t("settings.gui.thinkingExpanded")}
-													onChange={applyThinkingExpanded}
-												/>
-											</Section>
-											<Section title={t("settings.gui.transcriptDetail")}>
-												<RadioGroup
-													name="transcriptDetail"
-													onChange={applyTranscriptDetail}
-													options={[
-														{
-															value: "compact",
-															label: t("settings.gui.transcript.compact"),
-															description: t("settings.gui.transcript.compactDesc"),
-														},
-														{
-															value: "full",
-															label: t("settings.gui.transcript.full"),
-															description: t("settings.gui.transcript.fullDesc"),
-														},
-													]}
-													value={transcriptDetail}
-												/>
-											</Section>
-											<Section title={t("codeblock.title")}>
-												<Toggle
-													checked={codeLineNumbers}
-													description={t("codeblock.lineNumbersDesc")}
-													label={t("codeblock.lineNumbers")}
-													onChange={applyCodeLineNumbers}
-												/>
-											</Section>
-											<Section title={t("settings.gui.proxy")}>
+										<Section title={t("settings.gui.fontSize")}>
+											<div className="w-40">
 												<Input
-													onBlur={commitProxy}
-													onChange={event => setProxyDraft(event.target.value)}
+													max={20}
+													min={10}
+													onBlur={commitFontSize}
+													onChange={event => setFontSizeDraft(event.target.value)}
 													onKeyDown={event => {
 														if (event.key === "Enter") event.currentTarget.blur();
 													}}
-													placeholder="http://127.0.0.1:7890"
-													spellCheck={false}
-													value={proxyDraft ?? savedProxy}
+													type="number"
+													value={fontSizeDraft ?? String(fontSize)}
 												/>
-												<p className="mt-1.5 text-[11px] text-(--omp-muted)">
-													{t("settings.gui.proxyDesc")}
-												</p>
-											</Section>
-											<Section title={t("settings.launch.title")}>
-												<div className="space-y-3">
-													<div>
-														<span className="mb-1 block text-xs font-medium text-(--omp-text)">
-															{t("settings.launch.systemPrompt")}
-														</span>
-														<TextArea
-															mono
-															onBlur={() => commitLaunchField("systemPrompt")}
-															onChange={event =>
-																setLaunchDrafts(prev => ({ ...prev, systemPrompt: event.target.value }))
-															}
-															placeholder={t("settings.launch.systemPromptPlaceholder")}
-															rows={4}
-															spellCheck={false}
-															value={launchDrafts.systemPrompt ?? launchProfile.systemPrompt ?? ""}
-														/>
-													</div>
-													<div>
-														<span className="mb-1 block text-xs font-medium text-(--omp-text)">
-															{t("settings.launch.appendSystemPrompt")}
-														</span>
-														<TextArea
-															mono
-															onBlur={() => commitLaunchField("appendSystemPrompt")}
-															onChange={event =>
-																setLaunchDrafts(prev => ({
-																	...prev,
-																	appendSystemPrompt: event.target.value,
-																}))
-															}
-															placeholder={t("settings.launch.appendSystemPromptPlaceholder")}
-															rows={4}
-															spellCheck={false}
-															value={
-																launchDrafts.appendSystemPrompt ??
-																launchProfile.appendSystemPrompt ??
-																""
-															}
-														/>
-													</div>
-													<div>
-														<span className="mb-1 block text-xs font-medium text-(--omp-text)">
-															{t("settings.launch.addDirs")}
-														</span>
-														<ArrayChipEditor
-															onCommit={dirs => updateLaunchProfile({ addDirs: dirs })}
-															placeholder={t("settings.launch.addDirsPlaceholder")}
-															values={launchProfile.addDirs ?? []}
-														/>
-														<div className="mt-1.5">
-															<Button
-																onClick={() => void pickLaunchAddDirs()}
-																size="sm"
-																type="button"
-																variant="secondary"
-															>
-																{t("settings.launch.addDirPick")}
-															</Button>
-														</div>
-														<p className="mt-1.5 text-[11px] text-(--omp-muted)">
-															{t("settings.launch.addDirsDesc")}
-														</p>
-													</div>
-													<div>
-														<span className="mb-1 block text-xs font-medium text-(--omp-text)">
-															{t("settings.launch.tools")}
-														</span>
-														<ArrayChipEditor
-															onCommit={tools => updateLaunchProfile({ tools })}
-															values={launchProfile.tools ?? []}
-														/>
-														<p className="mt-1.5 text-[11px] text-(--omp-muted)">
-															{t("settings.launch.toolsDesc")}
-														</p>
-													</div>
-													<Toggle
-														checked={launchProfile.noRules === true}
-														description={t("settings.launch.noRulesDesc")}
-														label={t("settings.launch.noRules")}
-														onChange={value => updateLaunchProfile({ noRules: value })}
+											</div>
+											<p className="mt-1.5 text-omp-sm text-(--omp-muted)">
+												{t("settings.gui.fontSizeDesc")}
+											</p>
+										</Section>
+										<Section title={t("settings.gui.panelDefault")}>
+											<RadioGroup
+												name="defaultPanelTab"
+												onChange={applyPanelTab}
+												options={[
+													{ value: "diff", label: t("settings.gui.panel.diff") },
+													{ value: "files", label: t("settings.gui.panel.files") },
+													{ value: "logs", label: t("settings.gui.panel.logs") },
+												]}
+												value={panelTab}
+											/>
+										</Section>
+										<Section title={t("settings.gui.notifications")}>
+											<Toggle
+												checked={notifications}
+												description={t("settings.gui.notificationsDesc")}
+												label={t("settings.gui.notifications")}
+												onChange={applyNotifications}
+											/>
+										</Section>
+										<Section title={t("settings.gui.thinkingExpanded")}>
+											<Toggle
+												checked={thinkingExpanded}
+												description={t("settings.gui.thinkingExpandedDesc")}
+												label={t("settings.gui.thinkingExpanded")}
+												onChange={applyThinkingExpanded}
+											/>
+										</Section>
+										<Section title={t("settings.gui.transcriptDetail")}>
+											<RadioGroup
+												name="transcriptDetail"
+												onChange={applyTranscriptDetail}
+												options={[
+													{
+														value: "compact",
+														label: t("settings.gui.transcript.compact"),
+														description: t("settings.gui.transcript.compactDesc"),
+													},
+													{
+														value: "full",
+														label: t("settings.gui.transcript.full"),
+														description: t("settings.gui.transcript.fullDesc"),
+													},
+												]}
+												value={transcriptDetail}
+											/>
+										</Section>
+										<Section title={t("codeblock.title")}>
+											<Toggle
+												checked={codeLineNumbers}
+												description={t("codeblock.lineNumbersDesc")}
+												label={t("codeblock.lineNumbers")}
+												onChange={applyCodeLineNumbers}
+											/>
+										</Section>
+										<Section title={t("settings.gui.proxy")}>
+											<Input
+												onBlur={commitProxy}
+												onChange={event => setProxyDraft(event.target.value)}
+												onKeyDown={event => {
+													if (event.key === "Enter") event.currentTarget.blur();
+												}}
+												placeholder="http://127.0.0.1:7890"
+												spellCheck={false}
+												value={proxyDraft ?? savedProxy}
+											/>
+											<p className="mt-1.5 text-omp-sm text-(--omp-muted)">{t("settings.gui.proxyDesc")}</p>
+										</Section>
+										<Section title={t("settings.launch.title")}>
+											<div className="space-y-3">
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.systemPrompt")}
+													</span>
+													<TextArea
+														mono
+														onBlur={() => commitLaunchField("systemPrompt")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({ ...prev, systemPrompt: event.target.value }))
+														}
+														placeholder={t("settings.launch.systemPromptPlaceholder")}
+														rows={4}
+														spellCheck={false}
+														value={launchDrafts.systemPrompt ?? launchProfile.systemPrompt ?? ""}
 													/>
-													<Toggle
-														checked={launchProfile.noLsp === true}
-														description={t("settings.launch.noLspDesc")}
-														label={t("settings.launch.noLsp")}
-														onChange={value => updateLaunchProfile({ noLsp: value })}
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.appendSystemPrompt")}
+													</span>
+													<TextArea
+														mono
+														onBlur={() => commitLaunchField("appendSystemPrompt")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({
+																...prev,
+																appendSystemPrompt: event.target.value,
+															}))
+														}
+														placeholder={t("settings.launch.appendSystemPromptPlaceholder")}
+														rows={4}
+														spellCheck={false}
+														value={
+															launchDrafts.appendSystemPrompt ?? launchProfile.appendSystemPrompt ?? ""
+														}
 													/>
-													<Toggle
-														checked={launchProfile.planYolo === true}
-														description={t("settings.launch.planYoloDesc")}
-														label={t("settings.launch.planYolo")}
-														onChange={value => updateLaunchProfile({ planYolo: value })}
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.addDirs")}
+													</span>
+													<ArrayChipEditor
+														onCommit={dirs => updateLaunchProfile({ addDirs: dirs })}
+														placeholder={t("settings.launch.addDirsPlaceholder")}
+														values={launchProfile.addDirs ?? []}
 													/>
-													<div>
-														<span className="mb-1 block text-xs font-medium text-(--omp-text)">
-															{t("settings.launch.profile")}
-														</span>
-														<Input
-															onBlur={() => commitLaunchField("profile")}
-															onChange={event =>
-																setLaunchDrafts(prev => ({ ...prev, profile: event.target.value }))
-															}
-															onKeyDown={event => {
-																if (event.key === "Enter") event.currentTarget.blur();
-															}}
-															placeholder={t("settings.launch.profilePlaceholder")}
-															spellCheck={false}
-															value={launchDrafts.profile ?? launchProfile.profile ?? ""}
-														/>
-													</div>
-													<div>
-														<span className="mb-1 block text-xs font-medium text-(--omp-text)">
-															{t("settings.launch.sessionDir")}
-														</span>
-														<Input
-															onBlur={() => commitLaunchField("sessionDir")}
-															onChange={event =>
-																setLaunchDrafts(prev => ({ ...prev, sessionDir: event.target.value }))
-															}
-															onKeyDown={event => {
-																if (event.key === "Enter") event.currentTarget.blur();
-															}}
-															placeholder={t("settings.launch.sessionDirPlaceholder")}
-															spellCheck={false}
-															value={launchDrafts.sessionDir ?? launchProfile.sessionDir ?? ""}
-														/>
-													</div>
-													<div>
-														<span className="mb-1 block text-xs font-medium text-(--omp-text)">
-															{t("settings.launch.config")}
-														</span>
-														<Input
-															onBlur={() => commitLaunchField("config")}
-															onChange={event =>
-																setLaunchDrafts(prev => ({ ...prev, config: event.target.value }))
-															}
-															onKeyDown={event => {
-																if (event.key === "Enter") event.currentTarget.blur();
-															}}
-															placeholder={t("settings.launch.configPlaceholder")}
-															spellCheck={false}
-															value={launchDrafts.config ?? launchProfile.config ?? ""}
-														/>
-													</div>
-													<div>
-														<span className="mb-1 block text-xs font-medium text-(--omp-text)">
-															{t("settings.launch.preview")}
-														</span>
-														<CodeBlock
-															code={launchPreview}
-															language="bash"
-															showCopy={false}
-															showLineNumbers={false}
-														/>
-													</div>
-													<div className="flex items-center gap-3 rounded-md border border-[var(--omp-warning)]/40 px-3 py-2">
-														<span className="min-w-0 flex-1 text-[11px] text-[var(--omp-warning)]">
-															{t("settings.launch.restartNote")}
-														</span>
+													<div className="mt-1.5">
 														<Button
-															disabled={sidecarBusy || launchRestarting}
-															onClick={restartForLaunchProfile}
+															onClick={() => void pickLaunchAddDirs()}
 															size="sm"
 															type="button"
 															variant="secondary"
 														>
-															{launchRestarting
-																? t("settings.launch.restarting")
-																: t("settings.launch.restartNow")}
+															{t("settings.launch.addDirPick")}
 														</Button>
 													</div>
-													{sidecarBusy && (
-														<p className="text-[11px] text-(--omp-muted)">
-															{t("settings.launch.busyHint")}
-														</p>
-													)}
+													<p className="mt-1.5 text-omp-sm text-(--omp-muted)">
+														{t("settings.launch.addDirsDesc")}
+													</p>
 												</div>
-											</Section>
-										</>
-									)}
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.tools")}
+													</span>
+													<ArrayChipEditor
+														onCommit={tools => updateLaunchProfile({ tools })}
+														values={launchProfile.tools ?? []}
+													/>
+													<p className="mt-1.5 text-omp-sm text-(--omp-muted)">
+														{t("settings.launch.toolsDesc")}
+													</p>
+												</div>
+												<Toggle
+													checked={launchProfile.noRules === true}
+													description={t("settings.launch.noRulesDesc")}
+													label={t("settings.launch.noRules")}
+													onChange={value => updateLaunchProfile({ noRules: value })}
+												/>
+												<Toggle
+													checked={launchProfile.noLsp === true}
+													description={t("settings.launch.noLspDesc")}
+													label={t("settings.launch.noLsp")}
+													onChange={value => updateLaunchProfile({ noLsp: value })}
+												/>
+												<Toggle
+													checked={launchProfile.planYolo === true}
+													description={t("settings.launch.planYoloDesc")}
+													label={t("settings.launch.planYolo")}
+													onChange={value => updateLaunchProfile({ planYolo: value })}
+												/>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.profile")}
+													</span>
+													<Input
+														onBlur={() => commitLaunchField("profile")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({ ...prev, profile: event.target.value }))
+														}
+														onKeyDown={event => {
+															if (event.key === "Enter") event.currentTarget.blur();
+														}}
+														placeholder={t("settings.launch.profilePlaceholder")}
+														spellCheck={false}
+														value={launchDrafts.profile ?? launchProfile.profile ?? ""}
+													/>
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.sessionDir")}
+													</span>
+													<Input
+														onBlur={() => commitLaunchField("sessionDir")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({ ...prev, sessionDir: event.target.value }))
+														}
+														onKeyDown={event => {
+															if (event.key === "Enter") event.currentTarget.blur();
+														}}
+														placeholder={t("settings.launch.sessionDirPlaceholder")}
+														spellCheck={false}
+														value={launchDrafts.sessionDir ?? launchProfile.sessionDir ?? ""}
+													/>
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.config")}
+													</span>
+													<Input
+														onBlur={() => commitLaunchField("config")}
+														onChange={event =>
+															setLaunchDrafts(prev => ({ ...prev, config: event.target.value }))
+														}
+														onKeyDown={event => {
+															if (event.key === "Enter") event.currentTarget.blur();
+														}}
+														placeholder={t("settings.launch.configPlaceholder")}
+														spellCheck={false}
+														value={launchDrafts.config ?? launchProfile.config ?? ""}
+													/>
+												</div>
+												<div>
+													<span className="mb-1 block text-xs font-medium text-(--omp-text)">
+														{t("settings.launch.preview")}
+													</span>
+													<CodeBlock
+														code={launchPreview}
+														language="bash"
+														showCopy={false}
+														showLineNumbers={false}
+													/>
+												</div>
+												<div className="flex items-center gap-3 rounded-md border border-[var(--omp-warning)]/40 px-3 py-2">
+													<span className="min-w-0 flex-1 text-omp-sm text-[var(--omp-warning)]">
+														{t("settings.launch.restartNote")}
+													</span>
+													<Button
+														disabled={sidecarBusy || launchRestarting}
+														onClick={restartForLaunchProfile}
+														size="sm"
+														type="button"
+														variant="secondary"
+													>
+														{launchRestarting
+															? t("settings.launch.restarting")
+															: t("settings.launch.restartNow")}
+													</Button>
+												</div>
+												{sidecarBusy && (
+													<p className="text-omp-sm text-(--omp-muted)">{t("settings.launch.busyHint")}</p>
+												)}
+											</div>
+										</Section>
+									</>
+								)}
 
-									{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "loading" && (
-										<div className="flex items-center justify-center gap-2 py-10">
-											<Spinner size="sm" />
-											<span className="text-xs text-(--omp-muted)">Loading settings schema…</span>
-										</div>
-									)}
-									{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "error" && (
-										<div className="flex flex-col items-center gap-3 py-10">
-											<span className="text-xs text-(--omp-error)">
-												{loadError ?? "Failed to load settings"}
-											</span>
-											<span className="text-[10px] text-(--omp-dim)">
-												The agent process may not be responding. Runtime and GUI tabs remain available.
-											</span>
-											<Button
-												onClick={() => setReloadToken(token => token + 1)}
-												size="sm"
-												type="button"
-												variant="secondary"
-											>
-												Retry
-											</Button>
-										</div>
-									)}
-									{loadState === "ready" && schema && isSchemaTab && (
-										<SchemaTabContent
-											entries={schema.entries}
-											groups={schema.tabs.find(schemaTab => schemaTab.id === tab)?.groups ?? []}
+								{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "loading" && (
+									<div className="flex items-center justify-center gap-2 py-10">
+										<Spinner size="sm" />
+										<span className="text-xs text-(--omp-muted)">Loading settings schema…</span>
+									</div>
+								)}
+								{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "error" && (
+									<div className="flex flex-col items-center gap-3 py-10">
+										<span className="text-xs text-(--omp-error)">
+											{loadError ?? "Failed to load settings"}
+										</span>
+										<span className="text-omp-xs text-(--omp-dim)">
+											The agent process may not be responding. Runtime and GUI tabs remain available.
+										</span>
+										<Button
+											onClick={() => setReloadToken(token => token + 1)}
+											size="sm"
+											type="button"
+											variant="secondary"
+										>
+											Retry
+										</Button>
+									</div>
+								)}
+								{loadState === "ready" && schema && isSchemaTab && (
+									<SchemaTabContent
+										entries={schema.entries}
+										groups={schema.tabs.find(schemaTab => schemaTab.id === tab)?.groups ?? []}
+										onCommitted={handleCommitted}
+										tabId={tab}
+										values={values}
+									/>
+								)}
+								{loadState === "ready" && schema && tab === ADVANCED_TAB_ID && (
+									<AdvancedTab entries={schema.entries} onCommitted={handleCommitted} values={values} />
+								)}
+							</>
+						) : searchGroups.size === 0 ? (
+							<div className="py-10 text-center text-xs text-(--omp-dim)">{t("settings.noMatches")}</div>
+						) : (
+							[...searchGroups.entries()].map(([tabId, entries]) => (
+								<Section key={tabId} title={tabTitle({ id: tabId, label: tabId })}>
+									{entries.map(entry => (
+										<SchemaSettingRow
+											key={entry.path}
+											entry={entry}
 											onCommitted={handleCommitted}
-											tabId={tab}
-											values={values}
+											value={values[entry.path]}
 										/>
-									)}
-									{loadState === "ready" && schema && tab === ADVANCED_TAB_ID && (
-										<AdvancedTab entries={schema.entries} onCommitted={handleCommitted} values={values} />
-									)}
-								</>
-							) : searchGroups.size === 0 ? (
-								<div className="py-10 text-center text-xs text-(--omp-dim)">{t("settings.noMatches")}</div>
-							) : (
-								[...searchGroups.entries()].map(([tabId, entries]) => (
-									<Section key={tabId} title={tabTitle({ id: tabId, label: tabId })}>
-										{entries.map(entry => (
-											<SchemaSettingRow
-												key={entry.path}
-												entry={entry}
-												onCommitted={handleCommitted}
-												value={values[entry.path]}
-											/>
-										))}
-									</Section>
-								))
-							)}
-							{!managementTab && (
-								<div className="mt-8 flex items-center justify-between gap-2 border-t border-(--omp-border-muted) pt-4">
-									<span className="text-[11px] text-(--omp-dim)">{t("settings.applyImmediately")}</span>
-									<Button onClick={close} type="button" variant="primary">
-										{t("settings.close")}
-									</Button>
-								</div>
-							)}
-						</div>
+									))}
+								</Section>
+							))
+						)}
+						{!managementTab && (
+							<div className="mt-8 flex items-center justify-between gap-2 border-t border-(--omp-border-muted) pt-4">
+								<span className="text-omp-sm text-(--omp-dim)">{t("settings.applyImmediately")}</span>
+								<Button onClick={close} type="button" variant="primary">
+									{t("settings.close")}
+								</Button>
+							</div>
+						)}
 					</div>
 				</main>
 			</div>

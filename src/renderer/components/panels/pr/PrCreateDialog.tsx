@@ -91,7 +91,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 					void submit();
 				}}
 			>
-				<p className="text-[11.5px] text-(--omp-dim)">
+				<p className="text-omp-sm text-(--omp-dim)">
 					{t("prCenter.branches", { head: head ?? "?", base: base ?? "?" })}
 				</p>
 				<div className="flex items-end gap-2">
@@ -116,7 +116,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 					onChange={event => setBody(event.target.value)}
 					rows={10}
 				/>
-				<label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-(--omp-text)">
+				<label className="flex cursor-pointer items-center gap-2 text-omp-md text-(--omp-text)">
 					<input
 						type="checkbox"
 						checked={draft}

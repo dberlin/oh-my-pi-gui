@@ -143,11 +143,11 @@ export function FilesPanel() {
 	return (
 		<div className="flex h-full flex-col">
 			<div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
-				<span className="text-[10px] font-medium tracking-widest text-(--omp-dim) uppercase">
+				<span className="text-omp-xs font-medium tracking-widest text-(--omp-dim) uppercase">
 					{t("filesPanel.title")}
 				</span>
 				<div className="flex items-center gap-1.5">
-					<span className="text-[10px] tabular-nums text-(--omp-dim)">
+					<span className="text-omp-xs tabular-nums text-(--omp-dim)">
 						{fileCount}
 						{truncated ? "+" : ""}
 					</span>
@@ -166,10 +166,10 @@ export function FilesPanel() {
 				{loading && tree.length === 0 ? (
 					<div className="flex items-center justify-center gap-2 py-8">
 						<Spinner size="sm" />
-						<span className="text-[11px] text-(--omp-dim)">{t("filesPanel.scanning")}</span>
+						<span className="text-omp-sm text-(--omp-dim)">{t("filesPanel.scanning")}</span>
 					</div>
 				) : error !== null ? (
-					<div className="px-4 py-8 text-center text-[11px] leading-relaxed text-(--omp-dim)">
+					<div className="px-4 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
 						{t("filesPanel.unavailable")}
 						<br />
 						<span className="break-words">{error}</span>
@@ -222,10 +222,10 @@ export function FilesPanel() {
 							{preview.loading ? (
 								<div className="flex items-center gap-2 py-8">
 									<Spinner size="sm" />
-									<span className="text-[11px] text-(--omp-dim)">{t("filesPanel.reading")}</span>
+									<span className="text-omp-sm text-(--omp-dim)">{t("filesPanel.reading")}</span>
 								</div>
 							) : (
-								<pre className="font-mono text-[11px] leading-[1.5] break-words whitespace-pre-wrap text-(--omp-text)">
+								<pre className="font-mono text-omp-sm leading-[1.5] break-words whitespace-pre-wrap text-(--omp-text)">
 									{preview.content}
 									{preview.truncated && (
 										<span className="text-(--omp-dim)">

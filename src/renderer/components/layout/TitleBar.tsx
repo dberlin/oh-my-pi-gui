@@ -90,14 +90,14 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 				: status;
 
 	return (
-		<header className="drag-region flex h-12 shrink-0 items-center gap-1 border-b border-[var(--omp-border-muted)] bg-[var(--omp-titlebar-bg)] px-2.5">
+		<header className="omp-titlebar drag-region flex h-12 min-w-0 shrink-0 items-center gap-1 overflow-hidden border-b border-[var(--omp-border-muted)] bg-[var(--omp-titlebar-bg)] px-2.5">
 			<button type="button" onClick={toggleSidebar} title={t("titlebar.toggleSidebar")} className={iconButton}>
 				<PanelLeft size={18} className={cx(sidebarVisible && "text-[var(--omp-text)]")} />
 			</button>
 
-			<div className="no-drag flex min-w-0 items-center gap-1.5">
+			<div className="omp-titlebar-identity no-drag flex min-w-0 items-center gap-1.5">
 				<button
-					className="omp-pressable flex max-w-48 items-center gap-2 truncate rounded-lg px-2 py-1.5 text-[13px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-not-allowed disabled:opacity-50"
+					className="omp-pressable flex min-w-0 max-w-48 items-center gap-2 truncate rounded-lg px-2 py-1.5 text-omp-lg font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-not-allowed disabled:opacity-50"
 					disabled={isStreaming}
 					onClick={() => setWorkspaceOpen(true)}
 					title={isStreaming ? t("titlebar.abortHint") : t("titlebar.openProject")}
@@ -117,7 +117,7 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 							if (event.key === "Enter") commitName();
 							if (event.key === "Escape") setEditingName(false);
 						}}
-						className="w-56 rounded-lg border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-2.5 py-1.5 text-[14px] font-medium text-[var(--omp-text)] outline-none"
+						className="min-w-0 max-w-56 rounded-lg border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-2.5 py-1.5 text-omp-lg font-medium text-[var(--omp-text)] outline-none"
 					/>
 				) : (
 					<button
@@ -127,7 +127,7 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 							setDraft(sessionName ?? "");
 							setEditingName(true);
 						}}
-						className="omp-pressable max-w-72 truncate rounded-lg px-2 py-1.5 text-[14px] font-semibold text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
+						className="omp-pressable min-w-0 max-w-72 truncate rounded-lg px-2 py-1.5 text-omp-lg font-semibold text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
 					>
 						{displayName}
 					</button>
@@ -139,16 +139,18 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 			<button
 				type="button"
 				onClick={openCommandPalette}
-				className="no-drag omp-pressable hidden h-9 min-w-44 items-center gap-2 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] px-3 text-[12px] text-[var(--omp-muted)] shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border)] hover:text-[var(--omp-text)] lg:flex"
+				className="omp-titlebar-command no-drag omp-pressable hidden h-9 min-w-44 items-center gap-2 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] px-3 text-omp-md text-[var(--omp-muted)] shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border)] hover:text-[var(--omp-text)] lg:flex"
 			>
 				<Search size={14} />
 				<span>{t("titlebar.commands")}</span>
-				<kbd className="ml-auto rounded border border-[var(--omp-border-muted)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--omp-dim)]">
+				<kbd className="ml-auto rounded border border-[var(--omp-border-muted)] px-1.5 py-0.5 font-mono text-omp-xs text-[var(--omp-dim)]">
 					⌘K
 				</kbd>
 			</button>
 
-			<div className="no-drag mx-1 flex items-center gap-2 rounded-full border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--omp-muted)]">
+			<div
+				className="omp-titlebar-status no-drag mx-1 flex shrink-0 items-center gap-2 rounded-full border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-2.5 py-1.5 text-omp-sm font-medium text-[var(--omp-muted)]" // surface-ok: status indicator pill
+			>
 				<span
 					className={cx(
 						"h-2 w-2 rounded-full",
@@ -159,12 +161,12 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 								: "bg-[var(--omp-warning)]",
 					)}
 				/>
-				{statusLabel}
+				<span className="omp-titlebar-status-label">{statusLabel}</span>
 			</div>
 
 			{planModeEnabled && (
 				<span
-					className="no-drag shrink-0 rounded-full border border-[var(--omp-border-accent)] bg-[var(--omp-accent-dim)] px-2 py-1 text-[10px] font-semibold text-[var(--omp-accent)]"
+					className="no-drag shrink-0 rounded-full border border-[var(--omp-border-accent)] bg-[var(--omp-accent-dim)] px-2 py-1 text-omp-xs font-semibold text-[var(--omp-accent)]"
 					title={t("titlebar.planMode")}
 				>
 					{t("titlebar.plan")}
@@ -172,26 +174,51 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 			)}
 			{contextUsage && (
 				<span
-					className="no-drag shrink-0 rounded-full border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-2 py-1 font-mono text-[10px] text-[var(--omp-muted)]"
+					className="no-drag shrink-0 rounded-full border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-2 py-1 font-mono text-omp-xs text-[var(--omp-muted)]" // surface-ok: context usage count pill
 					title={t("titlebar.contextTooltip")}
 				>
 					{Math.round(contextUsage.percent)}%
 				</span>
 			)}
 
-			<button type="button" onClick={openPrCenter} title={t("titlebar.prCenter")} className={iconButton}>
+			<button
+				type="button"
+				onClick={openPrCenter}
+				title={t("titlebar.prCenter")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
 				<GitPullRequest size={17} />
 			</button>
-			<button type="button" onClick={() => openAgentHub()} title={t("titlebar.agentHub")} className={iconButton}>
+			<button
+				type="button"
+				onClick={() => openAgentHub()}
+				title={t("titlebar.agentHub")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
 				<Bot size={17} />
 			</button>
-			<button type="button" onClick={onToggleStats} title={t("titlebar.stats")} className={iconButton}>
+			<button
+				type="button"
+				onClick={onToggleStats}
+				title={t("titlebar.stats")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
 				<BarChart3 size={17} />
 			</button>
-			<button type="button" onClick={openUsage} title={t("titlebar.usage")} className={iconButton}>
+			<button
+				type="button"
+				onClick={openUsage}
+				title={t("titlebar.usage")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
 				<Coins size={17} />
 			</button>
-			<button type="button" onClick={openProviders} title={t("titlebar.providers")} className={iconButton}>
+			<button
+				type="button"
+				onClick={openProviders}
+				title={t("titlebar.providers")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
 				<Plug size={17} />
 			</button>
 			<button type="button" onClick={togglePanel} title={t("titlebar.workspace")} className={iconButton}>

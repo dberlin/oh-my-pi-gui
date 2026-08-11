@@ -63,7 +63,7 @@ function TabChip({
 			}}
 			title={tab.worktree ? `${tab.worktree.branch} — ${tab.cwd}` : tab.cwd || label}
 			className={cx(
-				"no-drag group flex h-7 min-w-0 max-w-44 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[12px] select-none",
+				"no-drag group flex h-7 min-w-0 max-w-44 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-omp-md select-none",
 				active
 					? "bg-[var(--omp-selected-bg)] font-medium text-[var(--omp-text)]"
 					: "text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",

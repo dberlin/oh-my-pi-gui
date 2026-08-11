@@ -5,7 +5,7 @@
  */
 
 import { RefreshCw } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
 import { Button, Modal } from "../common";
@@ -42,47 +42,60 @@ export function StatsDashboard({ open, onClose }: { open: boolean; onClose: () =
 	const t = useT();
 	const [route, setRoute] = useState<RouteId>("overview");
 	const [range, setRange] = useState<StatsRange>("24h");
-	// Bumped on sync to force every mounted route to refetch.
 	const [refreshKey, setRefreshKey] = useState(0);
 	const [syncing, setSyncing] = useState(false);
 
-	const sync = useCallback(async () => {
-		setSyncing(true);
-		try {
-			const result = (await window.omp.stats.fetch("/api/sync")) as {
-				processed?: number;
-				files?: number;
-				error?: string;
-				unavailable?: boolean;
-			} | null;
-			// The stats:fetch bridge RESOLVES failures as {error, unavailable:true}
-			// instead of rejecting — surface that shape as the failure it is.
-			if (result != null && ("unavailable" in result || result.error)) {
+	const sync = useCallback(
+		async (opts?: { quiet?: boolean }) => {
+			setSyncing(true);
+			try {
+				const result = (await window.omp.stats.fetch("/api/sync")) as {
+					processed?: number;
+					files?: number;
+					error?: string;
+					unavailable?: boolean;
+				} | null;
+				// The stats:fetch bridge RESOLVES failures as {error, unavailable:true}
+				// instead of rejecting — surface that shape as the failure it is.
+				if (result != null && ("unavailable" in result || result.error)) {
+					toast({
+						variant: "error",
+						title: t("stats.syncFailed"),
+						message: result.error ?? t("stats.unavailable"),
+					});
+					return;
+				}
+				if (!opts?.quiet) {
+					toast({
+						variant: "success",
+						title: t("stats.syncDone"),
+						message: result
+							? t("stats.syncDetail", { messages: result.processed ?? 0, files: result.files ?? 0 })
+							: t("stats.syncComplete"),
+					});
+				}
+				setRefreshKey(key => key + 1);
+			} catch (error) {
 				toast({
 					variant: "error",
 					title: t("stats.syncFailed"),
-					message: result.error ?? t("stats.unavailable"),
+					message: error instanceof Error ? error.message : String(error),
 				});
-				return;
+			} finally {
+				setSyncing(false);
 			}
-			toast({
-				variant: "success",
-				title: t("stats.syncDone"),
-				message: result
-					? t("stats.syncDetail", { messages: result.processed ?? 0, files: result.files ?? 0 })
-					: t("stats.syncComplete"),
-			});
-			setRefreshKey(key => key + 1);
-		} catch (error) {
-			toast({
-				variant: "error",
-				title: t("stats.syncFailed"),
-				message: error instanceof Error ? error.message : String(error),
-			});
-		} finally {
-			setSyncing(false);
+		},
+		[t],
+	);
+
+	// Auto-sync on modal open (quiet, no toast spam)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally fire only on open transition, not sync changes
+	useEffect(() => {
+		if (open) {
+			void sync({ quiet: true });
 		}
-	}, [t]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [open]);
 
 	const active = ROUTES.find(item => item.id === route);
 
@@ -100,7 +113,7 @@ export function StatsDashboard({ open, onClose }: { open: boolean; onClose: () =
 						{ROUTES.map(item => (
 							<button
 								aria-current={route === item.id ? "page" : undefined}
-								className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+								className={`rounded-md px-2.5 py-1 text-omp-sm font-medium transition-colors ${
 									route === item.id
 										? "bg-(--omp-selected-bg) text-(--omp-accent)"
 										: "text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
@@ -122,7 +135,7 @@ export function StatsDashboard({ open, onClose }: { open: boolean; onClose: () =
 							{STATS_RANGES.map(value => (
 								<button
 									aria-pressed={range === value}
-									className={`rounded px-2 py-0.5 text-[10px] font-medium tabular-nums transition-colors ${
+									className={`rounded px-2 py-0.5 text-omp-xs font-medium tabular-nums transition-colors ${
 										range === value
 											? "bg-(--omp-accent) text-black"
 											: "text-(--omp-muted) hover:text-(--omp-text)"

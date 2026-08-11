@@ -272,7 +272,7 @@ export function Sidebar() {
 			>
 				<div className="drag-region flex h-12 shrink-0 items-center gap-2 border-b border-[var(--omp-border-muted)] px-3">
 					<PiLogo tile size={24} />
-					<div className="font-display text-[14px] font-semibold tracking-[-0.01em] text-[var(--omp-text)]">
+					<div className="font-display text-omp-lg font-semibold tracking-[-0.01em] text-[var(--omp-text)]">
 						oh-my-pi
 					</div>
 				</div>
@@ -288,7 +288,7 @@ export function Sidebar() {
 							value={query}
 							onChange={event => setQuery(event.target.value)}
 							placeholder={t("sidebar.search")}
-							className="h-8 w-full rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] pl-8 pr-2 text-[12.5px] text-[var(--omp-text)] outline-none transition-colors placeholder:text-[var(--omp-dim)] focus:border-[var(--omp-input-focus-border)]"
+							className="h-8 w-full rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] pl-8 pr-2 text-omp-md text-[var(--omp-text)] outline-none transition-colors placeholder:text-[var(--omp-dim)] focus:border-[var(--omp-input-focus-border)]"
 						/>
 					</div>
 					<button
@@ -308,11 +308,13 @@ export function Sidebar() {
 				</div>
 
 				<div className="flex items-center justify-between px-4 pb-1.5">
-					<span className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--omp-dim)]">
+					<span className="text-omp-xs font-semibold uppercase tracking-[0.12em] text-[var(--omp-dim)]">
 						{t("sidebar.recent")}
 					</span>
 					{totalCount > 0 && (
-						<span className="rounded-full bg-[var(--omp-bg-tertiary)] px-2 py-0.5 text-[10px] tabular-nums text-[var(--omp-dim)]">
+						<span
+							className="rounded-full bg-[var(--omp-bg-tertiary)] px-2 py-0.5 text-omp-xs tabular-nums text-[var(--omp-dim)]" // surface-ok: count pill
+						>
 							{totalCount}
 						</span>
 					)}
@@ -320,12 +322,12 @@ export function Sidebar() {
 
 				<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 [overflow-anchor:none]">
 					{isLoading && sessions.length === 0 && (
-						<div className="px-3 py-6 text-center text-[13px] text-[var(--omp-dim)]">{t("sidebar.loading")}</div>
+						<div className="px-3 py-6 text-center text-omp-lg text-[var(--omp-dim)]">{t("sidebar.loading")}</div>
 					)}
 					{!isLoading && totalCount === 0 && (
 						<div className="mx-1 mt-2 flex flex-col items-center rounded-xl border border-dashed border-[var(--omp-border-muted)] px-4 py-6 text-center">
 							<MessageSquarePlus size={20} className="mb-2 text-[var(--omp-muted)]" />
-							<div className="text-[13px] font-medium text-[var(--omp-muted)]">
+							<div className="text-omp-lg font-medium text-[var(--omp-muted)]">
 								{query ? t("sidebar.noMatch") : t("sidebar.empty")}
 							</div>
 						</div>
@@ -339,7 +341,7 @@ export function Sidebar() {
 									data-workspace-group={group.cwd}
 									onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
 									className={cx(
-										"group flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10px] font-medium uppercase tracking-[0.08em] transition-colors duration-150 ease-out",
+										"group flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-omp-xs font-medium uppercase tracking-[0.08em] transition-colors duration-150 ease-out",
 										isCurrent
 											? "text-[var(--omp-muted)]"
 											: "text-[var(--omp-dim)] hover:text-[var(--omp-muted)]",
@@ -378,9 +380,9 @@ export function Sidebar() {
 													}
 													if (event.key === "Escape") setRenamingGroupCwd(null);
 												}}
-												className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1 py-0 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--omp-text)] outline-none"
+												className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1 py-0 text-omp-xs font-medium uppercase tracking-[0.08em] text-[var(--omp-text)] outline-none"
 											/>
-											<span className="shrink-0 tabular-nums text-[10px] font-normal text-[var(--omp-dim)]">
+											<span className="shrink-0 tabular-nums text-omp-xs font-normal text-[var(--omp-dim)]">
 												{group.sessions.length}
 											</span>
 										</>
@@ -404,7 +406,7 @@ export function Sidebar() {
 												/>
 											)}
 											<span className="min-w-0 flex-1 truncate">{group.name}</span>
-											<span className="shrink-0 tabular-nums text-[10px] font-normal text-[var(--omp-dim)]">
+											<span className="shrink-0 tabular-nums text-omp-xs font-normal text-[var(--omp-dim)]">
 												{group.sessions.length}
 											</span>
 										</button>
@@ -536,10 +538,10 @@ export function Sidebar() {
 																		if (event.key === "Escape") setRenaming(false);
 																	}}
 																	onClick={event => event.stopPropagation()}
-																	className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-[12.5px] font-medium text-[var(--omp-text)] outline-none"
+																	className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-omp-md font-medium text-[var(--omp-text)] outline-none"
 																/>
 															) : (
-																<span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] font-semibold text-[var(--omp-text)]">
+																<span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-omp-lg font-semibold text-[var(--omp-text)]">
 																	{session.kind === "chat" && (
 																		<MessageCircle
 																			size={11}
@@ -552,7 +554,7 @@ export function Sidebar() {
 																	</span>
 																</span>
 															)}
-															<span className="shrink-0 tabular-nums text-[10px] text-[var(--omp-dim)]">
+															<span className="shrink-0 tabular-nums text-omp-xs text-[var(--omp-dim)]">
 																{formatTimeAgo(session.modified)}
 															</span>
 															<span

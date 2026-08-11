@@ -1,18 +1,16 @@
 /**
- * Plan panel: plan-mode status surfacing + review.
+ * Plan dock card: plan-mode status + review rendered as a live card in the
+ * center dock above the composer (previously the workspace drawer's plan
+ * tab). Visible only while plan mode is enabled — the composer mode chips
+ * carry the on/off affordance otherwise.
  *
- * Toggle rides the set_plan_mode RPC; status comes from the session store
- * (`planModeEnabled`, hydrated from get_state) and the get_plan_mode RPC
- * (`planFilePath`). The plan document itself is read from disk through the
- * `fs:read-plan` main-process IPC — kept OFF the RPC bus so the streaming
- * poll never injects the plan into the model context or appends bashExecution
- * entries to the transcript. Resolution mirrors the agent: `local://` lands in
- * `<session file minus .jsonl>/local/<name>`, absolute paths pass through,
- * anything else resolves against the session cwd; when the configured path is
- * absent the main process falls back to the newest `*plan.md` in the local
- * root, mirroring `listPlanFiles` (the agent picks its own
- * `local://<slug>-plan.md`, so the configured path alone often misses the real
- * file).
+ * The plan document is read from disk through the `fs:read-plan` main-process
+ * IPC — kept OFF the RPC bus so the streaming poll never injects the plan
+ * into the model context or appends bashExecution entries to the transcript.
+ * Resolution mirrors the agent: `local://` lands in `<session file minus
+ * .jsonl>/local/<name>`, absolute paths pass through, anything else resolves
+ * against the session cwd; when the configured path is absent the main
+ * process falls back to the newest `*plan.md` in the local root.
  *
  * Structured plan approval (the TUI's `xd://propose` popup with its three
  * execute options) is NOT installed by the RPC host — approve / request
@@ -21,30 +19,14 @@
 
 import { CheckCircle2, Circle, ClipboardList, FileWarning, MessageSquare, RefreshCw, Send } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PlanModeState } from "../../../shared/rpc-types";
-import { cx } from "../../lib/format";
-import { useT } from "../../lib/i18n";
-import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../lib/tab-routing";
-import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
-import { useUiStore } from "../../stores/ui";
-import { Badge, Button, Spinner, Tabs, TextArea } from "../common";
-
-/** Tab id the parent registers in `PanelTab`/`PanelContainer` when wiring this panel in. */
-export const PLAN_PANEL_TAB = "plan";
-
-/** Open the workspace drawer on the plan tab (parent must register `PLAN_PANEL_TAB`). */
-export function openPlanPanel(): void {
-	const ui = useUiStore.getState();
-	if (!ui.panelVisible) ui.togglePanel();
-	(ui.setPanelTab as (tab: string) => void)(PLAN_PANEL_TAB);
-}
-
-/** Hide the workspace drawer, but only when it is currently showing the plan tab. */
-export function closePlanPanel(): void {
-	const ui = useUiStore.getState();
-	if (ui.panelVisible && (ui.panelTab as string) === PLAN_PANEL_TAB) ui.togglePanel();
-}
+import type { PlanModeState } from "../../../../shared/rpc-types";
+import { cx } from "../../../lib/format";
+import { useT } from "../../../lib/i18n";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../../lib/tab-routing";
+import { useSessionStore } from "../../../stores/session";
+import { toast } from "../../../stores/toast";
+import { Badge, Button, Spinner, Tabs, TextArea } from "../../common";
+import { DockCard } from "./DockCard";
 
 const POLL_STREAMING_MS = 3000;
 
@@ -140,7 +122,7 @@ interface StepFeedbackState {
 	sending: boolean;
 }
 
-export function PlanPanel() {
+export function PlanDockCard() {
 	const t = useT();
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const isStreaming = useSessionStore(s => s.isStreaming);
@@ -328,47 +310,39 @@ export function PlanPanel() {
 
 	const reviewable = planModeEnabled && content != null && content.trim().length > 0;
 
+	if (!planModeEnabled) return null;
+
 	return (
-		<div className="flex h-full flex-col">
-			{/* Status card: mode badge, toggle, live plan path. */}
-			<div className="mx-2 mt-2 rounded-md border border-(--omp-border-muted) bg-transparent px-2.5 py-2">
-				<div className="flex items-center gap-2">
-					<Badge
-						dot={planModeEnabled}
-						pulse={planModeEnabled && isStreaming}
-						variant={planModeEnabled ? "success" : "muted"}
+		<DockCard
+			actions={
+				<span className="flex shrink-0 items-center gap-1.5">
+					<button
+						aria-label={t("planPanel.refresh")}
+						className={cx(
+							"omp-pressable text-(--omp-dim) transition-colors hover:text-(--omp-text)",
+							loading && "animate-spin",
+						)}
+						disabled={loading}
+						onClick={() => void load()}
+						title={t("planPanel.refreshHint")}
+						type="button"
 					>
-						{planModeEnabled ? t("planPanel.badge.on") : t("planPanel.badge.off")}
-					</Badge>
-					{planModeEnabled && (
-						<button
-							aria-label={t("planPanel.refresh")}
-							className={cx(
-								"text-(--omp-dim) transition-colors hover:text-(--omp-text)",
-								loading && "animate-spin",
-							)}
-							disabled={loading}
-							onClick={() => void load()}
-							title={t("planPanel.refreshHint")}
-							type="button"
-						>
-							<RefreshCw size={12} />
-						</button>
-					)}
+						<RefreshCw size={12} />
+					</button>
 					<button
 						aria-checked={planModeEnabled}
 						aria-label={t("planPanel.toggle")}
 						className={cx(
-							"relative ml-auto h-4 w-7 shrink-0 rounded-full border transition-colors duration-150",
+							"relative h-4 w-7 shrink-0 rounded-full border transition-colors duration-150",
 							planModeEnabled
 								? "border-transparent bg-(--omp-accent)"
-								: "border-(--omp-border-muted) bg-(--omp-bg-primary)",
+								: "border-(--omp-border-muted) bg-(--omp-bg-primary)", // surface-ok: toggle switch track (unchecked state)
 							toggling && "opacity-50",
 						)}
 						disabled={toggling}
 						onClick={() => void togglePlanMode()}
 						role="switch"
-						title={planModeEnabled ? t("planPanel.exit") : t("planPanel.enter")}
+						title={t("planPanel.exit")}
 						type="button"
 					>
 						<span
@@ -378,52 +352,50 @@ export function PlanPanel() {
 							)}
 						/>
 					</button>
-				</div>
-				<div className="mt-1.5 text-[11px] leading-snug text-(--omp-muted)">
-					{planModeEnabled
-						? isStreaming
-							? t("planPanel.statusStreaming")
-							: t("planPanel.statusOn")
-						: t("planPanel.statusOff")}
-				</div>
-				{planModeEnabled && displayPath && (
-					<div className="mt-1 truncate font-mono text-[10px] text-(--omp-dim)" title={displayPath}>
-						{displayPath}
-					</div>
-				)}
-			</div>
-
-			{/* Body */}
-			{!planModeEnabled ? (
-				<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-					<ClipboardList className="text-(--omp-dim)" size={20} />
-					<div className="text-xs text-(--omp-muted)">{t("planPanel.offTitle")}</div>
-					<div className="text-[11px] leading-snug text-(--omp-dim)">{t("planPanel.offDesc")}</div>
-					<Button loading={toggling} onClick={() => void togglePlanMode()} size="sm">
-						{t("planPanel.enable")}
-					</Button>
-				</div>
-			) : loading && !loaded ? (
-				<div className="flex flex-1 items-center justify-center">
+				</span>
+			}
+			badge={
+				<span className="flex shrink-0 items-center gap-1.5">
+					{stepCount > 0 && (
+						<span className="text-omp-xs tabular-nums text-[var(--omp-dim)]">
+							{hasChecklist ? `${doneCount}/${stepCount}` : stepCount}
+						</span>
+					)}
+					<Badge dot pulse={isStreaming} variant="success">
+						{t("planPanel.badge.on")}
+					</Badge>
+				</span>
+			}
+			icon={ClipboardList}
+			id="plan"
+			title={t("dock.plan")}
+		>
+			{loading && !loaded ? (
+				<div className="flex items-center justify-center py-6">
 					<Spinner />
 				</div>
 			) : error ? (
-				<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+				<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
 					<FileWarning className="text-(--omp-warning)" size={20} />
-					<div className="text-[11px] leading-snug text-(--omp-muted)">{error}</div>
+					<div className="text-omp-sm leading-snug text-(--omp-muted)">{error}</div>
 					<Button onClick={() => void load()} size="sm">
 						{t("planPanel.retry")}
 					</Button>
 				</div>
 			) : content == null ? (
-				<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+				<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
 					<ClipboardList className="text-(--omp-dim)" size={20} />
 					<div className="text-xs text-(--omp-muted)">{t("planPanel.emptyTitle")}</div>
-					<div className="text-[11px] leading-snug text-(--omp-dim)">
+					<div className="text-omp-sm leading-snug text-(--omp-dim)">
 						{t("planPanel.emptyDescPre")}
 						<span className="font-mono">local://&lt;slug&gt;-plan.md</span>
 						{t("planPanel.emptyDescPost")}
 					</div>
+					{displayPath && (
+						<div className="max-w-full truncate font-mono text-omp-xs text-(--omp-dim)" title={displayPath}>
+							{displayPath}
+						</div>
+					)}
 				</div>
 			) : (
 				<>
@@ -438,26 +410,26 @@ export function PlanPanel() {
 							{ id: "raw", label: t("planPanel.tabs.raw") },
 						]}
 					/>
-					<div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
+					<div className="max-h-56 overflow-y-auto px-2 py-1.5">
 						{tab === "raw" ? (
-							<pre className="font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-(--omp-text)">
+							<pre className="font-mono text-omp-sm leading-relaxed whitespace-pre-wrap text-(--omp-text)">
 								{content}
 							</pre>
 						) : sections.length === 0 ? (
-							<div className="px-2 py-4 text-center text-[11px] text-(--omp-dim)">
+							<div className="px-2 py-4 text-center text-omp-sm text-(--omp-dim)">
 								{content.trim().length === 0 ? t("planPanel.emptySoFar") : t("planPanel.noSteps")}
 							</div>
 						) : (
 							<>
 								{hasChecklist && (
-									<div className="px-1 pb-1 text-[10px] tabular-nums text-(--omp-dim)">
+									<div className="px-1 pb-1 text-omp-xs tabular-nums text-(--omp-dim)">
 										{t("planPanel.checked", { done: doneCount, total: stepCount })}
 									</div>
 								)}
 								{sections.map((section, sectionIndex) => (
 									<section className="mb-1.5" key={sectionIndex}>
 										{section.heading && (
-											<div className="truncate px-1 py-1 text-[11px] font-semibold tracking-wide text-(--omp-accent) uppercase">
+											<div className="truncate px-1 py-1 text-omp-sm font-semibold tracking-wide text-(--omp-accent) uppercase">
 												{section.heading}
 											</div>
 										)}
@@ -475,7 +447,7 @@ export function PlanPanel() {
 																<Circle className="mt-px shrink-0 text-(--omp-dim)" size={13} />
 															)
 														) : (
-															<span className="w-4 shrink-0 pt-px text-right text-[10px] tabular-nums text-(--omp-dim)">
+															<span className="w-4 shrink-0 pt-px text-right text-omp-xs tabular-nums text-(--omp-dim)">
 																{step.index}
 															</span>
 														)}
@@ -565,10 +537,10 @@ export function PlanPanel() {
 								{t("planPanel.requestChanges")}
 							</Button>
 						</div>
-						<div className="mt-1.5 text-[10px] leading-snug text-(--omp-dim)">{t("planPanel.footerNote")}</div>
+						<div className="mt-1.5 text-omp-xs leading-snug text-(--omp-dim)">{t("planPanel.footerNote")}</div>
 					</div>
 				</>
 			)}
-		</div>
+		</DockCard>
 	);
 }

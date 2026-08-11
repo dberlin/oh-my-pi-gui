@@ -82,7 +82,7 @@ export function ResolveRenderer({ args, result, isError, isPartial, partialResul
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 text-[11.5px]">
+			<div className="flex items-center gap-1.5 text-omp-sm">
 				<Icon
 					size={12}
 					className={cx("shrink-0", pending && "animate-pulse")}
@@ -94,19 +94,23 @@ export function ResolveRenderer({ args, result, isError, isPartial, partialResul
 				{summary && <span className="min-w-0 flex-1 truncate text-[var(--omp-text)]">{summary}</span>}
 				{!summary && <span className="flex-1" />}
 				{source && (
-					<span className="shrink-0 rounded bg-[var(--omp-bg-tertiary)] px-1 py-px font-mono text-[9.5px] text-[var(--omp-muted)]">
+					<span
+						className="shrink-0 rounded bg-[var(--omp-bg-tertiary)] px-1 py-px font-mono text-omp-xxs text-[var(--omp-muted)]" // surface-ok: tiny source pill
+					>
 						{source}
 					</span>
 				)}
 				{ops != null && (
-					<span className="shrink-0 rounded bg-[var(--omp-bg-tertiary)] px-1 py-px font-mono text-[9.5px] tabular-nums text-[var(--omp-muted)]">
+					<span
+						className="shrink-0 rounded bg-[var(--omp-bg-tertiary)] px-1 py-px font-mono text-omp-xxs tabular-nums text-[var(--omp-muted)]" // surface-ok: tiny ops count pill
+					>
 						{t("tools.resolve.ops", { count: ops, plural: ops === 1 ? "" : "s" })}
 					</span>
 				)}
 			</div>
-			{reason && <div className="text-[11px] italic leading-[1.45] text-[var(--omp-muted)]">{reason}</div>}
+			{reason && <div className="text-omp-sm italic leading-[1.45] text-[var(--omp-muted)]">{reason}</div>}
 			{files.length > 0 && (
-				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.5] text-[var(--omp-tool-output)]">
+				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.5] text-[var(--omp-tool-output)]">
 					{files.slice(0, MAX_LISTED_FILES).map(file => (
 						<div key={file} className="truncate">
 							{file}
@@ -120,7 +124,7 @@ export function ResolveRenderer({ args, result, isError, isPartial, partialResul
 				</div>
 			)}
 			{!reason && fallback && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
 					{fallback}
 				</pre>
 			)}

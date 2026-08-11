@@ -144,7 +144,7 @@ export function TreeView({
 
 	if (nodes.length === 0) {
 		return (
-			<div className={`px-3 py-6 text-center text-[11px] text-(--omp-dim) ${className ?? ""}`.trim()}>
+			<div className={`px-3 py-6 text-center text-omp-sm text-(--omp-dim) ${className ?? ""}`.trim()}>
 				{emptyMessage ?? t("tree.empty")}
 			</div>
 		);

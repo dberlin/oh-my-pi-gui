@@ -28,7 +28,7 @@ export function LangSwitcher({ className }: LangSwitcherProps) {
 			title={t("lang.switch")}
 			aria-label={t("lang.switch")}
 			className={cx(
-				"no-drag omp-pressable flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-[12px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
+				"no-drag omp-pressable flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
 				className,
 			)}
 		>

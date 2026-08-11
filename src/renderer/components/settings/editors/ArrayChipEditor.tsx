@@ -66,7 +66,7 @@ export function ArrayChipEditor({ values, onCommit, disabled, placeholder, order
 		>
 			{values.map((value, index) => (
 				<span
-					className="inline-flex items-center gap-1 rounded bg-(--omp-badge-bg) px-1.5 py-0.5 font-mono text-[11px] text-(--omp-badge-text)"
+					className="inline-flex items-center gap-1 rounded bg-(--omp-badge-bg) px-1.5 py-0.5 font-mono text-omp-sm text-(--omp-badge-text)"
 					key={`${value}-${index}`}
 				>
 					{ordered && <span className="text-(--omp-dim)">{index + 1}.</span>}
@@ -116,7 +116,7 @@ export function ArrayChipEditor({ values, onCommit, disabled, placeholder, order
 			))}
 			{!disabled && (
 				<input
-					className="min-w-[70px] flex-1 bg-transparent font-mono text-[11px] text-(--omp-text) outline-none placeholder:text-(--omp-dim)"
+					className="min-w-[70px] flex-1 bg-transparent font-mono text-omp-sm text-(--omp-text) outline-none placeholder:text-(--omp-dim)"
 					disabled={disabled}
 					onBlur={() => add(draft)}
 					onChange={e => setDraft(e.target.value)}

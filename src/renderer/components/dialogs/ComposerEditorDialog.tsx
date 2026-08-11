@@ -131,12 +131,12 @@ export function ComposerEditorDialog() {
 		<Modal open onClose={requestClose} size="full" title={t("editor.title")}>
 			<div className="flex h-full min-h-0 flex-col gap-2">
 				{discardArmed && (
-					<div className="shrink-0 rounded-lg border border-(--omp-warning) px-3 py-1.5 text-[12px] text-(--omp-warning)">
+					<div className="shrink-0 rounded-lg border border-(--omp-warning) px-3 py-1.5 text-omp-md text-(--omp-warning)">
 						{t("editor.discardArmed")}
 					</div>
 				)}
 				{externalError && (
-					<div className="shrink-0 rounded-lg border border-(--omp-error) px-3 py-1.5 text-[12px] text-(--omp-error)">
+					<div className="shrink-0 rounded-lg border border-(--omp-error) px-3 py-1.5 text-omp-md text-(--omp-error)">
 						{externalError}
 					</div>
 				)}

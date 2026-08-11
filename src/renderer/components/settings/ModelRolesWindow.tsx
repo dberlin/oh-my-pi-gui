@@ -43,25 +43,25 @@ function RoleRow({
 	const displayTag = metadata?.tag ?? role.tag;
 
 	return (
-		<div className="flex items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2.5">
+		<div className="flex items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] px-3 py-2.5">
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex items-center gap-2">
 					<Tag size={12} style={{ color }} />
-					<span className="text-[13px] font-medium text-[var(--omp-text)]">{displayName}</span>
+					<span className="text-omp-lg font-medium text-[var(--omp-text)]">{displayName}</span>
 					<span
-						className="rounded px-1.5 py-px text-[9px] font-bold tracking-wider"
+						className="rounded px-1.5 py-px text-omp-xxs font-bold tracking-wider"
 						style={{ backgroundColor: `${color}20`, color }}
 					>
 						{displayTag}
 					</span>
 				</div>
-				<span className="text-[10px] text-[var(--omp-dim)]">
+				<span className="text-omp-xs text-[var(--omp-dim)]">
 					{t("modelRoles.source", { source: role.source })}
 					{role.model && <span className="ml-2">→ {role.model}</span>}
 				</span>
 			</div>
 			<select
-				className="h-7 min-w-[180px] rounded-md border border-[var(--omp-border-muted)] bg-[var(--omp-bg-tertiary)] px-2 text-[11px] text-[var(--omp-text)] focus:border-[var(--omp-border-accent)] focus:outline-none"
+				className="h-7 min-w-[180px] rounded-md border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] px-2 text-omp-sm text-[var(--omp-text)] focus:border-[var(--omp-border-accent)] focus:outline-none"
 				value={role.model ?? ""}
 				disabled={busy}
 				onChange={e => {
@@ -161,7 +161,7 @@ export function ModelRolesWindow() {
 		<Modal open={open} onClose={close} title={t("modelRoles.title")} size="lg">
 			<div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto">
 				<div className="flex items-center justify-between">
-					<span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
+					<span className="text-omp-sm font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
 						{t("modelRoles.header")}
 					</span>
 					<Button
@@ -198,7 +198,7 @@ export function ModelRolesWindow() {
 				)}
 
 				{!loading && roles.length === 0 && (
-					<div className="rounded-md border border-[var(--omp-border-muted)] px-3 py-4 text-center text-[12px] text-[var(--omp-dim)]">
+					<div className="rounded-md border border-[var(--omp-border-muted)] px-3 py-4 text-center text-omp-md text-[var(--omp-dim)]">
 						{t("modelRoles.empty")}
 					</div>
 				)}

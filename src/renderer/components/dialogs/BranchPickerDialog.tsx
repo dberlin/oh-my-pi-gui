@@ -151,7 +151,7 @@ export function BranchPickerDialog() {
 						ref={inputRef}
 						value={query}
 					/>
-					<kbd className="shrink-0 rounded border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-1.5 py-0.5 text-[9px] text-(--omp-dim)">
+					<kbd className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xxs text-(--omp-dim)">
 						esc
 					</kbd>
 				</div>

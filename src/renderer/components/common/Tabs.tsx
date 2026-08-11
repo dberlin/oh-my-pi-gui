@@ -59,7 +59,7 @@ export function Tabs({ tabs, activeId, onChange, compact, className, ariaLabel }
 					<button
 						aria-selected={active}
 						className={`relative -mb-px shrink-0 border-b-2 font-medium whitespace-nowrap transition-colors duration-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--omp-border-accent) disabled:cursor-not-allowed disabled:opacity-40 ${
-							compact ? "px-2 py-1 text-[11px]" : "px-3 py-1.5 text-xs"
+							compact ? "px-2 py-1 text-omp-sm" : "px-3 py-1.5 text-xs"
 						} ${
 							active
 								? "border-(--omp-accent) text-(--omp-text)"
@@ -75,7 +75,7 @@ export function Tabs({ tabs, activeId, onChange, compact, className, ariaLabel }
 					>
 						{tab.label}
 						{tab.badge !== undefined && (
-							<span className="ml-1.5 rounded-full border border-(--omp-border-muted) bg-transparent px-1.5 py-px text-[9px] tabular-nums text-(--omp-muted)">
+							<span className="ml-1.5 rounded-full border border-(--omp-border-muted) bg-transparent px-1.5 py-px text-omp-xxs tabular-nums text-(--omp-muted)">
 								{tab.badge}
 							</span>
 						)}

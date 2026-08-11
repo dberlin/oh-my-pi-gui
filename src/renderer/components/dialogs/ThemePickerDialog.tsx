@@ -140,12 +140,12 @@ export function ThemePickerDialog() {
 							setActive(0);
 						}}
 						placeholder={t("themePicker.search")}
-						className="w-full bg-transparent text-[14px] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
+						className="w-full bg-transparent text-omp-lg text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
 					/>
 				</div>
 				<div ref={listRef} className="omp-command-list overflow-y-auto p-2">
 					{filtered.length === 0 && (
-						<div className="px-3 py-8 text-center text-[13px] text-[var(--omp-dim)]">
+						<div className="px-3 py-8 text-center text-omp-lg text-[var(--omp-dim)]">
 							{t("themePicker.empty")}
 						</div>
 					)}
@@ -167,7 +167,7 @@ export function ThemePickerDialog() {
 							>
 								<span className="flex h-9 w-14 shrink-0 items-center overflow-hidden rounded-md border border-[var(--omp-border-muted)]">
 									{isSystem ? (
-										<span className="flex h-full w-full items-center justify-center bg-[var(--omp-bg-tertiary)] text-[var(--omp-dim)]">
+										<span className="flex h-full w-full items-center justify-center text-[var(--omp-dim)]">
 											<Monitor size={15} />
 										</span>
 									) : (
@@ -181,11 +181,11 @@ export function ThemePickerDialog() {
 									)}
 								</span>
 								<span className="min-w-0 flex-1">
-									<span className="flex items-center gap-2 text-[13.5px] font-medium text-[var(--omp-text)]">
+									<span className="flex items-center gap-2 text-omp-lg font-medium text-[var(--omp-text)]">
 										{entry.label}
 										{isCurrent && <Check size={14} className="text-[var(--omp-accent)]" />}
 									</span>
-									<span className="block truncate text-[12px] text-[var(--omp-dim)]">{entry.description}</span>
+									<span className="block truncate text-omp-md text-[var(--omp-dim)]">{entry.description}</span>
 								</span>
 							</button>
 						);

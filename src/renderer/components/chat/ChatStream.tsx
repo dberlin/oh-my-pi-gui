@@ -4,9 +4,11 @@ import {
 	BookOpen,
 	Bug,
 	Check,
+	ChevronRight,
 	Code2,
 	Languages,
 	Lightbulb,
+	ListTodo,
 	Loader2,
 	PenLine,
 	Rocket,
@@ -26,6 +28,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
+import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
 import { PiLogo } from "../common";
@@ -52,7 +55,8 @@ export interface TimelineMarkerSeed {
 export type HistoryRow =
 	| { kind: "message"; message: AgentMessage }
 	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] }
-	| ({ kind: "process"; messages: AgentMessage[] } & ProcessMeta);
+	| ({ kind: "process"; messages: AgentMessage[] } & ProcessMeta)
+	| { kind: "todoSnapshot"; entry: TodoSnapshot };
 
 /** Virtualized row: finalized history or one of the live streaming rows. */
 type Row =
@@ -79,6 +83,8 @@ function transcriptRowBaseKey(row: Row): string {
 			return `process-${messageKey(row.messages[0]!)}`;
 		case "readGroup":
 			return `read-${row.entries.map(entry => entry.toolKey).join("-")}`;
+		case "todoSnapshot":
+			return `todo-snapshot-${row.entry.id}`;
 		case "streaming":
 		case "pending":
 			return row.kind;
@@ -272,6 +278,38 @@ export function buildHistoryRows(messages: AgentMessage[], detail: TranscriptDet
 }
 
 /**
+ * Interleave archived todo snapshots into finalized history by timestamp:
+ * each snapshot lands after the last row at or before its change time, and
+ * leftovers (changes newer than every message) tail the history. Rows
+ * without a reliable timestamp (read groups) never flush snapshots.
+ */
+export function mergeTodoSnapshots(rows: readonly HistoryRow[], snapshots: readonly TodoSnapshot[]): HistoryRow[] {
+	if (snapshots.length === 0) return rows as HistoryRow[];
+	const out: HistoryRow[] = [];
+	let next = 0;
+	for (const row of rows) {
+		const ts =
+			row.kind === "message"
+				? messageTimestampMs(row.message)
+				: row.kind === "process" && row.messages.length > 0
+					? messageTimestampMs(row.messages[0]!)
+					: undefined;
+		if (ts !== undefined) {
+			while (next < snapshots.length && (snapshots[next]?.ts ?? 0) < ts) {
+				out.push({ kind: "todoSnapshot", entry: snapshots[next]! });
+				next++;
+			}
+		}
+		out.push(row);
+	}
+	while (next < snapshots.length) {
+		out.push({ kind: "todoSnapshot", entry: snapshots[next]! });
+		next++;
+	}
+	return out;
+}
+
+/**
  * Map finalized history rows onto semantic timeline phases. Full detail keeps
  * every tool message visible, but punctuation-only continuations share the
  * phase's first marker and timestamp. Tool state is aggregated so a later
@@ -373,13 +411,16 @@ export function ChatStream() {
 
 	const lastCompactionIndex = messages.findLastIndex(message => message.role === "compactionSummary");
 	const hiddenCount = collapseCompacted && !preCompactionOpen && lastCompactionIndex > 0 ? lastCompactionIndex : 0;
+	const todoHistory = useTodoStore(s => s.history);
 	const historyRows = useMemo<HistoryRow[]>(() => {
 		const built = buildHistoryRows(hiddenCount > 0 ? messages.slice(hiddenCount) : messages, transcriptDetail);
 		// Read-tool grouping (TUI parity) folds consecutive collapsible reads into
 		// one card — only in full mode; compact mode's ProcessGroup already folds
 		// ALL consecutive tool work, so a second fold would nest redundantly.
-		return transcriptDetail === "compact" ? built : (groupReadRows(built) as HistoryRow[]);
-	}, [messages, hiddenCount, transcriptDetail]);
+		const grouped = transcriptDetail === "compact" ? built : (groupReadRows(built) as HistoryRow[]);
+		// Archived todo changes interleave by timestamp (transcript archive rows).
+		return mergeTodoSnapshots(grouped, todoHistory);
+	}, [messages, hiddenCount, transcriptDetail, todoHistory]);
 
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the
@@ -477,7 +518,7 @@ export function ChatStream() {
 				? 96
 				: rows[i]?.kind === "pending" || rows[i]?.kind === "queued"
 					? 56
-					: rows[i]?.kind === "expander" || rows[i]?.kind === "process"
+					: rows[i]?.kind === "expander" || rows[i]?.kind === "process" || rows[i]?.kind === "todoSnapshot"
 						? 44
 						: 128,
 		overscan: 8,
@@ -565,7 +606,7 @@ export function ChatStream() {
 						<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
 							{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
 						</h1>
-						<p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-[var(--omp-muted)]">
+						<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
 							{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
 						</p>
 						<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
@@ -576,14 +617,14 @@ export function ChatStream() {
 									onClick={() =>
 										window.dispatchEvent(new CustomEvent("omp:fill-composer", { detail: { text: prompt } }))
 									}
-									className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
+									className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
 								>
 									<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
 										<Icon size={17} />
 									</span>
 									<span>
-										<span className="block text-[14px] font-semibold text-[var(--omp-text)]">{title}</span>
-										<span className="mt-1 block text-[13px] leading-snug text-[var(--omp-muted)]">
+										<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">{title}</span>
+										<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
 											{prompt}
 										</span>
 									</span>
@@ -625,11 +666,13 @@ export function ChatStream() {
 										<StreamingRows />
 									) : row.kind === "queued" ? (
 										<QueuedMessageBubble item={row.item} lane={row.lane} />
+									) : row.kind === "todoSnapshot" ? (
+										<TodoSnapshotCard entry={row.entry} />
 									) : row.kind === "expander" ? (
 										<button
 											type="button"
 											onClick={() => setPreCompactionOpen(true)}
-											className="omp-history-expander omp-pressable mx-6 my-2 flex items-center gap-2 rounded-lg border border-[var(--omp-border)] bg-[var(--omp-bg-secondary)] px-3 py-1.5 text-[11.5px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+											className="omp-history-expander omp-pressable ml-(--omp-editorial-inset) mr-(--omp-editorial-edge) my-2 flex items-center gap-2 rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-sm font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
 										>
 											{t("chat.compaction.showEarlier", { count: row.count })}
 										</button>
@@ -647,7 +690,7 @@ export function ChatStream() {
 				onClick={jumpToLatest}
 				aria-label={t("chat.jumpToLatest")}
 				className={cx(
-					"absolute bottom-5 left-1/2 flex h-9 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-4 text-[12px] font-medium text-[var(--omp-text)] shadow-[var(--omp-shadow-md)] transition-all hover:bg-[var(--omp-selected-bg)]",
+					"absolute bottom-5 left-1/2 flex h-9 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-4 text-omp-md font-medium text-[var(--omp-text)] shadow-[var(--omp-shadow-md)] transition-all hover:bg-[var(--omp-selected-bg)]",
 					pinned ? "pointer-events-none translate-y-12 opacity-0" : "translate-y-0 opacity-100",
 				)}
 			>
@@ -809,7 +852,7 @@ function StreamingRows() {
 
 	if (transcriptDetail === "full") {
 		return (
-			<div className="omp-streaming-turn flex flex-col px-6 py-4">
+			<div className="omp-streaming-turn flex flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4">
 				{/* streamingMessage.content only fills at message_end; mid-stream the
 				    thinking deltas accumulate in the streamingThinking buffer, which
 				    ThinkingBlock reads itself when live. */}
@@ -823,7 +866,7 @@ function StreamingRows() {
 	}
 
 	return (
-		<div className="omp-streaming-turn flex flex-col px-6 py-2">
+		<div className="omp-streaming-turn flex flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
 			{hasProcess ? (
 				<div className="omp-process-group omp-process-group--live">
 					{hasThinking ? <ThinkingBlock live /> : null}
@@ -916,7 +959,7 @@ export function TurnStatusRow() {
 	}
 
 	return (
-		<div className="omp-status-turn omp-fade-in flex flex-col gap-1 px-6 py-4 text-[13px] text-[var(--omp-muted)]">
+		<div className="omp-status-turn omp-fade-in flex flex-col gap-1 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-omp-lg text-[var(--omp-muted)]">
 			<div className="flex items-center gap-2.5">
 				<Loader2 size={14} className={cx("animate-spin shrink-0", iconClass)} />
 				<span>{text}</span>
@@ -932,7 +975,7 @@ export function TurnStatusRow() {
 				)}
 			</div>
 			{detail ? (
-				<div className="max-w-full truncate pl-[26px] text-[11.5px] text-[var(--omp-dim)]" title={detail}>
+				<div className="max-w-full truncate pl-[26px] text-omp-sm text-[var(--omp-dim)]" title={detail}>
 					{detail}
 				</div>
 			) : null}
@@ -961,13 +1004,13 @@ function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: Que
 	};
 
 	return (
-		<div className="omp-queued-turn group flex justify-end px-6 py-1.5">
-			<div className="omp-queued-bubble flex max-w-[75%] items-start gap-2 rounded-xl border border-dashed border-[var(--omp-border)] bg-[var(--omp-bg-secondary)] px-3.5 py-2.5">
+		<div className="omp-queued-turn group flex justify-end ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1.5">
+			<div className="omp-queued-bubble flex max-w-[75%] items-start gap-2 rounded-xl border border-dashed border-[var(--omp-border)] px-3.5 py-2.5">
 				<div className="min-w-0 flex-1">
-					<div className="mb-0.5 text-[10px] font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
+					<div className="mb-0.5 text-omp-xs font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
 						{t(lane === "steering" ? "pendingBubble.steering" : "pendingBubble.followUp")}
 					</div>
-					<div className="whitespace-pre-wrap break-words text-[13px] leading-snug text-[var(--omp-muted)]">
+					<div className="whitespace-pre-wrap break-words text-omp-lg leading-snug text-[var(--omp-muted)]">
 						{item.text || "…"}
 					</div>
 				</div>
@@ -981,6 +1024,92 @@ function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: Que
 					<X size={13} />
 				</button>
 			</div>
+		</div>
+	);
+}
+
+/**
+ * Archived todo state rendered inline in the transcript where the change
+ * happened (todo store history). Collapses to a one-line summary; expanding
+ * shows the phase/task state at that time, read-only — the live dock card
+ * above the composer carries the editable current list.
+ */
+function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
+	const t = useT();
+	const [expanded, setExpanded] = useState(false);
+	const total = entry.phases.reduce((n, phase) => n + phase.tasks.length, 0);
+	const done = entry.phases.reduce(
+		(n, phase) => n + phase.tasks.filter(task => task.status === "completed").length,
+		0,
+	);
+	const cleared = total === 0;
+
+	return (
+		<div className="ml-(--omp-editorial-inset) mr-(--omp-editorial-edge) my-1.5">
+			<button
+				aria-expanded={expanded}
+				className="omp-pressable flex items-center gap-1.5 rounded-lg border border-[var(--omp-border-muted)] px-2.5 py-1 text-omp-sm text-[var(--omp-muted)] hover:text-[var(--omp-text)]"
+				disabled={cleared}
+				onClick={() => setExpanded(value => !value)}
+				type="button"
+			>
+				<ChevronRight
+					className="shrink-0 text-[var(--omp-dim)] transition-transform duration-100"
+					size={11}
+					style={{ transform: expanded ? "rotate(90deg)" : undefined }}
+				/>
+				<ListTodo className="shrink-0 text-[var(--omp-dim)]" size={12} />
+				<span className="font-medium">{cleared ? t("todoSnapshot.cleared") : t("todoSnapshot.title")}</span>
+				{!cleared && (
+					<span className="tabular-nums text-[var(--omp-dim)]">{t("todoSnapshot.progress", { done, total })}</span>
+				)}
+			</button>
+			{expanded && !cleared && (
+				<div className="mt-1 ml-1 space-y-1 border-l border-[var(--omp-border-muted)] pl-3">
+					{entry.phases.map((phase, phaseIndex) => (
+						<div key={`${phase.name}-${phaseIndex}`}>
+							{entry.phases.length > 1 && (
+								<div className="py-0.5 text-omp-xs font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
+									{phase.name}
+								</div>
+							)}
+							{phase.tasks.map((task, taskIndex) => (
+								<div
+									key={`${task.content}-${taskIndex}`}
+									className="flex items-center gap-1.5 py-0.5 text-omp-sm"
+								>
+									<span
+										aria-hidden
+										className={cx(
+											"h-1.5 w-1.5 shrink-0 rounded-full",
+											task.status === "completed"
+												? "bg-[var(--omp-success)]"
+												: task.status === "in_progress"
+													? "bg-[var(--omp-link)]"
+													: task.status === "abandoned"
+														? "bg-[var(--omp-error)]"
+														: task.status === "blocked"
+															? "bg-[var(--omp-warning)]"
+															: "bg-[var(--omp-border)]",
+										)}
+									/>
+									<span
+										className={cx(
+											"min-w-0 flex-1 truncate",
+											task.status === "completed" || task.status === "abandoned"
+												? "text-[var(--omp-dim)] line-through"
+												: "text-[var(--omp-muted)]",
+										)}
+										title={task.content}
+									>
+										{task.content}
+									</span>
+								</div>
+							))}
+						</div>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }

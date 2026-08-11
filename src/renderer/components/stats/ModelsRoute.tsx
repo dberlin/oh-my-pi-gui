@@ -68,7 +68,7 @@ export function ModelsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 				render: row => (
 					<span>
 						<span className="block font-mono font-medium text-(--omp-text)">{row.model}</span>
-						<span className="block text-[10px] text-(--omp-dim)">{row.provider}</span>
+						<span className="block text-omp-xs text-(--omp-dim)">{row.provider}</span>
 					</span>
 				),
 			},

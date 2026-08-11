@@ -25,17 +25,17 @@ export function GenericRenderer({ args, result, isError, isPartial, partialResul
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div>
-				<div className="mb-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-[var(--omp-dim)]">
+				<div className="mb-0.5 text-omp-xxs font-semibold uppercase tracking-wider text-[var(--omp-dim)]">
 					{t("tools.generic.args")}
 				</div>
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-muted)]">
+				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
 					{toJson(args)}
 				</pre>
 			</div>
 			<div>
 				<div
 					className={cx(
-						"mb-0.5 text-[9.5px] font-semibold uppercase tracking-wider",
+						"mb-0.5 text-omp-xxs font-semibold uppercase tracking-wider",
 						isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]",
 					)}
 				>
@@ -43,7 +43,7 @@ export function GenericRenderer({ args, result, isError, isPartial, partialResul
 				</div>
 				<pre
 					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-[11px] leading-[1.45]",
+						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
 						isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
@@ -54,10 +54,10 @@ export function GenericRenderer({ args, result, isError, isPartial, partialResul
 			</div>
 			{detailsJson && (
 				<div>
-					<div className="mb-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-[var(--omp-dim)]">
+					<div className="mb-0.5 text-omp-xxs font-semibold uppercase tracking-wider text-[var(--omp-dim)]">
 						{t("tools.generic.details")}
 					</div>
-					<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-muted)]">
+					<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
 						{detailsJson}
 					</pre>
 				</div>

@@ -45,10 +45,11 @@ export type RpcCommand =
 	| { id?: string; type: "dequeue" }
 	// Queue management: stable per-entry ids (never array indices). queueId is
 	// the entry id surfaced by get_queue; queue_move is a same-lane reorder
-	// with clamped target; queue_clear drops user-restorable entries only.
+	// with clamped target unless toLane switches lanes; queue_clear drops
+	// user-restorable entries only.
 	| { id?: string; type: "get_queue" }
 	| { id?: string; type: "queue_remove"; queueId: string }
-	| { id?: string; type: "queue_move"; queueId: string; toIndex: number }
+	| { id?: string; type: "queue_move"; queueId: string; toIndex: number; toLane?: "steering" | "followUp" }
 	| { id?: string; type: "queue_clear"; lane?: "steering" | "followUp" }
 	| { id?: string; type: "get_session_stats" }
 	| { id?: string; type: "export_html"; outputPath?: string }

@@ -11,16 +11,16 @@ export function AstGrepRenderer({ args, result, isPartial, partialResult }: Tool
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-[11px]">
+			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<Braces size={12} className="shrink-0 text-[var(--omp-md-code)]" />
 				<span className="truncate text-[var(--omp-text)]">{pattern || t("tools.astgrep.fallback")}</span>
 			</div>
 			{text ? (
-				<pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
 					{text}
 				</pre>
 			) : (
-				<div className="text-[11px] italic text-[var(--omp-dim)]">
+				<div className="text-omp-sm italic text-[var(--omp-dim)]">
 					{isPartial ? t("tools.astgrep.matching") : t("tools.astgrep.noMatches")}
 				</div>
 			)}

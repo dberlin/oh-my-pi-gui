@@ -140,7 +140,7 @@ export function CommandPalette() {
 	const openHotkeys = useUiStore(state => state.openHotkeys);
 	const openImportDialog = useUiStore(state => state.openImportDialog);
 	const openProviderConfig = useUiStore(state => state.openProviderConfig);
-	const setPanelTab = useUiStore(state => state.setPanelTab);
+	const focusDockCard = useUiStore(state => state.focusDockCard);
 
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const fastModeEnabled = useModelStore(s => s.fastModeEnabled);
@@ -250,7 +250,7 @@ export function CommandPalette() {
 				openHotkeys,
 				openImportDialog,
 				openProviderConfig,
-				openWorkspaceTab: setPanelTab,
+				focusDockCard,
 				openCommandPalette: () => {},
 				retryTurn,
 				retryLastTurn,
@@ -300,7 +300,7 @@ export function CommandPalette() {
 			retryTurn,
 			openModes,
 			openProviderConfig,
-			setPanelTab,
+			focusDockCard,
 			openModelCompare,
 			openAgentHub,
 			openPrCenter,
@@ -456,7 +456,7 @@ export function CommandPalette() {
 						<span className="truncate text-xs font-medium text-(--omp-text)">{item.label}</span>
 						{toggleOn !== null && (
 							<span
-								className={`rounded px-1 text-[9px] font-semibold uppercase ${
+								className={`rounded px-1 text-omp-xxs font-semibold uppercase ${
 									toggleOn ? "text-(--omp-success)" : "text-(--omp-dim)"
 								}`}
 							>
@@ -464,17 +464,17 @@ export function CommandPalette() {
 							</span>
 						)}
 						{item.shortcut && (
-							<kbd className="rounded border border-(--omp-border-muted) px-1 text-[9px] text-(--omp-dim)">
+							<kbd className="rounded border border-(--omp-border-muted) px-1 text-omp-xxs text-(--omp-dim)">
 								{item.shortcut}
 							</kbd>
 						)}
 					</span>
-					<span className="block truncate text-[10.5px] text-(--omp-muted)">
+					<span className="block truncate text-omp-xs text-(--omp-muted)">
 						{disabled && item.affordance.kind === "unavailable" ? item.affordance.reason : item.description}
 					</span>
 				</span>
 				{options?.categoryLabel && (
-					<span className="shrink-0 text-[9px] tracking-wide text-(--omp-dim) uppercase">
+					<span className="shrink-0 text-omp-xxs tracking-wide text-(--omp-dim) uppercase">
 						{options.categoryLabel}
 					</span>
 				)}
@@ -512,7 +512,7 @@ export function CommandPalette() {
 						<button
 							type="button"
 							onClick={() => setSubmenu(null)}
-							className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-(--omp-accent) hover:bg-(--omp-bg-tertiary)"
+							className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-omp-sm font-medium text-(--omp-accent) hover:bg-(--omp-bg-tertiary)"
 						>
 							<X size={11} />
 							{submenu.label}
@@ -529,7 +529,7 @@ export function CommandPalette() {
 						value={query}
 					/>
 					{loading && <Spinner size="sm" />}
-					<kbd className="shrink-0 rounded border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-1.5 py-0.5 text-[9px] text-(--omp-dim)">
+					<kbd className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xxs text-(--omp-dim)">
 						esc
 					</kbd>
 				</div>
@@ -544,7 +544,7 @@ export function CommandPalette() {
 						<>
 							{recentItems.length > 0 && (
 								<div className="mb-1">
-									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">
+									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 										{t("palette.recent")}
 									</div>
 									{recentItems.map(item => renderItem(item, { recent: true }))}
@@ -552,7 +552,7 @@ export function CommandPalette() {
 							)}
 							{Array.from(grouped.entries()).map(([category, items]) => (
 								<div key={category} className="mb-1">
-									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">
+									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 										{t(`category.${category}`)}
 									</div>
 									{items.map(item => renderItem(item))}

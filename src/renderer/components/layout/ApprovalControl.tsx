@@ -52,7 +52,7 @@ export function ApprovalControl() {
 				onClick={() => setOpen(value => !value)}
 				title={t("input.approval.title", { mode: t(`input.approval.${mode}`) })}
 				className={cx(
-					"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-medium hover:bg-[var(--omp-selected-bg)]",
+					"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
 					mode === "yolo" ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
 				)}
 			>
@@ -86,13 +86,13 @@ export function ApprovalControl() {
 										<span className="min-w-0 flex-1">
 											<span
 												className={cx(
-													"block text-[12px] font-medium",
+													"block text-omp-md font-medium",
 													active ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)]",
 												)}
 											>
 												{t(`input.approval.${option}`)}
 											</span>
-											<span className="block text-[11px] leading-snug text-[var(--omp-dim)]">
+											<span className="block text-omp-sm leading-snug text-[var(--omp-dim)]">
 												{t(`input.approval.${option}.desc`)}
 											</span>
 										</span>

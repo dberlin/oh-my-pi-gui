@@ -18,7 +18,7 @@ export function WriteRenderer({ args }: ToolRendererProps) {
 			<button
 				type="button"
 				onClick={() => setOpen(v => !v)}
-				className="flex items-center gap-1.5 font-mono text-[11px] transition-colors hover:text-[var(--omp-text)]"
+				className="flex items-center gap-1.5 font-mono text-omp-sm transition-colors hover:text-[var(--omp-text)]"
 			>
 				{open ? (
 					<ChevronDown size={12} className="shrink-0 text-[var(--omp-dim)]" />
@@ -28,7 +28,7 @@ export function WriteRenderer({ args }: ToolRendererProps) {
 				<FilePlus2 size={12} className="shrink-0 text-[var(--omp-dim)]" />
 				<span className="truncate text-[var(--omp-text)]">{basename(path)}</span>
 				<span className="truncate text-[var(--omp-dim)]">{dirname(path)}</span>
-				<span className="ml-auto shrink-0 text-[10px] text-[var(--omp-dim)]">
+				<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">
 					{t("tools.write.lines", { count: lineCount, plural: lineCount === 1 ? "" : "s" })}
 				</span>
 			</button>

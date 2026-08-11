@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-08-11
+
+### Changed
+
+- **Global surface unification**: content surfaces are now colorless by policy — cards, rows, chips, panels, and page sections render transparent over the canvas and separate with hairline borders, while paint is reserved for the canvas, navigation chrome, floating overlays (modals/menus/toasts), interaction states, semantic fills, code blocks, and form fields. The policy is written into `styles/global.css` and enforced by `scripts/lint-surfaces.mjs` (wired into `bun run check`), so static grey fills can no longer creep back in.
+- **Unified content column**: the transcript, composer, dock, settings, and management pages now share one centered, viewport-adaptive container (`omp-column-reading` / `omp-column-workspace` in `styles/components.css`) with a fluid gutter — replacing the transcript's asymmetric left-rail gutters and the settings window's per-tab max-widths, so every page aligns the same way at every resolution.
+- **Unified type scale**: UI text across chat, tools, panels, settings, dialogs, and layout now uses the six-step `text-omp-*` scale (defined in `global.css`, enforced by the surface lint) instead of ~990 ad-hoc raw pixel classes.
+- **Live execution state moved into the conversation**: todos, plan review, subagents, and the message queue now render as collapsible live cards in a dock between the transcript and the composer instead of hiding behind the workspace drawer. Todo editing (status cycle, inline edit, drag reorder), plan review (steps/raw, approve, per-step feedback), the subagent roster (list/graph, expandable transcripts), and queue management (reorder/remove/clear in a modal from the dock chip) keep their full capabilities; queued messages continue to render as inline bubbles at the transcript tail. The workspace drawer now carries only Diff, Files, and Logs, and command-palette entries (`todo edit`, `plan-review`) deep-link the matching dock card.
+
+### Added
+
+- **Todo change archive in the transcript**: every semantic todo-list change after session hydration inserts a compact snapshot row at its position in the conversation (expandable, read-only), so the evolution of the work plan is reviewable alongside the messages that drove it.
+- **Cross-lane queue moves**: queue entries can switch between the steering and follow-up lanes from the queue manager (appended to the target lane's end via the extended `queue_move` RPC).
+- **Dock height budget**: the dock region caps at 45% of the window height with its own scroll, so simultaneous plan/todo/agents cards can't squeeze the transcript away.
+
+### Fixed
+
+- **Responsive conversation sizing**: the starter cards, transcript, composer, and title bar now shrink from the workspace's actual available width, switch to compact controls at constrained widths, and cannot expand the main canvas past the viewport or clip its right edge.
+
+### Removed
+
+- **Workspace drawer tabs**: Todo, Plan, Agents, and Queue tabs (and the composer activity strip) are gone; their surfaces live in the center dock. Existing `defaultPanelTab` preferences pointing at removed tabs fall back to Diff.
+
 ## [0.7.2] - 2026-08-10
 
 ### Added

@@ -91,13 +91,13 @@ export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey
 				<>
 					<div className="mb-3 flex items-center gap-2">
 						<label
-							className="text-[10px] font-semibold tracking-widest text-(--omp-dim) uppercase"
+							className="text-omp-xs font-semibold tracking-widest text-(--omp-dim) uppercase"
 							htmlFor="gain-project"
 						>
 							{t("stats.col.project")}
 						</label>
 						<select
-							className="rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2 py-1 text-[11px] text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none"
+							className="rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2 py-1 text-omp-sm text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none"
 							id="gain-project"
 							onChange={event => setProject(event.target.value)}
 							value={project}
@@ -128,7 +128,7 @@ export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey
 							.filter(([, totals]) => totals.hits > 0)
 							.map(([source, totals]) => (
 								<div
-									className="mb-1.5 flex items-center gap-3 rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2 text-[11px]"
+									className="mb-1.5 flex items-center gap-3 rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2 text-omp-sm"
 									key={source}
 								>
 									<span className="font-mono font-medium text-(--omp-text)">{source}</span>

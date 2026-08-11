@@ -137,13 +137,13 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult }
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-start gap-1.5 rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11.5px] leading-[1.45]">
+			<div className="flex items-start gap-1.5 rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45]">
 				<Terminal size={12} className="mt-0.5 shrink-0 text-[var(--omp-success)]" />
 				<span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-[var(--omp-text)]">$ {command}</span>
 				{parsed.exitCode != null && (
 					<span
 						className={cx(
-							"ml-1 shrink-0 rounded px-1 py-px text-[9.5px] font-semibold tabular-nums",
+							"ml-1 shrink-0 rounded px-1 py-px text-omp-xxs font-semibold tabular-nums",
 							parsed.exitCode === 0 && !isError
 								? "bg-[var(--omp-success)]/15 text-[var(--omp-success)]"
 								: "bg-[var(--omp-error)]/15 text-[var(--omp-error)]",
@@ -153,23 +153,23 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult }
 					</span>
 				)}
 				{isPartial && parsed.exitCode == null && (
-					<span className="ml-1 shrink-0 animate-pulse text-[10px] text-[var(--omp-accent)]">
+					<span className="ml-1 shrink-0 animate-pulse text-omp-xs text-[var(--omp-accent)]">
 						{t("tools.bash.running")}
 					</span>
 				)}
 			</div>
 			{hasOutput && (
-				<div className="max-h-64 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.5]">
+				<div className="max-h-64 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.5]">
 					<div className="whitespace-pre-wrap text-[var(--omp-tool-output)]">{parsed.output}</div>
 				</div>
 			)}
 			{parsed.stats.length > 0 && (
-				<div className="font-mono text-[10px] text-[var(--omp-dim)]">[{parsed.stats.join(" | ")}]</div>
+				<div className="font-mono text-omp-xs text-[var(--omp-dim)]">[{parsed.stats.join(" | ")}]</div>
 			)}
 			{parsed.truncation && (
-				<div className="font-mono text-[10px] text-[var(--omp-warning)]">[{parsed.truncation}]</div>
+				<div className="font-mono text-omp-xs text-[var(--omp-warning)]">[{parsed.truncation}]</div>
 			)}
-			{isError && !hasOutput && <div className="text-[11px] text-[var(--omp-error)]">{t("tools.bash.failed")}</div>}
+			{isError && !hasOutput && <div className="text-omp-sm text-[var(--omp-error)]">{t("tools.bash.failed")}</div>}
 		</div>
 	);
 }

@@ -16,52 +16,47 @@
 
 import { ChevronDown, ChevronRight, Eye, EyeOff, Globe, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import type { CustomProviderInput, CustomProviderView } from "../../../shared/ipc-types";
+import type {
+	CustomProviderApi,
+	CustomProviderInput,
+	CustomProviderModelInput,
+	CustomProviderView,
+} from "../../../shared/ipc-types";
+import { CUSTOM_PROVIDER_APIS } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Modal, Spinner } from "../common";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
-/** Protocols accepted by models.yml (mirror of PROVIDER_PROTOCOLS in main/models-config.ts). */
-export const PROVIDER_PROTOCOLS = [
-	"openai-completions",
-	"openai-responses",
-	"anthropic-messages",
-	"gemini",
-	"groq",
-	"mistral",
-	"openrouter",
-] as const;
+/** Protocols accepted by models.yml (re-export from shared types). */
+export const PROVIDER_PROTOCOLS = CUSTOM_PROVIDER_APIS;
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 const SELECT_CLASS =
-	"w-full rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-1.5 text-xs text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
+	"w-full rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2.5 py-1.5 text-xs text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 // ============================================================================
 // Small field helpers (label/error markup matches common/Input's FieldShell)
 // ============================================================================
 
 function FieldLabel({ children }: { children: ReactNode }) {
-	return <span className="mb-1 block text-[11px] font-medium tracking-wide text-(--omp-muted)">{children}</span>;
+	return <span className="mb-1 block text-omp-sm font-medium tracking-wide text-(--omp-muted)">{children}</span>;
 }
 
 function FieldError({ message }: { message?: string }) {
 	if (!message) return null;
-	return <span className="mt-1 block text-[11px] text-(--omp-error)">{message}</span>;
+	return <span className="mt-1 block text-omp-sm text-(--omp-error)">{message}</span>;
 }
 
 // ============================================================================
 // Form
 // ============================================================================
 
-interface ModelRow {
+interface ModelRow extends Omit<CustomProviderModelInput, "id"> {
 	key: number;
 	id: string;
-	name: string;
-	/** Preserved from the existing entry on edit (not editable here). */
-	reasoning?: boolean;
 }
 
 interface HeaderRow {
@@ -86,6 +81,445 @@ function isValidHttpUrl(value: string): boolean {
 	}
 }
 
+// ============================================================================
+// ModelEditor: expandable per-model detail editor
+// ============================================================================
+
+interface ModelEditorProps {
+	model: ModelRow;
+	readonly: boolean;
+	disabled: boolean;
+	onUpdate: (key: number, patch: Partial<Omit<ModelRow, "key">>) => void;
+	onRemove: (key: number) => void;
+	canRemove: boolean;
+}
+
+function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove }: ModelEditorProps) {
+	const t = useT();
+	const [expanded, setExpanded] = useState(false);
+	// Local record-rows for the per-model headers editor (avoids empty-key
+	// collisions in the Record form while editing).
+	const [headerRows, setHeaderRows] = useState<Array<[string, string]>>(() => Object.entries(model.headers ?? {}));
+
+	const commitHeaders = (rows: Array<[string, string]>) => {
+		setHeaderRows(rows);
+		const cleaned = rows.filter(([name]) => name.trim().length > 0);
+		onUpdate(model.key, {
+			headers: cleaned.length > 0 ? Object.fromEntries(cleaned) : undefined,
+		});
+	};
+
+	const INPUT_CLASS =
+		"w-full rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2.5 py-1.5 text-omp-sm text-(--omp-text) outline-none transition-colors placeholder:text-(--omp-dim) hover:border-(--omp-border-strong) focus:border-(--omp-input-focus-border) disabled:cursor-not-allowed disabled:opacity-60";
+
+	const updateCost = (field: keyof NonNullable<ModelRow["cost"]>, value: string) => {
+		const num = value.trim() === "" ? undefined : Number.parseFloat(value);
+		const cost = { ...model.cost, [field]: num && num >= 0 ? num : undefined };
+		if (!cost.input && !cost.output && !cost.cacheRead && !cost.cacheWrite) {
+			onUpdate(model.key, { cost: undefined });
+		} else {
+			onUpdate(model.key, { cost });
+		}
+	};
+
+	const updateThinkingEfforts = (effort: string, checked: boolean) => {
+		if (!model.thinking) return;
+		const efforts = checked
+			? [...model.thinking.efforts, effort as NonNullable<ModelRow["thinking"]>["efforts"][number]]
+			: model.thinking.efforts.filter(e => e !== effort);
+		if (efforts.length === 0) {
+			onUpdate(model.key, { thinking: undefined });
+		} else {
+			onUpdate(model.key, { thinking: { ...model.thinking, efforts } });
+		}
+	};
+
+	const toggleInput = (modality: "text" | "image") => {
+		const current = model.input ?? [];
+		const next = current.includes(modality)
+			? current.filter((m: "text" | "image") => m !== modality)
+			: [...current, modality];
+		onUpdate(model.key, { input: next.length > 0 ? next : undefined });
+	};
+
+	return (
+		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent">
+			<div className="flex items-center gap-2 px-3 py-2">
+				<input
+					type="text"
+					value={model.id}
+					onChange={e => onUpdate(model.key, { id: e.target.value })}
+					placeholder={t("providerCfg.form.modelIdPlaceholder")}
+					className={`${INPUT_CLASS} flex-1 font-mono`}
+					disabled={readonly || disabled}
+				/>
+				<input
+					type="text"
+					value={model.name ?? ""}
+					onChange={e => onUpdate(model.key, { name: e.target.value || undefined })}
+					placeholder={t("providerCfg.form.modelNamePlaceholder")}
+					className={`${INPUT_CLASS} flex-1`}
+					disabled={readonly || disabled}
+				/>
+				<Button
+					size="sm"
+					variant="ghost"
+					icon={expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+					onClick={() => setExpanded(!expanded)}
+					aria-label={expanded ? t("providerCfg.form.modelCollapse") : t("providerCfg.form.modelExpand")}
+					disabled={disabled}
+				/>
+				{canRemove && (
+					<Button
+						size="sm"
+						variant="ghost"
+						icon={<Trash2 size={14} />}
+						onClick={() => onRemove(model.key)}
+						aria-label={t("providerCfg.form.modelRemove")}
+						disabled={readonly || disabled}
+					/>
+				)}
+			</div>
+
+			{expanded && (
+				<div className="space-y-3 border-t border-(--omp-border-muted) px-3 py-3">
+					<div className="grid grid-cols-2 gap-3">
+						<label className="flex flex-col gap-1">
+							<span className="text-omp-sm font-medium text-(--omp-text)">{t("providerCfg.form.modelApi")}</span>
+							<select
+								value={model.api ?? ""}
+								onChange={e =>
+									onUpdate(model.key, {
+										api: (e.target.value || undefined) as CustomProviderModelInput["api"],
+									})
+								}
+								className={INPUT_CLASS}
+								disabled={readonly || disabled}
+							>
+								<option value="">{t("providerCfg.form.modelApiInherit")}</option>
+								{PROVIDER_PROTOCOLS.map(protocol => (
+									<option key={protocol} value={protocol}>
+										{protocol}
+									</option>
+								))}
+							</select>
+							<span className="text-omp-xs text-(--omp-dim)">{t("providerCfg.form.modelApiHint")}</span>
+						</label>
+
+						<label className="flex flex-col gap-1">
+							<span className="text-omp-sm font-medium text-(--omp-text)">
+								{t("providerCfg.form.modelBaseUrl")}
+							</span>
+							<input
+								type="text"
+								value={model.baseUrl ?? ""}
+								onChange={e => onUpdate(model.key, { baseUrl: e.target.value || undefined })}
+								placeholder={t("providerCfg.form.modelBaseUrlPlaceholder")}
+								className={`${INPUT_CLASS} font-mono`}
+								disabled={readonly || disabled}
+							/>
+							<span className="text-omp-xs text-(--omp-dim)">{t("providerCfg.form.modelBaseUrlHint")}</span>
+						</label>
+					</div>
+
+					<div className="grid grid-cols-2 gap-3">
+						<label className="flex flex-col gap-1">
+							<span className="text-omp-sm font-medium text-(--omp-text)">
+								{t("providerCfg.form.contextWindow")}
+							</span>
+							<input
+								type="number"
+								value={model.contextWindow ?? ""}
+								onChange={e =>
+									onUpdate(model.key, {
+										contextWindow: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
+									})
+								}
+								placeholder="128000"
+								min="0"
+								className={INPUT_CLASS}
+								disabled={readonly || disabled}
+							/>
+						</label>
+
+						<label className="flex flex-col gap-1">
+							<span className="text-omp-sm font-medium text-(--omp-text)">
+								{t("providerCfg.form.maxTokens")}
+							</span>
+							<input
+								type="number"
+								value={model.maxTokens ?? ""}
+								onChange={e =>
+									onUpdate(model.key, {
+										maxTokens: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
+									})
+								}
+								placeholder="8192"
+								min="0"
+								className={INPUT_CLASS}
+								disabled={readonly || disabled}
+							/>
+						</label>
+					</div>
+
+					<div className="flex flex-wrap items-center gap-4">
+						<label className="flex items-center gap-2">
+							<input
+								type="checkbox"
+								checked={model.reasoning === true}
+								onChange={e => onUpdate(model.key, { reasoning: e.target.checked || undefined })}
+								disabled={readonly || disabled}
+								className="h-4 w-4 rounded border-(--omp-input-border)"
+							/>
+							<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.reasoning")}</span>
+						</label>
+
+						<label className="flex items-center gap-2">
+							<input
+								type="checkbox"
+								checked={model.supportsTools === true}
+								onChange={e => onUpdate(model.key, { supportsTools: e.target.checked || undefined })}
+								disabled={readonly || disabled}
+								className="h-4 w-4 rounded border-(--omp-input-border)"
+							/>
+							<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.supportsTools")}</span>
+						</label>
+
+						<label className="flex items-center gap-2">
+							<input
+								type="checkbox"
+								checked={model.omitMaxOutputTokens === true}
+								onChange={e => onUpdate(model.key, { omitMaxOutputTokens: e.target.checked || undefined })}
+								disabled={readonly || disabled}
+								className="h-4 w-4 rounded border-(--omp-input-border)"
+							/>
+							<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.omitMaxTokens")}</span>
+						</label>
+					</div>
+
+					<div className="space-y-2">
+						<span className="text-omp-sm font-medium text-(--omp-text)">
+							{t("providerCfg.form.inputModalities")}
+						</span>
+						<div className="flex gap-3">
+							<label className="flex items-center gap-2">
+								<input
+									type="checkbox"
+									checked={model.input?.includes("text") ?? false}
+									onChange={() => toggleInput("text")}
+									disabled={readonly || disabled}
+									className="h-4 w-4 rounded border-(--omp-input-border)"
+								/>
+								<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.inputText")}</span>
+							</label>
+							<label className="flex items-center gap-2">
+								<input
+									type="checkbox"
+									checked={model.input?.includes("image") ?? false}
+									onChange={() => toggleInput("image")}
+									disabled={readonly || disabled}
+									className="h-4 w-4 rounded border-(--omp-input-border)"
+								/>
+								<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.inputImage")}</span>
+							</label>
+						</div>
+					</div>
+
+					<div className="space-y-2">
+						<span className="text-omp-sm font-medium text-(--omp-text)">
+							{t("providerCfg.form.thinkingConfig")}
+						</span>
+						<div className="flex items-center gap-2">
+							<input
+								type="checkbox"
+								checked={!!model.thinking}
+								onChange={e => {
+									if (e.target.checked) {
+										onUpdate(model.key, { thinking: { mode: "effort", efforts: ["medium"] } });
+									} else {
+										onUpdate(model.key, { thinking: undefined });
+									}
+								}}
+								disabled={readonly || disabled}
+								className="h-4 w-4 rounded border-(--omp-input-border)"
+							/>
+							<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.thinkingEnabled")}</span>
+						</div>
+						{model.thinking && (
+							<div className="ml-6 space-y-2">
+								<label className="flex flex-col gap-1">
+									<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.thinkingMode")}</span>
+									<select
+										value={model.thinking.mode}
+										onChange={e =>
+											onUpdate(model.key, {
+												thinking: {
+													...model.thinking!,
+													mode: e.target.value as NonNullable<ModelRow["thinking"]>["mode"],
+												},
+											})
+										}
+										className={INPUT_CLASS}
+										disabled={readonly || disabled}
+									>
+										<option value="effort">effort</option>
+										<option value="budget">budget</option>
+										<option value="google-level">google-level</option>
+										<option value="anthropic-adaptive">anthropic-adaptive</option>
+										<option value="anthropic-budget-effort">anthropic-budget-effort</option>
+									</select>
+								</label>
+
+								<div className="space-y-1">
+									<span className="text-omp-sm text-(--omp-text)">
+										{t("providerCfg.form.thinkingEfforts")}
+									</span>
+									<div className="flex flex-wrap gap-2">
+										{(["minimal", "low", "medium", "high", "xhigh", "max"] as const).map(effort => (
+											<label key={effort} className="flex items-center gap-1.5">
+												<input
+													type="checkbox"
+													checked={model.thinking!.efforts.includes(effort)}
+													onChange={e => updateThinkingEfforts(effort, e.target.checked)}
+													disabled={readonly || disabled}
+													className="h-3.5 w-3.5 rounded border-(--omp-input-border)"
+												/>
+												<span className="text-omp-xs text-(--omp-text)">{effort}</span>
+											</label>
+										))}
+									</div>
+								</div>
+
+								<label className="flex items-center gap-2">
+									<input
+										type="checkbox"
+										checked={model.thinking.supportsDisplay === true}
+										onChange={e =>
+											onUpdate(model.key, {
+												thinking: { ...model.thinking!, supportsDisplay: e.target.checked || undefined },
+											})
+										}
+										disabled={readonly || disabled}
+										className="h-4 w-4 rounded border-(--omp-input-border)"
+									/>
+									<span className="text-omp-sm text-(--omp-text)">
+										{t("providerCfg.form.thinkingDisplay")}
+									</span>
+								</label>
+							</div>
+						)}
+					</div>
+
+					<div className="space-y-2">
+						<span className="text-omp-sm font-medium text-(--omp-text)">{t("providerCfg.form.costTitle")}</span>
+						<span className="block text-omp-xs text-(--omp-dim)">{t("providerCfg.form.costHint")}</span>
+						<div className="grid grid-cols-2 gap-2">
+							{(["input", "output", "cacheRead", "cacheWrite"] as const).map(field => (
+								<label key={field} className="flex flex-col gap-1">
+									<span className="text-omp-xs text-(--omp-text)">{t(`providerCfg.form.cost.${field}`)}</span>
+									<input
+										type="number"
+										value={model.cost?.[field] ?? ""}
+										onChange={e => updateCost(field, e.target.value)}
+										placeholder="0.00"
+										step="0.01"
+										min="0"
+										className={INPUT_CLASS}
+										disabled={readonly || disabled}
+									/>
+								</label>
+							))}
+						</div>
+					</div>
+
+					<div className="space-y-2">
+						<span className="text-omp-sm font-medium text-(--omp-text)">
+							{t("providerCfg.form.modelHeaders")}
+						</span>
+						<div className="flex flex-col gap-1.5">
+							{headerRows.map(([name, value], index) => (
+								<div key={index} className="flex items-center gap-2">
+									<input
+										type="text"
+										value={name}
+										onChange={e => {
+											const next = headerRows.map((row, i) =>
+												i === index ? ([e.target.value, value] as [string, string]) : row,
+											);
+											commitHeaders(next);
+										}}
+										placeholder={t("providerCfg.form.headerName")}
+										className={`${INPUT_CLASS} flex-1 font-mono`}
+										disabled={readonly || disabled}
+									/>
+									<input
+										type="text"
+										value={value}
+										onChange={e => {
+											const next = headerRows.map((row, i) =>
+												i === index ? ([name, e.target.value] as [string, string]) : row,
+											);
+											commitHeaders(next);
+										}}
+										placeholder={t("providerCfg.form.headerValue")}
+										className={`${INPUT_CLASS} flex-1 font-mono`}
+										disabled={readonly || disabled}
+									/>
+									<button
+										type="button"
+										aria-label={t("providerCfg.form.headerRemove")}
+										disabled={readonly || disabled}
+										onClick={() => commitHeaders(headerRows.filter((_, i) => i !== index))}
+										className="shrink-0 text-(--omp-dim) transition-colors hover:text-(--omp-error) disabled:opacity-50"
+									>
+										<Trash2 size={13} />
+									</button>
+								</div>
+							))}
+							{!readonly && (
+								<Button
+									size="sm"
+									variant="ghost"
+									icon={<Plus size={12} />}
+									disabled={disabled}
+									onClick={() => commitHeaders([...headerRows, ["", ""]])}
+								>
+									{t("providerCfg.form.headerAdd")}
+								</Button>
+							)}
+						</div>
+					</div>
+
+					<label className="flex flex-col gap-1">
+						<span className="text-omp-sm font-medium text-(--omp-text)">
+							{t("providerCfg.form.premiumMultiplier")}
+						</span>
+						<input
+							type="number"
+							value={model.premiumMultiplier ?? ""}
+							onChange={e =>
+								onUpdate(model.key, {
+									premiumMultiplier: e.target.value ? Number.parseFloat(e.target.value) : undefined,
+								})
+							}
+							placeholder="1.0"
+							step="0.1"
+							min="0"
+							className={INPUT_CLASS}
+							disabled={readonly || disabled}
+						/>
+						<span className="text-omp-xs text-(--omp-dim)">{t("providerCfg.form.premiumMultiplierHint")}</span>
+					</label>
+				</div>
+			)}
+		</div>
+	);
+}
+
+// ============================================================================
+// ProviderForm
+// ============================================================================
+
 interface ProviderFormProps {
 	/** null = adding a new provider. */
 	editing: CustomProviderView | null;
@@ -104,17 +538,32 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 	const readonly = editing?.builtin ?? false;
 
 	const [id, setId] = useState(editing?.id ?? "");
-	const [api, setApi] = useState(editing?.api ?? PROVIDER_PROTOCOLS[0]);
+	const [api, setApi] = useState<CustomProviderApi>(
+		(editing?.api as CustomProviderApi | undefined) ?? PROVIDER_PROTOCOLS[0],
+	);
 	const [baseUrl, setBaseUrl] = useState(editing?.baseUrl ?? "");
 	const [apiKey, setApiKey] = useState("");
 	const [showKey, setShowKey] = useState(false);
+	const [auth, setAuth] = useState<"apiKey" | "none" | "oauth" | undefined>(editing?.auth);
+	const [authHeader, setAuthHeader] = useState(editing?.authHeader ?? false);
+	const [discoveryType, setDiscoveryType] = useState<string | undefined>(editing?.discovery?.type);
+	const [discoveryTimeout, setDiscoveryTimeout] = useState<number | undefined>(editing?.discovery?.timeoutMs);
+	const [disableStrictTools, setDisableStrictTools] = useState(editing?.disableStrictTools ?? false);
+	const [transport, setTransport] = useState<"pi-native" | undefined>(editing?.transport);
+	const [extraBody, setExtraBody] = useState(() =>
+		editing?.extraBody ? JSON.stringify(editing.extraBody, null, 2) : "",
+	);
 	const [models, setModels] = useState<ModelRow[]>(() =>
 		editing?.models.length
-			? editing.models.map(m => ({ key: nextKey.current++, id: m.id, name: m.name ?? "", reasoning: m.reasoning }))
+			? editing.models.map(m => ({ key: nextKey.current++, ...m }))
 			: [{ key: nextKey.current++, id: "", name: "" }],
 	);
 	const [headers, setHeaders] = useState<HeaderRow[]>(() =>
-		Object.entries(editing?.headers ?? {}).map(([name, value]) => ({ key: nextKey.current++, name, value })),
+		Object.entries(editing?.headers ?? {}).map(([name, value]) => ({
+			key: nextKey.current++,
+			name,
+			value: String(value),
+		})),
 	);
 	const [advancedOpen, setAdvancedOpen] = useState(() => Object.keys(editing?.headers ?? {}).length > 0);
 	const [errors, setErrors] = useState<Record<string, string>>({});
@@ -151,7 +600,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 		const filled = models.filter(row => row.id.trim().length > 0);
 		if (filled.length === 0) {
 			errs.models = t("providerCfg.form.modelsRequired");
-		} else if (models.some(row => row.id.trim().length === 0 && row.name.trim().length > 0)) {
+		} else if (models.some(row => row.id.trim().length === 0 && (row.name?.trim().length ?? 0) > 0)) {
 			errs.models = t("providerCfg.form.modelIdRequired");
 		} else {
 			const seen = new Set<string>();
@@ -162,6 +611,22 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 					break;
 				}
 				seen.add(modelId);
+			}
+		}
+
+		// Cost validation: if any field filled, all four required and finite ≥ 0
+		for (const row of filled) {
+			const cost = row.cost;
+			if (cost) {
+				const fields = [cost.input, cost.output, cost.cacheRead, cost.cacheWrite];
+				const anyFilled = fields.some(v => v !== undefined);
+				if (anyFilled) {
+					const allFilled = fields.every(v => v !== undefined && Number.isFinite(v) && v >= 0);
+					if (!allFilled) {
+						errs.models = t("providerCfg.form.costAllRequired");
+						break;
+					}
+				}
 			}
 		}
 
@@ -184,23 +649,47 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 		if (Object.keys(errs).length > 0) return;
 
 		const headerEntries = headers.filter(row => row.name.trim().length > 0);
-		// Full-replace semantics in main: send the desired end state; apiKey is
-		// preserved server-side when left blank on edit.
+		let parsedExtraBody: Record<string, unknown> | undefined;
+		if (extraBody.trim().length > 0) {
+			try {
+				parsedExtraBody = JSON.parse(extraBody);
+			} catch {
+				setErrors({ extraBody: t("providerCfg.form.extraBodyInvalid") });
+				return;
+			}
+		}
+
 		const input: CustomProviderInput = {
 			id: editing ? editing.id : id.trim(),
 			api,
 			baseUrl: baseUrl.trim(),
 			...(apiKey.trim().length > 0 ? { apiKey: apiKey.trim() } : {}),
+			...(auth ? { auth } : {}),
+			...(authHeader ? { authHeader: true } : {}),
 			...(headerEntries.length > 0
 				? { headers: Object.fromEntries(headerEntries.map(row => [row.name.trim(), row.value])) }
 				: {}),
+			...(discoveryType
+				? {
+						discovery: {
+							type: discoveryType as NonNullable<CustomProviderInput["discovery"]>["type"],
+							...(discoveryTimeout ? { timeoutMs: discoveryTimeout } : {}),
+						},
+					}
+				: {}),
+			...(disableStrictTools ? { disableStrictTools: true } : {}),
+			...(transport ? { transport } : {}),
+			...(parsedExtraBody ? { extraBody: parsedExtraBody } : {}),
 			models: models
 				.filter(row => row.id.trim().length > 0)
-				.map(row => ({
-					id: row.id.trim(),
-					...(row.name.trim().length > 0 ? { name: row.name.trim() } : {}),
-					...(row.reasoning ? { reasoning: true } : {}),
-				})),
+				.map(row => {
+					const { key, ...modelInput } = row;
+					return {
+						...modelInput,
+						id: modelInput.id.trim(),
+						...(modelInput.name && modelInput.name.trim().length > 0 ? { name: modelInput.name.trim() } : {}),
+					};
+				}),
 		};
 
 		setSubmitting(true);
@@ -222,7 +711,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 		<div className="flex max-h-[70vh] flex-col">
 			<div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
 				{readonly && (
-					<div className="rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2 text-[12px] text-(--omp-muted)">
+					<div className="rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2 text-omp-md text-(--omp-muted)">
 						{t("providerCfg.form.builtinReadonly")}
 					</div>
 				)}
@@ -248,7 +737,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 						className={SELECT_CLASS}
 						value={api}
 						disabled={readonly || submitting}
-						onChange={event => setApi(event.target.value)}
+						onChange={event => setApi(event.target.value as CustomProviderApi)}
 					>
 						{PROVIDER_PROTOCOLS.map(protocol => (
 							<option key={protocol} value={protocol}>
@@ -294,45 +783,134 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 							{showKey ? <EyeOff size={13} /> : <Eye size={13} />}
 						</button>
 					</div>
-					<span className="mt-1 block text-[11px] text-(--omp-dim)">
+					<span className="mt-1 block text-omp-sm text-(--omp-dim)">
 						{editing?.hasApiKey ? t("providerCfg.form.apiKeyKeep") : t("providerCfg.form.apiKeyOptional")}
 					</span>
+				</div>
+
+				<div>
+					<FieldLabel>{t("providerCfg.form.auth")}</FieldLabel>
+					<select
+						className={SELECT_CLASS}
+						value={auth ?? ""}
+						disabled={readonly || submitting}
+						onChange={event =>
+							setAuth((event.target.value || undefined) as "apiKey" | "none" | "oauth" | undefined)
+						}
+					>
+						<option value="">apiKey (default)</option>
+						<option value="apiKey">apiKey</option>
+						<option value="none">none</option>
+						<option value="oauth">oauth</option>
+					</select>
+					<span className="mt-1 block text-omp-sm text-(--omp-dim)">{t("providerCfg.form.authHint")}</span>
+				</div>
+
+				<label className="flex items-center gap-2">
+					<input
+						type="checkbox"
+						checked={authHeader}
+						onChange={e => setAuthHeader(e.target.checked)}
+						disabled={readonly || submitting}
+						className="h-4 w-4 rounded border-(--omp-input-border)"
+					/>
+					<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.authHeader")}</span>
+				</label>
+				{authHeader && (
+					<span className="ml-6 block text-omp-sm text-(--omp-dim)">{t("providerCfg.form.authHeaderHint")}</span>
+				)}
+
+				<div>
+					<FieldLabel>{t("providerCfg.form.discovery")}</FieldLabel>
+					<div className="flex gap-2">
+						<select
+							className={SELECT_CLASS}
+							style={{ flex: "2" }}
+							value={discoveryType ?? ""}
+							disabled={readonly || submitting}
+							onChange={event => setDiscoveryType(event.target.value || undefined)}
+						>
+							<option value="">(none)</option>
+							<option value="ollama">ollama</option>
+							<option value="llama.cpp">llama.cpp</option>
+							<option value="lm-studio">lm-studio</option>
+							<option value="openai-models-list">openai-models-list</option>
+							<option value="proxy">proxy</option>
+							<option value="litellm">litellm</option>
+						</select>
+						<Input
+							type="number"
+							value={discoveryTimeout ?? ""}
+							onChange={e =>
+								setDiscoveryTimeout(e.target.value ? Number.parseInt(e.target.value, 10) : undefined)
+							}
+							placeholder={t("providerCfg.form.discoveryTimeout")}
+							disabled={readonly || submitting || !discoveryType}
+							style={{ flex: "1" }}
+						/>
+					</div>
+					<span className="mt-1 block text-omp-sm text-(--omp-dim)">{t("providerCfg.form.discoveryHint")}</span>
+				</div>
+
+				<label className="flex items-center gap-2">
+					<input
+						type="checkbox"
+						checked={disableStrictTools}
+						onChange={e => setDisableStrictTools(e.target.checked)}
+						disabled={readonly || submitting}
+						className="h-4 w-4 rounded border-(--omp-input-border)"
+					/>
+					<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.disableStrictTools")}</span>
+				</label>
+				{disableStrictTools && (
+					<span className="ml-6 block text-omp-sm text-(--omp-dim)">
+						{t("providerCfg.form.disableStrictToolsHint")}
+					</span>
+				)}
+
+				<div>
+					<FieldLabel>{t("providerCfg.form.transport")}</FieldLabel>
+					<select
+						className={SELECT_CLASS}
+						value={transport ?? ""}
+						disabled={readonly || submitting}
+						onChange={event => setTransport((event.target.value || undefined) as "pi-native" | undefined)}
+					>
+						<option value="">(default)</option>
+						<option value="pi-native">pi-native</option>
+					</select>
+				</div>
+
+				<div>
+					<FieldLabel>{t("providerCfg.form.extraBody")}</FieldLabel>
+					<textarea
+						value={extraBody}
+						onChange={e => {
+							setExtraBody(e.target.value);
+							setErrors(prev => dropKey(prev, "extraBody"));
+						}}
+						placeholder={t("providerCfg.form.extraBodyPlaceholder")}
+						disabled={readonly || submitting}
+						rows={3}
+						className="w-full rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2.5 py-1.5 font-mono text-omp-sm text-(--omp-text) outline-none transition-colors placeholder:text-(--omp-dim) hover:border-(--omp-border-strong) focus:border-(--omp-input-focus-border) disabled:cursor-not-allowed disabled:opacity-60"
+					/>
+					<span className="mt-1 block text-omp-sm text-(--omp-dim)">{t("providerCfg.form.extraBodyHint")}</span>
+					<FieldError message={errors.extraBody} />
 				</div>
 
 				<div>
 					<FieldLabel>{t("providerCfg.form.models")}</FieldLabel>
 					<div className="flex flex-col gap-2">
 						{models.map(row => (
-							<div key={row.key} className="flex items-start gap-2">
-								<div className="min-w-0 flex-1">
-									<Input
-										mono
-										value={row.id}
-										onChange={event => updateModel(row.key, { id: event.target.value })}
-										placeholder={t("providerCfg.form.modelId")}
-										disabled={readonly || submitting}
-										aria-label={t("providerCfg.form.modelId")}
-									/>
-								</div>
-								<div className="min-w-0 flex-1">
-									<Input
-										value={row.name}
-										onChange={event => updateModel(row.key, { name: event.target.value })}
-										placeholder={t("providerCfg.form.modelName")}
-										disabled={readonly || submitting}
-										aria-label={t("providerCfg.form.modelName")}
-									/>
-								</div>
-								<Button
-									size="sm"
-									variant="ghost"
-									className="mt-1"
-									icon={<Trash2 size={12} />}
-									aria-label={t("providerCfg.form.modelRemove")}
-									disabled={readonly || submitting || models.length <= 1}
-									onClick={() => removeModel(row.key)}
-								/>
-							</div>
+							<ModelEditor
+								key={row.key}
+								model={row}
+								readonly={readonly}
+								disabled={submitting}
+								onUpdate={updateModel}
+								onRemove={removeModel}
+								canRemove={models.length > 1}
+							/>
 						))}
 					</div>
 					{!readonly && (
@@ -353,7 +931,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 				<div>
 					<button
 						type="button"
-						className="flex items-center gap-1 text-[11px] font-medium text-(--omp-muted) transition-colors hover:text-(--omp-text)"
+						className="flex items-center gap-1 text-omp-sm font-medium text-(--omp-muted) transition-colors hover:text-(--omp-text)"
 						onClick={() => setAdvancedOpen(prev => !prev)}
 					>
 						{advancedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -413,7 +991,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 				</div>
 
 				{submitError && (
-					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2 text-[12px] text-(--omp-error)">
+					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2 text-omp-md text-(--omp-error)">
 						{t("providerCfg.toast.saveFailed")}: {submitError}
 					</div>
 				)}
@@ -452,11 +1030,11 @@ function ProviderConfigRow({
 		<div className="flex items-center gap-3 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex items-center gap-2">
-					<span className="truncate text-[13px] font-medium text-(--omp-text)">{provider.id}</span>
+					<span className="truncate text-omp-lg font-medium text-(--omp-text)">{provider.id}</span>
 					<Badge variant="info">{provider.api}</Badge>
 					{provider.builtin && <Badge variant="muted">{t("providerCfg.list.builtin")}</Badge>}
 				</div>
-				<div className="flex items-center gap-3 text-[11px] text-(--omp-dim)">
+				<div className="flex items-center gap-3 text-omp-sm text-(--omp-dim)">
 					{provider.baseUrl && (
 						<span className="flex min-w-0 items-center gap-1">
 							<Globe size={10} className="shrink-0" />
@@ -585,7 +1163,7 @@ export function ProviderConfigDialog({ open, onClose, editProvider = null }: Pro
 				) : (
 					<div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto p-4">
 						<div className="flex items-center justify-between gap-2">
-							<span className="min-w-0 flex-1 text-[11px] text-(--omp-dim)">{t("providerCfg.subtitle")}</span>
+							<span className="min-w-0 flex-1 text-omp-sm text-(--omp-dim)">{t("providerCfg.subtitle")}</span>
 							<div className="flex shrink-0 items-center gap-1.5">
 								<Button
 									size="sm"
@@ -607,7 +1185,7 @@ export function ProviderConfigDialog({ open, onClose, editProvider = null }: Pro
 						</div>
 
 						{listError && (
-							<div className="flex items-center gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2 text-[12px] text-(--omp-error)">
+							<div className="flex items-center gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2 text-omp-md text-(--omp-error)">
 								<span className="min-w-0 flex-1">
 									{t("providerCfg.list.loadFailed")}: {listError}
 								</span>
@@ -626,7 +1204,7 @@ export function ProviderConfigDialog({ open, onClose, editProvider = null }: Pro
 						{providers && (
 							<>
 								{custom.length === 0 ? (
-									<div className="rounded-md border border-(--omp-border-muted) px-3 py-4 text-center text-[12px] text-(--omp-dim)">
+									<div className="rounded-md border border-(--omp-border-muted) px-3 py-4 text-center text-omp-md text-(--omp-dim)">
 										{t("providerCfg.list.empty")}
 									</div>
 								) : (
@@ -645,7 +1223,7 @@ export function ProviderConfigDialog({ open, onClose, editProvider = null }: Pro
 
 								{builtin.length > 0 && (
 									<>
-										<span className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-(--omp-muted)">
+										<span className="mt-1 text-omp-sm font-semibold uppercase tracking-wider text-(--omp-muted)">
 											{t("providerCfg.list.builtinSection")}
 										</span>
 										<div className="flex flex-col gap-2">
@@ -653,7 +1231,7 @@ export function ProviderConfigDialog({ open, onClose, editProvider = null }: Pro
 												<ProviderConfigRow key={provider.id} provider={provider} t={t} />
 											))}
 										</div>
-										<span className="text-[11px] text-(--omp-dim)">{t("providerCfg.list.builtinNote")}</span>
+										<span className="text-omp-sm text-(--omp-dim)">{t("providerCfg.list.builtinNote")}</span>
 									</>
 								)}
 							</>
@@ -668,7 +1246,7 @@ export function ProviderConfigDialog({ open, onClose, editProvider = null }: Pro
 				size="sm"
 				title={t("providerCfg.delete.title")}
 			>
-				<p className="text-[13px] leading-relaxed text-(--omp-muted)">
+				<p className="text-omp-lg leading-relaxed text-(--omp-muted)">
 					{t("providerCfg.delete.body", { id: pendingDelete?.id ?? "" })}
 				</p>
 				<div className="mt-5 flex justify-end gap-2">

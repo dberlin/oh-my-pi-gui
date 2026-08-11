@@ -375,18 +375,52 @@
  * The existing component chrome remains available outside this scope; this
  * layer changes only the transcript surface so tool renderers stay intact.
  * ------------------------------------------------------------------------- */
-.omp-transcript-editorial {
-	--omp-editorial-shell-left: var(--omp-workspace-gutter-start, clamp(24px, 7%, 144px));
-	--omp-editorial-shell-right: var(--omp-workspace-gutter-end, clamp(16px, 4%, 112px));
-	--omp-editorial-inset: 142px;
-	--omp-editorial-edge: 10px;
-	--omp-editorial-rail-x: 34px;
-}
-
+/* ---------------------------------------------------------------------------
+ * Unified content column — every reading surface (transcript, composer,
+ * settings, management pages) shares one centered, viewport-adaptive column
+ * instead of each page inventing its own width/alignment. The reading column
+ * caps prose surfaces; the workspace column gives management/detail pages
+ * more room. Both center at large sizes and go full-bleed with a fluid
+ * gutter at small sizes.
+ * ------------------------------------------------------------------------- */
 .omp-workspace-main {
 	container: omp-workspace / inline-size;
-	--omp-workspace-gutter-start: clamp(24px, 7%, 144px);
-	--omp-workspace-gutter-end: clamp(16px, 4%, 112px);
+	min-width: 0;
+	overflow-x: clip;
+}
+
+.omp-workspace-main,
+.settings-main-canvas {
+	--omp-column-pad: clamp(16px, 3vw, 40px);
+	--omp-column-reading: 72rem;
+	--omp-column-workspace: 104rem;
+}
+
+.omp-column {
+	width: 100%;
+	margin-inline: auto;
+	padding-inline: var(--omp-column-pad);
+}
+
+.omp-column-reading {
+	max-width: calc(var(--omp-column-reading) + 2 * var(--omp-column-pad));
+}
+
+.omp-column-workspace {
+	max-width: calc(var(--omp-column-workspace) + 2 * var(--omp-column-pad));
+}
+
+/* Surface policy card: the single content-card recipe (hairline, no fill). */
+.omp-card {
+	border: 1px solid var(--omp-border-muted);
+	border-radius: 0.75rem;
+	background: transparent;
+}
+
+.omp-transcript-editorial {
+	--omp-editorial-rail-x: calc(var(--omp-column-pad) / 2);
+	--omp-editorial-inset: var(--omp-column-pad);
+	--omp-editorial-edge: var(--omp-column-pad);
 }
 
 .omp-transcript-editorial .omp-transcript-scroll {
@@ -395,9 +429,10 @@
 
 .omp-transcript-editorial .omp-transcript-row {
 	position: relative;
-	width: calc(100% - var(--omp-editorial-shell-left) - var(--omp-editorial-shell-right));
-	margin-right: auto;
-	margin-left: var(--omp-editorial-shell-left);
+	width: 100%;
+	min-width: 0;
+	max-width: min(100%, calc(var(--omp-column-reading) + 2 * var(--omp-column-pad)));
+	margin-inline: auto;
 }
 
 .omp-transcript-editorial [data-transcript-kind] > .omp-transcript-row::before {
@@ -515,6 +550,11 @@
 }
 
 .omp-transcript-editorial .omp-assistant-turn > .min-w-0 {
+	width: 100%;
+	max-width: none;
+}
+
+.omp-transcript-editorial .omp-assistant-turn > .min-w-0 > .markdown-body {
 	max-width: 84ch;
 }
 
@@ -752,20 +792,51 @@
 
 .omp-empty-canvas,
 .omp-composer-shell {
-	width: calc(
-		100% - var(--omp-workspace-gutter-start, clamp(24px, 7%, 144px)) -
-			var(--omp-workspace-gutter-end, clamp(16px, 4%, 112px))
-	);
-	margin-right: auto;
-	margin-left: var(--omp-workspace-gutter-start, clamp(24px, 7%, 144px));
+	width: min(100%, calc(var(--omp-column-reading) + 2 * var(--omp-column-pad)));
+	min-width: 0;
+	max-width: 100%;
+	margin-inline: auto;
+	padding-inline: var(--omp-column-pad);
 }
 
-.omp-empty-canvas {
-	max-width: none;
+.omp-starter-grid {
+	width: 100%;
+	min-width: 0;
+}
+
+.omp-starter-grid > *,
+.omp-composer-shell > * {
+	min-width: 0;
+	max-width: 100%;
 }
 
 .omp-composer-region {
+	min-width: 0;
+	max-width: 100%;
 	padding-inline: 0;
+}
+
+@container omp-workspace (max-width: 1200px) {
+	.omp-titlebar-secondary {
+		display: none;
+	}
+}
+
+@container omp-workspace (max-width: 900px) {
+	.omp-titlebar-command {
+		display: none;
+	}
+}
+
+@container omp-workspace (max-width: 520px) {
+	.omp-titlebar-status {
+		margin-inline: 0;
+		padding-inline: 0.5rem;
+	}
+
+	.omp-titlebar-status-label {
+		display: none;
+	}
 }
 
 @container omp-workspace (min-width: 1900px) {
@@ -776,9 +847,8 @@
 
 @container omp-workspace (max-width: 900px) {
 	.omp-transcript-editorial {
-		--omp-editorial-inset: 72px;
-		--omp-editorial-edge: 8px;
-		--omp-editorial-rail-x: 24px;
+		--omp-editorial-inset: calc(var(--omp-column-pad) + 30px);
+		--omp-editorial-rail-x: calc(var(--omp-column-pad) + 6px);
 	}
 
 	.omp-transcript-editorial .omp-timeline-marker time {
@@ -819,20 +889,11 @@
 
 @media (max-width: 720px) {
 	.omp-transcript-editorial {
-		--omp-editorial-shell-left: var(--omp-workspace-gutter-start, 10px);
-		--omp-editorial-shell-right: var(--omp-workspace-gutter-end, 10px);
-		--omp-editorial-inset: 48px;
-		--omp-editorial-edge: 16px;
-		--omp-editorial-rail-x: 20px;
+		--omp-editorial-inset: calc(var(--omp-column-pad) + 24px);
+		--omp-editorial-rail-x: calc(var(--omp-column-pad) + 4px);
 	}
 	.omp-transcript-editorial .omp-timeline-marker time {
 		display: none;
-	}
-	.omp-composer-shell {
-		width: calc(
-			100% - var(--omp-workspace-gutter-start, 10px) - var(--omp-workspace-gutter-end, 10px)
-		);
-		margin-left: var(--omp-workspace-gutter-start, 10px);
 	}
 	.omp-transcript-editorial .omp-user-bubble-actions {
 		position: static;

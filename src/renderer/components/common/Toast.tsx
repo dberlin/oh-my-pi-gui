@@ -37,16 +37,16 @@ export function ToastStack() {
 				const Icon = style.Icon;
 				return (
 					<div
-						className={`omp-toast-in pointer-events-auto flex items-start gap-2.5 rounded-md border border-(--omp-border-muted) border-l-2 bg-(--omp-bg-secondary) px-3 py-2.5 shadow-lg shadow-black/40 ${style.border}`}
+						className={`omp-toast-in pointer-events-auto flex items-start gap-2.5 rounded-md border border-(--omp-border-muted) border-l-2 bg-(--omp-toast-bg) px-3 py-2.5 shadow-lg shadow-black/40 ${style.border}`}
 						key={entry.id}
 						role={entry.variant === "error" ? "alert" : "status"}
 					>
 						<Icon className={`mt-px shrink-0 ${style.icon}`} size={14} />
 						<div className="min-w-0 flex-1">
 							{entry.title && (
-								<div className="mb-0.5 text-[11px] font-semibold text-(--omp-text)">{entry.title}</div>
+								<div className="mb-0.5 text-omp-sm font-semibold text-(--omp-text)">{entry.title}</div>
 							)}
-							<div className="text-[11px] leading-snug break-words text-(--omp-muted)">{entry.message}</div>
+							<div className="text-omp-sm leading-snug break-words text-(--omp-muted)">{entry.message}</div>
 						</div>
 						<button
 							aria-label={t("common.close")}

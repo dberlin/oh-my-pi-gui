@@ -333,19 +333,99 @@ export interface IpcCommandsUpdatePayload {
 	commands: AvailableCommand[];
 }
 
+/** API protocols accepted by the agent's models.yml (mirror of ApiSchema in
+ *  coding-agent/src/config/models-config-schema-bundle.ts — keep in sync). */
+export const CUSTOM_PROVIDER_APIS = [
+	"openai-completions",
+	"openai-responses",
+	"openai-codex-responses",
+	"azure-openai-responses",
+	"anthropic-messages",
+	"bedrock-converse-stream",
+	"google-generative-ai",
+	"google-gemini-cli",
+	"google-vertex",
+] as const;
+
+export type CustomProviderApi = (typeof CUSTOM_PROVIDER_APIS)[number];
+
+/** Reasoning/thinking effort levels accepted by models.yml (EffortSchema). */
+export const CUSTOM_MODEL_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+export type CustomModelEffort = (typeof CUSTOM_MODEL_EFFORTS)[number];
+
+export type CustomModelThinkingMode =
+	| "effort"
+	| "budget"
+	| "google-level"
+	| "anthropic-adaptive"
+	| "anthropic-budget-effort";
+
+/** Thinking configuration of a model (ModelThinkingSchema, canonical efforts form). */
+export interface CustomProviderModelThinking {
+	mode: CustomModelThinkingMode;
+	efforts: CustomModelEffort[];
+	defaultLevel?: CustomModelEffort;
+	supportsDisplay?: boolean;
+}
+
+/** Per-model pricing in USD per million tokens (all four required when cost is set). */
+export interface CustomProviderModelCost {
+	input?: number;
+	output?: number;
+	cacheRead?: number;
+	cacheWrite?: number;
+}
+
+export type CustomProviderDiscoveryType =
+	| "ollama"
+	| "llama.cpp"
+	| "lm-studio"
+	| "openai-models-list"
+	| "proxy"
+	| "litellm";
+
+export interface CustomProviderDiscovery {
+	type: CustomProviderDiscoveryType;
+	timeoutMs?: number;
+}
+
 export interface CustomProviderModelInput {
 	id: string;
 	name?: string;
+	/** Per-model protocol override (falls back to the provider's api). */
+	api?: CustomProviderApi;
+	/** Per-model endpoint override. */
+	baseUrl?: string;
 	reasoning?: boolean;
-	input?: string[];
+	/** Structured thinking config; required `efforts` when present. */
+	thinking?: CustomProviderModelThinking;
+	/** Input modalities the model accepts. */
+	input?: ("text" | "image")[];
+	supportsTools?: boolean;
+	cost?: CustomProviderModelCost;
+	premiumMultiplier?: number;
+	contextWindow?: number;
+	maxTokens?: number;
+	omitMaxOutputTokens?: boolean;
+	headers?: Record<string, string>;
 }
 
 export interface CustomProviderInput {
 	id: string;
-	api: string;
+	api: CustomProviderApi;
 	baseUrl: string;
 	apiKey?: string;
+	auth?: "apiKey" | "none" | "oauth";
+	/** Send the key in an Authorization header instead of the provider default. */
+	authHeader?: boolean;
 	headers?: Record<string, string>;
+	discovery?: CustomProviderDiscovery;
+	disableStrictTools?: boolean;
+	/** Route every model through the auth-gateway's /v1/pi/stream endpoint. */
+	transport?: "pi-native";
+	/** compat.extraBody — extra request-body parameters merged into every call. */
+	extraBody?: Record<string, unknown>;
 	models: CustomProviderModelInput[];
 }
 
@@ -356,7 +436,13 @@ export interface CustomProviderView {
 	baseUrl: string;
 	hasApiKey: boolean;
 	apiKeyPreview?: string;
+	auth?: "apiKey" | "none" | "oauth";
+	authHeader?: boolean;
 	headers?: Record<string, string>;
+	discovery?: CustomProviderDiscovery;
+	disableStrictTools?: boolean;
+	transport?: "pi-native";
+	extraBody?: Record<string, unknown>;
 	models: CustomProviderModelInput[];
 	builtin: boolean;
 }
@@ -639,7 +725,7 @@ export interface OmpApi {
 		dequeue(): Promise<RpcResponse>;
 		getQueue(): Promise<RpcResponse>;
 		queueRemove(queueId: string): Promise<RpcResponse>;
-		queueMove(queueId: string, toIndex: number): Promise<RpcResponse>;
+		queueMove(queueId: string, toIndex: number, toLane?: "steering" | "followUp"): Promise<RpcResponse>;
 		queueClear(lane?: "steering" | "followUp"): Promise<RpcResponse>;
 		setModel(provider: string, modelId: string): Promise<RpcResponse>;
 		cycleModel(direction?: "forward" | "backward"): Promise<RpcResponse>;

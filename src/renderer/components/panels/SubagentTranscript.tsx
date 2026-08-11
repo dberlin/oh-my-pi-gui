@@ -88,7 +88,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 		return (
 			<div className="flex items-center gap-2 px-2 py-3">
 				<Spinner size="sm" />
-				<span className="text-[11px] text-(--omp-dim)">{t("subagent.loadingTranscript")}</span>
+				<span className="text-omp-sm text-(--omp-dim)">{t("subagent.loadingTranscript")}</span>
 			</div>
 		);
 	}
@@ -96,20 +96,17 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 	return (
 		<div className="space-y-1.5 px-2 py-2">
 			{state.messages.length === 0 && (
-				<div className="text-[11px] text-(--omp-dim) italic">{t("subagent.noEntries")}</div>
+				<div className="text-omp-sm text-(--omp-dim) italic">{t("subagent.noEntries")}</div>
 			)}
 			{state.messages.map((message, index) => {
 				const text = messageText(message);
 				if (!text) return null;
 				return (
-					<div
-						className="rounded-sm border-l-2 border-(--omp-border-muted) bg-(--omp-bg-primary) px-2 py-1"
-						key={index}
-					>
-						<div className="mb-0.5 text-[9px] font-semibold tracking-wider text-(--omp-dim) uppercase">
+					<div className="rounded-sm border-l-2 border-(--omp-border-muted) px-2 py-1" key={index}>
+						<div className="mb-0.5 text-omp-xxs font-semibold tracking-wider text-(--omp-dim) uppercase">
 							{message.role}
 						</div>
-						<div className="text-[11px] leading-snug break-words whitespace-pre-wrap text-(--omp-muted)">
+						<div className="text-omp-sm leading-snug break-words whitespace-pre-wrap text-(--omp-muted)">
 							{text.length > 1200 ? `${text.slice(0, 1200)}…` : text}
 						</div>
 					</div>
@@ -117,7 +114,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 			})}
 			{state.hasMore && (
 				<button
-					className="flex items-center gap-1.5 text-[11px] text-(--omp-link) transition-colors hover:brightness-125 disabled:opacity-50"
+					className="flex items-center gap-1.5 text-omp-sm text-(--omp-link) transition-colors hover:brightness-125 disabled:opacity-50"
 					disabled={state.loading}
 					onClick={() => void load(state.nextByte)}
 					type="button"

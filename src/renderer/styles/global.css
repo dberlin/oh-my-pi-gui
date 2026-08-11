@@ -8,6 +8,16 @@
 	--font-display: "SF Pro Display", "Avenir Next", ui-sans-serif, system-ui, sans-serif;
 	--font-body: "SF Pro Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 	--font-mono: "SFMono-Regular", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+
+	/* Unified type scale — UI text uses these steps (text-omp-*), never raw
+	   pixel classes; lint-surfaces.mjs enforces it. Weight conventions: 400
+	   body, 500 labels/rows, 600 section/page titles. */
+	--text-omp-xxs: 9.5px;
+	--text-omp-xs: 10.5px;
+	--text-omp-sm: 11.5px;
+	--text-omp-md: 12.5px;
+	--text-omp-lg: 13.5px;
+	--text-omp-xl: 15px;
 }
 
 *,
@@ -49,11 +59,21 @@ kbd,
 
 /* ============================================================================
    App surface — keep the workspace flat; depth belongs to actual overlays
-   ============================================================================ */
 
-.omp-surface-depth {
-	background: var(--omp-bg-primary);
-}
+   SURFACE POLICY (enforced by scripts/lint-surfaces.mjs):
+   1. Canvas      — this section only: body, workspace main, settings canvas.
+   2. Chrome      — navigation frame tokens (--omp-sidebar-bg, --omp-titlebar-bg).
+   3. Floating    — real overlays: --omp-modal-bg / --omp-overlay-bg /
+                    --omp-toast-bg, dropdown menus (--omp-bg-elevated).
+   4. States      — hover/focus/selected washes and semantic fills (error,
+                    success, warning, info, diff, tool, user/custom message,
+                    badges, buttons), code blocks (--omp-code-bg), and form
+                    fields (--omp-input-bg) keep their paint.
+   5. Content     — COLORLESS. Cards, rows, chips, panels, and page sections
+                    render transparent over the canvas and separate with
+                    hairline borders (.omp-card). Static bg-primary/secondary/
+                    tertiary fills on content surfaces are lint errors.
+   ============================================================================ */
 
 .omp-workspace-main,
 .settings-main-canvas {
@@ -179,16 +199,6 @@ kbd,
 	}
 }
 
-@keyframes omp-glow-ring {
-	0%,
-	100% {
-		box-shadow: 0 0 0 1px var(--omp-border-accent), 0 0 12px var(--omp-input-glow);
-	}
-	50% {
-		box-shadow: 0 0 0 1px var(--omp-border-accent), 0 0 24px var(--omp-accent-glow);
-	}
-}
-
 .omp-fade-up {
 	animation: omp-fade-up 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -208,24 +218,6 @@ kbd,
 .omp-pulse-dot {
 	animation: omp-pulse-dot 1.4s ease-in-out infinite;
 }
-
-.omp-streaming-glow {
-	animation: omp-glow-ring 2.2s ease-in-out infinite;
-}
-
-/* Staggered reveal for lists (session rows, tool cards) */
-.omp-stagger > * {
-	animation: omp-fade-up 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-.omp-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.omp-stagger > *:nth-child(2) { animation-delay: 30ms; }
-.omp-stagger > *:nth-child(3) { animation-delay: 60ms; }
-.omp-stagger > *:nth-child(4) { animation-delay: 90ms; }
-.omp-stagger > *:nth-child(5) { animation-delay: 120ms; }
-.omp-stagger > *:nth-child(6) { animation-delay: 150ms; }
-.omp-stagger > *:nth-child(7) { animation-delay: 180ms; }
-.omp-stagger > *:nth-child(8) { animation-delay: 210ms; }
-.omp-stagger > *:nth-child(n + 9) { animation-delay: 240ms; }
 
 /* ============================================================================
    Interactive micro-interactions

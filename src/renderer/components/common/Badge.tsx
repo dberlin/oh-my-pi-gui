@@ -37,7 +37,7 @@ export interface BadgeProps {
 export function Badge({ variant = "default", dot, pulse, className, children }: BadgeProps) {
 	return (
 		<span
-			className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-px text-[10px] font-medium leading-4 tracking-wide whitespace-nowrap ${VARIANT_CLASSES[variant]} ${className ?? ""}`.trim()}
+			className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-px text-omp-xs font-medium leading-4 tracking-wide whitespace-nowrap ${VARIANT_CLASSES[variant]} ${className ?? ""}`.trim()}
 		>
 			{dot && (
 				<span className="relative flex size-1.5">

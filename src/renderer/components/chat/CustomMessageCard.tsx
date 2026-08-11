@@ -81,13 +81,13 @@ function num(value: unknown): number | undefined {
 }
 
 const HEADER_CLASS =
-	"mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]";
+	"mb-2 flex items-center gap-1.5 text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]";
 const HEADER_META_CLASS = "font-medium normal-case tracking-normal text-[var(--omp-dim)]";
 
 /** Card frame matching ContextBubble: rounded custom-message background on the chat gutter. */
 function CardFrame({ children }: { children: ReactNode }) {
 	return (
-		<div className="omp-custom-turn omp-fade-up px-6 py-3">
+		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
 			<div className="rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-custom-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
 				{children}
 			</div>
@@ -104,7 +104,7 @@ function CollapsibleText({ text, lines, className }: { text: string; lines: numb
 		<div>
 			<pre
 				className={cx(
-					"font-mono text-[11px] leading-[1.55] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]",
+					"font-mono text-omp-sm leading-[1.55] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]",
 					!open && "max-h-60 overflow-hidden",
 					open && "max-h-80 overflow-auto",
 					className,
@@ -116,7 +116,7 @@ function CollapsibleText({ text, lines, className }: { text: string; lines: numb
 				<button
 					type="button"
 					onClick={() => setOpen(v => !v)}
-					className="omp-pressable mt-0.5 text-[10.5px] font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
+					className="omp-pressable mt-0.5 text-omp-xs font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
 				>
 					{open
 						? t("chat.custom.showLess")
@@ -202,9 +202,9 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 								{note.severity}
 							</Badge>
 						)}
-						<div className="min-w-0 flex-1 text-[12.5px] leading-[1.55] text-[var(--omp-text)]">
+						<div className="min-w-0 flex-1 text-omp-md leading-[1.55] text-[var(--omp-text)]">
 							{note.advisor && note.advisor !== "default" && (
-								<span className="mr-1.5 font-mono text-[10.5px] text-[var(--omp-dim)]">[{note.advisor}]</span>
+								<span className="mr-1.5 font-mono text-omp-xs text-[var(--omp-dim)]">[{note.advisor}]</span>
 							)}
 							<span className="whitespace-pre-wrap">{note.note}</span>
 						</div>
@@ -214,7 +214,7 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 					<button
 						type="button"
 						onClick={() => setExpanded(true)}
-						className="omp-pressable border-l-2 border-[var(--omp-border-muted)] pl-2.5 text-[11px] font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
+						className="omp-pressable border-l-2 border-[var(--omp-border-muted)] pl-2.5 text-omp-sm font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
 					>
 						{t("chat.custom.moreNotes", { count: hidden, plural: hidden === 1 ? "" : "s" })}
 					</button>
@@ -293,20 +293,18 @@ function AsyncResultCard({ message }: { message: AgentMessage }) {
 						<div key={job.jobId ?? i}>
 							<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
 								<CheckCircle2 size={13} className="shrink-0 text-[var(--omp-success)]" />
-								<span className="text-[12.5px] font-semibold text-[var(--omp-text)]">
+								<span className="text-omp-md font-semibold text-[var(--omp-text)]">
 									{t("chat.custom.asyncDone")}
 								</span>
-								<span className="font-mono text-[11px] text-[var(--omp-dim)]">[{job.type ?? "job"}]</span>
-								<span className="font-mono text-[11.5px] text-[var(--omp-accent)]">
-									{job.jobId ?? "unknown"}
-								</span>
+								<span className="font-mono text-omp-sm text-[var(--omp-dim)]">[{job.type ?? "job"}]</span>
+								<span className="font-mono text-omp-sm text-[var(--omp-accent)]">{job.jobId ?? "unknown"}</span>
 								{job.label && (
-									<span className="min-w-0 truncate font-mono text-[11px] text-[var(--omp-muted)]">
+									<span className="min-w-0 truncate font-mono text-omp-sm text-[var(--omp-muted)]">
 										({job.label})
 									</span>
 								)}
 								{job.durationMs != null && (
-									<span className="font-mono text-[10.5px] tabular-nums text-[var(--omp-dim)]">
+									<span className="font-mono text-omp-xs tabular-nums text-[var(--omp-dim)]">
 										({formatDuration(job.durationMs)})
 									</span>
 								)}
@@ -463,18 +461,18 @@ function LateDiagnosticsCard({ message }: { message: AgentMessage }) {
 				{rendered.map((group, gi) => (
 					<div key={group.path ?? gi}>
 						{group.path && (
-							<div className="mb-0.5 font-mono text-[11px] text-[var(--omp-status-path)]">{group.path}</div>
+							<div className="mb-0.5 font-mono text-omp-sm text-[var(--omp-status-path)]">{group.path}</div>
 						)}
 						{group.items.map((item, ii) =>
 							item.kind === "raw" ? (
 								<div
 									key={ii}
-									className="font-mono text-[11px] leading-[1.55] break-words whitespace-pre-wrap text-[var(--omp-muted)]"
+									className="font-mono text-omp-sm leading-[1.55] break-words whitespace-pre-wrap text-[var(--omp-muted)]"
 								>
 									{item.text}
 								</div>
 							) : (
-								<div key={ii} className="flex items-baseline gap-1.5 font-mono text-[11px] leading-[1.55]">
+								<div key={ii} className="flex items-baseline gap-1.5 font-mono text-omp-sm leading-[1.55]">
 									<span className="shrink-0 tabular-nums text-[var(--omp-dim)]">
 										{item.diag.line}:{item.diag.col}
 									</span>
@@ -498,7 +496,7 @@ function LateDiagnosticsCard({ message }: { message: AgentMessage }) {
 					<button
 						type="button"
 						onClick={() => setExpanded(true)}
-						className="omp-pressable text-[10.5px] font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
+						className="omp-pressable text-omp-xs font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
 					>
 						{t("chat.custom.moreDiagnostics", { count: hidden, plural: hidden === 1 ? "" : "s" })}
 					</button>
@@ -531,12 +529,12 @@ function SkillCard({ message }: { message: AgentMessage }) {
 				className={cx("flex w-full items-center gap-1.5 text-left", text && "cursor-pointer")}
 			>
 				<Zap size={12} className="shrink-0 text-[var(--omp-custom-msg-label)]" />
-				<span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
+				<span className="text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
 					{t("chat.custom.skill")}
 				</span>
-				<span className="shrink-0 text-[12.5px] font-semibold text-[var(--omp-text)]">{name}</span>
+				<span className="shrink-0 text-omp-md font-semibold text-[var(--omp-text)]">{name}</span>
 				{args && (
-					<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--omp-dim)]">{args}</span>
+					<span className="min-w-0 flex-1 truncate font-mono text-omp-sm text-[var(--omp-dim)]">{args}</span>
 				)}
 				{text &&
 					(open ? (
@@ -546,7 +544,7 @@ function SkillCard({ message }: { message: AgentMessage }) {
 					))}
 			</button>
 			{(path || lineCount != null) && (
-				<div className="mt-1 flex items-center gap-1.5 font-mono text-[10.5px]">
+				<div className="mt-1 flex items-center gap-1.5 font-mono text-omp-xs">
 					{path && <span className="min-w-0 truncate text-[var(--omp-accent)]">{path}</span>}
 					{path && lineCount != null && <span className="text-[var(--omp-dim)]">·</span>}
 					{lineCount != null && (
@@ -558,7 +556,7 @@ function SkillCard({ message }: { message: AgentMessage }) {
 			)}
 			{open && text && (
 				<div className="omp-fade-in mt-2 border-t border-[var(--omp-border-muted)]/70 pt-2">
-					<div className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--omp-muted)]">
+					<div className="mb-1 text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-muted)]">
 						{t("chat.custom.prompt")}
 					</div>
 					<MarkdownRenderer content={text} />
@@ -576,9 +574,9 @@ function CollabCard({ message }: { message: AgentMessage }) {
 	const from = str(resultDetails(message)?.from) ?? "guest";
 	const text = resultText(message.content).trim();
 	return (
-		<div className="omp-fade-up px-6 py-3">
+		<div className="omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
 			<div className="max-w-[75%] rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
-				<div className="mb-1.5 text-[12px] font-bold text-[var(--omp-accent)]">«{from}» ›</div>
+				<div className="mb-1.5 text-omp-md font-bold text-[var(--omp-accent)]">«{from}» ›</div>
 				{text && <MarkdownRenderer content={text} />}
 			</div>
 		</div>
@@ -612,13 +610,13 @@ function IrcCard({ message }: { message: AgentMessage }) {
 
 	return (
 		<CardFrame>
-			<div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] font-semibold text-[var(--omp-custom-msg-label)]">
+			<div className="mb-1.5 flex items-center gap-1.5 text-omp-sm font-semibold text-[var(--omp-custom-msg-label)]">
 				<MessagesSquare size={12} className="shrink-0" />
 				<span className="min-w-0 truncate">{title}</span>
 				{kind === "autoreply" && <Badge variant="muted">{t("chat.custom.ircAuto")}</Badge>}
 				{str(details?.replyTo) && <Badge variant="muted">{t("chat.custom.ircReply")}</Badge>}
 				{age && (
-					<span className="ml-auto shrink-0 font-mono text-[10px] font-normal text-[var(--omp-dim)]">{age}</span>
+					<span className="ml-auto shrink-0 font-mono text-omp-xs font-normal text-[var(--omp-dim)]">{age}</span>
 				)}
 			</div>
 			{body && <CollapsibleText text={body} lines={3} />}

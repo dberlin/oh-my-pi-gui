@@ -156,7 +156,7 @@ function SettingFieldRow({
 					</div>
 					{resetControls && <div className="mt-2 mr-2 shrink-0">{resetControls}</div>}
 				</div>
-				{error && <span className="mt-1 block px-2 text-[11px] text-(--omp-error)">{error}</span>}
+				{error && <span className="mt-1 block px-2 text-omp-sm text-(--omp-error)">{error}</span>}
 			</div>
 		);
 	}
@@ -184,7 +184,7 @@ function SettingFieldRow({
 					</div>
 				</div>
 			) : (
-				<div className="mt-2 flex items-center justify-between rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-2">
+				<div className="mt-2 flex items-center justify-between rounded-md border border-(--omp-border-muted) px-2.5 py-2">
 					<span className="text-xs text-(--omp-muted)">••••••••</span>
 					<Button disabled={saving} onClick={onReplace} size="sm" type="button" variant="ghost">
 						{t("pluginDetail.replace")}
@@ -262,10 +262,10 @@ function SettingFieldRow({
 		<div className="rounded-md px-2 py-2 transition-colors hover:bg-(--omp-bg-tertiary)">
 			{header}
 			{field.description && (
-				<span className="mt-0.5 block text-[11px] leading-snug text-(--omp-muted)">{field.description}</span>
+				<span className="mt-0.5 block text-omp-sm leading-snug text-(--omp-muted)">{field.description}</span>
 			)}
 			<div className="mt-2">{control}</div>
-			{error && <span className="mt-1 block text-[11px] break-words text-(--omp-error)">{error}</span>}
+			{error && <span className="mt-1 block text-omp-sm break-words text-(--omp-error)">{error}</span>}
 		</div>
 	);
 }
@@ -532,7 +532,7 @@ export function PluginDetailDrawer({
 			<div className="flex shrink-0 items-center gap-2 border-b border-(--omp-border-muted) px-4 py-2.5">
 				<button
 					aria-label={t("pluginDetail.back")}
-					className="omp-pressable flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text)"
+					className="omp-pressable flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-omp-sm text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text)"
 					onClick={onClose}
 					type="button"
 				>
@@ -540,10 +540,8 @@ export function PluginDetailDrawer({
 					{t("pluginDetail.back")}
 				</button>
 				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-					<span className="truncate text-[13px] font-semibold text-(--omp-text)">{plugin.name}</span>
-					{plugin.version && (
-						<span className="text-[10.5px] tabular-nums text-(--omp-dim)">v{plugin.version}</span>
-					)}
+					<span className="truncate text-omp-lg font-semibold text-(--omp-text)">{plugin.name}</span>
+					{plugin.version && <span className="text-omp-xs tabular-nums text-(--omp-dim)">v{plugin.version}</span>}
 					{plugin.marketplace === "npm" ? (
 						<Badge variant="info">npm</Badge>
 					) : (
@@ -584,11 +582,11 @@ export function PluginDetailDrawer({
 							/>
 						</section>
 						<section>
-							<div className="mb-1.5 text-[11px] font-semibold tracking-wide text-(--omp-dim) uppercase">
+							<div className="mb-1.5 text-omp-sm font-semibold tracking-wide text-(--omp-dim) uppercase">
 								{t("pluginDetail.features")}
 							</div>
 							{detail.features.length === 0 ? (
-								<div className="rounded-md border border-(--omp-border-muted) px-3 py-3 text-[11.5px] text-(--omp-dim)">
+								<div className="rounded-md border border-(--omp-border-muted) px-3 py-3 text-omp-sm text-(--omp-dim)">
 									{t("pluginDetail.featuresEmpty")}
 								</div>
 							) : (
@@ -607,11 +605,11 @@ export function PluginDetailDrawer({
 													type="checkbox"
 												/>
 												<span className="min-w-0 flex-1">
-													<span className="block text-[12px] font-medium text-(--omp-text)">
+													<span className="block text-omp-md font-medium text-(--omp-text)">
 														{feature.id}
 													</span>
 													{feature.description && (
-														<span className="mt-0.5 block text-[11px] leading-snug text-(--omp-dim)">
+														<span className="mt-0.5 block text-omp-sm leading-snug text-(--omp-dim)">
 															{feature.description}
 														</span>
 													)}
@@ -640,11 +638,11 @@ export function PluginDetailDrawer({
 							)}
 						</section>
 						<section>
-							<div className="mb-1.5 text-[11px] font-semibold tracking-wide text-(--omp-dim) uppercase">
+							<div className="mb-1.5 text-omp-sm font-semibold tracking-wide text-(--omp-dim) uppercase">
 								{t("pluginDetail.settings")}
 							</div>
 							{fields.length === 0 ? (
-								<div className="rounded-md border border-(--omp-border-muted) px-3 py-3 text-[11.5px] text-(--omp-dim)">
+								<div className="rounded-md border border-(--omp-border-muted) px-3 py-3 text-omp-sm text-(--omp-dim)">
 									{t("pluginDetail.settingsEmpty")}
 								</div>
 							) : (
@@ -690,7 +688,7 @@ export function PluginDetailDrawer({
 									)}
 									<div className="mt-2 flex items-center justify-end gap-2">
 										{savedTick && (
-											<span className="flex items-center gap-1 text-[11px] text-(--omp-success)">
+											<span className="flex items-center gap-1 text-omp-sm text-(--omp-success)">
 												<Check size={11} />
 												{t("pluginDetail.saved")}
 											</span>

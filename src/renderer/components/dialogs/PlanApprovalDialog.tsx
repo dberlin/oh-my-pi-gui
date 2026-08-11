@@ -159,13 +159,13 @@ export function PlanApprovalDialog() {
 			}
 		>
 			<div className="flex flex-col gap-3 p-4">
-				<div className="flex items-center gap-2 text-[10px] text-(--omp-dim)">
+				<div className="flex items-center gap-2 text-omp-xs text-(--omp-dim)">
 					<span className="shrink-0">{t("planApproval.planFile")}</span>
 					<span className="truncate font-mono" title={pending.planFilePath}>
 						{basename(pending.planFilePath)}
 					</span>
 				</div>
-				<div className="max-h-[52vh] overflow-y-auto rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-4 py-3">
+				<div className="max-h-[52vh] overflow-y-auto rounded-md border border-(--omp-border-muted) px-4 py-3">
 					{pending.planContent.trim().length > 0 ? (
 						<MarkdownRenderer content={pending.planContent} />
 					) : (
@@ -173,7 +173,7 @@ export function PlanApprovalDialog() {
 					)}
 				</div>
 				{notice !== null && (
-					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-[11px] text-(--omp-warning)">
+					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-omp-sm text-(--omp-warning)">
 						{notice}
 					</div>
 				)}

@@ -49,24 +49,24 @@ export function MemoryRenderer({ args, result, isError, isPartial, partialResult
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-[11px]">
+			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<Brain size={12} className="shrink-0 text-[var(--omp-custom-msg-label)]" />
 				<span className="shrink-0 text-[var(--omp-text)]">{operation}</span>
 				{query && <span className="min-w-0 flex-1 truncate text-[var(--omp-dim)]">{query}</span>}
 				{isRecall && (
-					<span className="ml-auto shrink-0 text-[10px] text-[var(--omp-dim)]">
+					<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">
 						{foundMatch ? `${foundMatch[1]} found` : "no matches"}
 					</span>
 				)}
 				{isRetain && count != null && (
-					<span className="ml-auto shrink-0 text-[10px] text-[var(--omp-dim)]">
+					<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">
 						{count} {count === 1 ? "memory" : "memories"}
 					</span>
 				)}
 			</div>
 
 			{isRetain && (
-				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1 text-[11px] leading-[1.6]">
+				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1 text-omp-sm leading-[1.6]">
 					{bullets.slice(0, MAX_BULLETS).map((content, i) => (
 						<div key={i} className="flex gap-1.5">
 							<span className="shrink-0 text-[var(--omp-dim)]">•</span>
@@ -76,9 +76,9 @@ export function MemoryRenderer({ args, result, isError, isPartial, partialResult
 						</div>
 					))}
 					{bullets.length > MAX_BULLETS && (
-						<div className="text-[10px] text-[var(--omp-dim)]">… {bullets.length - MAX_BULLETS} more</div>
+						<div className="text-omp-xs text-[var(--omp-dim)]">… {bullets.length - MAX_BULLETS} more</div>
 					)}
-					{text && <div className="mt-0.5 text-[10px] text-[var(--omp-dim)]">{text.replace(/\.$/, "")}</div>}
+					{text && <div className="mt-0.5 text-omp-xs text-[var(--omp-dim)]">{text.replace(/\.$/, "")}</div>}
 				</div>
 			)}
 
@@ -86,8 +86,8 @@ export function MemoryRenderer({ args, result, isError, isPartial, partialResult
 				<pre
 					className={
 						isError
-							? "max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-error)]"
-							: "max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-tool-output)]"
+							? "max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]"
+							: "max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]"
 					}
 				>
 					{recallBody || text}
@@ -95,7 +95,7 @@ export function MemoryRenderer({ args, result, isError, isPartial, partialResult
 			) : null}
 
 			{!isRetain && !recallBody && !text && (
-				<div className="text-[11px] italic text-[var(--omp-dim)]">
+				<div className="text-omp-sm italic text-[var(--omp-dim)]">
 					{isPartial ? t("tools.memory.processing") : t("tools.memory.done")}
 				</div>
 			)}

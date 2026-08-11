@@ -122,7 +122,7 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 					</button>
 				</div>
 				<div className="min-h-0 flex-1 overflow-y-auto p-4">
-					<div className="mb-3 grid grid-cols-2 gap-2 text-[11px]">
+					<div className="mb-3 grid grid-cols-2 gap-2 text-omp-sm">
 						{[
 							[t("stats.col.provider"), row.provider],
 							[t("stats.requests.detail.api"), row.api],
@@ -135,11 +135,8 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 							[t("stats.requests.detail.cacheRead"), compact(row.usage?.cacheRead ?? 0)],
 							[t("stats.requests.detail.cacheWrite"), compact(row.usage?.cacheWrite ?? 0)],
 						].map(([label, value]) => (
-							<div
-								className="rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-1.5"
-								key={label}
-							>
-								<div className="text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">
+							<div className="rounded-md border border-(--omp-border-muted) px-2.5 py-1.5" key={label}>
+								<div className="text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 									{label}
 								</div>
 								<div className="mt-0.5 truncate font-mono text-(--omp-text)">{value}</div>
@@ -147,7 +144,7 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 						))}
 					</div>
 					{row.errorMessage && (
-						<div className="mb-3 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_40%,transparent)] bg-transparent px-3 py-2 font-mono text-[10.5px] break-words text-(--omp-error)">
+						<div className="mb-3 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_40%,transparent)] bg-transparent px-3 py-2 font-mono text-omp-xs break-words text-(--omp-error)">
 							{row.errorMessage}
 						</div>
 					)}
@@ -155,12 +152,12 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 					{loading ? (
 						<div className="flex items-center gap-2 py-4">
 							<Spinner size="sm" />
-							<span className="text-[11px] text-(--omp-dim)">{t("stats.requests.loadingDetail")}</span>
+							<span className="text-omp-sm text-(--omp-dim)">{t("stats.requests.loadingDetail")}</span>
 						</div>
 					) : error ? (
-						<div className="text-[11px] text-(--omp-error)">{error}</div>
+						<div className="text-omp-sm text-(--omp-error)">{error}</div>
 					) : (
-						<pre className="max-h-[45vh] overflow-auto rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) p-3 font-mono text-[10px] leading-[1.5] break-words whitespace-pre-wrap text-(--omp-muted)">
+						<pre className="max-h-[45vh] overflow-auto rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) p-3 font-mono text-omp-xs leading-[1.5] break-words whitespace-pre-wrap text-(--omp-muted)">
 							{JSON.stringify({ messages: detail?.messages, output: detail?.output }, null, 2)?.slice(
 								0,
 								40_000,
@@ -219,7 +216,7 @@ export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refres
 				render: row => (
 					<span>
 						<span className="block font-mono text-(--omp-text)">{row.model}</span>
-						<span className="block text-[10px] text-(--omp-dim)">{row.provider}</span>
+						<span className="block text-omp-xs text-(--omp-dim)">{row.provider}</span>
 					</span>
 				),
 			},
@@ -250,7 +247,7 @@ export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refres
 			{
 				key: "folder",
 				label: t("stats.col.project"),
-				render: row => <span className="text-[10px] text-(--omp-dim)">{row.folder}</span>,
+				render: row => <span className="text-omp-xs text-(--omp-dim)">{row.folder}</span>,
 			},
 		],
 		[t],
@@ -266,7 +263,7 @@ export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refres
 				rows={pageRows}
 			/>
 			<div className="mt-2 flex items-center justify-between">
-				<span className="text-[10px] text-(--omp-dim)">{t("stats.requests.rowHint")}</span>
+				<span className="text-omp-xs text-(--omp-dim)">{t("stats.requests.rowHint")}</span>
 				<div className="flex items-center gap-1.5">
 					<Button
 						disabled={page === 0}
@@ -277,7 +274,7 @@ export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refres
 					>
 						{t("stats.requests.prev")}
 					</Button>
-					<span className="text-[10px] tabular-nums text-(--omp-muted)">
+					<span className="text-omp-xs tabular-nums text-(--omp-muted)">
 						{page + 1} / {pages}
 					</span>
 					<Button

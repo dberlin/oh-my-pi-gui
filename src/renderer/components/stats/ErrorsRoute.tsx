@@ -59,7 +59,7 @@ export function ErrorsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 				render: row => (
 					<span>
 						<span className="block font-mono text-(--omp-text)">{row.model}</span>
-						<span className="block text-[10px] text-(--omp-dim)">{row.provider}</span>
+						<span className="block text-omp-xs text-(--omp-dim)">{row.provider}</span>
 					</span>
 				),
 			},
@@ -72,7 +72,7 @@ export function ErrorsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 				key: "message",
 				label: t("stats.errors.col.message"),
 				render: row => (
-					<span className="block max-w-[420px] break-words font-mono text-[10.5px] leading-snug text-(--omp-error)">
+					<span className="block max-w-[420px] break-words font-mono text-omp-xs leading-snug text-(--omp-error)">
 						{row.errorMessage ?? t("stats.errors.noMessage")}
 					</span>
 				),

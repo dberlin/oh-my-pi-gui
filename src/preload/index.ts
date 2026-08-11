@@ -140,7 +140,8 @@ const api: OmpApi = {
 		dequeue: () => rpcCommand({ type: "dequeue" }),
 		getQueue: () => rpcCommand({ type: "get_queue" }),
 		queueRemove: (queueId: string) => rpcCommand({ type: "queue_remove", queueId }),
-		queueMove: (queueId: string, toIndex: number) => rpcCommand({ type: "queue_move", queueId, toIndex }),
+		queueMove: (queueId: string, toIndex: number, toLane?: "steering" | "followUp") =>
+			rpcCommand({ type: "queue_move", queueId, toIndex, toLane }),
 		queueClear: (lane?: "steering" | "followUp") => rpcCommand({ type: "queue_clear", lane }),
 		setModel: (provider: string, modelId: string) => rpcCommand({ type: "set_model", provider, modelId }),
 		cycleModel: (direction?: "forward" | "backward") => rpcCommand({ type: "cycle_model", direction }),

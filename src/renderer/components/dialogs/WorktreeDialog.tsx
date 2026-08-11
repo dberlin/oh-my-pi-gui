@@ -97,14 +97,14 @@ export function WorktreeDialog() {
 					autoFocus
 				/>
 				{slug && (
-					<p className="text-[11px] text-(--omp-dim)">
+					<p className="text-omp-sm text-(--omp-dim)">
 						{t("worktree.branchPreview", { branch: `omp/gui/${slug}` })}
 					</p>
 				)}
 				<fieldset className="flex flex-col gap-1.5">
-					<legend className="text-[11px] font-medium text-(--omp-muted)">{t("worktree.baseLabel")}</legend>
+					<legend className="text-omp-sm font-medium text-(--omp-muted)">{t("worktree.baseLabel")}</legend>
 					{(["HEAD", "default"] as const).map(value => (
-						<label key={value} className="flex cursor-pointer items-center gap-2 text-[12.5px] text-(--omp-text)">
+						<label key={value} className="flex cursor-pointer items-center gap-2 text-omp-md text-(--omp-text)">
 							<input
 								type="radio"
 								name="worktree-base"

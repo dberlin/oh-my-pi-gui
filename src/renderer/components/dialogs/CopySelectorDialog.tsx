@@ -116,7 +116,7 @@ export function CopySelectorDialog() {
 							>
 								<span className="min-w-0 flex-1 truncate">{item.target.label}</span>
 								{item.target.hint && (
-									<span className="shrink-0 text-[10px] opacity-70">{item.target.hint}</span>
+									<span className="shrink-0 text-omp-xs opacity-70">{item.target.hint}</span>
 								)}
 							</button>
 						))
@@ -124,7 +124,7 @@ export function CopySelectorDialog() {
 				</div>
 				<div className="flex min-h-0 flex-col">
 					<div className="min-h-0 flex-1 overflow-auto p-4">
-						<div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-(--omp-dim)">
+						<div className="mb-2 text-omp-xs font-medium uppercase tracking-wider text-(--omp-dim)">
 							{t("copySelector.preview")}
 						</div>
 						<pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-(--omp-text)">

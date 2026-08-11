@@ -217,7 +217,7 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 					{option.value}
 				</span>
 				{option.detail !== undefined && kind === "provider" && (
-					<span className="shrink-0 text-[10px] text-(--omp-dim)">
+					<span className="shrink-0 text-omp-xs text-(--omp-dim)">
 						{option.disabled ? t("modelValue.providerDisabled", { name: option.detail }) : option.detail}
 					</span>
 				)}
@@ -231,7 +231,7 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 			<button
 				aria-expanded={open}
 				aria-haspopup="listbox"
-				className="flex w-full items-center gap-1.5 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-1.5 text-left text-xs transition-colors duration-100 focus:border-(--omp-border-accent) focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+				className="flex w-full items-center gap-1.5 rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2.5 py-1.5 text-left text-xs transition-colors duration-100 focus:border-(--omp-border-accent) focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 				disabled={disabled}
 				onClick={() => (open ? setOpen(false) : openPanel())}
 				ref={triggerRef}
@@ -246,7 +246,7 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 			</button>
 			{open && placement !== null && (
 				<div
-					className="fixed z-50 flex flex-col overflow-hidden rounded-md border border-(--omp-border-muted) bg-(--omp-bg-secondary) shadow-xl shadow-black/40"
+					className="fixed z-50 flex flex-col overflow-hidden rounded-md border border-(--omp-border-muted) bg-(--omp-bg-elevated) shadow-xl shadow-black/40"
 					style={{ top: placement.top, left: placement.left, width: PANEL_WIDTH, maxHeight: PANEL_MAX_HEIGHT }}
 				>
 					<div className="flex items-center gap-2 border-b border-(--omp-border-muted) px-2.5 py-2">
@@ -273,7 +273,7 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 									{fetchError ?? t("modelValue.loadFailed", { noun })}
 								</span>
 								<button
-									className="rounded-md border border-(--omp-border-muted) px-2.5 py-1 text-[11px] font-medium text-(--omp-text) hover:bg-(--omp-bg-tertiary)"
+									className="rounded-md border border-(--omp-border-muted) px-2.5 py-1 text-omp-sm font-medium text-(--omp-text) hover:bg-(--omp-bg-tertiary)"
 									onClick={() => setFetchState("idle")}
 									type="button"
 								>
@@ -289,7 +289,7 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 							<>
 								{currentIsCustom && (
 									<>
-										<div className="px-2 pt-1 pb-0.5 text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">
+										<div className="px-2 pt-1 pb-0.5 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 											{t("modelValue.currentCustom")}
 										</div>
 										{renderOption({ value })}

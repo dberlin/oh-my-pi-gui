@@ -82,10 +82,10 @@ function Chip({ children, title, warning }: { children: ReactNode; title?: strin
 		<span
 			title={title}
 			className={cx(
-				"max-w-64 shrink-0 truncate rounded px-1 py-px font-mono text-[9.5px] tabular-nums",
+				"max-w-64 shrink-0 truncate rounded px-1 py-px font-mono text-omp-xxs tabular-nums",
 				warning
 					? "bg-[var(--omp-warning)]/15 text-[var(--omp-warning)]"
-					: "bg-[var(--omp-bg-tertiary)] text-[var(--omp-muted)]",
+					: "bg-[var(--omp-bg-tertiary)] text-[var(--omp-muted)]", // surface-ok: tiny count/info pill
 			)}
 		>
 			{children}
@@ -137,7 +137,7 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 	return (
 		<div className="flex flex-col gap-1.5">
 			{/* Header: pattern preview + rewrite/proposed badges */}
-			<div className="flex items-center gap-1.5 font-mono text-[11px]">
+			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<FileCode2 size={12} className="shrink-0 text-[var(--omp-md-code)]" />
 				<span className="min-w-0 flex-1 truncate text-[var(--omp-text)]" title={fullPattern || undefined}>
 					{pattern || t("tools.astedit.fallback")}
@@ -172,7 +172,7 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 			{groups.length > 0 && (
 				<div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
 					{groups.map((group, gi) => (
-						<div key={gi} className="rounded bg-[var(--omp-code-bg)] py-1 font-mono text-[11px] leading-[1.45]">
+						<div key={gi} className="rounded bg-[var(--omp-code-bg)] py-1 font-mono text-omp-sm leading-[1.45]">
 							{group.rows.map((row, ri) => {
 								if (row.type === "header") {
 									return (
@@ -222,12 +222,12 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 
 			{/* Limit-reached note (TUI body line) */}
 			{limitReached && !isPartial && !isError && (
-				<div className="text-[11px] text-[var(--omp-warning)]">{t("tools.astedit.limitReached")}</div>
+				<div className="text-omp-sm text-[var(--omp-warning)]">{t("tools.astedit.limitReached")}</div>
 			)}
 
 			{/* Parse issues: count label + capped bullet list + overflow note */}
 			{parseErrors.length > 0 && !isPartial && !isError && (
-				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45]">
+				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45]">
 					<div className="text-[var(--omp-warning)]">{parseLabel}</div>
 					{parseErrors.map((err, i) => (
 						<div key={i} className="whitespace-pre-wrap text-[var(--omp-warning)]">
@@ -243,14 +243,14 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 			)}
 
 			{/* States */}
-			{isPartial && <div className="text-[11px] italic text-[var(--omp-dim)]">{t("tools.astedit.editing")}</div>}
+			{isPartial && <div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.astedit.editing")}</div>}
 			{isError && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-error)]">
+				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]">
 					{text || t("tools.astedit.failed")}
 				</pre>
 			)}
 			{!isPartial && !isError && zeroResult && parseErrors.length === 0 && (
-				<div className="text-[11px] italic text-[var(--omp-dim)]">{t("tools.astedit.noReplacements")}</div>
+				<div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.astedit.noReplacements")}</div>
 			)}
 		</div>
 	);

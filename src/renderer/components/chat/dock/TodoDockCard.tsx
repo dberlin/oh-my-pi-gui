@@ -1,6 +1,9 @@
 /**
- * Todo panel: phases as collapsible sections, status badges, inline edit on
- * double-click, drag reorder via @dnd-kit, persisted through set_todos RPC.
+ * Todo dock card: the live todo list rendered in the center dock above the
+ * composer (previously the workspace drawer's todo tab). Phases as
+ * collapsible sections, status badges, inline edit on double-click, drag
+ * reorder via @dnd-kit, persisted through the set_todos RPC. Renders nothing
+ * when the session has no todos and no reminder pending.
  */
 
 import {
@@ -19,13 +22,14 @@ import {
 	useSortable,
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { AlertTriangle, Check, ChevronRight, GripVertical, Pencil, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, GripVertical, ListTodo, Pencil, X } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
-import type { TodoPhase, TodoTask } from "../../../shared/rpc-types";
-import { useT } from "../../lib/i18n";
-import { toast } from "../../stores/toast";
-import { type UiTodoPhase, type UiTodoTask, useTodoStore } from "../../stores/todo";
-import { Badge, type BadgeVariant } from "../common";
+import type { TodoPhase, TodoTask } from "../../../../shared/rpc-types";
+import { useT } from "../../../lib/i18n";
+import { toast } from "../../../stores/toast";
+import { type UiTodoPhase, type UiTodoTask, useTodoStore } from "../../../stores/todo";
+import { Badge, type BadgeVariant } from "../../common";
+import { DockCard } from "./DockCard";
 
 const STATUS_META: Record<TodoTask["status"], { label: string; variant: BadgeVariant; dot: boolean }> = {
 	pending: { label: "pending", variant: "muted", dot: false },
@@ -43,17 +47,7 @@ const STATUS_LABEL_KEY: Record<TodoTask["status"], string> = {
 	abandoned: "todoPanel.status.abandoned",
 };
 
-/** Total label lookup for wire statuses outside the declared union. */
-function statusLabelKey(status: string): string {
-	return STATUS_LABEL_KEY[status as TodoTask["status"]] ?? "todoPanel.status.pending";
-}
-
 const STATUS_CYCLE: TodoTask["status"][] = ["pending", "in_progress", "completed", "blocked", "abandoned"];
-
-function nextStatus(status: TodoTask["status"]): TodoTask["status"] {
-	const index = STATUS_CYCLE.indexOf(status);
-	return STATUS_CYCLE[(index + 1) % STATUS_CYCLE.length];
-}
 
 async function pushTodos(phases: UiTodoPhase[], t: (key: string) => string): Promise<void> {
 	const payload: TodoPhase[] = phases.map(phase => ({
@@ -111,21 +105,27 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 				<GripVertical size={12} />
 			</button>
 			<button
-				aria-label={t("todoPanel.statusAria", { status: t(statusLabelKey(task.status)) })}
+				aria-label={t("todoPanel.statusAria", {
+					status: t(STATUS_LABEL_KEY[task.status] ?? "todoPanel.status.pending"),
+				})}
 				className="shrink-0"
-				onClick={() => onPatch(phaseId, task.id, { status: nextStatus(task.status) })}
+				onClick={() =>
+					onPatch(phaseId, task.id, {
+						status: STATUS_CYCLE[(STATUS_CYCLE.indexOf(task.status) + 1) % STATUS_CYCLE.length],
+					})
+				}
 				title={t("todoPanel.cycleHint")}
 				type="button"
 			>
 				<Badge dot={meta.dot} pulse={task.status === "in_progress"} variant={meta.variant}>
-					{t(statusLabelKey(task.status))}
+					{t(STATUS_LABEL_KEY[task.status] ?? "todoPanel.status.pending")}
 				</Badge>
 			</button>
 			{editing ? (
 				<span className="flex min-w-0 flex-1 items-center gap-1">
 					<input
 						autoFocus
-						className="w-full min-w-0 rounded border border-(--omp-border-accent) bg-(--omp-bg-primary) px-1.5 py-0.5 text-xs text-(--omp-text) focus:outline-none"
+						className="w-full min-w-0 rounded border border-(--omp-border-accent) bg-(--omp-input-bg) px-1.5 py-0.5 text-xs text-(--omp-text) focus:outline-none"
 						onBlur={commit}
 						onChange={event => setDraft(event.target.value)}
 						onKeyDown={event => {
@@ -215,10 +215,10 @@ function PhaseSection({
 					size={12}
 					style={{ transform: collapsed ? undefined : "rotate(90deg)" }}
 				/>
-				<span className="min-w-0 flex-1 truncate text-[11px] font-semibold tracking-wide text-(--omp-accent) uppercase">
+				<span className="min-w-0 flex-1 truncate text-omp-sm font-semibold tracking-wide text-(--omp-accent) uppercase">
 					{phase.name}
 				</span>
-				<span className="shrink-0 text-[10px] tabular-nums text-(--omp-dim)">
+				<span className="shrink-0 text-omp-xs tabular-nums text-(--omp-dim)">
 					{done}/{total}
 				</span>
 			</button>
@@ -229,7 +229,7 @@ function PhaseSection({
 							<SortableTaskRow key={task.id} onPatch={onPatch} phaseId={phase.id} task={task} />
 						))}
 						{total === 0 && (
-							<div className="py-1 text-[11px] text-(--omp-dim) italic">{t("todoPanel.noTasks")}</div>
+							<div className="py-1 text-omp-sm text-(--omp-dim) italic">{t("todoPanel.noTasks")}</div>
 						)}
 					</div>
 				</SortableContext>
@@ -238,7 +238,7 @@ function PhaseSection({
 	);
 }
 
-export function TodoPanel() {
+export function TodoDockCard() {
 	const t = useT();
 	const phases = useTodoStore(state => state.phases) ?? [];
 	const reminderVisible = useTodoStore(state => state.reminderVisible) ?? false;
@@ -309,56 +309,51 @@ export function TodoPanel() {
 		[phases],
 	);
 
+	if (phases.length === 0 && !reminderVisible) return null;
+
 	return (
-		<div className="flex h-full flex-col">
-			{reminderVisible && (
-				<div className="mx-2 mt-2 flex items-start gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_40%,transparent)] bg-transparent px-2.5 py-2">
-					<AlertTriangle className="mt-px shrink-0 text-(--omp-warning)" size={13} />
-					<div className="min-w-0 flex-1 text-[11px] leading-snug text-(--omp-warning)">
-						<span className="font-semibold">{t("todoPanel.reminder")}</span>
-						<span className="text-(--omp-muted)">
-							{` — ${t("todoPanel.reminderCount", { count: reminderTodos.length })}`}
-						</span>
-					</div>
-					<button
-						aria-label={t("todoPanel.dismissReminder")}
-						className="shrink-0 text-(--omp-warning) opacity-70 transition-opacity hover:opacity-100"
-						onClick={clearReminder}
-						type="button"
-					>
-						<X size={12} />
-					</button>
-				</div>
-			)}
-			<div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
-				<span className="text-[10px] font-medium tracking-widest text-(--omp-dim) uppercase">
-					{t("todoPanel.title")}
-				</span>
-				<span className="text-[10px] tabular-nums text-(--omp-dim)">
+		<DockCard
+			badge={
+				<span className="shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
 					{t("todoPanel.open", { count: openCount })}
 				</span>
-			</div>
-			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-				{phases.length === 0 ? (
-					<div className="px-3 py-8 text-center text-[11px] leading-relaxed text-(--omp-dim)">
-						{t("todoPanel.empty")}
-						<br />
-						{t("todoPanel.emptyHint")}
+			}
+			icon={ListTodo}
+			id="todo"
+			title={t("dock.todo")}
+		>
+			<div className="max-h-72 overflow-y-auto px-2 py-1.5">
+				{reminderVisible && (
+					<div className="mb-1.5 flex items-start gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_40%,transparent)] bg-transparent px-2.5 py-2">
+						<AlertTriangle className="mt-px shrink-0 text-(--omp-warning)" size={13} />
+						<div className="min-w-0 flex-1 text-omp-sm leading-snug text-(--omp-warning)">
+							<span className="font-semibold">{t("todoPanel.reminder")}</span>
+							<span className="text-(--omp-muted)">
+								{` — ${t("todoPanel.reminderCount", { count: reminderTodos.length })}`}
+							</span>
+						</div>
+						<button
+							aria-label={t("todoPanel.dismissReminder")}
+							className="shrink-0 text-(--omp-warning) opacity-70 transition-opacity hover:opacity-100"
+							onClick={clearReminder}
+							type="button"
+						>
+							<X size={12} />
+						</button>
 					</div>
-				) : (
-					<DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd} sensors={sensors}>
-						{phases.map(phase => (
-							<PhaseSection
-								collapsed={collapsed.has(phase.id)}
-								key={phase.id}
-								onPatch={patchTask}
-								onToggle={() => togglePhase(phase.id)}
-								phase={phase}
-							/>
-						))}
-					</DndContext>
 				)}
+				<DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd} sensors={sensors}>
+					{phases.map(phase => (
+						<PhaseSection
+							collapsed={collapsed.has(phase.id)}
+							key={phase.id}
+							onPatch={patchTask}
+							onToggle={() => togglePhase(phase.id)}
+							phase={phase}
+						/>
+					))}
+				</DndContext>
 			</div>
-		</div>
+		</DockCard>
 	);
 }

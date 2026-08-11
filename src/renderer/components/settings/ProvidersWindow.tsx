@@ -4,7 +4,7 @@
  * Login triggers the existing extension_ui open_url flow via rpc.login().
  */
 
-import { ExternalLink, Globe, LogIn, LogOut, Plus, RefreshCw } from "lucide-react";
+import { Edit, ExternalLink, Globe, LogIn, LogOut, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ProviderInfo, ProvidersResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
@@ -12,6 +12,29 @@ import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, Modal, Spinner } from "../common";
+
+/** Built-in provider ids that cannot be edited in GUI (catalog-shipped). */
+const BUILTIN_PROVIDERS: Record<string, true> = {
+	anthropic: true,
+	openai: true,
+	gemini: true,
+	google: true,
+	groq: true,
+	mistral: true,
+	openrouter: true,
+	deepseek: true,
+	xai: true,
+	azure: true,
+	bedrock: true,
+	vertex: true,
+	ollama: true,
+	"lm-studio": true,
+	fireworks: true,
+	cerebras: true,
+	together: true,
+	cohere: true,
+	perplexity: true,
+};
 
 function AuthBadge({ provider, t }: { provider: ProviderInfo; t: (k: string) => string }) {
 	if (!provider.authenticated) return <Badge variant="muted">{t("providers.badge.noAuth")}</Badge>;
@@ -28,29 +51,31 @@ function AuthBadge({ provider, t }: { provider: ProviderInfo; t: (k: string) => 
 		</Badge>
 	);
 }
-
 function ProviderRow({
 	provider,
 	onLogin,
 	onLogout,
+	onEdit,
 	busy,
 	t,
 }: {
 	provider: ProviderInfo;
 	onLogin: (id: string) => void;
 	onLogout: (id: string) => void;
+	onEdit: (id: string) => void;
 	busy: boolean;
 	t: (k: string, p?: Record<string, string | number>) => string;
 }) {
+	const isCustom = !BUILTIN_PROVIDERS[provider.id];
 	return (
-		<div className="flex items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2.5">
+		<div className="flex items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] px-3 py-2.5">
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex items-center gap-2">
-					<span className="text-[13px] font-medium text-[var(--omp-text)]">{provider.name}</span>
+					<span className="text-omp-lg font-medium text-[var(--omp-text)]">{provider.name}</span>
 					<AuthBadge provider={provider} t={t} />
 					{provider.disabled && <Badge variant="warning">{t("providers.badge.disabled")}</Badge>}
 				</div>
-				<div className="flex items-center gap-3 text-[11px] text-[var(--omp-dim)]">
+				<div className="flex items-center gap-3 text-omp-sm text-[var(--omp-dim)]">
 					{provider.account && <span>{provider.account}</span>}
 					{provider.modelCount > 0 && <span>{t("providers.models", { count: provider.modelCount })}</span>}
 					{provider.baseUrl && (
@@ -62,6 +87,16 @@ function ProviderRow({
 				</div>
 			</div>
 			<div className="flex shrink-0 items-center gap-1.5">
+				{isCustom && (
+					<Button
+						size="sm"
+						variant="ghost"
+						icon={<Edit size={12} />}
+						disabled={busy}
+						onClick={() => onEdit(provider.id)}
+						aria-label={t("providers.edit")}
+					/>
+				)}
 				{provider.oauth && !provider.authenticated && (
 					<Button
 						size="sm"
@@ -157,6 +192,16 @@ export function ProvidersWindow() {
 		}
 	};
 
+	const handleEdit = async (providerId: string) => {
+		try {
+			const views = await window.omp.models.listProviders();
+			const view = views.find(v => v.id === providerId) ?? null;
+			openProviderConfig(view);
+		} catch (cause) {
+			toast({ variant: "error", title: t("providers.editFailed"), message: String(cause) });
+		}
+	};
+
 	const authenticated = result?.providers.filter(p => p.authenticated) ?? [];
 	const unauthenticated = result?.providers.filter(p => !p.authenticated) ?? [];
 
@@ -164,7 +209,7 @@ export function ProvidersWindow() {
 		<Modal open={open} onClose={close} title={t("providers.title")} size="lg">
 			<div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto">
 				<div className="flex items-center justify-between">
-					<span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
+					<span className="text-omp-sm font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
 						{t("providers.authenticated")}
 					</span>
 					<div className="flex items-center gap-1.5">
@@ -196,7 +241,7 @@ export function ProvidersWindow() {
 				</div>
 
 				{error && (
-					<div className="rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-[12px] text-[var(--omp-error)]">
+					<div className="rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-omp-md text-[var(--omp-error)]">
 						{error}
 					</div>
 				)}
@@ -207,7 +252,7 @@ export function ProvidersWindow() {
 				)}
 
 				{result && authenticated.length === 0 && (
-					<div className="rounded-md border border-[var(--omp-border-muted)] px-3 py-4 text-center text-[12px] text-[var(--omp-dim)]">
+					<div className="rounded-md border border-[var(--omp-border-muted)] px-3 py-4 text-center text-omp-md text-[var(--omp-dim)]">
 						{t("providers.noAuth")}
 					</div>
 				)}
@@ -220,6 +265,7 @@ export function ProvidersWindow() {
 								provider={p}
 								onLogin={handleLogin}
 								onLogout={handleLogout}
+								onEdit={handleEdit}
 								busy={busyProvider === p.id}
 								t={t}
 							/>
@@ -229,7 +275,7 @@ export function ProvidersWindow() {
 
 				{unauthenticated.length > 0 && (
 					<>
-						<span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
+						<span className="text-omp-sm font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
 							{t("providers.available")}
 						</span>
 						<div className="flex flex-col gap-2">
@@ -239,6 +285,7 @@ export function ProvidersWindow() {
 									provider={p}
 									onLogin={handleLogin}
 									onLogout={handleLogout}
+									onEdit={handleEdit}
 									busy={busyProvider === p.id}
 									t={t}
 								/>
@@ -247,9 +294,9 @@ export function ProvidersWindow() {
 					</>
 				)}
 
-				<div className="rounded-md border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2.5">
-					<div className="mb-1 text-[11px] font-semibold text-[var(--omp-text)]">{t("providers.customTitle")}</div>
-					<div className="text-[10.5px] leading-[1.5] text-[var(--omp-muted)]">
+				<div className="rounded-md border border-[var(--omp-border-muted)] px-3 py-2.5">
+					<div className="mb-1 text-omp-sm font-semibold text-[var(--omp-text)]">{t("providers.customTitle")}</div>
+					<div className="text-omp-xs leading-[1.5] text-[var(--omp-muted)]">
 						{t("providers.customHelp", {
 							file: "~/.omp/models.yml",
 							baseUrl: "baseUrl",

@@ -101,15 +101,15 @@ export function ApprovalDialog({
 				</div>
 				<div className="mt-3 max-h-[45vh] overflow-y-auto rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) p-3">
 					{body ? (
-						<pre className="font-mono text-[11px] leading-[1.55] break-words whitespace-pre-wrap text-(--omp-muted)">
+						<pre className="font-mono text-omp-sm leading-[1.55] break-words whitespace-pre-wrap text-(--omp-muted)">
 							{body}
 						</pre>
 					) : (
-						<span className="text-[11px] text-(--omp-dim) italic">{t("approval.noArgs")}</span>
+						<span className="text-omp-sm text-(--omp-dim) italic">{t("approval.noArgs")}</span>
 					)}
 				</div>
 				<div className="mt-4 flex items-center justify-between gap-2">
-					<span className="text-[10px] text-(--omp-dim)">{t("approval.waiting")}</span>
+					<span className="text-omp-xs text-(--omp-dim)">{t("approval.waiting")}</span>
 					<div className="flex gap-2">
 						<Button onClick={deny} size="md" variant="danger">
 							{t("approval.deny")}

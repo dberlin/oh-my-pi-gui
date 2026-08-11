@@ -94,14 +94,14 @@ export function LogPanel() {
 	return (
 		<div className="flex h-full flex-col">
 			<div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1.5">
-				<span className="text-[10px] font-medium tracking-widest text-(--omp-dim) uppercase">
+				<span className="text-omp-xs font-medium tracking-widest text-(--omp-dim) uppercase">
 					{t("logPanel.title")}
 				</span>
-				<span className="text-[10px] tabular-nums text-(--omp-dim)">{filtered.length}</span>
+				<span className="text-omp-xs tabular-nums text-(--omp-dim)">{filtered.length}</span>
 				<div className="ml-auto flex items-center gap-0.5">
 					{(["all", "info", "warn", "error"] as const).map(level => (
 						<button
-							className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
+							className={`rounded px-1.5 py-0.5 text-omp-xs transition-colors ${
 								levelFilter === level
 									? "bg-(--omp-selected-bg) text-(--omp-text)"
 									: "text-(--omp-dim) hover:text-(--omp-text)"
@@ -122,7 +122,7 @@ export function LogPanel() {
 				/>
 				<input
 					aria-label={t("logPanel.searchLabel")}
-					className="w-full rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) py-1 pr-7 pl-6.5 text-[11px] text-(--omp-text) placeholder:text-(--omp-dim) focus:border-(--omp-border-accent) focus:outline-none"
+					className="w-full rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) py-1 pr-7 pl-6.5 text-omp-sm text-(--omp-text) placeholder:text-(--omp-dim) focus:border-(--omp-border-accent) focus:outline-none"
 					onChange={event => setQuery(event.target.value)}
 					placeholder={t("logPanel.placeholder")}
 					value={query}
@@ -140,12 +140,12 @@ export function LogPanel() {
 			</div>
 			<div className="relative min-h-0 flex-1">
 				<div
-					className="h-full overflow-y-auto px-3 py-1 font-mono text-[10.5px] leading-[1.5]"
+					className="h-full overflow-y-auto px-3 py-1 font-mono text-omp-xs leading-[1.5]"
 					onScroll={onScroll}
 					ref={scrollRef}
 				>
 					{filtered.length === 0 ? (
-						<div className="py-8 text-center font-sans text-[11px] text-(--omp-dim)">
+						<div className="py-8 text-center font-sans text-omp-sm text-(--omp-dim)">
 							{lines.length === 0 ? t("logPanel.waiting") : t("logPanel.noMatch")}
 						</div>
 					) : (
@@ -159,7 +159,7 @@ export function LogPanel() {
 				{!pinned && (
 					<button
 						aria-label={t("logPanel.jumpLabel")}
-						className="absolute right-3 bottom-3 flex items-center gap-1 rounded-full border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2 py-1 text-[10px] text-(--omp-muted) shadow-(--omp-shadow-sm) transition-colors hover:text-(--omp-text)"
+						className="absolute right-3 bottom-3 flex items-center gap-1 rounded-full border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2 py-1 text-omp-xs text-(--omp-muted) shadow-(--omp-shadow-sm) transition-colors hover:text-(--omp-text)"
 						onClick={jumpToBottom}
 						type="button"
 					>

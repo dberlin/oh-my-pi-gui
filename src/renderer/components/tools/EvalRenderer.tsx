@@ -16,7 +16,7 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult }
 	return (
 		<div className="flex flex-col gap-1.5">
 			{title && (
-				<div className="flex items-center gap-1.5 text-[11px]">
+				<div className="flex items-center gap-1.5 text-omp-sm">
 					<Code2 size={12} className="text-[var(--omp-dim)]" />
 					<span className="font-medium text-[var(--omp-text)]">{title}</span>
 				</div>
@@ -26,7 +26,7 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult }
 				<div>
 					<div
 						className={
-							"mb-0.5 text-[9.5px] font-semibold uppercase tracking-wider " +
+							"mb-0.5 text-omp-xxs font-semibold uppercase tracking-wider " +
 							(isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")
 						}
 					>
@@ -34,7 +34,7 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult }
 					</div>
 					<pre
 						className={
-							"max-h-48 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-[11px] leading-[1.45] " +
+							"max-h-48 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45] " +
 							(isError
 								? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 								: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]")
@@ -45,7 +45,7 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult }
 				</div>
 			)}
 			{isPartial && !output && (
-				<div className="text-[11px] italic text-[var(--omp-accent)]">{t("tools.eval.evaluating")}</div>
+				<div className="text-omp-sm italic text-[var(--omp-accent)]">{t("tools.eval.evaluating")}</div>
 			)}
 		</div>
 	);

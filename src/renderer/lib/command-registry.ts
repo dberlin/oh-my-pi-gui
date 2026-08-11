@@ -21,7 +21,8 @@ import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { useTabsStore } from "../stores/tabs";
 import { toast } from "../stores/toast";
-import { useUiStore } from "../stores/ui";
+import { useTodoStore } from "../stores/todo";
+import { type DockCardId, useUiStore } from "../stores/ui";
 import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
@@ -100,8 +101,8 @@ export interface CommandRegistryContext {
 	openHotkeys: () => void;
 	openImportDialog: () => void;
 	openProviderConfig: () => void;
-	/** Open the workspace drawer to a specific tab. */
-	openWorkspaceTab: (tab: "todo" | "plan" | "agents" | "diff" | "files" | "logs") => void;
+	/** Deep-link a center-dock card (todo/plan/agents): expand + flash. */
+	focusDockCard: (id: DockCardId) => void;
 	/** Retry the last failed turn server-side (retry RPC). */
 	retryTurn: () => Promise<unknown>;
 	/** Re-send the most recent user message (abortAndPrompt while streaming). */
@@ -755,7 +756,15 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: {
 			kind: "submenu",
 			items: [
-				subAction("todo edit", () => ctx.openWorkspaceTab("todo")),
+				subAction("todo edit", () => {
+					// The dock card self-hides with no todos — say so instead of no-oping.
+					const hasTodos = useTodoStore.getState().phases.some(phase => phase.tasks.length > 0);
+					if (!hasTodos) {
+						toast({ variant: "info", message: translate("todoPanel.empty") });
+						return;
+					}
+					ctx.focusDockCard("todo");
+				}),
 				subAction("todo copy", () => copyTodosToClipboard()),
 				subAction("todo export", () => exportTodos()),
 				subAction("todo import", () => importTodosFromFile()),
@@ -1278,7 +1287,17 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.planReview"),
 		description: t("cmd.planReview.desc"),
 		category: "other",
-		affordance: { kind: "action", run: () => ctx.openWorkspaceTab("plan") },
+		affordance: {
+			kind: "action",
+			run: () => {
+				// The dock card only renders while plan mode is on — point at the toggle otherwise.
+				if (!useSessionStore.getState().planModeEnabled) {
+					toast({ variant: "info", message: translate("planPanel.statusOff") });
+					return;
+				}
+				ctx.focusDockCard("plan");
+			},
+		},
 	});
 	add({
 		name: "guided-goal",
@@ -1557,7 +1576,7 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 		openHotkeys: ui.openHotkeys,
 		openImportDialog: ui.openImportDialog,
 		openProviderConfig: ui.openProviderConfig,
-		openWorkspaceTab: ui.setPanelTab,
+		focusDockCard: ui.focusDockCard,
 		retryTurn: retryFailedTurn,
 		retryLastTurn: () =>
 			retryLastTurnShared(() =>

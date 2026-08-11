@@ -167,7 +167,7 @@ const SCOPES: Array<{ id: McpScope; labelKey: string; hintKey: string }> = [
 
 /** Matches Input's FieldShell label styling for non-Input controls. */
 function FieldLabel({ children }: { children: ReactNode }) {
-	return <span className="mb-1.5 block text-[12px] font-medium text-(--omp-text-secondary)">{children}</span>;
+	return <span className="mb-1.5 block text-omp-md font-medium text-(--omp-text-secondary)">{children}</span>;
 }
 
 export function McpServerWizard({ open, onClose, onAdded }: McpServerWizardProps) {
@@ -288,11 +288,11 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 								role="radio"
 								type="button"
 							>
-								<span className="flex items-center gap-1.5 font-mono text-[11px] font-medium text-(--omp-text)">
+								<span className="flex items-center gap-1.5 font-mono text-omp-sm font-medium text-(--omp-text)">
 									{transport.icon}
 									{transport.id}
 								</span>
-								<span className="text-[10px] leading-snug text-(--omp-dim)">{t(transport.hintKey)}</span>
+								<span className="text-omp-xs leading-snug text-(--omp-dim)">{t(transport.hintKey)}</span>
 							</button>
 						))}
 					</div>
@@ -368,8 +368,8 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 								role="radio"
 								type="button"
 							>
-								<span className="text-[11px] font-medium text-(--omp-text)">{t(scope.labelKey)}</span>
-								<span className="text-[10px] leading-snug text-(--omp-dim)">{t(scope.hintKey)}</span>
+								<span className="text-omp-sm font-medium text-(--omp-text)">{t(scope.labelKey)}</span>
+								<span className="text-omp-xs leading-snug text-(--omp-dim)">{t(scope.hintKey)}</span>
 							</button>
 						))}
 					</div>

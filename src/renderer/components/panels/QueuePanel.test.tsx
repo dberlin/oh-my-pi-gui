@@ -137,4 +137,24 @@ describe("QueuePanel move buttons", () => {
 		expect(queueMove).not.toHaveBeenCalled();
 		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1", "s2", "s3"]);
 	});
+
+	it("⇄ on a steering row moves it to the end of the follow-up lane via queue_move with toLane", async () => {
+		await mount([queued("s1", "one"), queued("s2", "two")]);
+		// Seed a non-empty target lane after mount's hydrate pull consumed the mock.
+		await act(async () => {
+			useQueueStore.getState().setFromFrame({
+				steering: useQueueStore.getState().steering,
+				followUp: [queued("f1", "queued one")],
+			});
+		});
+		await flush();
+
+		const switchButtons = buttonsByLabel("Move to Queued");
+		expect(switchButtons).toHaveLength(2);
+		await click(switchButtons[0]!);
+
+		expect(queueMove).toHaveBeenCalledWith("s1", Number.MAX_SAFE_INTEGER, "followUp");
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s2"]);
+		expect(useQueueStore.getState().followUp.map(entry => entry.id)).toEqual(["f1", "s1"]);
+	});
 });

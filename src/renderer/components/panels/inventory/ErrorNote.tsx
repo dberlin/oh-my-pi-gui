@@ -30,7 +30,7 @@ export function CopyableError({
 				className,
 			)}
 		>
-			<span className="min-w-0 flex-1 text-[11px] break-words whitespace-pre-wrap text-(--omp-error)">
+			<span className="min-w-0 flex-1 text-omp-sm break-words whitespace-pre-wrap text-(--omp-error)">
 				{message}
 			</span>
 			<button

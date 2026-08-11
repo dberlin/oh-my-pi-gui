@@ -234,12 +234,12 @@ export function HotkeysDialog() {
 			</div>
 
 			{capture && captureAction && (
-				<div className="mb-3 rounded-lg border border-[var(--omp-border)] bg-[var(--omp-bg-secondary)] px-3 py-2">
+				<div className="mb-3 rounded-lg border border-[var(--omp-border)] px-3 py-2">
 					<div className="flex items-center gap-2">
-						<span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--omp-text)]">
+						<span className="min-w-0 flex-1 truncate text-omp-md text-[var(--omp-text)]">
 							{t("hotkeys.remap.rebinding", { action: t(captureAction.labelKey) })}
 						</span>
-						<kbd className="shrink-0 rounded-md border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-2 py-0.5 font-mono text-[11px] text-[var(--omp-muted)]">
+						<kbd className="shrink-0 rounded-md border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-2 py-0.5 font-mono text-omp-sm text-[var(--omp-muted)]">
 							{capture.chord ?? t("hotkeys.remap.pressChord")}
 						</kbd>
 						<Button
@@ -254,10 +254,10 @@ export function HotkeysDialog() {
 							{t("common.cancel")}
 						</Button>
 					</div>
-					<div className="mt-1 text-[11px] text-[var(--omp-dim)]">{t("hotkeys.remap.captureHint")}</div>
+					<div className="mt-1 text-omp-sm text-[var(--omp-dim)]">{t("hotkeys.remap.captureHint")}</div>
 					{captureConflictLabel && (
 						<div
-							className={`mt-1 text-[11px] ${
+							className={`mt-1 text-omp-sm ${
 								captureConflict?.kind === "error" ? "text-[var(--omp-error)]" : "text-[var(--omp-warning)]"
 							}`}
 						>
@@ -268,23 +268,21 @@ export function HotkeysDialog() {
 			)}
 
 			{groups.length === 0 && (
-				<div className="py-6 text-center text-[12.5px] text-[var(--omp-dim)]">{t("hotkeys.empty")}</div>
+				<div className="py-6 text-center text-omp-md text-[var(--omp-dim)]">{t("hotkeys.empty")}</div>
 			)}
 			{groups.map(group => (
 				<div key={group.titleKey} className="mb-4 last:mb-0">
-					<div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--omp-dim)]">
+					<div className="mb-1.5 text-omp-sm font-semibold uppercase tracking-wide text-[var(--omp-dim)]">
 						{t(group.titleKey)}
 					</div>
 					<div className="overflow-hidden rounded-lg border border-[var(--omp-border-muted)]">
-						{group.rows.map((row, index) => {
+						{group.rows.map(row => {
 							const actionId = row.actionId;
 							const hasOverride = actionId ? overrides[actionId] !== undefined : false;
 							return (
 								<div
 									key={actionId ?? row.label}
-									className={`group flex items-center justify-between gap-4 px-3 py-2 text-[12.5px] ${
-										index % 2 === 0 ? "bg-[var(--omp-bg-secondary)]" : "bg-[var(--omp-bg-primary)]"
-									}`}
+									className="group flex items-center justify-between gap-4 px-3 py-2 text-omp-md"
 								>
 									<span className="text-[var(--omp-text)]">{row.label}</span>
 									<span className="flex shrink-0 items-center gap-1">
@@ -312,7 +310,7 @@ export function HotkeysDialog() {
 												)}
 											</>
 										)}
-										<kbd className="rounded-md border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-2 py-0.5 font-mono text-[11px] text-[var(--omp-muted)]">
+										<kbd className="rounded-md border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-2 py-0.5 font-mono text-omp-sm text-[var(--omp-muted)]">
 											{row.keys}
 										</kbd>
 									</span>

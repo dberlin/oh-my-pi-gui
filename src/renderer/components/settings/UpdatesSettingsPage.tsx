@@ -75,9 +75,9 @@ export function UpdateSummaryStrip() {
 	return (
 		<section className="mt-4 border-t border-(--omp-border-muted) pt-3">
 			<div className="mb-2 flex items-center justify-between gap-3">
-				<h3 className="text-[11px] font-semibold text-(--omp-text)">{t("updates.summary.title")}</h3>
+				<h3 className="text-omp-sm font-semibold text-(--omp-text)">{t("updates.summary.title")}</h3>
 				<div className="flex items-center gap-3">
-					<span className="text-[10px] text-(--omp-dim)">{t("updates.summary.delivery")}</span>
+					<span className="text-omp-xs text-(--omp-dim)">{t("updates.summary.delivery")}</span>
 					<Button
 						className="border-(--omp-accent) text-(--omp-accent)"
 						disabled={checking}
@@ -90,21 +90,21 @@ export function UpdateSummaryStrip() {
 				</div>
 			</div>
 			<div className="overflow-hidden rounded-lg border border-(--omp-border-muted)">
-				<div className="grid grid-cols-[minmax(0,1fr)_70px_70px_70px_minmax(0,1.4fr)] items-center gap-3 border-b border-(--omp-border-muted) px-3 py-1.5 text-[8.5px] uppercase tracking-wider text-(--omp-dim)">
+				<div className="grid grid-cols-[minmax(0,1fr)_70px_70px_70px_minmax(0,1.4fr)] items-center gap-3 border-b border-(--omp-border-muted) px-3 py-1.5 text-omp-xxs uppercase tracking-wider text-(--omp-dim)">
 					<span />
 					<span>{t("updates.current")}</span>
 					<span>{t("updates.latest")}</span>
 					<span>{t("updates.channel")}</span>
 					<span>{t("updates.what")}</span>
 				</div>
-				<div className="grid grid-cols-[minmax(0,1fr)_70px_70px_70px_minmax(0,1.4fr)] items-center gap-3 border-b border-(--omp-border-muted) px-3 py-2 text-[10.5px]">
+				<div className="grid grid-cols-[minmax(0,1fr)_70px_70px_70px_minmax(0,1.4fr)] items-center gap-3 border-b border-(--omp-border-muted) px-3 py-2 text-omp-xs">
 					<span className="font-medium text-(--omp-text)">{t("updates.gui.name")}</span>
 					<span className="font-mono text-(--omp-muted)">{guiVersion ?? "—"}</span>
 					<span className="font-mono text-(--omp-muted)">{guiVersion ? appLatest(status) : "—"}</span>
 					<span className="text-(--omp-success)">{t("updates.channel.stable")}</span>
 					<span className="text-(--omp-dim)">{t("updates.gui.what")}</span>
 				</div>
-				<div className="grid grid-cols-[minmax(0,1fr)_70px_70px_70px_minmax(0,1.4fr)] items-center gap-3 px-3 py-2 text-[10.5px]">
+				<div className="grid grid-cols-[minmax(0,1fr)_70px_70px_70px_minmax(0,1.4fr)] items-center gap-3 px-3 py-2 text-omp-xs">
 					<span className="font-medium text-(--omp-text)">{t("updates.core.name")}</span>
 					<span className="font-mono text-(--omp-muted)">{core?.currentVersion ?? "—"}</span>
 					<span className="font-mono text-(--omp-muted)">{core?.latestVersion ?? "—"}</span>
@@ -113,7 +113,7 @@ export function UpdateSummaryStrip() {
 				</div>
 			</div>
 			{(status.state === "error" || coreError) && (
-				<p className="mt-2 text-[10px] text-(--omp-error)">
+				<p className="mt-2 text-omp-xs text-(--omp-error)">
 					{[status.state === "error" ? status.message : undefined, coreError].filter(Boolean).join(" · ")}
 				</p>
 			)}
@@ -172,7 +172,7 @@ export function UpdatesSettingsPage() {
 		<div>
 			<header className="mb-5">
 				<h2 className="text-[20px] font-semibold tracking-[-0.015em] text-(--omp-text)">{t("updates.title")}</h2>
-				<p className="mt-1 text-[12px] text-(--omp-muted)">{t("updates.subtitle")}</p>
+				<p className="mt-1 text-omp-md text-(--omp-muted)">{t("updates.subtitle")}</p>
 			</header>
 
 			<div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-(--omp-border-muted) px-3 py-2.5">
@@ -184,7 +184,7 @@ export function UpdatesSettingsPage() {
 					<ServerCog className={overview === "error" ? "text-(--omp-error)" : "text-(--omp-warning)"} size={15} />
 				)}
 				<div className="min-w-0 flex-1">
-					<div className="text-[12px] font-medium text-(--omp-text)">
+					<div className="text-omp-md font-medium text-(--omp-text)">
 						{overview === "healthy"
 							? t("updates.systemHealthy")
 							: overview === "attention"
@@ -193,7 +193,7 @@ export function UpdatesSettingsPage() {
 									? t("updates.systemError")
 									: t("updates.systemChecking")}
 					</div>
-					<div className="mt-0.5 text-[10.5px] text-(--omp-dim)">{t("updates.deliveryNote")}</div>
+					<div className="mt-0.5 text-omp-xs text-(--omp-dim)">{t("updates.deliveryNote")}</div>
 				</div>
 				<Button
 					icon={checking ? <Spinner size="sm" /> : <RefreshCw size={13} />}
@@ -211,16 +211,16 @@ export function UpdatesSettingsPage() {
 						<Download size={15} />
 					</div>
 					<div className="updates-copy min-w-0">
-						<h3 className="text-[12.5px] font-semibold text-(--omp-text)">{t("updates.gui.name")}</h3>
-						<p className="mt-0.5 text-[10.5px] text-(--omp-dim)">{t("updates.gui.description")}</p>
+						<h3 className="text-omp-md font-semibold text-(--omp-text)">{t("updates.gui.name")}</h3>
+						<p className="mt-0.5 text-omp-xs text-(--omp-dim)">{t("updates.gui.description")}</p>
 					</div>
 					<div className="updates-current">
-						<div className="text-[9px] uppercase tracking-wider text-(--omp-dim)">{t("updates.current")}</div>
-						<div className="mt-1 font-mono text-[11px] text-(--omp-text)">{guiVersion ?? "—"}</div>
+						<div className="text-omp-xxs uppercase tracking-wider text-(--omp-dim)">{t("updates.current")}</div>
+						<div className="mt-1 font-mono text-omp-sm text-(--omp-text)">{guiVersion ?? "—"}</div>
 					</div>
 					<div className="updates-latest">
-						<div className="text-[9px] uppercase tracking-wider text-(--omp-dim)">{t("updates.latest")}</div>
-						<div className="mt-1 font-mono text-[11px] text-(--omp-text)">
+						<div className="text-omp-xxs uppercase tracking-wider text-(--omp-dim)">{t("updates.latest")}</div>
+						<div className="mt-1 font-mono text-omp-sm text-(--omp-text)">
 							{guiVersion ? appLatest(status) : "—"}
 						</div>
 					</div>
@@ -236,7 +236,7 @@ export function UpdatesSettingsPage() {
 							</Button>
 						)}
 						{status.state === "downloading" && (
-							<span className="text-[11px] text-(--omp-muted)">{status.percent}%</span>
+							<span className="text-omp-sm text-(--omp-muted)">{status.percent}%</span>
 						)}
 						{status.state === "downloaded" && (
 							<Button
@@ -249,15 +249,15 @@ export function UpdatesSettingsPage() {
 							</Button>
 						)}
 						{(status.state === "idle" || status.state === "checking") && (
-							<span className="flex items-center gap-1.5 text-[11px] text-(--omp-muted)">
+							<span className="flex items-center gap-1.5 text-omp-sm text-(--omp-muted)">
 								<Spinner size="sm" /> {t("updates.checking")}
 							</span>
 						)}
 						{status.state === "error" && (
-							<span className="text-[11px] text-(--omp-error)">{t("updates.checkFailed")}</span>
+							<span className="text-omp-sm text-(--omp-error)">{t("updates.checkFailed")}</span>
 						)}
 						{status.state === "not-available" && (
-							<span className="text-[11px] text-(--omp-success)">{t("updates.upToDate")}</span>
+							<span className="text-omp-sm text-(--omp-success)">{t("updates.upToDate")}</span>
 						)}
 					</div>
 				</section>
@@ -267,19 +267,19 @@ export function UpdatesSettingsPage() {
 						<ServerCog size={15} />
 					</div>
 					<div className="updates-copy min-w-0">
-						<h3 className="text-[12.5px] font-semibold text-(--omp-text)">{t("updates.core.name")}</h3>
-						<p className="mt-0.5 text-[10.5px] text-(--omp-dim)">{t("updates.core.description")}</p>
+						<h3 className="text-omp-md font-semibold text-(--omp-text)">{t("updates.core.name")}</h3>
+						<p className="mt-0.5 text-omp-xs text-(--omp-dim)">{t("updates.core.description")}</p>
 					</div>
 					<div className="updates-current">
-						<div className="text-[9px] uppercase tracking-wider text-(--omp-dim)">{t("updates.current")}</div>
-						<div className="mt-1 font-mono text-[11px] text-(--omp-text)">{core?.currentVersion ?? "—"}</div>
+						<div className="text-omp-xxs uppercase tracking-wider text-(--omp-dim)">{t("updates.current")}</div>
+						<div className="mt-1 font-mono text-omp-sm text-(--omp-text)">{core?.currentVersion ?? "—"}</div>
 					</div>
 					<div className="updates-latest">
-						<div className="text-[9px] uppercase tracking-wider text-(--omp-dim)">{t("updates.latest")}</div>
-						<div className="mt-1 font-mono text-[11px] text-(--omp-text)">{core?.latestVersion ?? "—"}</div>
+						<div className="text-omp-xxs uppercase tracking-wider text-(--omp-dim)">{t("updates.latest")}</div>
+						<div className="mt-1 font-mono text-omp-sm text-(--omp-text)">{core?.latestVersion ?? "—"}</div>
 					</div>
 					<div
-						className={`updates-action justify-self-end text-[11px] ${
+						className={`updates-action justify-self-end text-omp-sm ${
 							coreError
 								? "text-(--omp-error)"
 								: !core || checking
@@ -299,7 +299,7 @@ export function UpdatesSettingsPage() {
 					</div>
 				</section>
 			</div>
-			{errorMessage && <p className="mt-3 text-[11px] text-(--omp-error)">{errorMessage}</p>}
+			{errorMessage && <p className="mt-3 text-omp-sm text-(--omp-error)">{errorMessage}</p>}
 		</div>
 	);
 }

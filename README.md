@@ -65,7 +65,7 @@ The omp TUI is powerful, but some things are easier with a visual interface. omp
 | | |
 |---|---|
 | **Command Palette (`⌘K`)** — every slash command as a grouped, searchable menu | ![Command palette](docs/screenshots/02-command-palette.webp) |
-| **Workspace panel** — Todo / Plan / Agents / Diff / Files / Logs beside the chat | ![Workspace](docs/screenshots/03-workspace-files.webp) |
+| **Workspace panel** — Diff / Files / Logs beside the chat; live todos, plan review, subagents, and queue render as dock cards in the conversation | ![Workspace](docs/screenshots/03-workspace-files.webp) |
 | **Settings** — runtime, model, context, tools, providers, GUI, all in one window | ![Settings](docs/screenshots/05-settings.webp) |
 | **Model picker** — grouped by provider with auth status | ![Model picker](docs/screenshots/06-model-picker.webp) |
 | **Usage & stats** — requests, tokens, cost, cache-hit, speed over time | ![Stats](docs/screenshots/07-session-stats.webp) |
@@ -73,10 +73,10 @@ The omp TUI is powerful, but some things are easier with a visual interface. omp
 
 ### Install
 
-Current release: [**v0.7.2**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.2)
+Current release: [**v0.7.3**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.3)
 
-- **Apple Silicon (M1/M2/M3/M4):** `omp-0.7.2-arm64.dmg`
-- **Intel:** `omp-0.7.2.dmg`
+- **Apple Silicon (M1/M2/M3/M4):** `omp-0.7.3-arm64.dmg`
+- **Intel:** `omp-0.7.3.dmg`
 
 Open the `.dmg` and drag **omp** into **Applications**. The build is unsigned, so on first launch macOS may block it: **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*).
 
@@ -224,10 +224,10 @@ omp TUI 很强大,但有些事情用可视化界面更方便。omp GUI 不替代
 
 ### 安装
 
-当前版本：[**v0.7.2**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.2)
+当前版本：[**v0.7.3**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.7.3)
 
-- **Apple Silicon(M1/M2/M3/M4):** `omp-0.7.2-arm64.dmg`
-- **Intel:** `omp-0.7.2.dmg`
+- **Apple Silicon(M1/M2/M3/M4):** `omp-0.7.3-arm64.dmg`
+- **Intel:** `omp-0.7.3.dmg`
 
 打开 `.dmg`,把 **omp** 拖进 **应用程序**。构建未签名,首次打开 macOS 可能拦截:**右键 → 打开**(或 *系统设置 → 隐私与安全性 → 仍要打开*)。
 

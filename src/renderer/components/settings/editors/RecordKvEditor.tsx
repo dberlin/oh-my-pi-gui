@@ -35,7 +35,7 @@ function toPrimitive(input: string): Primitive {
 }
 
 const INPUT_CLASS =
-	"rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2 py-1 font-mono text-[11px] text-(--omp-text) outline-none transition-colors focus:border-(--omp-input-focus-border)";
+	"rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2 py-1 font-mono text-omp-sm text-(--omp-text) outline-none transition-colors focus:border-(--omp-input-focus-border)";
 
 export function RecordKvEditor({
 	value,
@@ -143,7 +143,7 @@ export function RecordKvEditor({
 			))}
 			{!disabled && (
 				<button
-					className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md border border-(--omp-border-muted) px-2 py-1 text-[11px] text-(--omp-muted) transition-colors hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+					className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md border border-(--omp-border-muted) px-2 py-1 text-omp-sm text-(--omp-muted) transition-colors hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
 					onClick={addEntry}
 					type="button"
 				>

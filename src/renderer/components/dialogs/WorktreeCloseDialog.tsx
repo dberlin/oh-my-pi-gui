@@ -88,9 +88,9 @@ export function WorktreeCloseDialog() {
 			) : (
 				<div className="flex flex-col gap-4">
 					{query.phase === "error" ? (
-						<p className="text-[13px] leading-relaxed text-(--omp-muted)">{t("worktreeClose.statusUnknown")}</p>
+						<p className="text-omp-lg leading-relaxed text-(--omp-muted)">{t("worktreeClose.statusUnknown")}</p>
 					) : dirty && status ? (
-						<p className="text-[13px] leading-relaxed text-(--omp-warning)">
+						<p className="text-omp-lg leading-relaxed text-(--omp-warning)">
 							{t("worktreeClose.dirtyBody", {
 								staged: String(status.staged),
 								unstaged: String(status.unstaged),
@@ -98,9 +98,9 @@ export function WorktreeCloseDialog() {
 							})}
 						</p>
 					) : (
-						<p className="text-[13px] leading-relaxed text-(--omp-muted)">{t("worktreeClose.cleanBody")}</p>
+						<p className="text-omp-lg leading-relaxed text-(--omp-muted)">{t("worktreeClose.cleanBody")}</p>
 					)}
-					<p className="truncate font-mono text-[11px] text-(--omp-dim)" title={tab.cwd}>
+					<p className="truncate font-mono text-omp-sm text-(--omp-dim)" title={tab.cwd}>
 						{worktree.branch} — {tab.cwd}
 					</p>
 					<div className="flex flex-col gap-2">

@@ -212,9 +212,9 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-[11px]">
+			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<Braces size={12} className="shrink-0 text-[var(--omp-syntax-type)]" />
-				<span className="rounded bg-[var(--omp-syntax-type)]/15 px-1 py-px text-[9.5px] font-semibold uppercase tracking-wider text-[var(--omp-syntax-type)]">
+				<span className="rounded bg-[var(--omp-syntax-type)]/15 px-1 py-px text-omp-xxs font-semibold uppercase tracking-wider text-[var(--omp-syntax-type)]">
 					{operation}
 				</span>
 				{requestFile && (
@@ -224,19 +224,19 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 					</span>
 				)}
 				{requestSymbol && <span className="truncate text-[var(--omp-text)]">{requestSymbol}</span>}
-				<span className="ml-auto shrink-0 text-[10px] text-[var(--omp-dim)]">{countLabel}</span>
+				<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">{countLabel}</span>
 			</div>
 
 			{parsed.kind === "hover" && (
 				<div className="flex flex-col gap-1">
 					{parsed.before && (
-						<div className="whitespace-pre-wrap text-[11px] leading-[1.45] text-[var(--omp-muted)]">
+						<div className="whitespace-pre-wrap text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
 							{parsed.before}
 						</div>
 					)}
 					<CodeBlock code={parsed.code} language={parsed.lang} maxHeightClass="max-h-56" />
 					{parsed.after && (
-						<div className="line-clamp-3 whitespace-pre-wrap text-[11px] leading-[1.45] text-[var(--omp-muted)]">
+						<div className="line-clamp-3 whitespace-pre-wrap text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
 							{parsed.after}
 						</div>
 					)}
@@ -245,7 +245,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 
 			{parsed.kind === "diagnostics" && (
 				<div className="flex flex-col gap-1">
-					<div className="flex items-center gap-1.5 font-mono text-[10px]">
+					<div className="flex items-center gap-1.5 font-mono text-omp-xs">
 						{parsed.errors > 0 && (
 							<span className="rounded bg-[var(--omp-error)]/15 px-1 py-px font-semibold text-[var(--omp-error)]">
 								{parsed.errors} error{parsed.errors === 1 ? "" : "s"}
@@ -261,7 +261,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 						)}
 					</div>
 					{parsed.items.length > 0 && (
-						<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.6]">
+						<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
 							{parsed.items.map((item, i) => (
 								<div key={i} className="flex gap-2 transition-colors hover:bg-[var(--omp-selected-bg)]/50">
 									<span
@@ -284,14 +284,14 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{parsed.kind === "references" && (
-				<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.6]">
+				<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
 					{parsed.groups.map(group => (
 						<div key={group.file}>
 							<div className="flex gap-2">
 								<span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]" title={group.file}>
 									{group.file}
 								</span>
-								<span className="shrink-0 text-[10px] text-[var(--omp-dim)]">
+								<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">
 									{group.locs.length} {parsed.noun}
 									{group.locs.length === 1 ? "" : "s"}
 								</span>
@@ -312,13 +312,13 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{parsed.kind === "symbols" && (
-				<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.6]">
+				<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
 					{parsed.symbols.map((sym, i) => (
 						<div key={i} className="flex gap-2" style={{ paddingLeft: `${Math.min(sym.indent, 8) * 10}px` }}>
 							<span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]">
 								{sym.icon} {sym.name}
 							</span>
-							<span className="shrink-0 text-[10px] text-[var(--omp-dim)]">line {sym.line}</span>
+							<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">line {sym.line}</span>
 						</div>
 					))}
 					{parsed.symbols.length === 0 && (
@@ -330,7 +330,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 			{parsed.kind === "generic" && text && (
 				<pre
 					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-[11px] leading-[1.45]",
+						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
 						isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",

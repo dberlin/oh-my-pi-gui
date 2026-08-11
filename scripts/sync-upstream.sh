@@ -19,18 +19,29 @@ cd "$(dirname "$0")/../../.."
 GUI=packages/gui
 say() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 
-say "1/7 fetch upstream"
-git fetch upstream --quiet
-incoming=$(git rev-list --count HEAD..upstream/main)
-echo "incoming commits: $incoming"
-git log --oneline HEAD..upstream/main | head -15 || true
-if [ "$incoming" = "0" ]; then echo "already up to date"; exit 0; fi
+if [ "${SKIP_MERGE:-0}" = "1" ]; then
+	say "1-2/7 resume after resolved merge"
+	if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+		echo "CONFLICT — unresolved files remain; resolve and commit them before resuming"
+		git status --short
+		exit 1
+	fi
+else
+	say "1/7 fetch upstream"
+	git fetch upstream --quiet
+	incoming=$(git rev-list --count HEAD..upstream/main)
+	echo "incoming commits: $incoming"
+	git log --oneline HEAD..upstream/main | head -15 || true
 
-say "2/7 merge upstream/main"
-if ! git merge upstream/main --no-edit; then
-	echo "CONFLICT — resolve the listed files, then re-run this script with SKIP_MERGE=1"
-	echo "  git status --short"
-	exit 1
+	say "2/7 merge upstream/main"
+	if [ "$incoming" = "0" ]; then
+		echo "already up to date"
+	elif ! git merge upstream/main --no-edit; then
+		echo "CONFLICT — resolve and commit the listed files, then re-run with SKIP_MERGE=1"
+		echo "  SKIP_MERGE=1 bash packages/gui/scripts/sync-upstream.sh"
+		echo "  git status --short"
+		exit 1
+	fi
 fi
 
 say "3/7 bun install"

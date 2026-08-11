@@ -35,7 +35,7 @@ export function ReadGroupCard({
 	const [open, setOpen] = useState(false);
 	const rows = mergeReadGroupEntries(entries);
 	const single = entries.length === 1;
-	const pad = inset ? "py-0.5" : "px-6 py-0.5";
+	const pad = inset ? "py-0.5" : "ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-0.5";
 
 	// Per-call status from the tools store: select the stable map reference and
 	// derive statuses in a memo — building a Map INSIDE the selector returns a
@@ -61,7 +61,7 @@ export function ReadGroupCard({
 					type="button"
 					aria-expanded={open}
 					onClick={() => setOpen(value => !value)}
-					className="omp-read-group-header flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text)"
+					className="omp-read-group-header flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-omp-md text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text)"
 				>
 					{status === "pending" ? (
 						<Loader2 size={11} className="shrink-0 animate-spin text-(--omp-accent)" />
@@ -74,7 +74,7 @@ export function ReadGroupCard({
 						/>
 					)}
 					<span className="font-medium">Read</span>
-					<span className="truncate font-mono text-[11px] text-(--omp-accent)">
+					<span className="truncate font-mono text-omp-sm text-(--omp-accent)">
 						{entry.path}
 						{entry.selector ? `:${entry.selector}` : ""}
 					</span>
@@ -98,7 +98,7 @@ export function ReadGroupCard({
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen(value => !value)}
-				className="omp-read-group-header flex w-full items-center gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-left text-[12px] text-(--omp-muted) hover:border-(--omp-border) hover:text-(--omp-text)"
+				className="omp-read-group-header flex w-full items-center gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-left text-omp-md text-(--omp-muted) hover:border-(--omp-border) hover:text-(--omp-text)"
 			>
 				<ChevronRight size={13} className={cx("shrink-0 transition-transform", open && "rotate-90")} />
 				{anyPending ? (
@@ -112,12 +112,12 @@ export function ReadGroupCard({
 					/>
 				)}
 				<span className="font-medium text-(--omp-text)">{readGroupTitle(entries)}</span>
-				<span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-(--omp-dim)">
+				<span className="min-w-0 flex-1 truncate font-mono text-omp-xs text-(--omp-dim)">
 					{rows.length === 1 ? rows[0]!.path : t("readGroup.files", { count: rows.length })}
 				</span>
 			</button>
 			{/* Tree preview rows (always visible, TUI parity) */}
-			<div className="omp-read-group-preview ml-6 mt-0.5 font-mono text-[11px] leading-[1.6] text-(--omp-muted)">
+			<div className="omp-read-group-preview ml-6 mt-0.5 font-mono text-omp-sm leading-[1.6] text-(--omp-muted)">
 				{rows.map((row, index) => (
 					<div key={`${row.path}:${index}`} className="flex items-baseline gap-2 truncate">
 						<span className="shrink-0 text-(--omp-dim)">{index === rows.length - 1 ? "└─" : "├─"}</span>

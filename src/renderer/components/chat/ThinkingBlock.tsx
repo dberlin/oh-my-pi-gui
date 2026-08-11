@@ -148,7 +148,7 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 		const glyph = THINKING_GLYPH_FRAMES[glyphFrame % THINKING_GLYPH_FRAMES.length] ?? "…";
 		return (
 			<div
-				className="omp-thinking-block omp-thinking-block--pulse mb-2 flex items-center gap-1.5 overflow-hidden rounded-md border-l-2 bg-[var(--omp-bg-secondary)] px-2 py-1 text-[11px]"
+				className="omp-thinking-block omp-thinking-block--pulse mb-2 flex items-center gap-1.5 overflow-hidden rounded-md border-l-2 px-2 py-1 text-omp-sm"
 				style={{ borderLeftColor: `var(--omp-thinking-${tokenLevel})` }}
 			>
 				<span
@@ -180,14 +180,14 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 
 	return (
 		<div
-			className="omp-thinking-block mb-2 overflow-hidden rounded-md border-l-2 bg-[var(--omp-bg-secondary)] transition-colors"
+			className="omp-thinking-block mb-2 overflow-hidden rounded-md border-l-2 transition-colors"
 			style={{ borderLeftColor: `var(--omp-thinking-${tokenLevel})` }}
 		>
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen(v => !v)}
-				className="omp-thinking-header flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-bg-tertiary)]"
+				className="omp-thinking-header flex w-full items-center gap-1.5 px-2 py-1 text-left text-omp-sm text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-bg-tertiary)]"
 			>
 				{open ? (
 					<ChevronDown className="omp-thinking-chevron" size={12} />
@@ -229,7 +229,7 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 				)}
 			</button>
 			{open && (
-				<div className="omp-thinking-body max-h-64 overflow-y-auto px-3 pb-2 font-mono text-[11.5px] leading-[1.45] text-[var(--omp-muted)]">
+				<div className="omp-thinking-body max-h-64 overflow-y-auto px-3 pb-2 font-mono text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
 					<div className={cx(isLive && "omp-streaming")}>
 						<MarkdownRenderer content={formatted} />
 						{isLive && <span aria-hidden className="omp-caret" />}

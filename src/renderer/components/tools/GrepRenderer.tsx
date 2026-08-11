@@ -189,10 +189,10 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 
 	return (
 		<div className="flex flex-col gap-1">
-			<div className="flex items-center gap-1.5 font-mono text-[11px]">
+			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<Search size={12} className="shrink-0 text-[var(--omp-dim)]" />
 				<span className="truncate text-[var(--omp-accent)]">/{pattern}/</span>
-				<span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] text-[var(--omp-dim)]">
+				<span className="ml-auto flex shrink-0 items-center gap-1.5 text-omp-xs text-[var(--omp-dim)]">
 					{scope && (
 						<span className="max-w-40 truncate" title={scope}>
 							in {scope}
@@ -212,7 +212,7 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 				</span>
 			</div>
 			{renderedGroups.length > 0 && (
-				<div className="max-h-64 overflow-auto rounded bg-[var(--omp-code-bg)] py-1 font-mono text-[11px] leading-[1.5]">
+				<div className="max-h-64 overflow-auto rounded bg-[var(--omp-code-bg)] py-1 font-mono text-omp-sm leading-[1.5]">
 					{renderedGroups.map((group, gi) => (
 						<div key={gi}>
 							{group.file && (
@@ -257,11 +257,11 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 			{renderedGroups.length === 0 &&
 				!isPartial &&
 				(text ? (
-					<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] text-[var(--omp-tool-output)]">
+					<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm text-[var(--omp-tool-output)]">
 						{text}
 					</pre>
 				) : (
-					<div className="text-[11px] italic text-[var(--omp-dim)]">{t("tools.grep.noMatches")}</div>
+					<div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.grep.noMatches")}</div>
 				))}
 		</div>
 	);

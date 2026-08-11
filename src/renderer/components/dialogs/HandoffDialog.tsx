@@ -88,7 +88,7 @@ export function HandoffDialog() {
 			<div className="flex flex-col gap-3">
 				<div className="flex items-start gap-2.5 rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
 					<Handshake className="mt-0.5 shrink-0 text-(--omp-accent)" size={14} />
-					<p className="text-[11px] leading-relaxed text-(--omp-muted)">{t("handoff.desc")}</p>
+					<p className="text-omp-sm leading-relaxed text-(--omp-muted)">{t("handoff.desc")}</p>
 				</div>
 				<TextArea
 					autoGrow
@@ -103,17 +103,17 @@ export function HandoffDialog() {
 					value={instructions}
 				/>
 				{blockedReason !== null && (
-					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-[11px] text-(--omp-warning)">
+					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-omp-sm text-(--omp-warning)">
 						{blockedReason}
 					</div>
 				)}
 				{error !== null && (
-					<div className="rounded-md border border-[var(--omp-error)] bg-transparent px-3 py-2 text-[11px] text-[var(--omp-error)]">
+					<div className="rounded-md border border-[var(--omp-error)] bg-transparent px-3 py-2 text-omp-sm text-[var(--omp-error)]">
 						{error}
 					</div>
 				)}
 				{running && (
-					<div className="flex items-center gap-2 text-[11px] text-(--omp-dim)">
+					<div className="flex items-center gap-2 text-omp-sm text-(--omp-dim)">
 						<Spinner size="sm" />
 						{t("handoff.generating")}
 					</div>

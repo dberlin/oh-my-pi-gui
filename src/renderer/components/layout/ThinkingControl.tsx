@@ -82,7 +82,7 @@ export function ThinkingControl() {
 				type="button"
 				onClick={() => setOpen(value => !value)}
 				title={t("input.thinking", { level: current })}
-				className="omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-medium hover:bg-[var(--omp-selected-bg)]"
+				className="omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]"
 				style={{ color: `var(--omp-thinking-${thinkingLevel ?? "off"})` }}
 			>
 				<Brain size={14} />
@@ -113,7 +113,7 @@ export function ThinkingControl() {
 											<span className="min-w-0 flex-1">
 												<span
 													className={cx(
-														"block font-mono text-[12px] font-medium",
+														"block font-mono text-omp-md font-medium",
 														!active && "text-[var(--omp-muted)]",
 													)}
 													style={
@@ -122,7 +122,7 @@ export function ThinkingControl() {
 												>
 													{option}
 												</span>
-												<span className="block text-[11px] leading-snug text-[var(--omp-dim)]">
+												<span className="block text-omp-sm leading-snug text-[var(--omp-dim)]">
 													{t(`input.thinking.level.${option}`)}
 												</span>
 											</span>
@@ -130,7 +130,7 @@ export function ThinkingControl() {
 									);
 								})
 							) : (
-								<div className="px-2.5 py-2 text-[12px] text-[var(--omp-muted)]">
+								<div className="px-2.5 py-2 text-omp-md text-[var(--omp-muted)]">
 									{t("input.thinking.unsupported")}
 								</div>
 							)}

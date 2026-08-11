@@ -21,7 +21,7 @@ import { useUiStore } from "../../stores/ui";
 // toggles (no 1px layout shift).
 const chip = (active: boolean) =>
 	cx(
-		"omp-pressable flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[12px] font-medium",
+		"omp-pressable flex h-8 items-center gap-1.5 rounded-lg border px-2 text-omp-md font-medium",
 		active
 			? "border-[var(--omp-border-accent)] bg-[var(--omp-accent-dim)] text-[var(--omp-accent)]"
 			: "border-transparent text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)]",
@@ -205,7 +205,7 @@ function MoreRow({ label, checked, onToggle }: { label: string; checked: boolean
 		<button
 			type="button"
 			onClick={onToggle}
-			className="omp-pressable flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+			className="omp-pressable flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 		>
 			<span className="truncate">{label}</span>
 			<span

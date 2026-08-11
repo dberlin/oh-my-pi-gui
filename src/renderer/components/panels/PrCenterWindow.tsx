@@ -44,14 +44,14 @@ function PrListRow({ item, active, onSelect }: { item: RpcPrListItem; active: bo
 			)}
 		>
 			<span className="flex items-center gap-1.5">
-				<span className={cx("w-3 shrink-0 text-center text-[11px]", badge.className)}>{badge.glyph}</span>
-				<span className="shrink-0 text-[11px] text-(--omp-dim)">#{item.number}</span>
+				<span className={cx("w-3 shrink-0 text-center text-omp-sm", badge.className)}>{badge.glyph}</span>
+				<span className="shrink-0 text-omp-sm text-(--omp-dim)">#{item.number}</span>
 				{item.isDraft && <GitPullRequestDraft size={11} className="shrink-0 text-(--omp-muted)" />}
-				<span className="min-w-0 flex-1 truncate text-[12.5px] text-(--omp-text)">{item.title}</span>
+				<span className="min-w-0 flex-1 truncate text-omp-md text-(--omp-text)">{item.title}</span>
 			</span>
-			<span className="flex items-center gap-1.5 pl-[18px] text-[10.5px] text-(--omp-dim)">
+			<span className="flex items-center gap-1.5 pl-[18px] text-omp-xs text-(--omp-dim)">
 				<span
-					className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+					className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-omp-xxs font-semibold text-white"
 					style={{ backgroundColor: `hsl(${avatarHue(item.authorLogin)} 45% 42%)` }}
 				>
 					{item.authorLogin[0]?.toUpperCase() ?? "?"}
@@ -92,8 +92,8 @@ export function PrCenterWindow() {
 				{/* Header */}
 				<div className="flex shrink-0 items-center gap-3 border-b border-(--omp-border-muted) px-4 py-2.5">
 					<GitPullRequest size={14} className="shrink-0 text-(--omp-accent)" />
-					<span className="text-[13px] font-medium text-(--omp-text)">{t("prCenter.title")}</span>
-					{repo?.available && <span className="truncate text-[12px] text-(--omp-dim)">{repo.repo}</span>}
+					<span className="text-omp-lg font-medium text-(--omp-text)">{t("prCenter.title")}</span>
+					{repo?.available && <span className="truncate text-omp-md text-(--omp-dim)">{repo.repo}</span>}
 					<div className="ml-auto flex items-center gap-2">
 						<Tabs
 							tabs={stateTabs}
@@ -117,15 +117,15 @@ export function PrCenterWindow() {
 
 				{/* Body */}
 				{!repo ? (
-					<div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-(--omp-dim)">
+					<div className="flex flex-1 items-center justify-center gap-2 text-omp-md text-(--omp-dim)">
 						<Spinner size="sm" /> {t("prCenter.probing")}
 					</div>
 				) : !repo.available ? (
 					<div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
 						<GitPullRequest size={28} className="text-(--omp-dim)" />
-						<p className="text-[13px] text-(--omp-muted)">{t(`prCenter.unavailable.${repo.reason}`)}</p>
+						<p className="text-omp-lg text-(--omp-muted)">{t(`prCenter.unavailable.${repo.reason}`)}</p>
 						{repo.reason === "gh_missing" && (
-							<p className="font-mono text-[11px] text-(--omp-dim)">brew install gh && gh auth login</p>
+							<p className="font-mono text-omp-sm text-(--omp-dim)">brew install gh && gh auth login</p>
 						)}
 					</div>
 				) : (
@@ -133,16 +133,16 @@ export function PrCenterWindow() {
 						{/* List pane */}
 						<div className="flex w-[300px] shrink-0 flex-col overflow-y-auto border-r border-(--omp-border-muted) p-2">
 							{error && (
-								<p className="mb-2 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2 py-1.5 text-[11px] text-(--omp-error)">
+								<p className="mb-2 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2 py-1.5 text-omp-sm text-(--omp-error)">
 									{error}
 								</p>
 							)}
 							{listLoading && list.length === 0 ? (
-								<div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-(--omp-dim)">
+								<div className="flex flex-1 items-center justify-center gap-2 text-omp-md text-(--omp-dim)">
 									<Spinner size="sm" /> {t("prCenter.loading")}
 								</div>
 							) : list.length === 0 ? (
-								<div className="flex flex-1 items-center justify-center text-[12px] text-(--omp-dim)">
+								<div className="flex flex-1 items-center justify-center text-omp-md text-(--omp-dim)">
 									{t("prCenter.empty")}
 								</div>
 							) : (

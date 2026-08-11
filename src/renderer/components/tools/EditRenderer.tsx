@@ -97,7 +97,7 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }
 				: t("tools.edit.op.edit"));
 	const stats = diff ? diffStats(diff) : null;
 	return (
-		<div className="flex items-center gap-1.5 font-mono text-[11px]">
+		<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 			<Icon size={12} className={cx("shrink-0", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")} />
 			<span
 				className={cx("shrink-0 font-semibold", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-muted)]")}
@@ -121,7 +121,7 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }
 				</>
 			)}
 			{stats && (stats.added > 0 || stats.removed > 0) && (
-				<span className="shrink-0 text-[9.5px] tabular-nums">
+				<span className="shrink-0 text-omp-xxs tabular-nums">
 					<span className="text-[var(--omp-dim)]">[</span>
 					{stats.added > 0 && <span className="text-[var(--omp-diff-added)]">+{stats.added}</span>}
 					{stats.added > 0 && stats.removed > 0 && <span className="text-[var(--omp-dim)]">/</span>}
@@ -142,7 +142,7 @@ function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={file.op} path={displayPath} moveTo={file.move} isError />
-				<div className="whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-[11px] text-[var(--omp-error)]">
+				<div className="whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
 					{file.displayErrorText ?? file.errorText ?? t("tools.edit.failed")}
 				</div>
 			</div>
@@ -161,7 +161,7 @@ function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={file.op} path={displayPath} />
 				{file.op !== "create" && (
-					<div className="text-[11px] italic text-[var(--omp-dim)]">
+					<div className="text-omp-sm italic text-[var(--omp-dim)]">
 						{t("tools.edit.noChangesTo", { path: file.path })}
 					</div>
 				)}
@@ -227,7 +227,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 					<PerFileEditBlock key={`${index}:${file.path}`} file={file} />
 				))}
 				{remaining > 0 && isPartial && (
-					<div className="flex items-center gap-1.5 text-[11px] text-[var(--omp-dim)]">
+					<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-dim)]">
 						<Loader2 size={12} className="animate-spin text-[var(--omp-accent)]" />
 						{t("tools.edit.morePending", { count: remaining, plural: remaining === 1 ? "" : "s" })}
 					</div>
@@ -243,7 +243,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={op} path={rawPath} moveTo={rename} isError />
-				<div className="whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-[11px] text-[var(--omp-error)]">
+				<div className="whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
 					{errorText}
 				</div>
 			</div>
@@ -282,7 +282,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={op} path={rawPath} moveTo={rename} />
 				{op !== "create" && (
-					<div className="text-[11px] italic text-[var(--omp-dim)]">
+					<div className="text-omp-sm italic text-[var(--omp-dim)]">
 						{rawPath ? t("tools.edit.noChangesTo", { path: rawPath }) : t("tools.edit.noChanges")}
 					</div>
 				)}
@@ -333,7 +333,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 						return (
 							<div key={key} className="flex flex-col gap-1">
 								{showPathLabel && (
-									<div className="truncate font-mono text-[10.5px] text-[var(--omp-dim)]">{entryPath}</div>
+									<div className="truncate font-mono text-omp-xs text-[var(--omp-dim)]">{entryPath}</div>
 								)}
 								<DiffView
 									diff={entryDiff}
@@ -347,7 +347,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 						return (
 							<div key={key} className="flex flex-col gap-1">
 								{showPathLabel && (
-									<div className="truncate font-mono text-[10.5px] text-[var(--omp-dim)]">{entryPath}</div>
+									<div className="truncate font-mono text-omp-xs text-[var(--omp-dim)]">{entryPath}</div>
 								)}
 								<DiffView
 									diff={oldNewDiff(entryOld, entryNew)}
@@ -406,7 +406,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 
 	if (isPartial) {
 		return (
-			<div className="flex items-center gap-1.5 text-[11px] text-[var(--omp-dim)]">
+			<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-dim)]">
 				<Loader2 size={12} className="animate-spin text-[var(--omp-accent)]" />
 				{t("tools.edit.applying")}
 			</div>
@@ -415,7 +415,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 	return (
 		<div className="flex flex-col gap-1.5">
 			<EditHeader op={op} path={rawPath} moveTo={rename} />
-			<div className="text-[11px] italic text-[var(--omp-dim)]">{t("tools.edit.applied")}</div>
+			<div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.edit.applied")}</div>
 		</div>
 	);
 }

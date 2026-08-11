@@ -212,7 +212,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 	return (
 		<div
 			className={cx(
-				"group absolute flex cursor-grab flex-col rounded-md border bg-(--omp-bg-primary) px-2 py-1.5 shadow-sm transition-colors",
+				"group absolute flex cursor-grab flex-col rounded-md border px-2 py-1.5 shadow-sm transition-colors",
 				entry.onActiveBranch
 					? "border-[color-mix(in_srgb,var(--omp-accent)_45%,transparent)]"
 					: "border-(--omp-border-muted) opacity-75",
@@ -223,11 +223,14 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 		>
 			<div className="flex items-center gap-1.5">
 				<RoleGlyph role={entry.role} />
-				<span className={cx("shrink-0 text-[9px] font-semibold tracking-widest uppercase", meta.className)}>
+				<span className={cx("shrink-0 text-omp-xxs font-semibold tracking-widest uppercase", meta.className)}>
 					{t(meta.labelKey)}
 				</span>
 				{entry.timestamp > 0 && (
-					<span className="shrink-0 text-[9px] tabular-nums text-(--omp-dim)" title={formatClock(entry.timestamp)}>
+					<span
+						className="shrink-0 text-omp-xxs tabular-nums text-(--omp-dim)"
+						title={formatClock(entry.timestamp)}
+					>
 						{formatTimeAgo(new Date(entry.timestamp).toISOString())}
 					</span>
 				)}
@@ -242,7 +245,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 					</span>
 				)}
 			</div>
-			<p className="mt-0.5 line-clamp-2 min-h-0 flex-1 text-[10.5px] leading-snug whitespace-pre-wrap text-(--omp-text)">
+			<p className="mt-0.5 line-clamp-2 min-h-0 flex-1 text-omp-xs leading-snug whitespace-pre-wrap text-(--omp-text)">
 				{entry.textPreview}
 			</p>
 			{/* Node actions: switch the active leaf here (any node), branch (user
@@ -250,7 +253,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 			    in a new window (any node). */}
 			<button
 				aria-label={t("sessionTree.branchAria")}
-				className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-(--omp-border-muted) bg-(--omp-bg-secondary) text-(--omp-muted) opacity-70 shadow-sm transition-opacity group-hover:opacity-100 hover:border-(--omp-accent) hover:text-(--omp-accent) focus-visible:opacity-100 disabled:opacity-40"
+				className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-(--omp-border-muted) bg-(--omp-bg-secondary) text-(--omp-muted) opacity-70 shadow-sm transition-opacity group-hover:opacity-100 hover:border-(--omp-accent) hover:text-(--omp-accent) focus-visible:opacity-100 disabled:opacity-40" // surface-ok: tiny corner button straddles the card border; transparent face shows the border through it
 				disabled={branching !== null}
 				onClick={event => {
 					event.stopPropagation();
@@ -270,7 +273,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 				>
 					<button
 						type="button"
-						className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-(--omp-text) hover:bg-(--omp-selected-bg)"
+						className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-omp-sm text-(--omp-text) hover:bg-(--omp-selected-bg)"
 						onClick={() => onAction("switch", entry.entryId)}
 					>
 						<CornerDownLeft size={11} className="shrink-0 text-(--omp-dim)" />
@@ -278,7 +281,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 					</button>
 					<button
 						type="button"
-						className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-(--omp-text) hover:bg-(--omp-selected-bg) disabled:cursor-not-allowed disabled:opacity-40"
+						className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-omp-sm text-(--omp-text) hover:bg-(--omp-selected-bg) disabled:cursor-not-allowed disabled:opacity-40"
 						disabled={entry.role !== "user"}
 						title={entry.role !== "user" ? t("sessionTree.branchUserOnly") : undefined}
 						onClick={() => onAction("branch", entry.entryId)}
@@ -288,7 +291,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 					</button>
 					<button
 						type="button"
-						className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-(--omp-text) hover:bg-(--omp-selected-bg)"
+						className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-omp-sm text-(--omp-text) hover:bg-(--omp-selected-bg)"
 						onClick={() => onAction("fork", entry.entryId)}
 					>
 						<ExternalLink size={11} className="shrink-0 text-(--omp-dim)" />
@@ -308,7 +311,7 @@ function SessionRootNode({ x, y }: { x: number; y: number }) {
 			style={{ left: x, top: y, width: TREE_NODE_WIDTH, height: TREE_ROOT_HEIGHT }}
 		>
 			<Play className="shrink-0 text-(--omp-dim)" size={11} />
-			<span className="truncate text-[10px] font-medium text-(--omp-muted)">{t("sessionTree.root")}</span>
+			<span className="truncate text-omp-xs font-medium text-(--omp-muted)">{t("sessionTree.root")}</span>
 		</div>
 	);
 }
@@ -886,22 +889,22 @@ export function SessionTreeDialog() {
 	return (
 		<Modal open={open} onClose={handleClose} title={t("sessionTree.title")} size="full" bodyClassName="p-0">
 			<div className="flex h-full min-h-0 flex-col">
-				<div className="flex shrink-0 items-center gap-2 border-b border-(--omp-border-muted) px-4 py-2 text-[11px] text-(--omp-muted)">
+				<div className="flex shrink-0 items-center gap-2 border-b border-(--omp-border-muted) px-4 py-2 text-omp-sm text-(--omp-muted)">
 					<span className="truncate">{sessionName ?? t("sessionTree.untitled")}</span>
 					{sessionId && (
-						<span className="shrink-0 font-mono text-[10px] text-(--omp-dim)">#{sessionId.slice(0, 8)}</span>
+						<span className="shrink-0 font-mono text-omp-xs text-(--omp-dim)">#{sessionId.slice(0, 8)}</span>
 					)}
 					{model && model.entries.length > 0 && (
 						<div
 							aria-label={t("sessionTree.filter.group")}
-							className="ml-1 flex shrink-0 items-center gap-0.5 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-secondary) p-0.5"
+							className="ml-1 flex shrink-0 items-center gap-0.5 rounded-md border border-(--omp-border-muted) p-0.5"
 							role="group"
 						>
 							{TREE_FILTER_MODES.map(mode => (
 								<button
 									aria-pressed={filterMode === mode.id}
 									className={cx(
-										"rounded px-1.5 py-0.5 text-[9.5px] font-medium transition-colors",
+										"rounded px-1.5 py-0.5 text-omp-xxs font-medium transition-colors",
 										filterMode === mode.id
 											? "bg-(--omp-selected-bg) text-(--omp-accent)"
 											: "text-(--omp-dim) hover:text-(--omp-text)",
@@ -916,7 +919,7 @@ export function SessionTreeDialog() {
 						</div>
 					)}
 					{layout && layout.nodeCount > 0 && (
-						<span className="ml-auto shrink-0 text-[10px] text-(--omp-dim)">
+						<span className="ml-auto shrink-0 text-omp-xs text-(--omp-dim)">
 							{filterMode === "all"
 								? t("sessionTree.messageCount", {
 										count: layout.nodeCount,
@@ -950,7 +953,7 @@ export function SessionTreeDialog() {
 					<div
 						aria-label={t("sessionTree.canvasAria")}
 						className={cx(
-							"relative min-h-0 flex-1 touch-none overflow-hidden bg-(--omp-bg-primary)",
+							"relative min-h-0 flex-1 touch-none overflow-hidden",
 							activeDrag === "pan" ? "cursor-grabbing" : "cursor-grab",
 						)}
 						onDoubleClick={onDoubleClick}
@@ -1036,11 +1039,11 @@ export function SessionTreeDialog() {
 								})}
 							</div>
 						)}
-						<div className="absolute right-3 bottom-3 flex items-center gap-0.5 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-secondary) p-0.5 shadow-sm">
+						<div className="absolute right-3 bottom-3 flex items-center gap-0.5 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-elevated) p-0.5 shadow-sm">
 							<ToolbarButton onClick={() => zoomBy(1 / 1.25)} title={t("sessionTree.zoomOut")}>
 								<ZoomOut size={13} />
 							</ToolbarButton>
-							<span className="w-9 text-center text-[10px] tabular-nums text-(--omp-muted)">
+							<span className="w-9 text-center text-omp-xs tabular-nums text-(--omp-muted)">
 								{Math.round(transform.k * 100)}%
 							</span>
 							<ToolbarButton onClick={() => zoomBy(1.25)} title={t("sessionTree.zoomIn")}>
@@ -1095,14 +1098,14 @@ export function SessionTreeDialog() {
 									<RoleGlyph role={selectedEntry.role} />
 									<span
 										className={cx(
-											"text-[9px] font-semibold tracking-widest uppercase",
+											"text-omp-xxs font-semibold tracking-widest uppercase",
 											roleMeta(selectedEntry.role).className,
 										)}
 									>
 										{t(roleMeta(selectedEntry.role).labelKey)}
 									</span>
 									{selectedEntry.timestamp > 0 && (
-										<span className="text-[10px] text-(--omp-dim)">
+										<span className="text-omp-xs text-(--omp-dim)">
 											{formatClock(selectedEntry.timestamp)}
 										</span>
 									)}
@@ -1141,7 +1144,7 @@ export function SessionTreeDialog() {
 							</div>
 						</div>
 					) : (
-						<div className="shrink-0 border-t border-(--omp-border-muted) px-3 py-1.5 text-[10px] text-(--omp-dim)">
+						<div className="shrink-0 border-t border-(--omp-border-muted) px-3 py-1.5 text-omp-xs text-(--omp-dim)">
 							{model?.source === "chain" ? t("sessionTree.footerChain") : t("sessionTree.footerTree")}
 							{t("sessionTree.footerHint")}
 							{t("sessionTree.footerKeys")}

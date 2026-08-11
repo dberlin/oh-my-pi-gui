@@ -31,13 +31,13 @@ export function ProgressBar({ value, label, valueText, color, height = 6, classN
 	return (
 		<div className={`flex items-center gap-2 ${className ?? ""}`.trim()}>
 			{label && (
-				<span className="shrink-0 text-[10px] font-medium tracking-wide text-(--omp-muted) uppercase">{label}</span>
+				<span className="shrink-0 text-omp-xs font-medium tracking-wide text-(--omp-muted) uppercase">{label}</span>
 			)}
 			<div
 				aria-valuemax={1}
 				aria-valuemin={0}
 				aria-valuenow={Number(clamped.toFixed(3))}
-				className="min-w-0 flex-1 overflow-hidden rounded-full bg-(--omp-bg-tertiary)"
+				className="min-w-0 flex-1 overflow-hidden rounded-full bg-(--omp-bg-tertiary)" // surface-ok: progress bar track
 				role="progressbar"
 				style={{ height }}
 			>
@@ -46,7 +46,7 @@ export function ProgressBar({ value, label, valueText, color, height = 6, classN
 					style={{ width: `${clamped * 100}%`, backgroundColor: fill }}
 				/>
 			</div>
-			<span className="shrink-0 text-[10px] tabular-nums text-(--omp-dim)">{text}</span>
+			<span className="shrink-0 text-omp-xs tabular-nums text-(--omp-dim)">{text}</span>
 		</div>
 	);
 }

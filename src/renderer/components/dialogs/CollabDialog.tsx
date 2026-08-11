@@ -185,7 +185,7 @@ function LinkRow({ label, value, onCopy }: { label: string; value: string; onCop
 		<div>
 			<div className="mb-1 text-xs font-medium text-(--omp-dim)">{label}</div>
 			<div className="flex gap-2">
-				<code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-(--omp-bg-tertiary) px-3 py-2 text-xs text-(--omp-text)">
+				<code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-(--omp-code-bg) px-3 py-2 text-xs text-(--omp-text)">
 					{value}
 				</code>
 				<Button aria-label={label} onClick={() => void onCopy(value)} size="sm" variant="secondary">

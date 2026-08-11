@@ -217,7 +217,7 @@ export function ModelPicker() {
 						ref={inputRef}
 						value={query}
 					/>
-					<kbd className="shrink-0 rounded border border-(--omp-border-muted) bg-(--omp-bg-tertiary) px-1.5 py-0.5 text-[9px] text-(--omp-dim)">
+					<kbd className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xxs text-(--omp-dim)">
 						esc
 					</kbd>
 				</div>
@@ -230,10 +230,10 @@ export function ModelPicker() {
 					{error ? (
 						<div className="flex flex-col items-center gap-3 py-10">
 							<span className="text-xs text-[var(--omp-error)]">{error}</span>
-							<span className="text-[10px] text-[var(--omp-dim)]">{t("modelPicker.notRespondingHint")}</span>
+							<span className="text-omp-xs text-[var(--omp-dim)]">{t("modelPicker.notRespondingHint")}</span>
 							<button
 								type="button"
-								className="rounded-md border border-[var(--omp-border-muted)] px-3 py-1 text-[11px] font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
+								className="rounded-md border border-[var(--omp-border-muted)] px-3 py-1 text-omp-sm font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
 								onClick={() => {
 									setError(null);
 									setLoading(true);
@@ -280,7 +280,7 @@ export function ModelPicker() {
 								<section aria-label={provider} className="mb-1" key={provider} role="group">
 									<div className="flex items-center gap-2 px-2.5 pt-2 pb-1">
 										<Cpu className="shrink-0 text-(--omp-dim)" size={10} />
-										<span className="text-[9px] font-semibold tracking-widest text-(--omp-dim) uppercase">
+										<span className="text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 											{provider}
 										</span>
 										{auth && (
@@ -292,7 +292,9 @@ export function ModelPicker() {
 														: t("modelPicker.auth.unavailable")}
 											</Badge>
 										)}
-										<span className="ml-auto text-[9px] tabular-nums text-(--omp-dim)">{models.length}</span>
+										<span className="ml-auto text-omp-xxs tabular-nums text-(--omp-dim)">
+											{models.length}
+										</span>
 									</div>
 									{models.map(model => {
 										const isCurrent = current?.provider === provider && current.id === model.id;
@@ -329,7 +331,9 @@ export function ModelPicker() {
 														})}
 													>
 														<TriangleAlert size={12} />
-														<span className="text-[9px] font-medium">{t("modelPicker.overContext")}</span>
+														<span className="text-omp-xxs font-medium">
+															{t("modelPicker.overContext")}
+														</span>
 													</span>
 												)}
 												{switching === key && <Spinner size="sm" />}

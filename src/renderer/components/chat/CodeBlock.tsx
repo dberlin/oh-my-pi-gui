@@ -132,7 +132,7 @@ export function CodeBlock({
 			{(showLanguage || showCopy) && (
 				<div className="flex h-7 items-center justify-end gap-2 border-b border-[var(--omp-border-muted)]/60 px-2.5">
 					{showLanguage && (
-						<span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--omp-dim)]">
+						<span className="font-mono text-omp-xs font-medium uppercase tracking-[0.08em] text-[var(--omp-dim)]">
 							{lang}
 						</span>
 					)}
@@ -151,13 +151,13 @@ export function CodeBlock({
 			<div className={cx("overflow-auto", maxHeightClass)}>
 				{showLineNumbers && lineCount > 0 ? (
 					<div className="flex">
-						<LineNumberGutter lineCount={lineCount} className="px-2.5 py-3 text-[12.5px] leading-[1.5]" />
-						<pre className="min-w-0 flex-1 overflow-x-auto px-3 py-3 font-mono text-[12.5px] leading-[1.5]">
+						<LineNumberGutter lineCount={lineCount} className="px-2.5 py-3 text-omp-md leading-[1.5]" />
+						<pre className="min-w-0 flex-1 overflow-x-auto px-3 py-3 font-mono text-omp-md leading-[1.5]">
 							{codeElement}
 						</pre>
 					</div>
 				) : (
-					<pre className="overflow-x-auto px-3 py-3 font-mono text-[12.5px] leading-[1.5]">{codeElement}</pre>
+					<pre className="overflow-x-auto px-3 py-3 font-mono text-omp-md leading-[1.5]">{codeElement}</pre>
 				)}
 			</div>
 		</div>

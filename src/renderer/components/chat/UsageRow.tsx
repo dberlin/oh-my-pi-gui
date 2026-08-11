@@ -99,7 +99,7 @@ export function UsageRow({ message }: { message: UsageSource }) {
 		: "";
 
 	return (
-		<div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10.5px] tabular-nums text-[var(--omp-dim)]">
+		<div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-omp-xs tabular-nums text-[var(--omp-dim)]">
 			{model && <span className="font-mono">{model}</span>}
 			<span
 				className="flex items-center gap-1"

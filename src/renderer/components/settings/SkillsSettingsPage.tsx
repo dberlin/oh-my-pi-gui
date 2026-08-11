@@ -50,7 +50,7 @@ function Toggle({
 			aria-checked={checked}
 			aria-label={label}
 			className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors duration-150 ${
-				checked ? "bg-(--omp-accent)" : "border border-(--omp-border-muted) bg-(--omp-bg-tertiary)"
+				checked ? "bg-(--omp-accent)" : "border border-(--omp-border-muted) bg-(--omp-bg-tertiary)" // surface-ok: toggle switch track fill
 			}`}
 			disabled={disabled}
 			onClick={event => {
@@ -73,7 +73,7 @@ function Toggle({
 function SkillBadge({ children, accent = false }: { children: string; accent?: boolean }) {
 	return (
 		<span
-			className={`rounded-md border bg-transparent px-1.5 py-0.5 text-[9px] font-medium tracking-wide ${
+			className={`rounded-md border bg-transparent px-1.5 py-0.5 text-omp-xxs font-medium tracking-wide ${
 				accent
 					? "border-[color-mix(in_srgb,var(--omp-accent)_35%,transparent)] text-(--omp-accent)"
 					: "border-(--omp-border-muted) text-(--omp-dim)"
@@ -267,7 +267,7 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 							{t("settings.skills.title")}
 						</h2>
 					</div>
-					<p className="mt-1.5 max-w-2xl text-[11.5px] leading-relaxed text-(--omp-muted)">
+					<p className="mt-1.5 max-w-2xl text-omp-sm leading-relaxed text-(--omp-muted)">
 						{t("settings.skills.description")}
 					</p>
 				</div>
@@ -285,7 +285,7 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 			<div className="flex flex-wrap items-center gap-1.5">
 				{filterOptions.map(option => (
 					<button
-						className={`rounded-md px-2.5 py-1 text-[10.5px] font-medium transition-colors ${
+						className={`rounded-md px-2.5 py-1 text-omp-xs font-medium transition-colors ${
 							filter === option
 								? "bg-(--omp-selected-bg) text-(--omp-text)"
 								: "text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-muted)"
@@ -297,7 +297,7 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 						{t(`settings.skills.filter.${option}`)}
 					</button>
 				))}
-				<span className="ml-auto text-[10px] tabular-nums text-(--omp-dim)">
+				<span className="ml-auto text-omp-xs tabular-nums text-(--omp-dim)">
 					{visible.length} / {skills.length}
 				</span>
 				<button
@@ -319,13 +319,13 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 						</div>
 					) : error ? (
 						<div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center">
-							<p className="text-[11px] text-(--omp-error)">{error}</p>
+							<p className="text-omp-sm text-(--omp-error)">{error}</p>
 							<Button onClick={() => void loadSkills()} size="sm">
 								{t("common.retry")}
 							</Button>
 						</div>
 					) : visible.length === 0 ? (
-						<div className="flex h-full items-center justify-center px-5 text-center text-[11px] text-(--omp-dim)">
+						<div className="flex h-full items-center justify-center px-5 text-center text-omp-sm text-(--omp-dim)">
 							{t("settings.skills.empty")}
 						</div>
 					) : (
@@ -354,10 +354,10 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 											<FileText size={13} />
 										</span>
 										<span className="min-w-0 flex-1">
-											<span className="block truncate font-mono text-[11.5px] font-medium text-(--omp-text)">
+											<span className="block truncate font-mono text-omp-sm font-medium text-(--omp-text)">
 												{skill.name}
 											</span>
-											<span className="mt-0.5 block truncate text-[9.5px] text-(--omp-dim)">
+											<span className="mt-0.5 block truncate text-omp-xxs text-(--omp-dim)">
 												{skill.providerName} · {t(`settings.skills.scope.${skill.level}`)}
 											</span>
 										</span>
@@ -385,10 +385,10 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 						<div className="space-y-4">
 							<div className="flex items-center justify-between">
 								<div>
-									<h3 className="text-[14px] font-semibold text-(--omp-text)">
+									<h3 className="text-omp-lg font-semibold text-(--omp-text)">
 										{t(`settings.skills.editor.${editor.mode}`)}
 									</h3>
-									<p className="mt-0.5 text-[10.5px] text-(--omp-dim)">{t("settings.skills.editor.hint")}</p>
+									<p className="mt-0.5 text-omp-xs text-(--omp-dim)">{t("settings.skills.editor.hint")}</p>
 								</div>
 								<button
 									aria-label={t("common.cancel")}
@@ -454,12 +454,12 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 								</span>
 								<div className="min-w-0 flex-1">
 									<div className="flex flex-wrap items-center gap-1.5">
-										<h3 className="font-mono text-[14px] font-semibold text-(--omp-text)">{selected.name}</h3>
+										<h3 className="font-mono text-omp-lg font-semibold text-(--omp-text)">{selected.name}</h3>
 										{selected.managed && <SkillBadge accent>{t("settings.skills.managed")}</SkillBadge>}
 										<SkillBadge>{t(`settings.skills.scope.${selected.level}`)}</SkillBadge>
 										{selected.hidden && <SkillBadge>{t("settings.skills.manualOnly")}</SkillBadge>}
 									</div>
-									<p className="mt-1 max-w-5xl text-[11px] leading-relaxed text-(--omp-muted)">
+									<p className="mt-1 max-w-5xl text-omp-sm leading-relaxed text-(--omp-muted)">
 										{selected.description || t("settings.skills.noDescription")}
 									</p>
 								</div>
@@ -488,7 +488,7 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 
 							{deleteArmed && (
 								<div className="flex items-center gap-3 rounded-lg border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2.5">
-									<p className="min-w-0 flex-1 text-[10.5px] text-(--omp-error)">
+									<p className="min-w-0 flex-1 text-omp-xs text-(--omp-error)">
 										{t("settings.skills.deleteConfirm")}
 									</p>
 									<Button onClick={() => setDeleteArmed(false)} size="sm">
@@ -500,7 +500,7 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 								</div>
 							)}
 
-							<div className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[10.5px]">
+							<div className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-3 gap-y-2 text-omp-xs">
 								<span className="text-(--omp-dim)">{t("settings.skills.provider")}</span>
 								<span className="text-(--omp-muted)">{selected.providerName}</span>
 								<span className="text-(--omp-dim)">{t("settings.skills.location")}</span>
@@ -517,7 +517,7 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 							</div>
 
 							<div className="flex min-h-48 flex-1 flex-col">
-								<h4 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-(--omp-dim)">
+								<h4 className="mb-2 text-omp-xs font-semibold uppercase tracking-[0.12em] text-(--omp-dim)">
 									{t("settings.skills.preview")}
 								</h4>
 								{detailLoading ? (
@@ -525,11 +525,11 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 										<Spinner size="sm" />
 									</div>
 								) : detailError ? (
-									<p className="rounded-lg border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2 text-[11px] text-(--omp-error)">
+									<p className="rounded-lg border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-2 text-omp-sm text-(--omp-error)">
 										{detailError}
 									</p>
 								) : detail ? (
-									<div className="skills-preview-pane min-h-0 flex-1 overflow-y-auto border-t border-(--omp-border-muted) pt-3 text-[12px]">
+									<div className="skills-preview-pane min-h-0 flex-1 overflow-y-auto border-t border-(--omp-border-muted) pt-3 text-omp-md">
 										<MarkdownRenderer content={detail.body} />
 									</div>
 								) : null}
@@ -538,7 +538,7 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 					) : (
 						<div className="flex h-full flex-col items-center justify-center gap-2 text-center">
 							<BookOpen className="text-(--omp-dim)" size={24} strokeWidth={1.4} />
-							<p className="text-[11px] text-(--omp-dim)">{t("settings.skills.selectHint")}</p>
+							<p className="text-omp-sm text-(--omp-dim)">{t("settings.skills.selectHint")}</p>
 						</div>
 					)}
 				</section>

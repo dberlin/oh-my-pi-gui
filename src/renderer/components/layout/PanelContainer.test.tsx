@@ -1,8 +1,8 @@
 /**
  * PanelContainer chat filter: a tool-free chat tab renders only the files +
- * logs drawer tabs (todo/plan/agents/queue/diff can't exist without tools);
- * an agent tab renders all seven. Same linkedom + react-dom harness as
- * mode-visibility.test.tsx.
+ * logs drawer tabs (diffs can't exist without tools); an agent tab also gets
+ * diff. Todo/plan/agents/queue moved to the center dock — they must not
+ * appear here. Same linkedom + react-dom harness as mode-visibility.test.tsx.
  */
 
 import { parseHTML } from "linkedom";
@@ -86,18 +86,16 @@ describe("PanelContainer chat tab filter", () => {
 		const labels = drawerTabLabels();
 		expect(labels).toContain("Files");
 		expect(labels).toContain("Logs");
-		for (const hidden of ["Todo", "Plan", "Agents", "Queue", "Diff"]) {
-			expect(labels).not.toContain(hidden);
-		}
+		// Diff is agent-only; todo/plan/agents/queue live in the center dock now.
+		expect(labels).not.toContain("Diff");
 	});
 
-	it("falls back to the files surface when an agent-only tab was selected before entering chat", async () => {
+	it("falls back to the files surface when the agent-only diff tab was selected before entering chat", async () => {
 		seedActiveTab("chat");
-		useUiStore.setState({ panelTab: "agents", panelVisible: true });
+		useUiStore.setState({ panelTab: "diff", panelVisible: true });
 		await mount(<PanelContainer />);
 
 		expect(document.querySelector('button[aria-label="Refresh file tree"]')).not.toBeNull();
-		expect(container.textContent).not.toContain("No agents yet");
 	});
 
 	it("renders all drawer tabs in an agent tab", async () => {
@@ -106,8 +104,12 @@ describe("PanelContainer chat tab filter", () => {
 		await mount(<PanelContainer />);
 
 		const labels = drawerTabLabels();
-		for (const visible of ["Todo", "Plan", "Agents", "Queue", "Diff", "Files", "Logs"]) {
+		for (const visible of ["Diff", "Files", "Logs"]) {
 			expect(labels).toContain(visible);
+		}
+		// The drawer's old live-execution tabs moved to the center dock.
+		for (const moved of ["Todo", "Plan", "Agents", "Queue"]) {
+			expect(labels).not.toContain(moved);
 		}
 	});
 

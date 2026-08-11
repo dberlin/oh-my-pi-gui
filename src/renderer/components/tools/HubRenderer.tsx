@@ -236,20 +236,20 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-[11px]">
+			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<Icon size={12} className="shrink-0 text-[var(--omp-status-subagents)]" />
 				<span className="font-semibold text-[var(--omp-text)]">{op || "hub"}</span>
 				{typeof args.to === "string" && <span className="text-[var(--omp-md-link)]">→ {args.to}</span>}
 				{typeof args.name === "string" && <span className="text-[var(--omp-status-path)]">{args.name}</span>}
 			</div>
 			{typeof args.message === "string" && args.message && (
-				<div className="rounded-md bg-[var(--omp-code-bg)] px-2 py-1.5 text-[11px] leading-[1.45] text-[var(--omp-muted)]">
+				<div className="rounded-md bg-[var(--omp-code-bg)] px-2 py-1.5 text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
 					{args.message}
 				</div>
 			)}
 
 			{receipts.length > 0 && (
-				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.7]">
+				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]">
 					{receipts.map(r => (
 						<div key={r.to} className="flex items-center gap-2">
 							<span
@@ -266,12 +266,12 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 
 			{waited && (
 				<div className="rounded-md bg-[var(--omp-code-bg)] px-2 py-1.5">
-					<div className="flex items-center gap-2 font-mono text-[10px] text-[var(--omp-dim)]">
+					<div className="flex items-center gap-2 font-mono text-omp-xs text-[var(--omp-dim)]">
 						{waited.from && <span className="font-semibold text-[var(--omp-text)]">{waited.from}</span>}
 						{messageAge(waited.ts) && <span>{messageAge(waited.ts)}</span>}
 					</div>
 					{waited.body && (
-						<div className="mt-0.5 text-[11px] leading-[1.45] text-[var(--omp-muted)]">{waited.body}</div>
+						<div className="mt-0.5 text-omp-sm leading-[1.45] text-[var(--omp-muted)]">{waited.body}</div>
 					)}
 				</div>
 			)}
@@ -280,18 +280,18 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1">
 					{inbox.map((m, i) => (
 						<div key={i} className="py-0.5">
-							<span className="font-mono text-[10px] font-semibold text-[var(--omp-text)]">{m.from ?? "?"}</span>
+							<span className="font-mono text-omp-xs font-semibold text-[var(--omp-text)]">{m.from ?? "?"}</span>
 							{messageAge(m.ts) && (
-								<span className="ml-2 font-mono text-[10px] text-[var(--omp-dim)]">{messageAge(m.ts)}</span>
+								<span className="ml-2 font-mono text-omp-xs text-[var(--omp-dim)]">{messageAge(m.ts)}</span>
 							)}
-							{m.body && <div className="text-[11px] leading-[1.45] text-[var(--omp-muted)]">{m.body}</div>}
+							{m.body && <div className="text-omp-sm leading-[1.45] text-[var(--omp-muted)]">{m.body}</div>}
 						</div>
 					))}
 				</div>
 			)}
 
 			{peers.length > 0 && (
-				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.7]">
+				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]">
 					{peers.map(peer => (
 						<div key={peer.id} className="flex items-center gap-2">
 							<span
@@ -301,18 +301,18 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 							<span className="font-semibold text-[var(--omp-text)]">{peer.id}</span>
 							{peer.agent && <span className="text-[var(--omp-dim)]">({peer.agent})</span>}
 							{peer.unread != null && (
-								<span className="rounded bg-[var(--omp-accent)]/15 px-1 py-px text-[9.5px] font-semibold text-[var(--omp-accent)]">
+								<span className="rounded bg-[var(--omp-accent)]/15 px-1 py-px text-omp-xxs font-semibold text-[var(--omp-accent)]">
 									{peer.unread}
 								</span>
 							)}
-							{peer.state && <span className="ml-auto text-[10px] text-[var(--omp-dim)]">{peer.state}</span>}
+							{peer.state && <span className="ml-auto text-omp-xs text-[var(--omp-dim)]">{peer.state}</span>}
 						</div>
 					))}
 				</div>
 			)}
 
 			{jobs.length > 0 && (
-				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.7]">
+				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]">
 					{jobs.map(job => (
 						<div key={job.id} className="flex items-center gap-2">
 							<span
@@ -326,7 +326,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 								</span>
 							)}
 							{job.durationMs != null && (
-								<span className="ml-auto shrink-0 text-[10px] tabular-nums text-[var(--omp-dim)]">
+								<span className="ml-auto shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
 									{formatDuration(job.durationMs)}
 								</span>
 							)}
@@ -336,7 +336,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{cancelled.length > 0 && (
-				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.7]">
+				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]">
 					{cancelled.map(c => (
 						<div key={c.id} className="flex items-center gap-2">
 							<span className="font-semibold text-[var(--omp-text)]">{c.id}</span>
@@ -347,7 +347,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{procs.length > 0 && (
-				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-[11px] leading-[1.7]">
+				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]">
 					{procs.map(proc => (
 						<div key={proc.name} className="flex items-center gap-2">
 							<span
@@ -355,23 +355,23 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 								style={{ background: STATE_COLOR[proc.state ?? ""] ?? "var(--omp-dim)" }}
 							/>
 							<span className="font-semibold text-[var(--omp-text)]">{proc.name}</span>
-							{proc.pid != null && <span className="text-[10px] text-[var(--omp-dim)]">pid {proc.pid}</span>}
+							{proc.pid != null && <span className="text-omp-xs text-[var(--omp-dim)]">pid {proc.pid}</span>}
 							{proc.exitCode != null && (
-								<span className="text-[10px] text-[var(--omp-dim)]">exit {proc.exitCode}</span>
+								<span className="text-omp-xs text-[var(--omp-dim)]">exit {proc.exitCode}</span>
 							)}
 							{proc.restartCount != null && (
-								<span className="text-[10px] text-[var(--omp-dim)]">↻ {proc.restartCount}</span>
+								<span className="text-omp-xs text-[var(--omp-dim)]">↻ {proc.restartCount}</span>
 							)}
-							{proc.state && <span className="ml-auto text-[10px] text-[var(--omp-dim)]">{proc.state}</span>}
+							{proc.state && <span className="ml-auto text-omp-xs text-[var(--omp-dim)]">{proc.state}</span>}
 						</div>
 					))}
 				</div>
 			)}
 
-			{matched && <div className="font-mono text-[11px] text-[var(--omp-success)]">matched: {matched}</div>}
+			{matched && <div className="font-mono text-omp-sm text-[var(--omp-success)]">matched: {matched}</div>}
 
 			{terminalRows.length > 0 && (
-				<pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-[11px] leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
 					{terminalRows.join("\n")}
 				</pre>
 			)}
@@ -379,7 +379,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			{!hasStructured && text && (
 				<pre
 					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-[11px] leading-[1.45]",
+						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
 						isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",

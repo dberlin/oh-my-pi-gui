@@ -206,7 +206,7 @@ export function App() {
 				// Restore the default workspace panel tab (written by Settings → GUI).
 				if (
 					typeof prefs.defaultPanelTab === "string" &&
-					["todo", "agents", "diff", "files", "logs", "plan"].includes(prefs.defaultPanelTab)
+					["diff", "files", "logs"].includes(prefs.defaultPanelTab)
 				) {
 					useUiStore.setState({ panelTab: prefs.defaultPanelTab as PanelTab });
 				}
@@ -556,7 +556,7 @@ export function App() {
 	}, [setLang, t]);
 
 	return (
-		<div className="omp-surface-depth flex h-screen w-screen overflow-hidden text-[var(--omp-text)]">
+		<div className="flex h-screen w-screen overflow-hidden text-[var(--omp-text)]">
 			{sidebarVisible && <Sidebar />}
 
 			<main className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">

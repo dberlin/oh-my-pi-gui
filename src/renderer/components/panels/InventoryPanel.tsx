@@ -162,7 +162,7 @@ function SearchBox({
 	placeholder: string;
 }) {
 	return (
-		<div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-primary) px-2.5 py-1.5">
+		<div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2.5 py-1.5">
 			<Search className="shrink-0 text-(--omp-dim)" size={13} />
 			<input
 				aria-label={placeholder}
@@ -211,7 +211,7 @@ function ListToolbar({
 			) : (
 				<div className="flex-1" />
 			)}
-			<span className="text-[10px] whitespace-nowrap tabular-nums text-(--omp-dim)">
+			<span className="text-omp-xs whitespace-nowrap tabular-nums text-(--omp-dim)">
 				{t("invPanel.count", { shown, total })}
 			</span>
 			<RefreshButton loading={loading} onRefresh={onRefresh} label={t("invPanel.refresh")} />
@@ -221,7 +221,7 @@ function ListToolbar({
 
 function Row({ children }: { children: ReactNode }) {
 	return (
-		<div className="flex items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2.5">
+		<div className="flex items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] px-3 py-2.5">
 			{children}
 		</div>
 	);
@@ -243,9 +243,9 @@ function EmptyNote({
 			<div className="mb-3 flex size-9 items-center justify-center rounded-lg border border-(--omp-border-muted) text-(--omp-dim)">
 				<Icon aria-hidden="true" size={16} strokeWidth={1.7} />
 			</div>
-			<div className="text-[12.5px] font-medium text-(--omp-text)">{children}</div>
+			<div className="text-omp-md font-medium text-(--omp-text)">{children}</div>
 			{description && (
-				<div className="mt-1 max-w-sm text-[11px] leading-relaxed text-(--omp-dim)">{description}</div>
+				<div className="mt-1 max-w-sm text-omp-sm leading-relaxed text-(--omp-dim)">{description}</div>
 			)}
 			{action && <div className="mt-4">{action}</div>}
 		</div>
@@ -266,7 +266,7 @@ function ResourceGate<T>({ resource, children }: { resource: RpcResource<T>; chi
 		if (resource.error) {
 			return (
 				<div className="flex flex-col items-center gap-2.5 py-8">
-					<div className="max-w-full rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-[12px] break-words text-[var(--omp-error)]">
+					<div className="max-w-full rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-omp-md break-words text-[var(--omp-error)]">
 						{resource.error}
 					</div>
 					<Button size="sm" variant="ghost" icon={<RefreshCw size={12} />} onClick={() => void resource.reload()}>
@@ -280,7 +280,7 @@ function ResourceGate<T>({ resource, children }: { resource: RpcResource<T>; chi
 	return (
 		<>
 			{resource.error && (
-				<div className="rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-[12px] break-words text-[var(--omp-error)]">
+				<div className="rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-omp-md break-words text-[var(--omp-error)]">
 					{resource.error}
 				</div>
 			)}
@@ -322,7 +322,7 @@ function PluginToggle({
 			aria-label={label}
 			className={cx(
 				"relative h-4.5 w-8 shrink-0 rounded-full transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50",
-				enabled ? "bg-(--omp-accent)" : "border border-(--omp-border-muted) bg-(--omp-bg-tertiary)",
+				enabled ? "bg-(--omp-accent)" : "border border-(--omp-border-muted)",
 			)}
 			disabled={disabled}
 			onClick={onToggle}
@@ -361,7 +361,7 @@ function PluginRow({
 }) {
 	return (
 		<div
-			className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2.5 transition-colors hover:border-(--omp-border-strong) hover:bg-[var(--omp-bg-tertiary)]"
+			className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--omp-border-muted)] px-3 py-2.5 transition-colors hover:border-(--omp-border-strong) hover:bg-[var(--omp-bg-tertiary)]"
 			onClick={onOpenDetail}
 			onKeyDown={event => {
 				// Only the row itself — keydown bubbling from the toggle button must
@@ -378,7 +378,7 @@ function PluginRow({
 		>
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex flex-wrap items-center gap-1.5">
-					<span className="text-[13px] font-medium text-[var(--omp-text)]">{plugin.name}</span>
+					<span className="text-omp-lg font-medium text-[var(--omp-text)]">{plugin.name}</span>
 					{plugin.marketplace === "npm" ? (
 						<Badge variant="info">npm</Badge>
 					) : (
@@ -391,7 +391,7 @@ function PluginRow({
 						</Badge>
 					)}
 				</div>
-				<div className="flex items-center gap-3 text-[11px] text-[var(--omp-dim)]">
+				<div className="flex items-center gap-3 text-omp-sm text-[var(--omp-dim)]">
 					{plugin.version && <span className="tabular-nums">v{plugin.version}</span>}
 					{plugin.id && plugin.id !== plugin.name && <span className="truncate font-mono">{plugin.id}</span>}
 				</div>
@@ -583,16 +583,16 @@ function TemplateRow({ template }: { template: RpcPromptTemplateInfo }) {
 		<Row>
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex flex-wrap items-center gap-1.5">
-					<span className="text-[13px] font-medium text-[var(--omp-text)]">{template.name}</span>
+					<span className="text-omp-lg font-medium text-[var(--omp-text)]">{template.name}</span>
 					<Badge variant="default">{template.source}</Badge>
 					{template.argumentHint && (
-						<code className="rounded bg-[var(--omp-bg-tertiary)] px-1.5 py-px font-mono text-[10px] text-[var(--omp-muted)]">
+						<code className="rounded bg-[var(--omp-code-bg)] px-1.5 py-px font-mono text-omp-xs text-[var(--omp-muted)]">
 							{template.argumentHint}
 						</code>
 					)}
 				</div>
 				{template.description && (
-					<div className="text-[11px] leading-[1.45] text-[var(--omp-dim)]">{template.description}</div>
+					<div className="text-omp-sm leading-[1.45] text-[var(--omp-dim)]">{template.description}</div>
 				)}
 			</div>
 		</Row>
@@ -675,7 +675,7 @@ function MemoryStatusCard({ report, t }: { report: RpcMemoryReport; t: TFn }) {
 		]);
 	if (status.message) details.push([t("invPanel.memory.message"), status.message]);
 	return (
-		<div className="flex flex-col gap-2 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2.5">
+		<div className="flex flex-col gap-2 rounded-lg border border-[var(--omp-border-muted)] px-3 py-2.5">
 			<div className="flex flex-wrap items-center gap-1.5">
 				<Badge variant={status.active ? "success" : "error"} dot>
 					{status.active ? t("invPanel.memory.active") : t("invPanel.memory.inactive")}
@@ -688,7 +688,7 @@ function MemoryStatusCard({ report, t }: { report: RpcMemoryReport; t: TFn }) {
 				</Badge>
 			</div>
 			{counts.length > 0 && (
-				<div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--omp-dim)]">
+				<div className="flex flex-wrap gap-x-4 gap-y-1 text-omp-sm text-[var(--omp-dim)]">
 					{counts.map(([label, value]) => (
 						<span key={label}>
 							{label}: <span className="tabular-nums text-[var(--omp-text)]">{value}</span>
@@ -697,7 +697,7 @@ function MemoryStatusCard({ report, t }: { report: RpcMemoryReport; t: TFn }) {
 				</div>
 			)}
 			{details.length > 0 && (
-				<div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+				<div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-omp-sm">
 					{details.map(([label, value]) => (
 						<Fragment key={label}>
 							<span className="text-[var(--omp-dim)]">{label}</span>
@@ -706,7 +706,7 @@ function MemoryStatusCard({ report, t }: { report: RpcMemoryReport; t: TFn }) {
 					))}
 				</div>
 			)}
-			{status.error && <div className="text-[11px] break-words text-[var(--omp-error)]">{status.error}</div>}
+			{status.error && <div className="text-omp-sm break-words text-[var(--omp-error)]">{status.error}</div>}
 		</div>
 	);
 }
@@ -719,10 +719,10 @@ function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryRepor
 	return (
 		<TabPanel visible={visible}>
 			<div className="flex items-center gap-2">
-				<span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--omp-text)]">
+				<span className="min-w-0 flex-1 truncate text-omp-md font-medium text-[var(--omp-text)]">
 					{report?.backend ?? t("invPanel.tabs.memory")}
 					{report?.entryCount !== undefined && (
-						<span className="ml-2 text-[10px] font-normal tabular-nums text-[var(--omp-dim)]">
+						<span className="ml-2 text-omp-xs font-normal tabular-nums text-[var(--omp-dim)]">
 							{t("invPanel.memory.entries", { count: report.entryCount })}
 						</span>
 					)}
@@ -740,7 +740,7 @@ function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryRepor
 						{data.stats && (
 							<div className="overflow-hidden rounded-lg border border-[var(--omp-border-muted)]">
 								<button
-									className="flex w-full items-center gap-1.5 bg-[var(--omp-bg-secondary)] px-3 py-2 text-left text-[11px] font-semibold text-[var(--omp-text)] transition-colors hover:bg-[var(--omp-bg-tertiary)]"
+									className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-omp-sm font-semibold text-[var(--omp-text)] transition-colors hover:bg-[var(--omp-bg-tertiary)]"
 									onClick={() => setStatsOpen(open => !open)}
 									type="button"
 								>
@@ -748,18 +748,18 @@ function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryRepor
 									{t("invPanel.memory.stats")}
 								</button>
 								{statsOpen && (
-									<pre className="max-h-64 overflow-auto border-t border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] px-3 py-2 font-mono text-[10.5px] leading-relaxed break-words whitespace-pre-wrap text-[var(--omp-muted)]">
+									<pre className="max-h-64 overflow-auto border-t border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] px-3 py-2 font-mono text-omp-xs leading-relaxed break-words whitespace-pre-wrap text-[var(--omp-muted)]">
 										{data.stats}
 									</pre>
 								)}
 							</div>
 						)}
 						{data.diagnosis && (
-							<div className="rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-3 py-2.5">
-								<div className="mb-1.5 text-[11px] font-semibold text-[var(--omp-text)]">
+							<div className="rounded-lg border border-[var(--omp-border-muted)] px-3 py-2.5">
+								<div className="mb-1.5 text-omp-sm font-semibold text-[var(--omp-text)]">
 									{t("invPanel.memory.diagnosis")}
 								</div>
-								<div className="text-[12px] text-[var(--omp-muted)]">
+								<div className="text-omp-md text-[var(--omp-muted)]">
 									<MarkdownRenderer content={data.diagnosis} />
 								</div>
 							</div>
@@ -848,7 +848,7 @@ function InventoryContent({
 				<TemplatesTab externalQuery={query} resource={templates} visible={active && tab === "templates"} />
 				<MemoryTab resource={memory} visible={active && tab === "memory"} />
 			</div>
-			<div className="shrink-0 border-t border-(--omp-border-muted) px-4 py-2 text-[10px] leading-relaxed text-(--omp-dim)">
+			<div className="shrink-0 border-t border-(--omp-border-muted) px-4 py-2 text-omp-xs leading-relaxed text-(--omp-dim)">
 				{footer}
 			</div>
 			{/* Drill-in detail drawer — covers the window body until dismissed. */}
@@ -875,7 +875,7 @@ export function InventorySettingsPage({ initialTab = "plugins", query }: { initi
 						{t("settings.resources.title")}
 					</h2>
 				</div>
-				<p className="mt-1.5 max-w-2xl text-[11.5px] leading-relaxed text-(--omp-muted)">
+				<p className="mt-1.5 max-w-2xl text-omp-sm leading-relaxed text-(--omp-muted)">
 					{t("settings.resources.description")}
 				</p>
 			</header>

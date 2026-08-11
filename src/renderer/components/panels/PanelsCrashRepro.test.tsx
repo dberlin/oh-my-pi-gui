@@ -11,8 +11,8 @@ import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useToolsStore } from "../../stores/tools";
+import { AgentsDockCard } from "../chat/dock/AgentsDockCard";
 import { DiffPanel } from "./DiffPanel";
-import { SubagentPanel } from "./SubagentPanel";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -152,7 +152,7 @@ describe("panels under running state", () => {
 		expect(document.body.textContent).toContain("src/a.ts");
 	});
 
-	it("SubagentPanel expands a transcript and switches to graph view", async () => {
+	it("AgentsDockCard expands a transcript and switches to graph view", async () => {
 		const snapshot: SubagentSnapshot = {
 			id: "sub-1",
 			agent: "scout",
@@ -172,7 +172,7 @@ describe("panels under running state", () => {
 			},
 		});
 		useSubagentsStore.getState().setSnapshots([snapshot]);
-		await mount(<SubagentPanel />);
+		await mount(<AgentsDockCard />);
 		expect(document.body.textContent).toContain("Read-only research");
 		expect(document.body.textContent).not.toContain("# Target");
 

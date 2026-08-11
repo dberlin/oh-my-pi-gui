@@ -26,7 +26,7 @@ export function UpdateBanner() {
 	if (status.state === "available") {
 		if (dismissedVersion === status.version) return null;
 		return (
-			<div className="flex items-center gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-[12px]">
+			<div className="flex items-center gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-omp-md">
 				<Download size={13} className="shrink-0 text-(--omp-accent)" />
 				<span className="min-w-0 flex-1 truncate text-(--omp-text)">
 					{t("updater.available", { version: status.version })}
@@ -48,7 +48,7 @@ export function UpdateBanner() {
 
 	if (status.state === "downloading") {
 		return (
-			<div className="flex items-center gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-[12px]">
+			<div className="flex items-center gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-omp-md">
 				<Download size={13} className="shrink-0 animate-pulse text-(--omp-accent)" />
 				<div className="min-w-0 flex-1">
 					<div className="mb-1 flex justify-between text-(--omp-text)">
@@ -57,7 +57,9 @@ export function UpdateBanner() {
 							{status.percent}% · {formatBytes(status.transferred)}/{formatBytes(status.total)}
 						</span>
 					</div>
-					<div className="h-1 overflow-hidden rounded-full bg-(--omp-bg-primary)">
+					<div
+						className="h-1 overflow-hidden rounded-full bg-(--omp-bg-primary)" // surface-ok: progress bar track
+					>
 						<div
 							className="h-full bg-(--omp-accent) transition-[width] duration-200"
 							style={{ width: `${status.percent}%` }}
@@ -70,7 +72,7 @@ export function UpdateBanner() {
 
 	if (status.state === "downloaded") {
 		return (
-			<div className="flex items-center gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-[12px]">
+			<div className="flex items-center gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-omp-md">
 				<RefreshCw size={13} className="shrink-0 text-(--omp-success)" />
 				<span className="min-w-0 flex-1 truncate text-(--omp-text)">
 					{t("updater.ready", { version: status.version })}

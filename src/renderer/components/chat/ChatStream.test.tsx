@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
+import type { TodoSnapshot } from "../../stores/todo";
 import {
 	buildHistoryRowKeys,
 	buildHistoryRows,
 	buildTimelineMarkers,
 	hasStreamingTranscriptContent,
+	mergeTodoSnapshots,
 } from "./ChatStream";
 
 const at = "2026-08-05T04:00:00.000Z";
@@ -214,5 +216,41 @@ describe("virtual transcript identity", () => {
 			"full",
 		);
 		expect(buildHistoryRowKeys(prependedRows).slice(1)).toEqual(existingKeys);
+	});
+});
+
+describe("mergeTodoSnapshots", () => {
+	function snapshot(id: string, ts: number): TodoSnapshot {
+		return { id, ts, phases: [{ name: "Build", tasks: [{ content: "task", status: "pending" }] }] };
+	}
+
+	it("interleaves snapshots by timestamp and tails the newest changes", () => {
+		const rows = buildHistoryRows(
+			[
+				{ role: "user", content: [{ type: "text", text: "One" }], timestamp: 100 },
+				{ role: "user", content: [{ type: "text", text: "Two" }], timestamp: 300 },
+			],
+			"full",
+		);
+		const merged = mergeTodoSnapshots(rows, [snapshot("s1", 50), snapshot("s2", 200), snapshot("s3", 400)]);
+		expect(merged.map(row => row.kind)).toEqual([
+			"todoSnapshot",
+			"message",
+			"todoSnapshot",
+			"message",
+			"todoSnapshot",
+		]);
+		expect(merged.map(row => (row.kind === "todoSnapshot" ? row.entry.id : null))).toEqual([
+			"s1",
+			null,
+			"s2",
+			null,
+			"s3",
+		]);
+	});
+
+	it("passes rows through untouched when there are no snapshots", () => {
+		const rows = buildHistoryRows([assistant([{ type: "text", text: "Solo" }])], "full");
+		expect(mergeTodoSnapshots(rows, [])).toEqual(rows);
 	});
 });

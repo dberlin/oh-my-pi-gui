@@ -216,7 +216,7 @@ function Toggle({
 				aria-checked={checked}
 				aria-label={label}
 				className={`relative h-4.5 w-8 shrink-0 rounded-full transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
-					checked ? "bg-(--omp-accent)" : "border border-(--omp-border-muted) bg-(--omp-bg-tertiary)"
+					checked ? "bg-(--omp-accent)" : "border border-(--omp-border-muted)"
 				}`}
 				disabled={disabled}
 				onClick={() => onChange(!checked)}
@@ -229,7 +229,7 @@ function Toggle({
 					}`}
 				/>
 			</button>
-			<span className="text-[11px] text-(--omp-muted)">{label}</span>
+			<span className="text-omp-sm text-(--omp-muted)">{label}</span>
 		</label>
 	);
 }
@@ -325,8 +325,8 @@ function DefinitionDetails({
 
 	return (
 		<details className="mt-2 border-t border-(--omp-border-muted) pt-1.5">
-			<summary className="cursor-pointer text-[10.5px] text-(--omp-muted)">{t("agentHub.defs.inspect")}</summary>
-			<div className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[10.5px]">
+			<summary className="cursor-pointer text-omp-xs text-(--omp-muted)">{t("agentHub.defs.inspect")}</summary>
+			<div className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-omp-xs">
 				{details.map(([label, value]) => (
 					<div className="contents" key={label}>
 						<span className="text-(--omp-dim)">{label}</span>
@@ -377,7 +377,7 @@ const DefinitionRow = memo(function DefinitionRow({
 			<div className="flex items-center gap-2.5">
 				<span
 					className={cx(
-						"min-w-0 flex-1 truncate font-mono text-[12px] font-medium",
+						"min-w-0 flex-1 truncate font-mono text-omp-md font-medium",
 						disabled ? "text-(--omp-dim) line-through" : "text-(--omp-text)",
 					)}
 				>
@@ -392,17 +392,15 @@ const DefinitionRow = memo(function DefinitionRow({
 					onChange={enabled => onToggle(entry.name, !enabled)}
 				/>
 			</div>
-			{entry.description && (
-				<p className="mt-1 text-[10.5px] leading-relaxed text-(--omp-dim)">{entry.description}</p>
-			)}
+			{entry.description && <p className="mt-1 text-omp-xs leading-relaxed text-(--omp-dim)">{entry.description}</p>}
 			<div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-				<span className="flex items-center gap-1.5 text-[11px]">
+				<span className="flex items-center gap-1.5 text-omp-sm">
 					<span className="text-(--omp-dim)">{t("agentHub.defs.modelLabel")}</span>
 					{editing ? (
 						<span className="flex items-center gap-1">
 							<Input
 								autoFocus
-								className="h-6 w-52 text-[11px]"
+								className="h-6 w-52 text-omp-sm"
 								mono
 								onChange={event => setDraft(event.target.value)}
 								onKeyDown={event => {
@@ -431,7 +429,7 @@ const DefinitionRow = memo(function DefinitionRow({
 						</>
 					)}
 				</span>
-				<span className="flex items-center gap-1.5 text-[11px]">
+				<span className="flex items-center gap-1.5 text-omp-sm">
 					<span className="text-(--omp-dim)">{t("agentHub.defs.prewalkLabel")}</span>
 					<button
 						className="cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
@@ -555,7 +553,7 @@ function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 		<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
 			<div className="flex shrink-0 items-center gap-2">
 				<Input
-					className="h-7 flex-1 text-[11.5px]"
+					className="h-7 flex-1 text-omp-sm"
 					onChange={event => setQuery(event.target.value)}
 					placeholder={t("agentHub.defs.searchPlaceholder")}
 					value={query}
@@ -574,7 +572,7 @@ function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 				{DEFINITION_SOURCE_FILTERS.map(source => (
 					<button
 						className={cx(
-							"rounded-md px-2 py-1 text-[10.5px]",
+							"rounded-md px-2 py-1 text-omp-xs",
 							sourceFilter === source
 								? "bg-(--omp-selected-bg) text-(--omp-text)"
 								: "text-(--omp-dim) hover:text-(--omp-muted)",
@@ -596,8 +594,8 @@ function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 						</div>
 					) : (
 						<div className="m-auto flex max-w-md flex-col items-center gap-2 rounded-lg border border-(--omp-border-muted) px-4 py-6 text-center">
-							<span className="text-[12px] font-medium text-(--omp-error)">{t("agentHub.loadFailed")}</span>
-							<span className="text-[11px] break-all text-(--omp-dim)">{rpc.error}</span>
+							<span className="text-omp-md font-medium text-(--omp-error)">{t("agentHub.loadFailed")}</span>
+							<span className="text-omp-sm break-all text-(--omp-dim)">{rpc.error}</span>
 							<Button icon={<RefreshCw size={12} />} onClick={rpc.refresh} size="sm" variant="secondary">
 								{t("agentHub.retry")}
 							</Button>
@@ -606,7 +604,7 @@ function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 				) : (
 					<div className="flex flex-col gap-2">
 						{filtered.length === 0 ? (
-							<div className="px-3 py-8 text-center text-[11px] leading-relaxed text-(--omp-dim)">
+							<div className="px-3 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
 								{t("agentHub.defs.empty")}
 								<br />
 								{t("agentHub.defs.emptyHint")}
@@ -630,7 +628,7 @@ function DefinitionsTab({ rpc }: { rpc: AgentSettingsRpc }) {
 					</div>
 				)}
 			</div>
-			<div className="shrink-0 border-t border-(--omp-border-muted) pt-2 text-[10.5px] text-(--omp-dim)">
+			<div className="shrink-0 border-t border-(--omp-border-muted) pt-2 text-omp-xs text-(--omp-dim)">
 				{t("agentHub.defs.footerNote")}
 			</div>
 		</div>
@@ -697,9 +695,9 @@ const HubRow = memo(function HubRow({
 					<Badge dot pulse={meta.live} variant={meta.variant}>
 						{t(meta.labelKey)}
 					</Badge>
-					<span className="shrink-0 font-mono text-[10.5px] text-(--omp-dim) tabular-nums">#{agent.index}</span>
-					<span className="min-w-0 truncate text-[12px] font-medium text-(--omp-text)">{title}</span>
-					<span className="ml-auto shrink-0 text-[10.5px] text-(--omp-dim) tabular-nums">
+					<span className="shrink-0 font-mono text-omp-xs text-(--omp-dim) tabular-nums">#{agent.index}</span>
+					<span className="min-w-0 truncate text-omp-md font-medium text-(--omp-text)">{title}</span>
+					<span className="ml-auto shrink-0 text-omp-xs text-(--omp-dim) tabular-nums">
 						{elapsed !== null ? formatElapsed(elapsed) : "—"}
 					</span>
 				</button>
@@ -759,7 +757,7 @@ const HubRow = memo(function HubRow({
 			</div>
 			{/* Secondary line: agent type, provenance/kind badges, resolved model,
 			    and the latest progress note. */}
-			<div className="flex items-center gap-2 px-3 pb-2 text-[10.5px]">
+			<div className="flex items-center gap-2 px-3 pb-2 text-omp-xs">
 				<span className="shrink-0 font-medium text-(--omp-muted)">{agent.agent}</span>
 				{agent.agentSource && <Badge variant="muted">{sourceLabel(t, agent.agentSource)}</Badge>}
 				<Badge variant="muted">
@@ -812,10 +810,10 @@ function AgentTranscriptDrawer({ agent, onClose }: { agent: SubagentSnapshot; on
 				<Badge dot pulse={meta.live} variant={meta.variant}>
 					{t(meta.labelKey)}
 				</Badge>
-				<span className="min-w-0 truncate text-[12px] font-medium text-(--omp-text)">
+				<span className="min-w-0 truncate text-omp-md font-medium text-(--omp-text)">
 					{subagentPrimaryLabel(agent)}
 				</span>
-				<span className="shrink-0 text-[10.5px] text-(--omp-dim)">{agent.agent}</span>
+				<span className="shrink-0 text-omp-xs text-(--omp-dim)">{agent.agent}</span>
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<SubagentTranscript agent={agent} />
@@ -992,7 +990,7 @@ function HubTab() {
 			</div>
 			<div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
 				{sorted.length === 0 ? (
-					<div className="m-auto px-3 py-8 text-center text-[11px] leading-relaxed text-(--omp-dim)">
+					<div className="m-auto px-3 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
 						{t("subagent.empty")}
 						<br />
 						{t("subagent.emptyHint")}
@@ -1013,7 +1011,7 @@ function HubTab() {
 					))
 				)}
 			</div>
-			<div className="shrink-0 border-t border-(--omp-border-muted) pt-2 text-[10.5px] leading-relaxed text-(--omp-dim)">
+			<div className="shrink-0 border-t border-(--omp-border-muted) pt-2 text-omp-xs leading-relaxed text-(--omp-dim)">
 				{t("agentHub.hub.gapNote")}
 			</div>
 			{viewing && <AgentTranscriptDrawer agent={viewing} onClose={() => setViewingId(null)} />}

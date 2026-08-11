@@ -112,7 +112,7 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
 					}}
 					onMouseEnter={() => setActiveIndex(index)}
 					className={cx(
-						"flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] hover:bg-[var(--omp-selected-bg)]",
+						"flex w-full items-center gap-2 px-3 py-2 text-left text-omp-md hover:bg-[var(--omp-selected-bg)]",
 						item.danger ? "text-[var(--omp-error)]" : "text-[var(--omp-text)]",
 						index === activeIndex && "bg-[var(--omp-selected-bg)]",
 						item.disabled && "cursor-not-allowed opacity-45",
@@ -125,7 +125,7 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
 						/>
 					)}
 					<span className="flex-1 truncate">{item.label}</span>
-					{item.hint && <span className="text-[10.5px] text-[var(--omp-dim)]">{item.hint}</span>}
+					{item.hint && <span className="text-omp-xs text-[var(--omp-dim)]">{item.hint}</span>}
 				</button>
 			))}
 		</div>,
