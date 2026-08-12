@@ -26,7 +26,7 @@ import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
-import { switchSessionNow } from "./use-session-switch";
+import { dropSessionNow, newSessionNow, switchSessionNow } from "./use-session-switch";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -84,6 +84,8 @@ interface MockOmp {
 		openInNewWindow: Mock<(payload: { sessionPath?: string; cwd?: string }) => Promise<boolean>>;
 	};
 	rpc: {
+		dropSession: Mock<() => Promise<RpcResponse>>;
+		newSession: Mock<() => Promise<RpcResponse>>;
 		getState: Mock<() => Promise<RpcResponse>>;
 		getTranscript: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
@@ -107,6 +109,8 @@ function installMockOmp(): MockOmp {
 			openInNewWindow: vi.fn(async () => true),
 		},
 		rpc: {
+			dropSession: vi.fn(async () => ok({ cancelled: false })),
+			newSession: vi.fn(async () => ok({ cancelled: false })),
 			getState: vi.fn(async () => ok(serverState())),
 			getTranscript: vi.fn(async () => ok({ messages: [] })),
 			getSubagents: vi.fn(async () => ok({ subagents: [] })),
@@ -161,6 +165,56 @@ afterEach(() => {
 omp = installMockOmp();
 
 describe("switchSessionNow F-OWN owner guard", () => {
+	it("clears old todo history and agents before a successful new session hydrates", async () => {
+		useTodoStore.getState().setPhases([{ name: "old phase", tasks: [] }]);
+		useTodoStore.getState().setPhases([{ name: "old updated phase", tasks: [] }]);
+		useSubagentsStore.setState({
+			subagents: new Map([
+				["old-agent", { id: "old-agent", index: 0, agent: "task", status: "completed", lastUpdate: 1 }],
+			]),
+		});
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "fresh" })));
+
+		await newSessionNow();
+
+		expect(useTodoStore.getState()).toMatchObject({ phases: [], history: [], historyHydrated: true });
+		expect(useSubagentsStore.getState().subagents.size).toBe(0);
+		expect(useSessionStore.getState().sessionId).toBe("fresh");
+	});
+
+	it("preserves the old surface when a new-session hook cancels the transition", async () => {
+		useTodoStore.getState().setPhases([{ name: "old phase", tasks: [] }]);
+		useSubagentsStore.setState({
+			subagents: new Map([
+				["old-agent", { id: "old-agent", index: 0, agent: "task", status: "completed", lastUpdate: 1 }],
+			]),
+		});
+		omp.rpc.newSession.mockResolvedValue(ok({ cancelled: true }));
+
+		await newSessionNow();
+
+		expect(useTodoStore.getState().phases).toHaveLength(1);
+		expect(useSubagentsStore.getState().subagents.has("old-agent")).toBe(true);
+		expect(omp.rpc.getState).not.toHaveBeenCalled();
+	});
+
+	it("clears the attached task before projecting its replacement after deletion", async () => {
+		useMessagesStore.setState({ messages: [{ id: "old-message", role: "user", content: "old" }] });
+		useSubagentsStore.setState({
+			subagents: new Map([
+				["old-agent", { id: "old-agent", index: 0, agent: "task", status: "completed", lastUpdate: 1 }],
+			]),
+		});
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "replacement" })));
+
+		await dropSessionNow();
+
+		expect(omp.rpc.dropSession).toHaveBeenCalledOnce();
+		expect(useMessagesStore.getState().messages).toEqual([]);
+		expect(useSubagentsStore.getState().subagents.size).toBe(0);
+		expect(useSessionStore.getState().sessionId).toBe("replacement");
+	});
+
 	it("routes to the owning tab in this window without issuing switch_session", async () => {
 		seedTabs();
 		omp.tabs.getSessionOwner.mockResolvedValue({ tabId: "t1", winId: 1 });

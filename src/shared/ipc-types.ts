@@ -109,6 +109,8 @@ export const IPC_COMMANDS = {
 	SESSIONS_LIST: "sessions:list",
 	/** Delete a session file */
 	SESSIONS_DELETE: "sessions:delete",
+	/** Rename a saved session without switching the active tab */
+	SESSIONS_RENAME: "sessions:rename",
 	/** Full-content search over session files; returns matching paths */
 	SESSIONS_SEARCH: "sessions:search",
 	/** Fetch stats endpoint */
@@ -455,6 +457,11 @@ export interface IpcSessionsDeletePayload {
 	sessionPath: string;
 }
 
+export interface IpcSessionsRenamePayload {
+	sessionPath: string;
+	name: string;
+}
+
 export interface IpcSessionsSearchPayload {
 	query: string;
 	scope: "local" | "global";
@@ -609,13 +616,16 @@ export interface IpcTabInfo {
 	tabId: string;
 	cwd: string;
 	status: TabStatus;
+	/** True while automatic transcript compaction is mutating this session. */
+	compacting?: boolean;
 	/** Immutable session kind, fixed when the tab's sidecar was spawned. */
 	kind: SessionKind;
 	/** Present when the tab was spawned bound to a git worktree. */
 	worktree?: IpcTabWorktree;
 	/** Present once the tab's sidecar reported session_info_update. */
 	sessionId?: string;
-	title?: string;
+	/** Null explicitly clears the previous session's cached title. */
+	title?: string | null;
 }
 
 /** TAB_STATUS push payload — a full tab snapshot from any tab, active or background. */
@@ -948,6 +958,7 @@ export interface OmpApi {
 	sessions: {
 		list(scope: "local" | "global"): Promise<SessionInfo[]>;
 		delete(sessionPath: string): Promise<void>;
+		rename(sessionPath: string, name: string): Promise<void>;
 		search(query: string, scope: "local" | "global"): Promise<string[]>;
 		/**
 		 * Open a session (or a fresh project window) in a new parallel window.

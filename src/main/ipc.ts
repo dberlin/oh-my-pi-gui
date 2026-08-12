@@ -29,6 +29,7 @@ import type {
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionsDeletePayload,
 	IpcSessionsListPayload,
+	IpcSessionsRenamePayload,
 	IpcSessionsSearchPayload,
 	IpcSetActiveTabPayload,
 	IpcSpawnTabPayload,
@@ -545,7 +546,33 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
 			throw new Error("Invalid session path");
 		}
+		const owner = sidecarPool.sessionOwner(payload.sessionPath);
+		if (owner) {
+			const response = await sidecarPool.commandForIdleSession(payload.sessionPath, { type: "drop_session" });
+			if (!response) throw new Error("Session is currently running");
+			if (!response.success) throw new Error(response.error);
+			const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
+			if (cancelled) throw new Error("Session deletion was cancelled");
+			return;
+		}
 		return sessionIndex.deleteSession(payload.sessionPath);
+	});
+
+	ipcMain.handle(IPC_COMMANDS.SESSIONS_RENAME, async (event, payload: IpcSessionsRenamePayload) => {
+		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
+			throw new Error("Invalid session path");
+		}
+		const name = typeof payload.name === "string" ? payload.name.trim() : "";
+		if (!name) throw new Error("Session name cannot be empty");
+		const command: RpcCommand = { type: "set_session_name", name, sessionPath: payload.sessionPath };
+		const owner = sidecarPool.sessionOwner(payload.sessionPath);
+		let response = owner ? await sidecarPool.commandForIdleSession(payload.sessionPath, command) : null;
+		if (!owner) {
+			const caller = sidecarFor(deps, event);
+			if (caller?.status === "ready" && caller.rpcClient) response = await caller.rpcClient.command(command);
+		}
+		if (!response) throw new Error(owner ? "Session is currently running" : "Sidecar not connected");
+		if (!response.success) throw new Error(response.error);
 	});
 
 	// Open a session (or a fresh project window) in a NEW parallel window with

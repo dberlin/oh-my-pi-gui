@@ -73,6 +73,36 @@ describe("SidecarManager", () => {
 		}
 	});
 
+	it("forces a freshly created tab to bypass the CLI auto-resume setting", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-fresh-"));
+		const logPath = path.join(tempDir, "argv.json");
+		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
+		await fs.writeFile(
+			binaryPath,
+			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		await fs.chmod(binaryPath, 0o755);
+
+		const sidecar = new SidecarManager({ binaryPath, cwd: tempDir, fresh: true });
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+
+			const launch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
+			expect(launch).toEqual(["--mode", "rpc-ui", "--no-auto-resume"]);
+
+			const restarted = waitForReady(sidecar);
+			sidecar.restart();
+			await restarted;
+			const restartLaunch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
+			expect(restartLaunch).toEqual(["--mode", "rpc-ui"]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
 	it("routes prompt results and text-mode command output as dedicated frames", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-output-"));
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");

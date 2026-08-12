@@ -1,7 +1,10 @@
 /**
  * Workspace dock: the live execution-state region mounted between the
  * transcript and the composer, replacing the workspace drawer's
- * todo/plan/agents/queue tabs with always-current center cards. Each card
+ * todo/plan/agents/queue tabs with always-current center cards. This region
+ * is the single vertical scroll owner: large todo/agent collections render a
+ * compact summary and temporarily focus one card for full-list inspection.
+ * Each card
  * self-gates its visibility (no todos, no subagents, plan mode off, empty
  * queue → nothing rendered), so the region collapses to zero height on an
  * idle session. Chat tabs are tool-free — none of these surfaces can exist
@@ -15,13 +18,16 @@ import { AgentsDockCard } from "./AgentsDockCard";
 import { PlanDockCard } from "./PlanDockCard";
 import { QueueDockChip } from "./QueueDockChip";
 import { TodoDockCard } from "./TodoDockCard";
+import { useWorkspaceDockFocus, WorkspaceDockFocusProvider } from "./WorkspaceDockFocus";
 
-export function WorkspaceDock() {
-	const isChat = useActiveTabKind() === "chat";
-	if (isChat) return null;
-
+function WorkspaceDockContent() {
+	const { focusedCard } = useWorkspaceDockFocus();
 	return (
-		<div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto overscroll-contain pb-2">
+		<div
+			className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto overscroll-contain pb-2 [scrollbar-gutter:stable]"
+			data-focused-card={focusedCard ?? undefined}
+			data-testid="workspace-dock-scroll"
+		>
 			<PanelErrorBoundary>
 				<PlanDockCard />
 			</PanelErrorBoundary>
@@ -35,5 +41,16 @@ export function WorkspaceDock() {
 				<QueueDockChip />
 			</PanelErrorBoundary>
 		</div>
+	);
+}
+
+export function WorkspaceDock() {
+	const isChat = useActiveTabKind() === "chat";
+	if (isChat) return null;
+
+	return (
+		<WorkspaceDockFocusProvider>
+			<WorkspaceDockContent />
+		</WorkspaceDockFocusProvider>
 	);
 }

@@ -70,6 +70,8 @@ export interface SessionTab {
 	id: string;
 	cwd: string;
 	status: TabStatus;
+	/** Automatic transcript compaction is in flight in this tab's sidecar. */
+	compacting?: boolean;
 	/** Immutable session kind, fixed when this tab's sidecar was spawned. */
 	kind: SessionKind;
 	/**
@@ -368,18 +370,26 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 		set(state => {
 			const leftovers = new Map(state.tabs.map(tab => [tab.id, tab]));
+			const bundles = new Map(state.bundles);
 			const merged: SessionTab[] = list.map(info => {
 				const existing = leftovers.get(info.tabId);
 				leftovers.delete(info.tabId);
+				const sessionChanged =
+					existing?.sessionId !== undefined &&
+					info.sessionId !== undefined &&
+					existing.sessionId !== info.sessionId;
+				if (sessionChanged) bundles.delete(info.tabId);
 				return {
 					id: info.tabId,
 					cwd: info.cwd || existing?.cwd || "",
 					status: info.status,
+					compacting: info.compacting ?? existing?.compacting ?? false,
 					kind: info.kind ?? existing?.kind ?? "agent",
 					worktree: info.worktree ?? existing?.worktree,
-					title: info.title ?? existing?.title,
+					title:
+						info.title === undefined ? (sessionChanged ? undefined : existing?.title) : (info.title ?? undefined),
 					sessionId: info.sessionId ?? existing?.sessionId,
-					unreadDone: existing?.unreadDone ?? false,
+					unreadDone: sessionChanged ? false : (existing?.unreadDone ?? false),
 					pendingSessionPath: existing?.pendingSessionPath,
 				};
 			});
@@ -390,7 +400,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				state.activeTabId && tabs.some(tab => tab.id === state.activeTabId)
 					? state.activeTabId
 					: (tabs[0]?.id ?? null);
-			return { tabs, activeTabId };
+			return { tabs, activeTabId, bundles };
 		});
 		// After a renderer reload with multiple tabs, re-converge main's active
 		// tab with the renderer's pick (main defaults to the oldest).
@@ -579,6 +589,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		set(state => {
 			const index = state.tabs.findIndex(tab => tab.id === payload.tabId);
 			const previous = index >= 0 ? state.tabs[index] : undefined;
+			const sessionChanged =
+				previous?.sessionId !== undefined &&
+				payload.sessionId !== undefined &&
+				previous.sessionId !== payload.sessionId;
 			// A background tab's run settled → done badge until the user visits.
 			const completedInBackground =
 				payload.tabId !== state.activeTabId && previous?.status === "running" && payload.status === "ready";
@@ -586,17 +600,29 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				id: payload.tabId,
 				cwd: payload.cwd || previous?.cwd || "",
 				status: payload.status,
+				compacting: payload.compacting ?? previous?.compacting ?? false,
 				kind: payload.kind ?? previous?.kind ?? "agent",
 				worktree: payload.worktree ?? previous?.worktree,
-				title: payload.title ?? previous?.title,
+				title:
+					payload.title === undefined
+						? sessionChanged
+							? undefined
+							: previous?.title
+						: (payload.title ?? undefined),
 				sessionId: payload.sessionId ?? previous?.sessionId,
-				unreadDone: completedInBackground ? true : (previous?.unreadDone ?? false),
+				unreadDone: sessionChanged ? false : completedInBackground ? true : (previous?.unreadDone ?? false),
 				pendingSessionPath: previous?.pendingSessionPath,
 			};
 			if (index === -1) return { tabs: [...state.tabs, next] };
 			const tabs = [...state.tabs];
 			tabs[index] = next;
-			return { tabs };
+			if (!sessionChanged) return { tabs };
+			// A sidecar-side new/drop replaces the session under a parked tab.
+			// Its cached transcript, draft, approvals, and extension UI belong to
+			// the old identity and must never be restored on the next visit.
+			const bundles = new Map(state.bundles);
+			bundles.delete(payload.tabId);
+			return { tabs, bundles };
 		});
 		// TAB_STATUS is keyed, so it remains safe while the window-global route
 		// is converging. Keep the visible session's connection state aligned with

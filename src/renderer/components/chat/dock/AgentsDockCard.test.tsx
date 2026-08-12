@@ -1,11 +1,12 @@
 /**
  * AgentsDockCard: the center-dock subagent roster. Renders nothing while the
- * store is empty, lists every known agent (terminal rows stay for transcript
- * review) with the live/total count badge, and polls get_subagents while a
+ * store is empty, summarizes large rosters while retaining urgent agents,
+ * exposes the full roster through focus mode, and polls get_subagents while a
  * turn streams (parked/idle transitions emit no wire frame, so the store
  * goes stale mid-run without it).
  */
 import { parseHTML } from "linkedom";
+import { ListTodo } from "lucide-react";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
@@ -29,6 +30,8 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 // flags at evaluation time.
 const { createRoot } = await import("react-dom/client");
 const { AgentsDockCard } = await import("./AgentsDockCard");
+const { DockCard } = await import("./DockCard");
+const { WorkspaceDockFocusProvider } = await import("./WorkspaceDockFocus");
 
 const getSubagents: Mock = vi.fn(async () => ({
 	type: "response",
@@ -107,6 +110,50 @@ describe("AgentsDockCard", () => {
 		// Live = running + parked; the terminal completed row stays listed.
 		expect(containerText()).toContain("2/3");
 		expect(containerText()).toContain("scout");
+	});
+
+	it("summarizes rosters above five agents and expands them in focus mode", async () => {
+		useSubagentsStore
+			.getState()
+			.setSnapshots([
+				snap({ id: "a1", index: 1, status: "running" }),
+				snap({ id: "a2", index: 2, status: "failed" }),
+				snap({ id: "a3", index: 3, status: "completed", lastUpdate: 3 }),
+				snap({ id: "a4", index: 4, status: "completed", lastUpdate: 4 }),
+				snap({ id: "a5", index: 5, status: "completed", lastUpdate: 5 }),
+				snap({ id: "a6", index: 6, status: "completed", lastUpdate: 6 }),
+				snap({ id: "a7", index: 7, status: "completed", lastUpdate: 7 }),
+			]);
+		await mount(
+			<WorkspaceDockFocusProvider>
+				<DockCard icon={ListTodo} id="todo" title="Todo">
+					<div data-testid="other-card-body">other card body</div>
+				</DockCard>
+				<AgentsDockCard />
+			</WorkspaceDockFocusProvider>,
+		);
+
+		expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(5);
+		expect(containerText()).toContain("2 more · View all 7 agents");
+		expect(container.querySelector('[data-testid="other-card-body"]')).not.toBeNull();
+
+		const viewAll = [...container.querySelectorAll("button")].find(button =>
+			button.textContent?.includes("View all 7 agents"),
+		);
+		await act(async () => {
+			(viewAll as unknown as { click: () => void }).click();
+		});
+		expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(7);
+		expect(containerText()).toContain("Back to summary");
+		expect(containerText()).toContain("Todo");
+		expect(container.querySelector('[data-testid="other-card-body"]')).toBeNull();
+
+		const back = container.querySelector('[aria-label="Back to summary"]');
+		await act(async () => {
+			(back as unknown as { click: () => void }).click();
+		});
+		expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(5);
+		expect(container.querySelector('[data-testid="other-card-body"]')).not.toBeNull();
 	});
 
 	it("collapses to the header via the ui store and re-expands on focusDockCard", async () => {

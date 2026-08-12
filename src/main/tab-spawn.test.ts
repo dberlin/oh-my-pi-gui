@@ -74,6 +74,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			"/s/chat.jsonl",
 			"chat",
 			undefined,
+			false,
 		);
 	});
 
@@ -90,6 +91,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			"/s/chat.jsonl",
 			"chat",
 			undefined,
+			false,
 		);
 	});
 
@@ -114,7 +116,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 		expect(acquire).not.toHaveBeenCalled();
 	});
 
-	it("fresh tabs (no sessionPath) spawn agent by default and never consult kindFor", async () => {
+	it("fresh tabs bypass auto-resume, spawn agent by default, and never consult kindFor", async () => {
 		const { deps, acquire, kindFor } = harness();
 		const result = await spawnTabForWindow(deps, fakeWindow(), { cwd: "/work" });
 
@@ -126,6 +128,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			undefined,
 			"agent",
 			undefined,
+			true,
 		);
 		expect(kindFor).not.toHaveBeenCalled();
 	});
@@ -143,6 +146,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			undefined,
 			"agent",
 			worktree,
+			true,
 		);
 	});
 });

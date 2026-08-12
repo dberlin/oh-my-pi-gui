@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useToastStore } from "./toast";
 
+beforeEach(() => useToastStore.setState({ toasts: [] }));
 afterEach(() => useToastStore.setState({ toasts: [] }));
 
 describe("toast dedupe", () => {

@@ -23,7 +23,11 @@ globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 
 interface MockOmp {
-	sessions: { list: Mock<(scope: string) => Promise<SessionInfo[]>>; delete: Mock<() => Promise<void>> };
+	sessions: {
+		list: Mock<(scope: string) => Promise<SessionInfo[]>>;
+		delete: Mock<() => Promise<void>>;
+		rename: Mock<() => Promise<void>>;
+	};
 	events: { onSessionsChanged: Mock<(callback: () => void) => () => void> };
 }
 
@@ -50,6 +54,7 @@ function installMockOmp(): MockOmp {
 		sessions: {
 			list: vi.fn(async () => listResult),
 			delete: vi.fn(async () => {}),
+			rename: vi.fn(async () => {}),
 		},
 		events: {
 			onSessionsChanged: vi.fn((callback: () => void) => {

@@ -11,6 +11,7 @@
  */
 
 import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
+import type { RpcResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { useComposerStore } from "../stores/composer";
 import { useExtensionUiStore } from "../stores/extension-ui";
@@ -27,6 +28,62 @@ import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
 import { hydrateSession } from "./use-rpc-events";
+
+/** Clear every renderer slice owned by one session before a replacement hydrates. */
+export function resetSessionSurface(): void {
+	useMessagesStore.getState().reset();
+	useComposerStore.getState().reset();
+	useToolsStore.getState().reset();
+	useSubagentsStore.getState().reset();
+	useTodoStore.getState().reset();
+	useModelStore.getState().reset();
+	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
+	useExtensionUiStore.getState().clearAll();
+	usePlanApprovalStore.getState().clearProposal();
+	useForkHandoffStore.getState().closeHandoffDialog();
+	useUiStore.getState().closeSessionOverlays();
+	useSessionStore.setState({
+		sessionId: "",
+		sessionName: null,
+		sessionFile: null,
+		isStreaming: false,
+		isCompacting: false,
+		awaitingModelSince: null,
+		retryInfo: null,
+		compactionInfo: null,
+		contextUsage: null,
+		messageCount: 0,
+		queuedMessageCount: 0,
+		planModeEnabled: false,
+		prewalkArmed: false,
+		agentsPaused: false,
+		agentsPausedAt: null,
+		goal: null,
+		goalState: null,
+		loopMode: null,
+		vibeModeEnabled: false,
+	});
+}
+
+/** Start a new in-place session and remove the previous surface at the commit boundary. */
+export async function newSessionNow(): Promise<RpcResponse> {
+	const response = await window.omp.rpc.newSession();
+	if (!response.success) throw new Error(response.error);
+	if ((response.data as { cancelled?: boolean } | undefined)?.cancelled) return response;
+	resetSessionSurface();
+	await hydrateSession();
+	return response;
+}
+
+/** Delete the attached idle session, then project its fresh replacement. */
+export async function dropSessionNow(): Promise<RpcResponse> {
+	const response = await window.omp.rpc.dropSession();
+	if (!response.success) throw new Error(response.error);
+	if ((response.data as { cancelled?: boolean } | undefined)?.cancelled) return response;
+	resetSessionSurface();
+	await hydrateSession();
+	return response;
+}
 
 /**
  * F-OWN: route the user to the tab/window already attached to a session file
@@ -110,17 +167,7 @@ export async function switchSessionNow(session: SessionInfo): Promise<boolean> {
 		// immediately instead of leaving stale history interactive while the new
 		// transcript hydrates. Events arriving during the fetch are preserved by
 		// hydrateSession's streamed-tail merge.
-		useMessagesStore.getState().reset();
-		useComposerStore.getState().reset();
-		useToolsStore.getState().reset();
-		useSubagentsStore.getState().reset();
-		useTodoStore.getState().reset();
-		useModelStore.getState().reset();
-		useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
-		useExtensionUiStore.getState().clearAll();
-		usePlanApprovalStore.getState().clearProposal();
-		useForkHandoffStore.getState().closeHandoffDialog();
-		useUiStore.getState().closeSessionOverlays();
+		resetSessionSurface();
 		useSessionStore.setState({
 			sessionId: session.id,
 			sessionName: session.title || session.firstMessage || null,

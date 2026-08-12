@@ -410,7 +410,7 @@ export function PlanDockCard() {
 							{ id: "raw", label: t("planPanel.tabs.raw") },
 						]}
 					/>
-					<div className="max-h-56 overflow-y-auto px-2 py-1.5">
+					<div className="px-2 py-1.5">
 						{tab === "raw" ? (
 							<pre className="font-mono text-omp-sm leading-relaxed whitespace-pre-wrap text-(--omp-text)">
 								{content}

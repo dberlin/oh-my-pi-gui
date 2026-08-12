@@ -270,6 +270,31 @@ describe("tabs store boot reconciliation", () => {
 		// >1 tabs after a renderer reload: main re-converges to the renderer's pick.
 		expect(omp.tabs.setActive).toHaveBeenCalledWith("t1");
 	});
+
+	it("invalidates a parked bundle when boot reconciliation observes a replacement session", async () => {
+		seedTabs();
+		fillLiveStores("old");
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/alpha",
+			status: "ready",
+			title: "Old",
+			sessionId: "s-old",
+		});
+		await useTabsStore.getState().switchTab("t1");
+		expect(useTabsStore.getState().bundles.has("t0")).toBe(true);
+		omp.tabs.list.mockResolvedValue([
+			{ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", title: null, sessionId: "s-new" },
+			tabInfo("t1", "/beta"),
+			tabInfo("t2", "/gamma"),
+		]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(useTabsStore.getState().bundles.has("t0")).toBe(false);
+		expect(useTabsStore.getState().tabs[0]).toMatchObject({ sessionId: "s-new", title: undefined });
+	});
 });
 
 describe("tabs store switch", () => {
@@ -677,6 +702,41 @@ describe("tabs store applyTabStatus", () => {
 		const t1 = useTabsStore.getState().tabs.find(tab => tab.id === "t1");
 		expect(t1?.title).toBe("Beta");
 		expect(t1?.sessionId).toBe("s9");
+	});
+
+	it("drops a parked bundle when the sidecar replaces its session", async () => {
+		seedTabs();
+		fillLiveStores("old");
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/old",
+			status: "ready",
+			title: "Old title",
+			sessionId: "s-old",
+		});
+		await useTabsStore.getState().switchTab("t1");
+		expect(useTabsStore.getState().bundles.has("t0")).toBe(true);
+
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/old",
+			status: "ready",
+			title: null,
+			sessionId: "s-new",
+		});
+
+		const tab = useTabsStore.getState().tabs.find(entry => entry.id === "t0");
+		expect(tab?.title).toBeUndefined();
+		expect(tab?.sessionId).toBe("s-new");
+		expect(useTabsStore.getState().bundles.has("t0")).toBe(false);
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "s-new", cwd: "/old" })));
+
+		await useTabsStore.getState().switchTab("t0");
+		expect(useComposerStore.getState().draft).toBe("");
+		expect(useMessagesStore.getState().messages).toEqual([]);
+		expect(usePlanApprovalStore.getState().pending).toBeNull();
 	});
 });
 

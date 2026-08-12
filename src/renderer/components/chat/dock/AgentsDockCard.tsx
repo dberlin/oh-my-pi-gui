@@ -34,6 +34,8 @@ import {
 	useSubagentGraphStore,
 } from "../../panels/subagent-graph";
 import { DockCard } from "./DockCard";
+import { buildAgentDockSummary } from "./dock-summary";
+import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
 type PanelView = "list" | "graph";
 
@@ -159,6 +161,9 @@ function ViewToggle({ view, onChange }: { view: PanelView; onChange: (view: Pane
 
 export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number }) {
 	const t = useT();
+	const { managed, focusedCard, focusCard, clearFocus } = useWorkspaceDockFocus();
+	const focused = focusedCard === "agents";
+	const showFull = !managed || focused;
 	const subagents = useSubagentsStore(state => state.subagents);
 	const toolCallOwners = useSubagentGraphStore(state => state.toolCallOwners);
 	const messages = useMessagesStore(state => state.messages);
@@ -188,6 +193,8 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 		() => buildSubagentList(agents, rootToolCallIds, toolCallOwners),
 		[agents, rootToolCallIds, toolCallOwners],
 	);
+	const summary = useMemo(() => buildAgentDockSummary(rows), [rows]);
+	const displayedRows = showFull ? rows : summary.rows;
 
 	const toggle = useCallback((id: string) => {
 		setExpanded(prev => {
@@ -198,11 +205,30 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 		});
 	}, []);
 
+	const openAgent = useCallback(
+		(id: string) => {
+			if (managed && !focused) focusCard("agents");
+			toggle(id);
+		},
+		[focusCard, focused, managed, toggle],
+	);
+	const changeView = useCallback(
+		(next: PanelView) => {
+			if (managed && next === "graph" && !focused) focusCard("agents");
+			setView(next);
+		},
+		[focusCard, focused, managed],
+	);
+
+	useEffect(() => {
+		if (focused && agents.length === 0) clearFocus();
+	}, [agents.length, clearFocus, focused]);
+
 	if (agents.length === 0) return null;
 
 	return (
 		<DockCard
-			actions={<ViewToggle onChange={setView} view={view} />}
+			actions={<ViewToggle onChange={changeView} view={view} />}
 			badge={
 				<span className="shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
 					{runningCount > 0 ? `${runningCount}/${agents.length}` : agents.length}
@@ -217,17 +243,26 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 					<SubagentDag />
 				</div>
 			) : (
-				<div className="max-h-72 space-y-1.5 overflow-y-auto px-2 py-1.5" role="tree">
-					{rows.map(({ agent, depth }) => (
+				<div className="space-y-1.5 px-2 py-1.5" role="tree">
+					{displayedRows.map(({ agent, depth }) => (
 						<SubagentRow
 							agent={agent}
 							depth={depth}
-							expanded={expanded.has(agent.id)}
+							expanded={showFull && expanded.has(agent.id)}
 							key={agent.id}
 							now={now}
-							onToggle={() => toggle(agent.id)}
+							onToggle={() => openAgent(agent.id)}
 						/>
 					))}
+					{managed && !focused && summary.hiddenCount > 0 && (
+						<button
+							className="omp-pressable flex w-full items-center justify-center rounded-md border border-dashed border-[var(--omp-border-muted)] px-2 py-1.5 text-omp-xs font-medium text-[var(--omp-link)] hover:border-[var(--omp-border-strong)]"
+							onClick={() => focusCard("agents")}
+							type="button"
+						>
+							{t("dock.viewAllAgents", { hidden: summary.hiddenCount, total: summary.totalCount })}
+						</button>
+					)}
 				</div>
 			)}
 		</DockCard>

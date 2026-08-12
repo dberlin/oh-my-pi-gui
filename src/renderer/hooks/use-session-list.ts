@@ -6,6 +6,7 @@ interface SessionListResult {
 	isLoading: boolean;
 	refresh: () => void;
 	deleteSession: (path: string) => Promise<void>;
+	renameSession: (path: string, name: string) => Promise<void>;
 }
 
 /**
@@ -69,6 +70,16 @@ export function useSessionList(scope: "local" | "global" = "local"): SessionList
 		},
 		[refresh],
 	);
+	const renameSession = useCallback(
+		async (path: string, name: string) => {
+			await window.omp.sessions.rename(path, name);
+			setSessions(current =>
+				current.map(session => (session.path === path ? { ...session, title: name } : session)),
+			);
+			refresh();
+		},
+		[refresh],
+	);
 
-	return { sessions, isLoading, refresh, deleteSession };
+	return { sessions, isLoading, refresh, deleteSession, renameSession };
 }

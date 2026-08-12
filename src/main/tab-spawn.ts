@@ -45,5 +45,9 @@ export async function spawnTabForWindow(
 	if (deps.sidecarPool.atCap) return null;
 	const cwd = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : deps.fallbackCwd();
 	const tabId = nextSnowflake();
-	return deps.sidecarPool.acquire(cwd, win, tabId, sessionPath, kind, payload?.worktree) ? { tabId } : null;
+	// A no-path tab is an explicit New Tab action. It must start empty even
+	// when the CLI's persistent autoResume setting is enabled for the project.
+	return deps.sidecarPool.acquire(cwd, win, tabId, sessionPath, kind, payload?.worktree, !sessionPath)
+		? { tabId }
+		: null;
 }

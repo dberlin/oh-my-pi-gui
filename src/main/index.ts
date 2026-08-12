@@ -235,12 +235,13 @@ app.whenReady().then(() => {
 	const initialCwd = resolveInitialCwd();
 	const bundledOmp = resolveBundledOmp();
 	const sourceCli = resolveSourceCli();
-	sidecarPool = new SidecarPool((cwd, kind) => {
+	sidecarPool = new SidecarPool((cwd, kind, fresh) => {
 		const sc = new SidecarManager({
 			binaryPath: bundledOmp ?? "",
 			sourceCli: sourceCli ?? undefined,
 			cwd,
 			kind,
+			fresh,
 			proxyEnv: resolveProxyEnvForSpawn,
 			shellEnv: shellSpawnEnv,
 		});

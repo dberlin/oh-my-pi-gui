@@ -8,6 +8,7 @@ import { Check, ChevronRight, CornerDownLeft, History, Search, Slash, X } from "
 import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvailableCommand } from "../../../shared/rpc-types";
 import { hydrateSession } from "../../hooks/use-rpc-events";
+import { newSessionNow } from "../../hooks/use-session-switch";
 import {
 	buildCommandMenu,
 	type CommandAffordance,
@@ -262,7 +263,7 @@ export function CommandPalette() {
 					setFollowUpMode: mode => window.omp.rpc.setFollowUpMode(mode),
 					setInterruptMode: mode => window.omp.rpc.setInterruptMode(mode),
 					compact: instructions => window.omp.rpc.compact(instructions),
-					newSession: () => window.omp.rpc.newSession(),
+					newSession: newSessionNow,
 					handoff: () => window.omp.rpc.handoff(),
 					prompt: message => window.omp.rpc.prompt(message),
 					setPlanMode: enabled => window.omp.rpc.setPlanMode(enabled),

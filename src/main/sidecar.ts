@@ -69,6 +69,8 @@ export interface SidecarOptions {
 	binaryPath: string;
 	cwd: string;
 	extraFlags?: string[];
+	/** Fresh GUI tabs must not inherit the CLI's persistent autoResume setting. */
+	fresh?: boolean;
 	/** Session kind: "agent" (default) or "chat" (tool-free conversation). Immutable per sidecar. */
 	kind?: "agent" | "chat";
 	/** When set, spawn the workspace source CLI via bun instead of the installed binary. */
@@ -149,11 +151,13 @@ export class SidecarManager extends EventEmitter {
 	#proxyEnvVars: Record<string, string> = {};
 	#shellEnvVars: Record<string, string> = {};
 	#resumeSessionPath: string | null = null;
+	#freshLaunchPending: boolean;
 	#disposed = false;
 
 	constructor(options: SidecarOptions) {
 		super();
 		this.#options = options;
+		this.#freshLaunchPending = options.fresh === true;
 	}
 
 	get status(): SidecarStatus {
@@ -203,6 +207,7 @@ export class SidecarManager extends EventEmitter {
 
 		const args = ["--mode", "rpc-ui"];
 		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
+		else if (this.#freshLaunchPending) args.push("--no-auto-resume");
 		if (this.#options.kind === "chat") args.push("--chat");
 		// User-controllable flags ride the extraFlags seam + the launch profile.
 		// Strip the code-controlled-flag denylist (pair-aware) over BOTH, then
@@ -385,6 +390,10 @@ export class SidecarManager extends EventEmitter {
 
 	#handleReady(ready: RpcReadyFrame): void {
 		this.#resumeSessionPath = null;
+		// Freshness is a creation contract, not a restart policy. Once the new
+		// tab has booted successfully, later crash/manual restarts may auto-resume
+		// the session it has since created or opened.
+		this.#freshLaunchPending = false;
 		// Stay on v1 when an older/malformed sidecar omits the negotiation fields
 		// or advertises limits this decoder cannot safely honor.
 		if (supportsRpcProtocolV2(ready)) {

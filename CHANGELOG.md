@@ -2,11 +2,21 @@
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-08-13
+
 ### Changed
 
+- **Agent and chat navigation**: chat history now lives in a dedicated global section instead of appearing under workspace projects; workspace groups, counts, delete operations, and “new here” actions are agent-only, while saved chats preserve their chat kind when opened in a tab.
+- **Large execution-dock summaries**: Todo and Agents share one scroll owner, summarize large collections into bounded previews, preserve actionable and urgent rows, and expand one card into a focused full-list view without squeezing the composer behind nested scrollbars.
+- **Codex-style sidebar tasks**: workspace and session titles use the full row until hover compresses them into overflow-aware scrolling labels beside their action buttons, workspace rows reveal a one-click new-agent button on hover, session clicks open in tabs by default, and idle background tasks can be renamed or deleted while other tabs continue running.
 - **Secondary text hierarchy**: session-list titles now use smaller, quieter typography, expanded reasoning content renders smaller, dimmer, and without bold emphasis, and the sidebar utility bar now aligns with the main status footer height.
 - **Model token accounting**: the model stats table now shows exact uncached input, output, cache-read, and cache-write token counts plus cache hit rate for cost analysis.
 - **English and Chinese GUI localization**: completed bilingual coverage for native menus, settings and dynamic schema options, onboarding, notifications, accessibility text, tool renderers, and shared application surfaces, with persisted language selection synchronized across renderer and main processes.
+
+### Fixed
+
+- **Fresh agent sessions**: new agent tabs now start with empty session state even when the project enables CLI auto-resume; replaced background sessions discard their old transcript, draft, title, approval, and extension UI snapshots; and old subagents no longer reappear after an in-place session reset.
+- **Safe sidebar task actions**: saved chat sessions now open in chat tabs, and automatic compaction is treated as busy so affected tasks cannot be renamed or deleted mid-operation.
 
 ## [0.7.4] - 2026-08-12
 

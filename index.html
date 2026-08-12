@@ -381,26 +381,26 @@
       <a href="#install">Install</a>
       <a href="https://github.com/nornzach/oh-my-pi-gui">GitHub</a>
     </div>
-    <a class="btn btn-primary btn-sm" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.4/omp-0.7.4-arm64.dmg">Download v0.7.4</a>
+    <a class="btn btn-primary btn-sm" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.5/omp-0.7.5-arm64.dmg">Download v0.7.5</a>
   </div>
 </nav>
 
 <header class="hero" id="top">
   <div class="container">
-    <div class="hero-badge rise d1"><span class="dot"></span>v0.7.4 · Aug 2026 — Queue Editing &amp; Conversation Polish</div>
+    <div class="hero-badge rise d1"><span class="dot"></span>v0.7.5 · Aug 2026 — Cleaner Navigation &amp; Focused Execution</div>
     <h1 class="rise d2">One window.<br /><span class="grad">Every session in parallel.</span></h1>
     <p class="sub rise d3">The desktop GUI for the omp coding agent. Every session tab runs its own agent process — your work keeps moving in the background while you switch. All of the TUI's power, none of its walls.</p>
     <div class="hero-cta rise d4">
-      <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.4/omp-0.7.4-arm64.dmg">
+      <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.5/omp-0.7.5-arm64.dmg">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Download for macOS <span class="btn-sub">Apple Silicon</span>
       </a>
-      <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.4/omp-0.7.4.dmg">Intel build <span class="btn-sub">macOS x64</span></a>
+      <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.5/omp-0.7.5.dmg">Intel build <span class="btn-sub">macOS x64</span></a>
     </div>
     <p class="hero-fine rise d5">Bundled sidecar — no agent, bun, or Node to install · <a href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a> · <a href="#install">Build from source</a></p>
     <div class="hero-shot-wrap rise d5">
       <div class="hero-shot" id="tilt">
-        <img src="docs/screenshots/02-conversation-dock.webp" alt="omp GUI conversation with an inline live todo dock card" loading="eager" />
+        <img src="docs/screenshots/09-dock-summary.webp" alt="omp GUI with bounded Todo and Agents summaries above the composer" loading="eager" />
       </div>
     </div>
   </div>
@@ -468,7 +468,7 @@
     <div class="split-text reveal">
       <span class="eyebrow">Conversation Dock</span>
       <h2>Execution state, exactly where the work happens</h2>
-      <p class="lead">Todos, plan review, sub-agents and queued work now live between the transcript and composer — always current, collapsible, and attached to the conversation that drives them.</p>
+      <p class="lead">Todos, plan review, sub-agents and queued work live between the transcript and composer. Large collections stay compact, keep urgent rows visible, and expand into a focused full-list view without nested scrollbars.</p>
       <div class="points">
         <div class="point">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
@@ -476,14 +476,20 @@
         </div>
         <div class="point">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg></span>
-          <div><strong>Agents &amp; queue in context</strong><p>Expand agent transcripts, reorder messages, or move work between steering and follow-up lanes.</p></div>
+          <div><strong>Focused large-list views</strong><p>Summarize busy Todo and Agents cards, then expand one card to inspect every row while the composer stays visible.</p></div>
         </div>
       </div>
     </div>
-    <figure class="shot reveal reveal-late">
-      <img src="docs/screenshots/02-conversation-dock.webp" alt="Live todo card rendered between the transcript and composer" loading="lazy" />
-      <figcaption>One centered workspace — transcript, live execution state and composer stay aligned.</figcaption>
-    </figure>
+    <div class="duo reveal reveal-late">
+      <figure class="shot">
+        <img src="docs/screenshots/09-dock-summary.webp" alt="Bounded Todo and Agents summaries sharing one dock scroll owner" loading="lazy" />
+        <figcaption>Summary mode keeps urgent work visible without squeezing the composer.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="docs/screenshots/10-dock-agents-focus.webp" alt="Agents card expanded into the focused full-list view" loading="lazy" />
+        <figcaption>Focused mode reveals every agent and collapses sibling cards to headers.</figcaption>
+      </figure>
+    </div>
   </div>
 </section>
 
@@ -588,11 +594,11 @@
       <h2>Up and running in a minute</h2>
       <p class="lead" style="margin-left: auto; margin-right: auto;">Grab the DMG for your Mac. The agent, its runtime and everything else are already inside.</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.4/omp-0.7.4-arm64.dmg">
+        <a class="btn btn-primary" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.5/omp-0.7.5-arm64.dmg">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Apple Silicon <span class="btn-sub">arm64</span>
         </a>
-        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.4/omp-0.7.4.dmg">Intel <span class="btn-sub">x64</span></a>
+        <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.7.5/omp-0.7.5.dmg">Intel <span class="btn-sub">x64</span></a>
         <a class="btn btn-ghost" href="https://github.com/nornzach/oh-my-pi-gui/releases">All releases</a>
       </div>
       <div class="install-note">

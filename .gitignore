@@ -12,6 +12,7 @@ resources/omp.*
 # Logs & OS cruft
 *.log
 .DS_Store
+tmp/
 
 # electron-builder trial/override configs
 electron-builder.trial.yml

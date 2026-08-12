@@ -1,7 +1,8 @@
 /**
  * Sidebar integration contracts: the "+" type dropdown, workspace group
- * context menu (6 items), session row context menu (6 items), pinned-first
- * ordering for groups and sessions, and the rename item's attached-only gate.
+ * context menu (5 items), global Chat/workspace separation, session row
+ * context menu (6 items), pinned-first ordering, per-task busy gates, and
+ * tab-first opening.
  * Same linkedom + react-dom harness as TabBar.test.tsx.
  */
 
@@ -27,6 +28,7 @@ globals.HTMLElement = HTMLElement;
 globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+(HTMLElement.prototype as unknown as { select: () => void }).select = () => {};
 
 interface TestElement {
 	textContent: string | null;
@@ -39,6 +41,7 @@ interface MockOmp {
 	sessions: {
 		list: Mock<(scope: string) => Promise<SessionInfo[]>>;
 		delete: Mock<(path: string) => Promise<void>>;
+		rename: Mock<(path: string, name: string) => Promise<void>>;
 		search: Mock<(query: string, scope: string) => Promise<string[]>>;
 		openInNewWindow: Mock<(payload: { sessionPath?: string }) => Promise<boolean>>;
 	};
@@ -66,6 +69,7 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		sessions: {
 			list: vi.fn(async () => sessionList),
 			delete: vi.fn(async () => {}),
+			rename: vi.fn(async () => {}),
 			search: vi.fn(async () => []),
 			openInNewWindow: vi.fn(async () => true),
 		},
@@ -215,7 +219,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(labels).toHaveLength(2);
 	});
 
-	it("right-click on a workspace header opens the 6-item group menu", async () => {
+	it("right-click on a workspace header opens the agent-only 5-item group menu", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
@@ -226,12 +230,12 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		const labels = menuItemLabels();
 		expect(labels.some(label => label.includes("New agent session here"))).toBe(true);
-		expect(labels.some(label => label.includes("New chat session here"))).toBe(true);
+		expect(labels.some(label => label.includes("New chat session here"))).toBe(false);
 		expect(labels.some(label => label.includes("New worktree tab here"))).toBe(true);
 		expect(labels.some(label => label.includes("Rename"))).toBe(true);
 		expect(labels.some(label => label.includes("Pin to top"))).toBe(true);
 		expect(labels.some(label => label.includes("Delete"))).toBe(true);
-		expect(labels).toHaveLength(6);
+		expect(labels).toHaveLength(5);
 	});
 
 	it("right-click on a session row opens the 6-item session menu", async () => {
@@ -255,13 +259,14 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(labels).toHaveLength(6);
 	});
 
-	it("rename is enabled only for the attached session", async () => {
+	it("rename and delete stay enabled for idle tasks while another task runs", async () => {
 		const attached = session("/work/alpha/mine.jsonl", "/work/alpha", { id: "attached-id" });
-		installMockOmp([attached, ...LIST]);
+		const omp = installMockOmp([attached, ...LIST]);
 		seedStores();
+		useSessionStore.setState({ isStreaming: true });
 		await mount(<Sidebar />);
 
-		// Attached session → rename enabled.
+		// The attached running task stays protected.
 		const attachedRow = [...document.querySelectorAll('div[role="button"]')].find(el =>
 			(el.textContent ?? "").includes("Session /work/alpha/mine"),
 		);
@@ -269,18 +274,125 @@ describe("Sidebar menus and pinned ordering", () => {
 		const renameItem = [...document.body.querySelectorAll('[role="menu"] button')].find(b =>
 			(b.textContent ?? "").includes("Rename"),
 		);
-		expect((renameItem as HTMLButtonElement | undefined)?.disabled).toBe(false);
+		expect((renameItem as HTMLButtonElement | undefined)?.disabled).toBe(true);
 		await fire(document.body.querySelector('[role="menu"] button') as Element, "onClick");
 
-		// Foreign session → rename disabled with a reason.
+		// An idle sibling remains editable and deletable despite the active run.
 		const foreignRow = [...document.querySelectorAll('div[role="button"]')].find(el =>
 			(el.textContent ?? "").includes("Session /work/alpha/one"),
 		);
 		await fire(foreignRow as Element, "onContextMenu");
-		const disabledRename = [...document.body.querySelectorAll('[role="menu"] button')].find(b =>
-			(b.textContent ?? "").includes("Rename"),
+		const foreignMenu = [...document.body.querySelectorAll('[role="menu"] button')];
+		const idleRename = foreignMenu.find(b => (b.textContent ?? "").includes("Rename"));
+		const idleDelete = foreignMenu.find(b => (b.textContent ?? "").includes("Delete"));
+		expect((idleRename as HTMLButtonElement | undefined)?.disabled).toBe(false);
+		expect((idleDelete as HTMLButtonElement | undefined)?.disabled).toBe(false);
+		await fire(idleRename as Element, "onClick");
+		const input = container.querySelector(
+			'input[value="Session /work/alpha/one.jsonl"]',
+		) as unknown as HTMLInputElement;
+		expect(input).not.toBeNull();
+		const inputRecord = input as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(inputRecord).find(key => key.startsWith("__reactProps$"));
+		const inputProps = propsKey
+			? (inputRecord[propsKey] as {
+					onChange: (event: { target: { value: string } }) => void;
+					onBlur: (event: { currentTarget: { value: string } }) => void;
+				})
+			: undefined;
+		if (!inputProps) throw new Error("rename input React props missing");
+		await act(async () => {
+			inputProps.onChange({ target: { value: "Renamed idle task" } });
+		});
+		await act(async () => {
+			inputProps.onBlur({ currentTarget: { value: "Renamed idle task" } });
+		});
+		await flush();
+		expect(omp.sessions.rename).toHaveBeenCalledWith("/work/alpha/one.jsonl", "Renamed idle task");
+	});
+
+	it("clicking an idle task opens it in a new tab by default", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSessionStore.setState({ isStreaming: true });
+		await mount(<Sidebar />);
+
+		const row = [...document.querySelectorAll('div[role="button"]')].find(el =>
+			(el.textContent ?? "").includes("Session /work/alpha/one"),
 		);
-		expect((disabledRename as HTMLButtonElement | undefined)?.disabled).toBe(true);
+		await fire(row as unknown as Element, "onClick");
+
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({
+			cwd: "/work/alpha",
+			kind: "agent",
+			sessionPath: "/work/alpha/one.jsonl",
+			worktree: undefined,
+		});
+		expect(omp.sessions.openInNewWindow).not.toHaveBeenCalled();
+	});
+
+	it("renders chats globally outside workspaces and opens them in chat tabs", async () => {
+		const chat = session("/work/alpha/chat.jsonl", "/work/alpha", { kind: "chat" });
+		const agent = session("/work/alpha/agent.jsonl", "/work/alpha");
+		const omp = installMockOmp([chat, agent]);
+		seedStores();
+		await mount(<Sidebar />);
+
+		const chatSection = container.querySelector("[data-chat-section]");
+		const workspace = container.querySelector('[data-session-group="/work/alpha"]');
+		expect(chatSection?.textContent).toContain("Session /work/alpha/chat");
+		expect(chatSection?.textContent).not.toContain("Session /work/alpha/agent");
+		expect(workspace?.textContent).toContain("Session /work/alpha/agent");
+		expect(workspace?.textContent).not.toContain("Session /work/alpha/chat");
+
+		const row = [...chatSection!.querySelectorAll('div[role="button"]')].find(el =>
+			(el.textContent ?? "").includes("Session /work/alpha/chat"),
+		);
+		await fire(row as unknown as Element, "onClick");
+
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({
+			cwd: "/work/alpha",
+			kind: "chat",
+			sessionPath: "/work/alpha/chat.jsonl",
+			worktree: undefined,
+		});
+	});
+
+	it("keeps the active task protected while it is compacting", async () => {
+		const attached = session("/work/alpha/mine.jsonl", "/work/alpha", { id: "attached-id" });
+		installMockOmp([attached]);
+		seedStores();
+		useSessionStore.setState({ isCompacting: true });
+		await mount(<Sidebar />);
+
+		const row = [...document.querySelectorAll('div[role="button"]')].find(el =>
+			(el.textContent ?? "").includes("Session /work/alpha/mine"),
+		);
+		await fire(row as Element, "onContextMenu");
+		const items = [...document.body.querySelectorAll('[role="menu"] button')];
+		expect((items.find(item => (item.textContent ?? "").includes("Rename")) as HTMLButtonElement).disabled).toBe(
+			true,
+		);
+		expect((items.find(item => (item.textContent ?? "").includes("Delete")) as HTMLButtonElement).disabled).toBe(
+			true,
+		);
+	});
+
+	it("workspace rows expose a hover action that creates an agent tab in that workspace", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+
+		const header = container.querySelector('[data-workspace-group="/work/alpha"]') as unknown as Element;
+		const add = header.querySelector('[aria-label="New agent session here"]');
+		expect(add).not.toBeNull();
+		await fire(add, "onClick");
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({
+			cwd: "/work/alpha",
+			kind: "agent",
+			sessionPath: undefined,
+			worktree: undefined,
+		});
 	});
 
 	it("collapsed groups stay mounted for animation but become inert and hidden from accessibility", async () => {

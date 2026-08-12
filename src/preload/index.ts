@@ -409,6 +409,8 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_LIST, { scope }) as Promise<SessionInfo[]>,
 		delete: (sessionPath: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_DELETE, { sessionPath }) as Promise<void>,
+		rename: (sessionPath: string, name: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_RENAME, { sessionPath, name }) as Promise<void>,
 		search: (query: string, scope: "local" | "global") =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_SEARCH, { query, scope }) as Promise<string[]>,
 		openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>

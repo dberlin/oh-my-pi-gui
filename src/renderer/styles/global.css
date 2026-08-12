@@ -232,8 +232,8 @@ kbd,
 	transform: scale(0.97);
 }
 
-/* Sidebar motion stays paint-only except for the deliberate group-height
-   transition. Action slots remain in layout so hover never moves row content. */
+/* Workspace actions stay paint-only. Session actions intentionally claim width
+   on hover so the title gets the entire row at rest, matching Codex's sidebar. */
 .omp-sidebar-action {
 	visibility: hidden;
 	pointer-events: none;
@@ -252,6 +252,94 @@ kbd,
 	opacity: 1;
 	transform: translateX(0);
 	transition-delay: 0s;
+}
+
+.omp-sidebar-scrolling-title {
+	contain: paint;
+}
+
+.omp-sidebar-scrolling-title-track {
+	display: inline-flex;
+	width: max-content;
+	max-width: none;
+	align-items: center;
+	gap: 0.375rem;
+	white-space: nowrap;
+	transform: translate3d(0, 0, 0);
+}
+
+.omp-sidebar-workspace-actions {
+	visibility: hidden;
+	pointer-events: none;
+	width: 0;
+	overflow: hidden;
+	opacity: 0;
+	transform: translateX(3px);
+	transition:
+		width 170ms cubic-bezier(0.22, 1, 0.36, 1),
+		opacity 110ms ease-out 35ms,
+		transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
+		visibility 0s linear 170ms;
+}
+
+.omp-sidebar-workspace-row:hover .omp-sidebar-workspace-actions,
+.omp-sidebar-workspace-row:focus-within .omp-sidebar-workspace-actions,
+.omp-sidebar-workspace-row[data-actions-open="true"] .omp-sidebar-workspace-actions {
+	visibility: visible;
+	pointer-events: auto;
+	width: 34px;
+	opacity: 1;
+	transform: translateX(0);
+	transition-delay: 0s;
+}
+
+.omp-sidebar-session-actions {
+	visibility: hidden;
+	pointer-events: none;
+	width: 0;
+	margin-left: 0;
+	overflow: hidden;
+	opacity: 0;
+	transform: translateX(3px);
+	transition:
+		width 170ms cubic-bezier(0.22, 1, 0.36, 1),
+		margin-left 170ms cubic-bezier(0.22, 1, 0.36, 1),
+		opacity 110ms ease-out 35ms,
+		transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
+		visibility 0s linear 170ms;
+}
+
+.omp-sidebar-session-row[data-has-actions="true"]:hover .omp-sidebar-session-actions,
+.omp-sidebar-session-row[data-has-actions="true"]:focus-within .omp-sidebar-session-actions,
+.omp-sidebar-session-row[data-actions-open="true"] .omp-sidebar-session-actions {
+	visibility: visible;
+	pointer-events: auto;
+	width: 42px;
+	margin-left: 4px;
+	opacity: 1;
+	transform: translateX(0);
+	transition-delay: 0s;
+}
+
+@keyframes omp-sidebar-title-reveal {
+	from {
+		transform: translate3d(0, 0, 0);
+	}
+	to {
+		transform: translate3d(calc(var(--omp-sidebar-scroll-distance) * -1), 0, 0);
+	}
+}
+
+.omp-sidebar-session-row:hover .omp-sidebar-scrolling-title-track[data-overflow="true"],
+.omp-sidebar-workspace-row:hover .omp-sidebar-scrolling-title-track[data-overflow="true"] {
+	animation: omp-sidebar-title-reveal var(--omp-sidebar-scroll-duration) linear 240ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.omp-sidebar-session-row:hover .omp-sidebar-scrolling-title-track[data-overflow="true"],
+	.omp-sidebar-workspace-row:hover .omp-sidebar-scrolling-title-track[data-overflow="true"] {
+		animation: none;
+	}
 }
 
 .omp-sidebar-group {

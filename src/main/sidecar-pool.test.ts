@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import type { BrowserWindow } from "electron";
 import { describe, expect, it } from "vitest";
 import { IPC_EVENTS, type IpcTabStatusPayload } from "../shared/ipc-types";
-import type { SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
+import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
 import type { SidecarManager } from "./sidecar";
 import { SidecarPool } from "./sidecar-pool";
 
@@ -13,6 +13,7 @@ class FakeSidecar extends EventEmitter {
 	restartArgs: Array<{ cwd: string | undefined; sessionPath: string | undefined }> = [];
 	/** Side-channel frames written via sendSideChannel (F-UI-ORIGIN assertions). */
 	sentFrames: object[] = [];
+	rpcCommands: RpcCommand[] = [];
 	constructor(public cwd: string) {
 		super();
 	}
@@ -22,8 +23,15 @@ class FakeSidecar extends EventEmitter {
 		return true;
 	}
 	get status(): SidecarStatus {
-		return "starting";
+		return this.currentStatus;
 	}
+	currentStatus: SidecarStatus = "starting";
+	readonly rpcClient = {
+		command: async (command: RpcCommand): Promise<RpcResponse> => {
+			this.rpcCommands.push(command);
+			return { type: "response", command: command.type, success: true, data: { cancelled: false } };
+		},
+	};
 	start(): void {
 		this.started = true;
 	}
@@ -39,6 +47,7 @@ class FakeSidecar extends EventEmitter {
 		this.sentFrames.push(frame);
 	}
 	emitStatus(status: SidecarStatus): void {
+		this.currentStatus = status;
 		this.emit("status", { status, cwd: this.cwd });
 	}
 	emitSessionInfo(frame: Omit<SessionInfoUpdateFrame, "type">): void {
@@ -386,6 +395,45 @@ describe("SidecarPool tabs", () => {
 });
 
 describe("SidecarPool session ownership (F-OWN)", () => {
+	it("routes session mutations only to an idle attached tab", async () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
+		const [sidecar] = sidecars;
+		sidecar?.emitStatus("ready");
+
+		const response = await pool.commandForIdleSession("/sessions/s.jsonl", {
+			type: "set_session_name",
+			name: "Renamed",
+			sessionPath: "/sessions/s.jsonl",
+		});
+		expect(response?.success).toBe(true);
+		expect(sidecar?.rpcCommands).toEqual([
+			{ type: "set_session_name", name: "Renamed", sessionPath: "/sessions/s.jsonl" },
+		]);
+
+		sidecar?.emitAgentEvents(["agent_start"]);
+		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toBeNull();
+	});
+
+	it("blocks session mutations while automatic compaction is in flight", async () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
+		const [sidecar] = sidecars;
+		sidecar?.emitStatus("ready");
+		sidecar?.emitAgentEvents(["auto_compaction_start"]);
+
+		expect(pool.tabsForWindow(fw.win)[0]?.compacting).toBe(true);
+		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toBeNull();
+
+		sidecar?.emitAgentEvents(["auto_compaction_end"]);
+		expect(pool.tabsForWindow(fw.win)[0]?.compacting).toBe(false);
+		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toMatchObject({
+			success: true,
+		});
+	});
+
 	it("registers the owner at acquire-with-sessionPath and unregisters on release", () => {
 		const { pool } = fakePool();
 		const fw = fakeWindow(1);

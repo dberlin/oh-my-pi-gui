@@ -18,12 +18,20 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type PointerEvent as ReactPointerEvent,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
-import { requestSessionSwitch } from "../../hooks/use-session-switch";
-import { basename, cx, formatTimeAgo } from "../../lib/format";
+import { dropSessionNow } from "../../hooks/use-session-switch";
+import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { mergeContentMatches, rankSessions } from "../../lib/session-search";
 import { useSessionStore } from "../../stores/session";
@@ -51,11 +59,70 @@ interface WorkspaceGroup {
 	sessions: SessionInfo[];
 }
 
+interface SidebarScrollingTitleProps {
+	className?: string;
+	title: string;
+}
+
 /**
- * Left rail: one-row search+new-session, workspace-grouped collapsible session
- * list (Codex-style — grouped by cwd, current workspace first, others
- * collapsible), compact title-only items with inline rename for the active
- * session, and a bottom utility row (theme + language — stats/settings live
+ * A sidebar title gets the full row until hover reveals its action rail. Once
+ * the rail compresses the viewport, only genuinely overflowing titles glide
+ * far enough to reveal their hidden suffix.
+ */
+function SidebarScrollingTitle({ className, title }: SidebarScrollingTitleProps) {
+	const viewportRef = useRef<HTMLSpanElement>(null);
+	const trackRef = useRef<HTMLSpanElement>(null);
+	const [scrollDistance, setScrollDistance] = useState(0);
+
+	const measureOverflow = useCallback(() => {
+		const viewport = viewportRef.current;
+		const track = trackRef.current;
+		if (!viewport || !track) return;
+		const nextDistance = Math.max(0, Math.ceil(track.scrollWidth - viewport.clientWidth));
+		setScrollDistance(current => (current === nextDistance ? current : nextDistance));
+	}, []);
+
+	useEffect(() => {
+		measureOverflow();
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(measureOverflow);
+		const viewport = viewportRef.current;
+		const track = trackRef.current;
+		if (viewport) observer.observe(viewport);
+		if (track) observer.observe(track);
+		return () => observer.disconnect();
+	}, [measureOverflow]);
+
+	const animationDuration = Math.min(4_000, Math.max(1_250, 900 + scrollDistance * 18));
+	const animationStyle = {
+		"--omp-sidebar-scroll-distance": `${scrollDistance}px`,
+		"--omp-sidebar-scroll-duration": `${animationDuration}ms`,
+	} as CSSProperties;
+
+	return (
+		<span
+			ref={viewportRef}
+			className={cx("omp-sidebar-scrolling-title min-w-0 flex-1 overflow-hidden", className)}
+			title={title}
+		>
+			<span
+				ref={trackRef}
+				className="omp-sidebar-scrolling-title-track"
+				data-overflow={scrollDistance > 1}
+				style={animationStyle}
+			>
+				<span>{title}</span>
+			</span>
+		</span>
+	);
+}
+
+/**
+ * Left rail: one-row search+new-session, Agent sessions grouped under their
+ * workspaces, and a separate global Chat section. Chat sessions never appear
+ * inside a workspace even though their files retain a cwd for runtime use.
+ * Compact title-only items share the same task actions, followed by a bottom
+ * utility row (theme + language — stats/settings live
  * in the TitleBar, no duplicated chrome).
  */
 export function Sidebar() {
@@ -91,7 +158,7 @@ export function Sidebar() {
 	// ✕ or clicking elsewhere cancels. No modal, no mouse travel to center.
 	const [confirmingDeletePath, setConfirmingDeletePath] = useState<string | null>(null);
 	const [confirmingGroupDeleteCwd, setConfirmingGroupDeleteCwd] = useState<string | null>(null);
-	const [renaming, setRenaming] = useState(false);
+	const [renamingSessionPath, setRenamingSessionPath] = useState<string | null>(null);
 	const [workspaceOpen, setWorkspaceOpen] = useState(false);
 	const [renameDraft, setRenameDraft] = useState("");
 	// "+" type dropdown, workspace group context menu, session row context menu.
@@ -103,20 +170,21 @@ export function Sidebar() {
 	const [groupRenameDraft, setGroupRenameDraft] = useState("");
 	const groupRenameRef = useRef<HTMLInputElement>(null);
 	const openTab = useTabsStore(s => s.openTab);
+	const tabs = useTabsStore(s => s.tabs);
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const renameRef = useRef<HTMLInputElement>(null);
-	const { sessions, isLoading, deleteSession } = useSessionList("global");
+	const { sessions, isLoading, deleteSession, renameSession } = useSessionList("global");
 
 	// Hydrate sidebar prefs (pins/aliases) once.
 	useEffect(() => {
 		void useSidebarPrefs.getState().hydrate();
 	}, []);
 	const sessionId = useSessionStore(s => s.sessionId);
-	const sessionName = useSessionStore(s => s.sessionName);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
+	const isCompacting = useSessionStore(s => s.isCompacting);
 	// Sidebar signal-light state for the ATTACHED session: a blocking
 	// confirmation (plan approval / ask / permission) overrides the running
 	// signal — it needs the user, not just time.
@@ -143,13 +211,18 @@ export function Sidebar() {
 		return () => clearTimeout(timer);
 	}, [query]);
 
-	// Group sessions by workspace (cwd), most-recently-modified workspace first.
-	// Filtering ranks fuzzy/literal metadata matches first (TUI session-selector
-	// parity), then full-transcript content hits.
+	// Filter once, then split the navigation model by immutable session kind.
+	// Agent sessions remain workspace-owned; chats are a global peer section.
+	const filteredSessions = useMemo(
+		() => mergeContentMatches(rankSessions(sessions, query), sessions, contentPaths),
+		[sessions, query, contentPaths],
+	);
+
+	// Group Agent sessions by workspace (cwd), most-recently-modified first.
 	const groups = useMemo<WorkspaceGroup[]>(() => {
-		const filtered = mergeContentMatches(rankSessions(sessions, query), sessions, contentPaths);
 		const byCwd = new Map<string, SessionInfo[]>();
-		for (const session of filtered) {
+		for (const session of filteredSessions) {
+			if (session.kind === "chat") continue;
 			const list = byCwd.get(session.cwd) ?? [];
 			list.push(session);
 			byCwd.set(session.cwd, list);
@@ -179,9 +252,22 @@ export function Sidebar() {
 			);
 		});
 		return result;
-	}, [sessions, query, contentPaths, pinnedGroups, pinnedSessions, groupAliases]);
+	}, [filteredSessions, pinnedGroups, pinnedSessions, groupAliases]);
 
-	const totalCount = useMemo(() => groups.reduce((n, g) => n + g.sessions.length, 0), [groups]);
+	const chatSessions = useMemo(
+		() =>
+			filteredSessions
+				.filter(session => session.kind === "chat")
+				.toSorted((a, b) => {
+					const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
+					const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
+					return aPinned - bPinned;
+				}),
+		[filteredSessions, pinnedSessions],
+	);
+	const agentCount = useMemo(() => groups.reduce((n, group) => n + group.sessions.length, 0), [groups]);
+	const totalCount = agentCount + chatSessions.length;
+	const chatsCollapsed = collapsed.__chats__ ?? false;
 
 	const isCollapsed = (groupCwd: string) => {
 		if (groupCwd in collapsed) return collapsed[groupCwd];
@@ -191,11 +277,16 @@ export function Sidebar() {
 	const toggleGroup = (groupCwd: string) => {
 		setCollapsed(prev => ({ ...prev, [groupCwd]: !isCollapsed(groupCwd) }));
 	};
+	const isSessionRunning = (session: SessionInfo) => {
+		if (session.id === sessionId && (isStreaming || isCompacting)) return true;
+		const ownerTab = tabs.find(tab => tab.sessionId === session.id);
+		if (ownerTab) return ownerTab.status === "running" || ownerTab.compacting === true;
+		return session.status === "pending";
+	};
 
 	const openSession = (session: SessionInfo) => {
-		// Busy sessions (streaming/compacting) route to the switch dialog — the
-		// server would abort the run on switch; idle sessions switch directly.
-		requestSessionSwitch(session);
+		if (session.id === sessionId) return;
+		void openTab({ cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent" });
 	};
 
 	// Explicit parallel action: open this session in a NEW window with its own
@@ -207,43 +298,45 @@ export function Sidebar() {
 		}
 	};
 
-	const startRename = () => {
-		setRenameDraft(sessionName ?? "");
-		setRenaming(true);
+	const startRename = (session: SessionInfo) => {
+		setRenameDraft(session.title || session.firstMessage || "");
+		setRenamingSessionPath(session.path);
 		requestAnimationFrame(() => renameRef.current?.select());
 	};
-	const commitRename = () => {
-		setRenaming(false);
-		const name = renameDraft.trim();
-		if (!name || name === sessionName) return;
-		void window.omp.rpc
-			.setSessionName(name)
-			.then(response => {
-				if (response.success) useSessionStore.setState({ sessionName: name });
-				else toast({ variant: "error", title: t("sidebar.renameFailed"), message: response.error });
+	const commitRename = (session: SessionInfo, value = renameDraft) => {
+		setRenamingSessionPath(null);
+		const name = value.trim();
+		if (!name || name === session.title) return;
+		void renameSession(session.path, name)
+			.then(() => {
+				if (session.id === sessionId) useSessionStore.setState({ sessionName: name });
 			})
 			.catch(error => toast({ variant: "error", title: t("sidebar.renameFailed"), message: String(error) }));
 	};
 
 	const confirmDeleteSession = async (session: SessionInfo) => {
+		if (isSessionRunning(session)) {
+			toast({ variant: "warning", message: t("sidebar.menu.taskRunning") });
+			setConfirmingDeletePath(null);
+			return;
+		}
 		setDeleting(true);
 		try {
-			await deleteSession(session.path);
+			if (session.id === sessionId) {
+				await dropSessionNow();
+			} else {
+				await deleteSession(session.path);
+			}
 			setConfirmingDeletePath(null);
+		} catch (error) {
+			toast({ variant: "error", title: t("sidebar.deleteFailed"), message: String(error) });
 		} finally {
 			setDeleting(false);
 		}
 	};
 
 	const confirmDeleteGroup = async (group: WorkspaceGroup) => {
-		// Refuse to delete the workspace that owns the active session (or any
-		// workspace mid-turn): its session file is still live on disk.
-		if (group.sessions.some(session => session.id === sessionId)) {
-			toast({ variant: "warning", message: t("sidebar.deleteGroupActive") });
-			setConfirmingGroupDeleteCwd(null);
-			return;
-		}
-		if (isStreaming) {
+		if (group.sessions.some(isSessionRunning)) {
 			toast({ variant: "warning", message: t("sidebar.deleteGroupStreaming") });
 			setConfirmingGroupDeleteCwd(null);
 			return;
@@ -253,12 +346,169 @@ export function Sidebar() {
 			// Delete every session file in this workspace, then dismiss the group.
 			for (const session of group.sessions) {
 				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
-				await deleteSession(session.path);
+				if (session.id === sessionId) await dropSessionNow();
+				else await deleteSession(session.path);
 			}
 			setConfirmingGroupDeleteCwd(null);
+		} catch (error) {
+			toast({ variant: "error", title: t("sidebar.deleteFailed"), message: String(error) });
 		} finally {
 			setDeleting(false);
 		}
+	};
+
+	const renderSessionRow = (session: SessionInfo) => {
+		const active = session.id === sessionId;
+		// Signal light: every open task uses its owning tab's live status.
+		// Waiting-for-confirmation wins for the attached task.
+		const signal: "waiting" | "running" | null = active
+			? awaitingConfirmation
+				? "waiting"
+				: isStreaming
+					? "running"
+					: null
+			: isSessionRunning(session)
+				? "running"
+				: null;
+		const title = session.title ?? session.firstMessage ?? t("sidebar.untitled");
+		const hasActions = signal == null || !active;
+		const actionsOpen = confirmingDeletePath === session.path || renamingSessionPath === session.path;
+		return (
+			<div
+				key={session.path}
+				role="button"
+				tabIndex={0}
+				onClick={() => void openSession(session)}
+				onContextMenu={event => setSessionMenu({ anchor: anchorFromEvent(event), session })}
+				onKeyDown={event => {
+					if (event.key === "Enter") void openSession(session);
+				}}
+				data-has-actions={hasActions}
+				data-actions-open={actionsOpen}
+				data-session-kind={session.kind ?? "agent"}
+				className={cx(
+					"omp-sidebar-session-row group cursor-pointer rounded-md border px-2 py-1 transition-colors duration-150 ease-out",
+					active
+						? "border-[var(--omp-border-accent)] bg-[var(--omp-selected-bg)]"
+						: "border-transparent hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]",
+				)}
+			>
+				<div className="flex items-center">
+					<span
+						title={
+							signal === "waiting"
+								? t("sidebar.signal.waiting")
+								: signal === "running"
+									? t("sidebar.signal.running")
+									: session.status
+						}
+						className={cx("mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full", signal != null && "omp-pulse-dot")}
+						style={{
+							background:
+								signal === "waiting"
+									? "var(--omp-warning)"
+									: signal === "running"
+										? "var(--omp-success)"
+										: STATUS_COLOR[session.status],
+						}}
+					/>
+					{pinnedSessions.includes(session.path) && (
+						<Pin
+							size={10}
+							className="mr-1.5 shrink-0 text-[var(--omp-accent)]"
+							aria-label={t("sidebar.pinned")}
+						/>
+					)}
+					{renamingSessionPath === session.path ? (
+						<input
+							ref={renameRef}
+							value={renameDraft}
+							onChange={event => setRenameDraft(event.target.value)}
+							onBlur={event => commitRename(session, event.currentTarget.value)}
+							onKeyDown={event => {
+								if (event.key === "Enter") commitRename(session, event.currentTarget.value);
+								if (event.key === "Escape") setRenamingSessionPath(null);
+							}}
+							onClick={event => event.stopPropagation()}
+							className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-omp-md font-normal text-[var(--omp-muted)] outline-none"
+						/>
+					) : (
+						<SidebarScrollingTitle
+							className="text-omp-md font-normal leading-5 text-[var(--omp-muted)]"
+							title={title}
+						/>
+					)}
+					<span
+						className="omp-sidebar-session-actions flex shrink-0 items-center justify-end gap-0.5"
+						onClick={event => event.stopPropagation()}
+					>
+						{confirmingDeletePath === session.path ? (
+							<>
+								<button
+									type="button"
+									disabled={deleting}
+									title={t("common.delete")}
+									aria-label={t("common.delete")}
+									onClick={() => void confirmDeleteSession(session)}
+									className="flex h-5 w-5 items-center justify-center rounded bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)] hover:brightness-110 disabled:opacity-40"
+								>
+									<Check size={11} strokeWidth={3} />
+								</button>
+								<button
+									type="button"
+									disabled={deleting}
+									title={t("common.cancel")}
+									aria-label={t("common.cancel")}
+									onClick={() => setConfirmingDeletePath(null)}
+									className="flex h-5 w-5 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
+								>
+									<X size={11} strokeWidth={3} />
+								</button>
+							</>
+						) : (
+							<>
+								{!signal && renamingSessionPath !== session.path ? (
+									<button
+										type="button"
+										title={t("sidebar.rename")}
+										aria-label={t("sidebar.rename")}
+										onClick={() => startRename(session)}
+										className="omp-sidebar-action order-2 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+									>
+										<Pencil size={11} />
+									</button>
+								) : !active ? (
+									<button
+										type="button"
+										title={t("sidebar.menu.openNewTab")}
+										aria-label={t("sidebar.menu.openNewTab")}
+										onClick={() => void openSession(session)}
+										className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+									>
+										<Plus size={11} />
+									</button>
+								) : (
+									<span className="h-5 w-5 shrink-0" />
+								)}
+								{!signal ? (
+									<button
+										className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)]"
+										onClick={() => setConfirmingDeletePath(session.path)}
+										title={t("sidebar.delete")}
+										type="button"
+										aria-label={t("sidebar.delete")}
+									>
+										<Trash2 size={11} />
+									</button>
+								) : (
+									<span className="order-1 h-5 w-5 shrink-0" />
+								)}
+							</>
+						)}
+					</span>
+				</div>
+			</div>
+		);
 	};
 
 	const utilityButton =
@@ -332,16 +582,59 @@ export function Sidebar() {
 							</div>
 						</div>
 					)}
+					{chatSessions.length > 0 && (
+						<div className="mb-1" data-chat-section>
+							<div className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-omp-xs font-medium uppercase tracking-[0.08em] text-[var(--omp-dim)]">
+								<button
+									type="button"
+									onClick={() => setCollapsed(prev => ({ ...prev, __chats__: !chatsCollapsed }))}
+									aria-expanded={!chatsCollapsed}
+									className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-[var(--omp-muted)]"
+								>
+									{chatsCollapsed ? (
+										<ChevronRight size={12} className="shrink-0" />
+									) : (
+										<ChevronDown size={12} className="shrink-0" />
+									)}
+									<MessageCircle size={11} className="shrink-0" />
+									<span className="min-w-0 flex-1 truncate">{t("sidebar.chats")}</span>
+									<span className="shrink-0 tabular-nums font-normal">{chatSessions.length}</span>
+								</button>
+								<button
+									type="button"
+									title={t("sidebar.menu.newChat")}
+									aria-label={t("sidebar.menu.newChat")}
+									className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+									onClick={() => void openTab({ kind: "chat" })}
+								>
+									<Plus size={12} strokeWidth={2.5} />
+								</button>
+							</div>
+							<div
+								className="omp-sidebar-group"
+								data-session-group="__chats__"
+								data-state={chatsCollapsed ? "collapsed" : "expanded"}
+								aria-hidden={chatsCollapsed}
+								inert={chatsCollapsed}
+							>
+								<div className="omp-sidebar-group-content">
+									<div className="space-y-px">{chatSessions.map(renderSessionRow)}</div>
+								</div>
+							</div>
+						</div>
+					)}
 					{groups.map(group => {
 						const groupCollapsed = isCollapsed(group.cwd);
 						const isCurrent = group.cwd === cwd;
+						const groupActionsOpen = confirmingGroupDeleteCwd === group.cwd || renamingGroupCwd === group.cwd;
 						return (
 							<div key={group.cwd} className="mb-0.5">
 								<div
 									data-workspace-group={group.cwd}
+									data-actions-open={groupActionsOpen}
 									onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
 									className={cx(
-										"group flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-omp-xs font-medium uppercase tracking-[0.08em] transition-colors duration-150 ease-out",
+										"omp-sidebar-workspace-row group flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-omp-xs font-medium uppercase tracking-[0.08em] transition-colors duration-150 ease-out",
 										isCurrent
 											? "text-[var(--omp-muted)]"
 											: "text-[var(--omp-dim)] hover:text-[var(--omp-muted)]",
@@ -405,17 +698,14 @@ export function Sidebar() {
 													aria-label={t("sidebar.pinned")}
 												/>
 											)}
-											<span className="min-w-0 flex-1 truncate">{group.name}</span>
+											<SidebarScrollingTitle className="text-left" title={group.name} />
 											<span className="shrink-0 tabular-nums text-omp-xs font-normal text-[var(--omp-dim)]">
 												{group.sessions.length}
 											</span>
 										</button>
 									)}
 									<span
-										className={cx(
-											"flex shrink-0 items-center justify-end gap-0.5",
-											confirmingGroupDeleteCwd === group.cwd ? "w-[34px]" : "w-4",
-										)}
+										className="omp-sidebar-workspace-actions flex shrink-0 items-center justify-end gap-0.5"
 										onClick={event => event.stopPropagation()}
 									>
 										{confirmingGroupDeleteCwd === group.cwd ? (
@@ -442,19 +732,33 @@ export function Sidebar() {
 												</button>
 											</>
 										) : (
-											<button
-												type="button"
-												title={t("sidebar.groupMenu")}
-												aria-label={t("sidebar.groupMenu")}
-												className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
-												onClick={event => {
-													event.stopPropagation();
-													const rect = event.currentTarget.getBoundingClientRect();
-													setGroupMenu({ anchor: { x: rect.left, y: rect.bottom + 4 }, group });
-												}}
-											>
-												<MoreHorizontal size={11} />
-											</button>
+											<>
+												<button
+													type="button"
+													title={t("sidebar.menu.newAgentHere")}
+													aria-label={t("sidebar.menu.newAgentHere")}
+													className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+													onClick={event => {
+														event.stopPropagation();
+														void openTab({ cwd: group.cwd });
+													}}
+												>
+													<Plus size={12} strokeWidth={2.5} />
+												</button>
+												<button
+													type="button"
+													title={t("sidebar.groupMenu")}
+													aria-label={t("sidebar.groupMenu")}
+													className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+													onClick={event => {
+														event.stopPropagation();
+														const rect = event.currentTarget.getBoundingClientRect();
+														setGroupMenu({ anchor: { x: rect.left, y: rect.bottom + 4 }, group });
+													}}
+												>
+													<MoreHorizontal size={11} />
+												</button>
+											</>
 										)}
 									</span>
 								</div>
@@ -467,175 +771,7 @@ export function Sidebar() {
 									inert={groupCollapsed}
 								>
 									<div className="omp-sidebar-group-content">
-										<div className="space-y-px">
-											{group.sessions.map(session => {
-												const active = session.id === sessionId;
-												// Signal light: attached session uses live store state; other
-												// rows fall back to the session file's tail status ("pending"
-												// means mid-run). Waiting-for-confirmation wins over running.
-												const signal: "waiting" | "running" | null = active
-													? awaitingConfirmation
-														? "waiting"
-														: isStreaming
-															? "running"
-															: null
-													: session.status === "pending"
-														? "running"
-														: null;
-												return (
-													<div
-														key={session.path}
-														role="button"
-														tabIndex={0}
-														onClick={() => void openSession(session)}
-														onContextMenu={event =>
-															setSessionMenu({ anchor: anchorFromEvent(event), session })
-														}
-														onKeyDown={event => {
-															if (event.key === "Enter") void openSession(session);
-														}}
-														className={cx(
-															"group cursor-pointer rounded-md border px-2 py-1 transition-colors duration-150 ease-out",
-															active
-																? "border-[var(--omp-border-accent)] bg-[var(--omp-selected-bg)]"
-																: "border-transparent hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]",
-														)}
-													>
-														<div className="flex items-center gap-1.5">
-															<span
-																title={
-																	signal === "waiting"
-																		? t("sidebar.signal.waiting")
-																		: signal === "running"
-																			? t("sidebar.signal.running")
-																			: session.status
-																}
-																className={cx(
-																	"h-1.5 w-1.5 shrink-0 rounded-full",
-																	signal != null && "omp-pulse-dot",
-																)}
-																style={{
-																	background:
-																		signal === "waiting"
-																			? "var(--omp-warning)"
-																			: signal === "running"
-																				? "var(--omp-success)"
-																				: STATUS_COLOR[session.status],
-																}}
-															/>
-															{pinnedSessions.includes(session.path) && (
-																<Pin
-																	size={10}
-																	className="shrink-0 text-[var(--omp-accent)]"
-																	aria-label={t("sidebar.pinned")}
-																/>
-															)}
-															{active && renaming ? (
-																<input
-																	ref={renameRef}
-																	value={renameDraft}
-																	onChange={event => setRenameDraft(event.target.value)}
-																	onBlur={commitRename}
-																	onKeyDown={event => {
-																		if (event.key === "Enter") commitRename();
-																		if (event.key === "Escape") setRenaming(false);
-																	}}
-																	onClick={event => event.stopPropagation()}
-																	className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-omp-md font-normal text-[var(--omp-muted)] outline-none"
-																/>
-															) : (
-																<span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-omp-md font-normal leading-5 text-[var(--omp-muted)]">
-																	{session.kind === "chat" && (
-																		<MessageCircle
-																			size={11}
-																			className="shrink-0 text-[var(--omp-muted)]"
-																			aria-label={t("tabs.kind.chat")}
-																		/>
-																	)}
-																	<span className="min-w-0 truncate">
-																		{session.title ?? session.firstMessage ?? t("sidebar.untitled")}
-																	</span>
-																</span>
-															)}
-															<span className="shrink-0 tabular-nums text-omp-xs text-[var(--omp-dim)]">
-																{formatTimeAgo(session.modified)}
-															</span>
-															<span
-																className="flex w-[42px] shrink-0 items-center justify-end gap-0.5"
-																onClick={event => event.stopPropagation()}
-															>
-																{confirmingDeletePath === session.path ? (
-																	<>
-																		<button
-																			type="button"
-																			disabled={deleting}
-																			title={t("common.delete")}
-																			aria-label={t("common.delete")}
-																			onClick={() => void confirmDeleteSession(session)}
-																			className="flex h-5 w-5 items-center justify-center rounded bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)] hover:brightness-110 disabled:opacity-40"
-																		>
-																			<Check size={11} strokeWidth={3} />
-																		</button>
-																		<button
-																			type="button"
-																			disabled={deleting}
-																			title={t("common.cancel")}
-																			aria-label={t("common.cancel")}
-																			onClick={() => setConfirmingDeletePath(null)}
-																			className="flex h-5 w-5 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
-																		>
-																			<X size={11} strokeWidth={3} />
-																		</button>
-																	</>
-																) : (
-																	<>
-																		{active && !renaming ? (
-																			<button
-																				type="button"
-																				title={t("sidebar.rename")}
-																				aria-label={t("sidebar.rename")}
-																				onClick={startRename}
-																				className="order-2 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
-																			>
-																				<Pencil size={11} />
-																			</button>
-																		) : !active ? (
-																			<button
-																				type="button"
-																				title={t("sidebar.openInNewWindow")}
-																				aria-label={t("sidebar.openInNewWindow")}
-																				onClick={() => void openSessionInNewWindow(session)}
-																				className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
-																			>
-																				<ExternalLink size={11} />
-																			</button>
-																		) : (
-																			<span className="h-5 w-5 shrink-0" />
-																		)}
-																		{!active ? (
-																			<button
-																				className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)] disabled:opacity-30"
-																				disabled={isStreaming}
-																				onClick={() => {
-																					if (!isStreaming) setConfirmingDeletePath(session.path);
-																				}}
-																				title={t("sidebar.delete")}
-																				type="button"
-																				aria-label={t("sidebar.delete")}
-																			>
-																				<Trash2 size={11} />
-																			</button>
-																		) : (
-																			<span className="order-1 h-5 w-5 shrink-0" />
-																		)}
-																	</>
-																)}
-															</span>
-														</div>
-													</div>
-												);
-											})}
-										</div>
+										<div className="space-y-px">{group.sessions.map(renderSessionRow)}</div>
 									</div>
 								</div>
 							</div>
@@ -701,148 +837,151 @@ export function Sidebar() {
 			)}
 
 			{/* Workspace group menu: new sessions, rename (alias), pin, delete. */}
-			{groupMenu && (
-				<ContextMenu
-					x={groupMenu.anchor.x}
-					y={groupMenu.anchor.y}
-					onClose={() => setGroupMenu(null)}
-					items={[
-						{
-							id: "group-new-agent",
-							label: t("sidebar.menu.newAgentHere"),
-							icon: SquareTerminal,
-							onSelect: () => {
-								setGroupMenu(null);
-								void openTab({ cwd: groupMenu.group.cwd });
-							},
-						},
-						{
-							id: "group-new-chat",
-							label: t("sidebar.menu.newChatHere"),
-							icon: MessageCirclePlus,
-							onSelect: () => {
-								setGroupMenu(null);
-								void openTab({ cwd: groupMenu.group.cwd, kind: "chat" });
-							},
-						},
-						{
-							id: "group-new-worktree",
-							label: t("sidebar.menu.newWorktreeHere"),
-							icon: GitBranchPlus,
-							onSelect: () => {
-								setGroupMenu(null);
-								useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.cwd });
-							},
-						},
-						{
-							id: "group-rename",
-							label: t("sidebar.menu.rename"),
-							icon: Pencil,
-							onSelect: () => {
-								setGroupRenameDraft(groupMenu.group.name);
-								setRenamingGroupCwd(groupMenu.group.cwd);
-								setGroupMenu(null);
-								requestAnimationFrame(() => groupRenameRef.current?.select());
-							},
-						},
-						{
-							id: "group-pin",
-							label: pinnedGroups.includes(groupMenu.group.cwd)
-								? t("sidebar.menu.unpin")
-								: t("sidebar.menu.pin"),
-							icon: pinnedGroups.includes(groupMenu.group.cwd) ? PinOff : Pin,
-							onSelect: () => {
-								useSidebarPrefs.getState().toggleGroupPin(groupMenu.group.cwd);
-								setGroupMenu(null);
-							},
-						},
-						{
-							id: "group-delete",
-							label: t("common.delete"),
-							icon: Trash2,
-							danger: true,
-							disabled: groupMenu.group.sessions.some(session => session.id === sessionId) || isStreaming,
-							disabledReason: groupMenu.group.sessions.some(session => session.id === sessionId)
-								? t("sidebar.deleteGroupActive")
-								: t("sidebar.deleteGroupStreaming"),
-							onSelect: () => {
-								setConfirmingGroupDeleteCwd(groupMenu.group.cwd);
-								setGroupMenu(null);
-							},
-						},
-					]}
-				/>
-			)}
+			{groupMenu &&
+				(() => {
+					const groupHasRunningSession = groupMenu.group.sessions.some(isSessionRunning);
+					return (
+						<ContextMenu
+							x={groupMenu.anchor.x}
+							y={groupMenu.anchor.y}
+							onClose={() => setGroupMenu(null)}
+							items={[
+								{
+									id: "group-new-agent",
+									label: t("sidebar.menu.newAgentHere"),
+									icon: SquareTerminal,
+									onSelect: () => {
+										setGroupMenu(null);
+										void openTab({ cwd: groupMenu.group.cwd });
+									},
+								},
+								{
+									id: "group-new-worktree",
+									label: t("sidebar.menu.newWorktreeHere"),
+									icon: GitBranchPlus,
+									onSelect: () => {
+										setGroupMenu(null);
+										useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.cwd });
+									},
+								},
+								{
+									id: "group-rename",
+									label: t("sidebar.menu.rename"),
+									icon: Pencil,
+									onSelect: () => {
+										setGroupRenameDraft(groupMenu.group.name);
+										setRenamingGroupCwd(groupMenu.group.cwd);
+										setGroupMenu(null);
+										requestAnimationFrame(() => groupRenameRef.current?.select());
+									},
+								},
+								{
+									id: "group-pin",
+									label: pinnedGroups.includes(groupMenu.group.cwd)
+										? t("sidebar.menu.unpin")
+										: t("sidebar.menu.pin"),
+									icon: pinnedGroups.includes(groupMenu.group.cwd) ? PinOff : Pin,
+									onSelect: () => {
+										useSidebarPrefs.getState().toggleGroupPin(groupMenu.group.cwd);
+										setGroupMenu(null);
+									},
+								},
+								{
+									id: "group-delete",
+									label: t("common.delete"),
+									icon: Trash2,
+									danger: true,
+									disabled: groupHasRunningSession,
+									disabledReason: t("sidebar.deleteGroupStreaming"),
+									onSelect: () => {
+										setConfirmingGroupDeleteCwd(groupMenu.group.cwd);
+										setGroupMenu(null);
+									},
+								},
+							]}
+						/>
+					);
+				})()}
 
-			{/* Session row menu: open variants, rename (active only), pin, delete. */}
-			{sessionMenu && (
-				<ContextMenu
-					x={sessionMenu.anchor.x}
-					y={sessionMenu.anchor.y}
-					onClose={() => setSessionMenu(null)}
-					items={[
-						{
-							id: "session-open",
-							label: t("sidebar.menu.open"),
-							icon: ChevronRight,
-							onSelect: () => {
-								setSessionMenu(null);
-								void openSession(sessionMenu.session);
-							},
-						},
-						{
-							id: "session-open-tab",
-							label: t("sidebar.menu.openNewTab"),
-							icon: Plus,
-							onSelect: () => {
-								setSessionMenu(null);
-								void openTab({ cwd: sessionMenu.session.cwd, sessionPath: sessionMenu.session.path });
-							},
-						},
-						{
-							id: "session-open-window",
-							label: t("sidebar.openInNewWindow"),
-							icon: ExternalLink,
-							onSelect: () => {
-								setSessionMenu(null);
-								void openSessionInNewWindow(sessionMenu.session);
-							},
-						},
-						{
-							id: "session-rename",
-							label: t("sidebar.rename"),
-							icon: Pencil,
-							disabled: sessionMenu.session.id !== sessionId,
-							disabledReason: t("sidebar.menu.renameActiveOnly"),
-							onSelect: () => {
-								setSessionMenu(null);
-								startRename();
-							},
-						},
-						{
-							id: "session-pin",
-							label: pinnedSessions.includes(sessionMenu.session.path)
-								? t("sidebar.menu.unpin")
-								: t("sidebar.menu.pin"),
-							icon: pinnedSessions.includes(sessionMenu.session.path) ? PinOff : Pin,
-							onSelect: () => {
-								useSidebarPrefs.getState().toggleSessionPin(sessionMenu.session.path);
-								setSessionMenu(null);
-							},
-						},
-						{
-							id: "session-delete",
-							label: t("common.delete"),
-							icon: Trash2,
-							danger: true,
-							onSelect: () => {
-								setConfirmingDeletePath(sessionMenu.session.path);
-								setSessionMenu(null);
-							},
-						},
-					]}
-				/>
-			)}
+			{/* Session row menu: open variants, per-task rename, pin, and delete. */}
+			{sessionMenu &&
+				(() => {
+					const targetRunning = isSessionRunning(sessionMenu.session);
+					return (
+						<ContextMenu
+							x={sessionMenu.anchor.x}
+							y={sessionMenu.anchor.y}
+							onClose={() => setSessionMenu(null)}
+							items={[
+								{
+									id: "session-open",
+									label: t("sidebar.menu.open"),
+									icon: ChevronRight,
+									onSelect: () => {
+										setSessionMenu(null);
+										void openSession(sessionMenu.session);
+									},
+								},
+								{
+									id: "session-open-tab",
+									label: t("sidebar.menu.openNewTab"),
+									icon: Plus,
+									onSelect: () => {
+										setSessionMenu(null);
+										void openTab({
+											cwd: sessionMenu.session.cwd,
+											kind: sessionMenu.session.kind ?? "agent",
+											sessionPath: sessionMenu.session.path,
+										});
+									},
+								},
+								{
+									id: "session-open-window",
+									label: t("sidebar.openInNewWindow"),
+									icon: ExternalLink,
+									onSelect: () => {
+										setSessionMenu(null);
+										void openSessionInNewWindow(sessionMenu.session);
+									},
+								},
+								{
+									id: "session-rename",
+									label: t("sidebar.rename"),
+									icon: Pencil,
+									disabled: targetRunning,
+									disabledReason: t("sidebar.menu.taskRunning"),
+									onSelect: () => {
+										setSessionMenu(null);
+										startRename(sessionMenu.session);
+									},
+								},
+								{
+									id: "session-pin",
+									label: pinnedSessions.includes(sessionMenu.session.path)
+										? t("sidebar.menu.unpin")
+										: t("sidebar.menu.pin"),
+									icon: pinnedSessions.includes(sessionMenu.session.path) ? PinOff : Pin,
+									onSelect: () => {
+										useSidebarPrefs.getState().toggleSessionPin(sessionMenu.session.path);
+										setSessionMenu(null);
+									},
+								},
+								{
+									id: "session-delete",
+									label: t("common.delete"),
+									icon: Trash2,
+									danger: true,
+									disabled: targetRunning,
+									disabledReason: t("sidebar.menu.taskRunning"),
+									onSelect: () => {
+										setConfirmingDeletePath(sessionMenu.session.path);
+										setSessionMenu(null);
+									},
+								},
+							]}
+						/>
+					);
+				})()}
 		</>
 	);
 }

@@ -15,6 +15,7 @@
 
 import type { AvailableCommand, CopyTarget, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession } from "../hooks/use-rpc-events";
+import { newSessionNow } from "../hooks/use-session-switch";
 import { openHandoffDialog } from "../stores/fork-handoff";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
@@ -1597,11 +1598,7 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 			setInterruptMode: mode => window.omp.rpc.setInterruptMode(mode),
 			compact: instructions => window.omp.rpc.compact(instructions),
 			newSession: async () => {
-				const response = await window.omp.rpc.newSession();
-				if (!response.success) throw new Error(response.error);
-				if ((response.data as { cancelled?: boolean } | undefined)?.cancelled) return response;
-				await hydrateSession();
-				return response;
+				return newSessionNow();
 			},
 			handoff: () => window.omp.rpc.handoff(),
 			prompt: message => window.omp.rpc.prompt(message),

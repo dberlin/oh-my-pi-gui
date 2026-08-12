@@ -46,7 +46,9 @@ import type {
 	HostToolCallRequest,
 	HostUriRequest,
 	PromptResultFrame,
+	RpcCommand,
 	RpcLiveUpdateFrame,
+	RpcResponse,
 	SessionInfoUpdateFrame,
 	SidecarStatus,
 	SubagentFrame,
@@ -54,7 +56,7 @@ import type {
 import type { SidecarManager } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
 
-export type SidecarFactory = (cwd: string, kind?: "agent" | "chat") => SidecarManager;
+export type SidecarFactory = (cwd: string, kind: "agent" | "chat", fresh: boolean) => SidecarManager;
 
 function forwardToWindow(win: BrowserWindow, channel: string, data: unknown): void {
 	if (!win.isDestroyed()) win.webContents.send(channel, data);
@@ -85,9 +87,11 @@ interface PoolEntry {
 	status: SidecarStatus;
 	/** Agent run in flight (agent_start seen, no agent_end yet) — synthesized "running". */
 	running: boolean;
+	/** Automatic transcript compaction state once observed — true blocks session mutation. */
+	compacting?: boolean;
 	/** Session meta cached from session_info_update (TAB_STATUS / GET_TABS). */
 	sessionId?: string;
-	title?: string;
+	title?: string | null;
 	/**
 	 * Session file this tab is attached to (F-OWN). Set at acquire when
 	 * spawned with --session and maintained from the RPC passthrough via
@@ -166,11 +170,12 @@ export class SidecarPool {
 		sessionPath?: string,
 		kind: "agent" | "chat" = "agent",
 		worktree?: IpcTabWorktree,
+		fresh = false,
 	): SidecarManager | null {
 		if (this.atCap) return null;
 		this.#reserved++;
 		try {
-			const sidecar = this.#factory(cwd, kind);
+			const sidecar = this.#factory(cwd, kind, fresh);
 			const entry: PoolEntry = {
 				sidecar,
 				tabId,
@@ -215,11 +220,14 @@ export class SidecarPool {
 		sidecar.on("status", (payload: StatusPayload) => {
 			entry.status = payload.status;
 			// A restart/exit kills any in-flight run along with the process.
-			if (payload.status !== "ready") entry.running = false;
+			if (payload.status !== "ready") {
+				entry.running = false;
+				entry.compacting = undefined;
+			}
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
-			if (typeof frame.title === "string") entry.title = frame.title;
+			if (frame.title !== undefined) entry.title = frame.title;
 			if (typeof frame.sessionId === "string") {
 				const previousId = entry.sessionId;
 				entry.sessionId = frame.sessionId;
@@ -237,12 +245,15 @@ export class SidecarPool {
 		// Run-state tracking works off the event stream (connection status never
 		// re-fires at run end), so background tabs report running → ready too.
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
-			const wasRunning = entry.running;
+			const wasBusy = entry.running || entry.compacting === true;
 			for (const event of events) {
 				if (event.type === "agent_start") entry.running = true;
 				else if (event.type === "agent_end") entry.running = false;
+				else if (event.type === "auto_compaction_start") entry.compacting = true;
+				else if (event.type === "auto_compaction_end") entry.compacting = false;
 			}
-			if (entry.running !== wasRunning) {
+			const busy = entry.running || entry.compacting === true;
+			if (busy !== wasBusy) {
 				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
 		});
@@ -377,6 +388,15 @@ export class SidecarPool {
 	sidecarForTab(win: BrowserWindow, tabId: string): SidecarManager | null {
 		const entry = this.#byTabId.get(tabId);
 		return entry && entry.win === win ? entry.sidecar : null;
+	}
+
+	/** Send a command to the idle tab attached to `sessionPath`. */
+	async commandForIdleSession(sessionPath: string, command: RpcCommand): Promise<RpcResponse | null> {
+		const owner = this.#sessionOwners.get(sessionPath);
+		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
+		if (!entry || entry.running || entry.compacting === true || entry.status !== "ready") return null;
+		const client = entry.sidecar.rpcClient;
+		return client ? await client.command(command) : null;
 	}
 
 	/** Make `tabId` the window's active tab (moves full event forwarding). False when unknown/foreign. */
@@ -518,6 +538,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 		// reports its connection state even with a dead in-flight run.
 		status: entry.running && entry.status === "ready" ? "running" : entry.status,
 	};
+	if (entry.compacting !== undefined) payload.compacting = entry.compacting;
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;

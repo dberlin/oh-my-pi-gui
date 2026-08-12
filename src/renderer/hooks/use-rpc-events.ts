@@ -763,7 +763,7 @@ export function useRpcEvents(): void {
 		const unsubSessionInfo = window.omp.events.onSessionInfoUpdate((frame: SessionInfoUpdateFrame) => {
 			if (!acceptsActiveTabEvents()) return;
 			useSessionStore.setState(state => ({
-				sessionName: frame.title ?? state.sessionName,
+				sessionName: frame.title === undefined ? state.sessionName : frame.title,
 				sessionId: frame.sessionId ?? state.sessionId,
 			}));
 		});

@@ -7,8 +7,8 @@
 
 import { Check, Folder, FolderPlus } from "lucide-react";
 import { useMemo } from "react";
-import { hydrateSession } from "../../hooks/use-rpc-events";
 import { useSessionList } from "../../hooks/use-session-list";
+import { newSessionNow } from "../../hooks/use-session-switch";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
@@ -76,12 +76,7 @@ export function WorkspaceDialog({
 	const newSessionHere = async () => {
 		if (guardBusy()) return;
 		try {
-			const response = await window.omp.rpc.newSession();
-			if (!response.success) {
-				toast({ variant: "error", title: t("sidebar.newFailed"), message: response.error });
-				return;
-			}
-			await hydrateSession();
+			await newSessionNow();
 			onClose();
 		} catch (error) {
 			toast({ variant: "error", title: t("sidebar.newFailed"), message: String(error) });

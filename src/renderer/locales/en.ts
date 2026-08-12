@@ -219,6 +219,7 @@ export const en: Record<string, string> = {
 	"sidebar.deleteFailed": "Could not delete session",
 	"sidebar.abortHint": "Abort the active turn before starting a new session",
 	"sidebar.recent": "Recent",
+	"sidebar.chats": "Chats",
 	"sidebar.rename": "Rename session",
 	"sidebar.renameFailed": "Rename failed",
 	"sidebar.deleteGroup": "Delete all {count} sessions in this workspace",
@@ -246,7 +247,7 @@ export const en: Record<string, string> = {
 	"sidebar.menu.unpin": "Unpin",
 	"sidebar.menu.open": "Open",
 	"sidebar.menu.openNewTab": "Open in new tab",
-	"sidebar.menu.renameActiveOnly": "Only the attached session can be renamed",
+	"sidebar.menu.taskRunning": "This task is currently running",
 	"sidebar.groupMenu": "Workspace actions",
 	"sidebar.pinned": "Pinned",
 	"sidebar.kindMismatch":
@@ -2428,6 +2429,9 @@ export const en: Record<string, string> = {
 	// Center dock (above the composer)
 	"dock.collapse": "Collapse",
 	"dock.expand": "Expand",
+	"dock.backToSummary": "Back to summary",
+	"dock.viewAllTodos": "{hidden} more · View all {total} todos",
+	"dock.viewAllAgents": "{hidden} more · View all {total} agents",
 	"dock.todo": "Todo",
 	"dock.plan": "Plan",
 	"dock.agents": "Agents",

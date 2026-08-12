@@ -43,7 +43,7 @@ import { UpdateBanner } from "./components/layout/UpdateBanner";
 import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { hydrateSession, useRpcEvents } from "./hooks/use-rpc-events";
-import { requestSessionSwitch } from "./hooks/use-session-switch";
+import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
 import { useTraySync } from "./hooks/use-tray-sync";
 import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
@@ -257,9 +257,7 @@ export function App() {
 					return;
 				}
 				try {
-					const res = await window.omp.rpc.newSession();
-					if (!res.success) throw new Error(res.error);
-					if (!(res.data as { cancelled?: boolean } | undefined)?.cancelled) await hydrateSession();
+					await newSessionNow();
 				} catch (error) {
 					toast({ variant: "error", title: t("sidebar.openFailed"), message: String(error) });
 				}
@@ -537,9 +535,7 @@ export function App() {
 				} else if (action === "switch-project") {
 					if (payload?.cwd) await window.omp.sidecar.setProject(payload.cwd);
 				} else if (action === "new-session") {
-					const response = await window.omp.rpc.newSession();
-					if (!response.success) throw new Error(response.error);
-					await hydrateSession();
+					await newSessionNow();
 				} else if (action === "export-html") {
 					await exportSessionHtml();
 				} else if (action === "handoff") {

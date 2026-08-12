@@ -52,6 +52,7 @@ export const DENYLISTED_FLAGS: readonly string[] = [
 	"--version",
 	"--no-pty",
 	"--no-title",
+	"--no-auto-resume",
 	"--api-key",
 	"--chat",
 ];
@@ -69,6 +70,7 @@ const DENYLISTED: Record<string, true> = {
 	"--version": true,
 	"--no-pty": true,
 	"--no-title": true,
+	"--no-auto-resume": true,
 	"--api-key": true,
 	"--chat": true,
 };

@@ -23,13 +23,15 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { AlertTriangle, Check, ChevronRight, GripVertical, ListTodo, Pencil, X } from "lucide-react";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { TodoPhase, TodoTask } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { toast } from "../../../stores/toast";
 import { type UiTodoPhase, type UiTodoTask, useTodoStore } from "../../../stores/todo";
 import { Badge, type BadgeVariant } from "../../common";
 import { DockCard } from "./DockCard";
+import { buildTodoDockSummary } from "./dock-summary";
+import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
 const STATUS_META: Record<TodoTask["status"], { variant: BadgeVariant; dot: boolean }> = {
 	pending: { variant: "muted", dot: false },
@@ -189,18 +191,21 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 
 function PhaseSection({
 	phase,
+	fullPhase,
 	collapsed,
 	onToggle,
 	onPatch,
 }: {
 	phase: UiTodoPhase;
+	fullPhase?: UiTodoPhase;
 	collapsed: boolean;
 	onToggle: () => void;
 	onPatch: (phaseId: string, taskId: string, patch: Partial<UiTodoTask>) => void;
 }) {
 	const t = useT();
-	const done = phase.tasks.filter(task => task.status === "completed").length;
-	const total = phase.tasks.length;
+	const countSource = fullPhase ?? phase;
+	const done = countSource.tasks.filter(task => task.status === "completed").length;
+	const total = countSource.tasks.length;
 
 	return (
 		<section className="mb-1.5">
@@ -240,6 +245,9 @@ function PhaseSection({
 
 export function TodoDockCard() {
 	const t = useT();
+	const { managed, focusedCard, focusCard, clearFocus } = useWorkspaceDockFocus();
+	const focused = focusedCard === "todo";
+	const showFull = !managed || focused;
 	const phases = useTodoStore(state => state.phases) ?? [];
 	const reminderVisible = useTodoStore(state => state.reminderVisible) ?? false;
 	const reminderTodos = useTodoStore(state => state.reminderTodos) ?? [];
@@ -308,6 +316,12 @@ export function TodoDockCard() {
 			),
 		[phases],
 	);
+	const summary = useMemo(() => buildTodoDockSummary(phases), [phases]);
+	const displayedPhases = showFull ? phases : summary.phases;
+
+	useEffect(() => {
+		if (focused && phases.length === 0 && !reminderVisible) clearFocus();
+	}, [clearFocus, focused, phases.length, reminderVisible]);
 
 	if (phases.length === 0 && !reminderVisible) return null;
 
@@ -322,7 +336,7 @@ export function TodoDockCard() {
 			id="todo"
 			title={t("dock.todo")}
 		>
-			<div className="max-h-72 overflow-y-auto px-2 py-1.5">
+			<div className="px-2 py-1.5">
 				{reminderVisible && (
 					<div className="mb-1.5 flex items-start gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_40%,transparent)] bg-transparent px-2.5 py-2">
 						<AlertTriangle className="mt-px shrink-0 text-(--omp-warning)" size={13} />
@@ -343,9 +357,10 @@ export function TodoDockCard() {
 					</div>
 				)}
 				<DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd} sensors={sensors}>
-					{phases.map(phase => (
+					{displayedPhases.map(phase => (
 						<PhaseSection
 							collapsed={collapsed.has(phase.id)}
+							fullPhase={phases.find(candidate => candidate.id === phase.id)}
 							key={phase.id}
 							onPatch={patchTask}
 							onToggle={() => togglePhase(phase.id)}
@@ -353,6 +368,15 @@ export function TodoDockCard() {
 						/>
 					))}
 				</DndContext>
+				{managed && !focused && summary.hiddenCount > 0 && (
+					<button
+						className="omp-pressable mt-1 flex w-full items-center justify-center rounded-md border border-dashed border-[var(--omp-border-muted)] px-2 py-1.5 text-omp-xs font-medium text-[var(--omp-link)] hover:border-[var(--omp-border-strong)]"
+						onClick={() => focusCard("todo")}
+						type="button"
+					>
+						{t("dock.viewAllTodos", { hidden: summary.hiddenCount, total: summary.totalCount })}
+					</button>
+				)}
 			</div>
 		</DockCard>
 	);

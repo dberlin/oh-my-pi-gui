@@ -60,7 +60,7 @@ export type RpcCommand =
 	| { id?: string; type: "fork" }
 	| { id?: string; type: "get_branch_messages" }
 	| { id?: string; type: "get_last_assistant_text" }
-	| { id?: string; type: "set_session_name"; name: string }
+	| { id?: string; type: "set_session_name"; name: string; sessionPath?: string }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_messages" }
@@ -1698,7 +1698,7 @@ export interface CommandOutputFrame {
 
 export interface SessionInfoUpdateFrame {
 	type: "session_info_update";
-	title?: string;
+	title?: string | null;
 	sessionId?: string;
 }
 
