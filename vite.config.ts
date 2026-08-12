@@ -1,9 +1,8 @@
-import { resolve } from "node:path";
+import * as path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-
-/** Main-process packages bundled into out/main/index.js so packaged apps need no node_modules. */
-const MAIN_BUNDLED_DEPS = ["chokidar", "electron-store", "electron-updater"];
+import { defineConfig } from "vite";
+import { esmShim } from "vite-plugin-electron/plugin";
+import electron from "vite-plugin-electron/simple";
 
 /**
  * Heavy renderer vendor libs split out of the eager main chunk. Patterns match
@@ -49,38 +48,58 @@ function manualChunks(id: string): string | undefined {
 }
 
 export default defineConfig({
-	main: {
-		plugins: [externalizeDepsPlugin({ exclude: MAIN_BUNDLED_DEPS })],
-		build: {
-			rollupOptions: {
-				input: { index: resolve(__dirname, "src/main/index.ts") },
-				external: ["electron"],
+	root: path.resolve(import.meta.dirname, "src/renderer"),
+	base: "./",
+	plugins: [
+		tailwindcss(),
+		electron({
+			main: {
+				entry: path.resolve(import.meta.dirname, "src/main/index.ts"),
+				onstart: async ({ startup }) => {
+					await startup(undefined, { cwd: import.meta.dirname });
+				},
+				vite: {
+					plugins: [esmShim()],
+					build: {
+						outDir: path.resolve(import.meta.dirname, "out/main"),
+						emptyOutDir: false,
+					},
+				},
 			},
+			preload: {
+				input: { index: path.resolve(import.meta.dirname, "src/preload/index.ts") },
+				onstart: async ({ startup }) => {
+					await startup(undefined, { cwd: import.meta.dirname });
+				},
+				vite: {
+					build: {
+						outDir: path.resolve(import.meta.dirname, "out/preload"),
+						emptyOutDir: false,
+						rolldownOptions: {
+							output: {
+								format: "cjs",
+								entryFileNames: "[name].cjs",
+								chunkFileNames: "[name].cjs",
+							},
+						},
+					},
+				},
+			},
+		}),
+	],
+	resolve: {
+		dedupe: ["react", "react-dom"],
+		alias: {
+			"@renderer": path.resolve(import.meta.dirname, "src/renderer"),
+			"@shared": path.resolve(import.meta.dirname, "src/shared"),
 		},
 	},
-	preload: {
-		plugins: [externalizeDepsPlugin()],
-		build: {
-			rollupOptions: {
-				input: { index: resolve(__dirname, "src/preload/index.ts") },
-				external: ["electron"],
-				output: { format: "cjs" },
-			},
-		},
-	},
-	renderer: {
-		plugins: [tailwindcss()],
-		resolve: {
-			alias: {
-				"@renderer": resolve(__dirname, "src/renderer"),
-				"@shared": resolve(__dirname, "src/shared"),
-			},
-		},
-		build: {
-			rollupOptions: {
-				input: { index: resolve(__dirname, "src/renderer/index.html") },
-				output: { manualChunks },
-			},
+	build: {
+		outDir: path.resolve(import.meta.dirname, "out/renderer"),
+		emptyOutDir: true,
+		rolldownOptions: {
+			input: { index: path.resolve(import.meta.dirname, "src/renderer/index.html") },
+			output: { manualChunks },
 		},
 	},
 });

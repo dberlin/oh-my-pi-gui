@@ -227,8 +227,8 @@ export class WindowManager {
 	}
 
 	#loadRenderer(win: BrowserWindow): void {
-		if (process.env.ELECTRON_RENDERER_URL) {
-			void win.loadURL(process.env.ELECTRON_RENDERER_URL);
+		if (process.env.VITE_DEV_SERVER_URL) {
+			void win.loadURL(process.env.VITE_DEV_SERVER_URL);
 		} else {
 			void win.loadFile(join(__dirname, "../renderer/index.html"));
 		}

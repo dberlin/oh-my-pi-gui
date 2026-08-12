@@ -1,0 +1,47 @@
+<h2>Where should the active agent identity live?</h2>
+<p class="subtitle">The Agents dock remains available above the composer. Single-click selects a row; double-click or Enter changes the transcript and composer target.</p>
+
+<div class="cards" style="grid-template-columns:repeat(3,minmax(260px,1fr));align-items:stretch">
+  <div class="card" data-choice="context-bar" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#f4f2ed">
+      <div style="height:260px;border:1px solid #c9c5ba;border-radius:9px;background:#fff;display:flex;flex-direction:column;overflow:hidden;color:#292722;font:12px system-ui">
+        <div style="height:28px;border-bottom:1px solid #ddd8ce;display:flex;align-items:center;padding:0 9px;color:#6b675f">gui · Rebase on latest upstream</div>
+        <div style="height:31px;border-bottom:1px solid #ddd8ce;display:flex;align-items:center;gap:7px;padding:0 10px;background:#faf9f6">
+          <span style="width:7px;height:7px;border-radius:50%;background:#4b9865"></span>
+          <strong>PackageManifestScout</strong><span style="color:#817c72">scout · running</span>
+          <span style="margin-left:auto;color:#817c72">Viewing agent</span>
+        </div>
+        <div style="flex:1;padding:16px 18px"><strong>You</strong><p style="margin:8px 0;color:#57534c">Inspect the package manifest and summarize its key facts.</p><div style="margin-top:18px;color:#2f7660">Thought <span style="color:#817c72">(collapsed)</span></div><div style="margin-top:13px;font-family:monospace">✓ read&nbsp;&nbsp; package.json</div></div>
+        <div style="border-top:1px solid #ddd8ce;padding:6px 9px;background:#faf9f6"><div style="font-size:10px;color:#817c72;margin-bottom:4px">AGENTS</div><div style="display:flex;gap:5px"><span style="border:1px solid #c9c5ba;border-radius:5px;padding:3px 6px">Main</span><span style="border:1px solid #6f9f89;background:#eaf3ed;border-radius:5px;padding:3px 6px">PackageManifestScout</span></div></div>
+        <div style="margin:6px 9px;border:1px solid #c9c5ba;border-radius:6px;padding:7px;color:#817c72">Message PackageManifestScout…</div>
+      </div>
+    </div>
+    <div class="card-body"><h3>A. Slim context bar</h3><p>Persistent identity directly above the transcript. Clear even when the Agents dock is collapsed.</p></div>
+  </div>
+
+  <div class="card" data-choice="canvas-chip" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#f4f2ed">
+      <div style="height:260px;border:1px solid #c9c5ba;border-radius:9px;background:#fff;display:flex;flex-direction:column;overflow:hidden;color:#292722;font:12px system-ui">
+        <div style="height:28px;border-bottom:1px solid #ddd8ce;display:flex;align-items:center;padding:0 9px;color:#6b675f">gui · Rebase on latest upstream</div>
+        <div style="flex:1;position:relative;padding:44px 18px 16px"><div style="position:absolute;top:10px;left:14px;border:1px solid #9ab7a8;background:#eef5f0;border-radius:999px;padding:4px 9px;display:flex;gap:6px;align-items:center"><span style="width:7px;height:7px;border-radius:50%;background:#4b9865"></span><strong>PackageManifestScout</strong><span style="color:#817c72">running</span></div><strong>You</strong><p style="margin:8px 0;color:#57534c">Inspect the package manifest and summarize its key facts.</p><div style="margin-top:18px;color:#2f7660">Thought <span style="color:#817c72">(collapsed)</span></div><div style="margin-top:13px;font-family:monospace">✓ read&nbsp;&nbsp; package.json</div></div>
+        <div style="border-top:1px solid #ddd8ce;padding:6px 9px;background:#faf9f6"><div style="font-size:10px;color:#817c72;margin-bottom:4px">AGENTS</div><div style="display:flex;gap:5px"><span style="border:1px solid #c9c5ba;border-radius:5px;padding:3px 6px">Main</span><span style="border:1px solid #6f9f89;background:#eaf3ed;border-radius:5px;padding:3px 6px">PackageManifestScout</span></div></div>
+        <div style="margin:6px 9px;border:1px solid #c9c5ba;border-radius:6px;padding:7px;color:#817c72">Message PackageManifestScout…</div>
+      </div>
+    </div>
+    <div class="card-body"><h3>B. Canvas chip</h3><p>A compact floating badge preserves vertical space, but competes with transcript content and jump controls.</p></div>
+  </div>
+
+  <div class="card" data-choice="composer-only" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#f4f2ed">
+      <div style="height:260px;border:1px solid #c9c5ba;border-radius:9px;background:#fff;display:flex;flex-direction:column;overflow:hidden;color:#292722;font:12px system-ui">
+        <div style="height:28px;border-bottom:1px solid #ddd8ce;display:flex;align-items:center;padding:0 9px;color:#6b675f">gui · Rebase on latest upstream</div>
+        <div style="flex:1;padding:16px 18px"><strong>You</strong><p style="margin:8px 0;color:#57534c">Inspect the package manifest and summarize its key facts.</p><div style="margin-top:18px;color:#2f7660">Thought <span style="color:#817c72">(collapsed)</span></div><div style="margin-top:13px;font-family:monospace">✓ read&nbsp;&nbsp; package.json</div></div>
+        <div style="border-top:1px solid #ddd8ce;padding:6px 9px;background:#faf9f6"><div style="font-size:10px;color:#817c72;margin-bottom:4px">AGENTS</div><div style="display:flex;gap:5px"><span style="border:1px solid #c9c5ba;border-radius:5px;padding:3px 6px">Main</span><span style="border:1px solid #6f9f89;background:#eaf3ed;border-radius:5px;padding:3px 6px">PackageManifestScout</span></div></div>
+        <div style="padding:5px 9px 7px"><div style="display:flex;gap:5px;align-items:center;margin-bottom:4px;color:#2f7660"><span style="width:7px;height:7px;border-radius:50%;background:#4b9865"></span><strong>To: PackageManifestScout</strong><span style="color:#817c72">running</span></div><div style="border:1px solid #c9c5ba;border-radius:6px;padding:7px;color:#817c72">Message this agent…</div></div>
+      </div>
+    </div>
+    <div class="card-body"><h3>C. Composer target only</h3><p>Emphasizes where input goes, but the viewed transcript identity disappears when the composer is off-screen or disabled.</p></div>
+  </div>
+</div>
+
+<div class="section"><div class="pros-cons"><div class="pros"><h4>Recommendation</h4><ul><li>A: identity is unambiguous and structurally separate from transcript data.</li><li>The composer placeholder still names the target for send safety.</li></ul></div><div class="cons"><h4>Constraint</h4><ul><li>Keep the bar one compact row; no duplicate model or context controls.</li><li>Main view omits the bar or renders an equally compact “Main” state to avoid layout shift.</li></ul></div></div></div>

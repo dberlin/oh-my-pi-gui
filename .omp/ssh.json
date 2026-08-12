@@ -1,0 +1,14 @@
+{
+  "hosts": {
+    "grill": {
+      "host": "grill.controls.dberlin.org",
+      "username": "dannyb",
+      "port": 22
+    },
+    "basement-router": {
+      "host": "basement-router.servers.dberlin.org",
+      "username": "dannyb",
+      "port": 22
+    }
+  }
+}

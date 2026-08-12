@@ -1,0 +1,90 @@
+<style>
+  .mock { border:1px solid #36424e; border-radius:12px; overflow:hidden; background:#0f141a; color:#dce5ee; font:11px/1.35 ui-monospace,SFMono-Regular,monospace; box-shadow:0 20px 50px #0004; }
+  .desktop { height:560px; display:grid; grid-template-columns:106px 1fr; grid-template-rows:34px 1fr; }
+  .global { grid-row:1/3; background:#171d25; border-right:1px solid #303a45; padding:10px 8px; }
+  .brand { color:#c5d0db; font-weight:700; margin-bottom:14px; }
+  .nav-label { color:#667483; font-size:9px; text-transform:uppercase; letter-spacing:.08em; margin:10px 3px 4px; }
+  .nav-item { height:22px; border-radius:5px; padding:4px 6px; margin-bottom:3px; color:#7e8b99; overflow:hidden; white-space:nowrap; }
+  .nav-item.on { color:#a9d9ff; background:#1f2a35; }
+  .top { background:#151b22; border-bottom:1px solid #303a45; display:flex; align-items:center; justify-content:space-between; padding:0 10px; color:#8b98a6; }
+  .workspace { display:grid; grid-template-rows:29px 1fr 82px 20px; min-height:0; }
+  .context { border-bottom:1px solid #28323d; display:flex; align-items:center; gap:7px; padding:0 11px; color:#8d9aa8; }
+  .dot { width:6px; height:6px; border-radius:50%; background:#62b0e8; }
+  .content { display:grid; grid-template-columns:minmax(0,1fr) 270px; min-height:0; }
+  .transcript { padding:16px 18px; overflow:hidden; background:#10151b; }
+  .turn { margin-bottom:14px; }
+  .who { color:#6f7d8b; font-size:9px; margin-bottom:4px; text-transform:uppercase; letter-spacing:.08em; }
+  .message { border:1px solid #2d3946; background:#1a232d; border-radius:9px; padding:8px 10px; color:#aeb9c4; max-width:76%; }
+  .turn.me { display:flex; flex-direction:column; align-items:flex-end; }
+  .turn.me .message { background:#172a3d; border-color:#25455f; }
+  .tool { margin-top:7px; height:27px; border:1px solid #2f3c48; border-radius:6px; color:#7f8c99; display:flex; align-items:center; padding:0 8px; max-width:62%; }
+  .rail { position:relative; border-left:1px solid #34404c; background:#151b22; padding:8px; display:grid; grid-template-rows:auto auto minmax(0,1fr) 6px minmax(0,1fr); min-height:0; }
+  .resize { position:absolute; left:-4px; top:0; bottom:0; width:8px; cursor:col-resize; }
+  .resize:after { content:''; position:absolute; left:3px; top:42%; height:54px; border-left:2px solid #526274; border-radius:2px; }
+  .railbar { display:flex; align-items:center; justify-content:space-between; color:#b1bdc9; padding:1px 2px 7px; }
+  .railbar b { font-size:11px; letter-spacing:.04em; }
+  .collapse { color:#7d8b99; border:1px solid #364352; border-radius:5px; padding:1px 5px; }
+  .meta-row { border:1px solid #303b47; border-radius:6px; padding:5px 7px; margin-bottom:5px; color:#91a0ae; display:flex; justify-content:space-between; }
+  .section { border:1px solid #2e3945; border-radius:7px; background:#121820; overflow:hidden; min-height:0; }
+  .section-head { height:29px; border-bottom:1px solid #2e3945; display:flex; align-items:center; justify-content:space-between; padding:0 7px; color:#acb8c4; font-weight:700; text-transform:uppercase; letter-spacing:.07em; }
+  .tree { padding:6px 7px; color:#82909f; overflow:hidden; }
+  .tree div { padding:2px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tree .phase { color:#a9b6c3; font-weight:650; }
+  .tree .indent { padding-left:10px; border-left:1px solid #34404c; margin-left:3px; }
+  .tree .active { color:#8dccff; }
+  .tree .done { color:#626f7b; text-decoration:line-through; }
+  .tree .failed { color:#ed8d8d; }
+  .splitter { display:grid; place-items:center; color:#536171; cursor:row-resize; }
+  .composer { border-top:1px solid #303a45; padding:9px 13px; background:#11171d; }
+  .compose-box { height:61px; border:1px solid #3b4855; border-radius:9px; background:#171e26; position:relative; }
+  .compose-box:before { content:'Message Main…'; position:absolute; left:10px; top:9px; color:#596775; }
+  .queue { position:absolute; left:9px; bottom:7px; border:1px solid #5b4931; color:#e2ae65; border-radius:999px; padding:2px 6px; }
+  .send { position:absolute; right:8px; bottom:6px; background:#245a7e; color:#d6efff; border-radius:6px; padding:3px 7px; }
+  .footer { border-top:1px solid #27313b; display:flex; align-items:center; justify-content:space-between; padding:0 9px; color:#596674; font-size:9px; }
+  .narrow-wrap { margin-top:18px; display:grid; grid-template-columns:1fr 340px; gap:18px; }
+  .narrow-note { display:flex; flex-direction:column; justify-content:center; }
+  .narrow-note h3 { margin:0 0 6px; }
+  .narrow-note p { margin:0 0 9px; color:var(--muted); line-height:1.5; }
+  .mini { height:300px; display:grid; grid-template-rows:28px 1fr 62px; }
+  .mini-top { border-bottom:1px solid #303a45; color:#83909e; padding:7px 9px; }
+  .mini-body { display:grid; grid-template-columns:1fr 36px; min-height:0; }
+  .mini-chat { padding:11px; }
+  .mini-chat div { height:24px; border:1px solid #2e3b48; border-radius:7px; background:#1a232d; margin-bottom:8px; }
+  .mini-launcher { border-left:1px solid #34404c; background:#151b22; display:flex; flex-direction:column; align-items:center; gap:8px; padding-top:8px; color:#8dccff; }
+  .mini-icon { width:23px; height:23px; display:grid; place-items:center; border:1px solid #3b4a59; border-radius:6px; }
+  .mini-compose { border-top:1px solid #303a45; padding:7px; }
+  .mini-compose div { height:46px; border:1px solid #3b4855; border-radius:7px; background:#171e26; }
+  .decisions { margin-top:18px; display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .decision { border:1px solid var(--border); border-radius:9px; padding:10px; background:var(--card-bg); }
+  .decision b { display:block; font-size:12px; margin-bottom:3px; }
+  .decision span { color:var(--muted); font-size:11.5px; line-height:1.4; }
+  .approval { margin-top:18px; display:flex; gap:10px; }
+  .approval .option { flex:0 0 auto; }
+  @media(max-width:950px){.desktop{grid-template-columns:70px 1fr}.content{grid-template-columns:1fr 230px}.narrow-wrap{grid-template-columns:1fr}.decisions{grid-template-columns:repeat(2,1fr)}}
+</style>
+
+<h2>Integrated design: right activity sidebar</h2>
+<p class="subtitle">Selected direction assembled as one workspace. The transcript and activity rail share the upper canvas; the composer remains the only full-width horizontal band.</p>
+
+<div class="mock desktop">
+  <aside class="global"><div class="brand">› omp</div><div class="nav-label">Sessions</div><div class="nav-item on">gui / current</div><div class="nav-item">agent-view</div><div class="nav-item">remote host</div><div class="nav-label">Recent</div><div class="nav-item">Sidebar design</div><div class="nav-item">Fix history</div></aside>
+  <div class="top"><span>gui · main</span><span>model · context · commands</span></div>
+  <main class="workspace">
+    <div class="context"><span class="dot"></span><b>Main</b><span>Main session</span><span>·</span><span>Ready</span></div>
+    <div class="content">
+      <section class="transcript"><div class="turn me"><div class="who">You</div><div class="message">Move Todo and Agents into a right sidebar.</div></div><div class="turn"><div class="who">Assistant</div><div class="message">I’ll keep the transcript wide, preserve the full-width composer, and use two independently scrollable trees.</div><div class="tool">Tasks · 3 steps complete</div></div><div class="turn me"><div class="who">You</div><div class="message">Use the balanced layout.</div></div></section>
+      <aside class="rail"><div class="resize"></div><div><div class="railbar"><b>Activity</b><span class="collapse">›</span></div><div class="meta-row"><span>Plan mode</span><span>›</span></div><div class="meta-row"><span>Goal · 36%</span><span>›</span></div></div><section class="section"><div class="section-head"><span>⌄ Todos</span><span>2/6</span></div><div class="tree"><div class="phase">Sidebar design</div><div class="indent done">✓ Explore layout</div><div class="indent active">◉ Present design</div><div class="indent">○ Write specification</div><div class="indent">○ Implement rail</div><div class="indent">○ Verify behavior</div></div></section><div class="splitter">•••</div><section class="section"><div class="section-head"><span>⌄ Agents</span><span>1/3</span></div><div class="tree"><div class="active">◆ Main · viewing</div><div class="indent">├─ LayoutScout · running</div><div class="indent failed">├─ Review · failed</div><div class="indent done">└─ HistoryTest · done</div></div></section></aside>
+    </div>
+    <div class="composer"><div class="compose-box"><span class="queue">2 queued</span><span class="send">Send</span></div></div>
+    <div class="footer"><span>main · ready</span><span>activity 300px</span></div>
+  </main>
+</div>
+
+<div class="narrow-wrap">
+  <div class="narrow-note"><h3>Narrow-canvas state</h3><p>When the transcript would become too narrow—or the existing outer tools panel consumes the available width—the rail auto-collapses without changing the user’s remembered open state.</p><p>The slim launcher retains Todo and Agents counts. Expanding it reserves width again; when space returns, the prior 300px layout restores.</p></div>
+  <div class="mock mini"><div class="mini-top">Main session · narrow canvas</div><div class="mini-body"><div class="mini-chat"><div></div><div></div><div></div></div><aside class="mini-launcher"><div class="mini-icon">✓</div><div class="mini-icon">◆</div><div class="mini-icon">›</div></aside></div><div class="mini-compose"><div></div></div></div>
+</div>
+
+<div class="decisions"><div class="decision"><b>Width</b><span>300px default; drag between 240–420px; persist globally.</span></div><div class="decision"><b>Tree split</b><span>Balanced by default; draggable divider; each tree independently scrollable and collapsible.</span></div><div class="decision"><b>Other status</b><span>Plan/Goal compact inline rows; queued messages become a composer chip.</span></div><div class="decision"><b>Agents</b><span>Main + hierarchy list only. Graph and List/Graph toggle removed.</span></div></div>
+
+<div class="approval options"><div class="option" data-choice="layout-approved" onclick="toggleSelect(this)"><div class="letter">✓</div><div class="content"><h3>Layout looks right</h3><p>Proceed to behavior, data flow, and edge cases.</p></div></div><div class="option" data-choice="layout-revise" onclick="toggleSelect(this)"><div class="letter">↺</div><div class="content"><h3>Needs adjustment</h3><p>I’ll describe what should change in chat.</p></div></div></div>

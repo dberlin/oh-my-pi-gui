@@ -84,6 +84,7 @@
 - **Native macOS menu-bar mark**: the generic colored status dot is replaced by a crisp Retina π template icon that automatically follows light, dark and selected menu-bar states.
 - **Recent-first navigation**: sidebar sessions and workspace groups now move dynamically by last use, persist that MRU order across restarts and package updates, retain pinned-first priority, and preserve relevance ordering while searching.
 - **Quieter execution history**: each reasoning/tool run now folds into one lightweight inline activity summary instead of a stack of nested cards and scroll boxes; active work opens for progress, then both successful and failed runs collapse to an outcome summary with full details available on demand.
+- **Current package and build stack**: updated direct runtime and development dependencies to their current stable releases, replaced `electron-vite` with `vite-plugin-electron`, and moved the renderer, main, and preload builds to Vite 8 while preserving the packaged `out/` layout.
 
 ### Fixed
 
@@ -98,7 +99,7 @@
 - **Fresh local packages**: every packaging command now rebuilds the Electron app first instead of silently reusing an old `out/` directory.
 - **Default startup tab**: untargeted launches and new windows now open a fresh, unnamed global chat without inheriting a random recent workspace or auto-resuming its session; the chat's internal process cwd is no longer presented as a selected workspace.
 - **Streaming transcript reading position**: any manual scroll-up releases tail following immediately; live-row growth no longer competes with native browser anchoring, and finalizing a streamed response preserves the virtual row identity instead of snapping an unpinned reader to the bottom.
-
+- **Nested-checkout React resolution**: added the missing `linkedom` test dependency and made Vitest use one React module graph across hoisted workspace dependencies, preventing invalid-hook failures after clean dependency installs.
 ## [0.8.0] - 2026-08-14
 
 ### Changed

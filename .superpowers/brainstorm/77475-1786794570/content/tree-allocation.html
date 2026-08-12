@@ -1,0 +1,61 @@
+<style>
+  .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; margin-top:20px; }
+  .card { cursor:pointer; border:1px solid var(--border); border-radius:14px; background:var(--card-bg); overflow:hidden; transition:.15s ease; }
+  .card:hover { border-color:var(--accent); transform:translateY(-1px); }
+  .card.selected { outline:2px solid var(--accent); border-color:var(--accent); }
+  .copy { padding:14px 15px 10px; min-height:103px; }
+  .title { display:flex; align-items:center; gap:9px; margin-bottom:5px; }
+  .letter { width:27px; height:27px; flex:none; display:grid; place-items:center; border-radius:8px; background:var(--accent); color:white; font-weight:750; }
+  h3 { margin:0; font-size:15px; }
+  .copy p { margin:0; color:var(--muted); font-size:12.5px; line-height:1.4; }
+  .shell { margin:0 15px 14px; height:430px; display:grid; grid-template-columns:1fr 208px; border:1px solid #35414e; border-radius:10px; overflow:hidden; background:#10151b; color:#dbe5ef; font:10.5px/1.35 ui-monospace,SFMono-Regular,monospace; }
+  .chat { padding:14px; background:#10151b; }
+  .bubble { height:26px; width:72%; margin-bottom:10px; border:1px solid #2e3b48; border-radius:8px; background:#1b2530; }
+  .bubble.me { width:48%; margin-left:auto; background:#172a3c; }
+  .rail { border-left:1px solid #34404c; background:#151b22; padding:8px; display:flex; flex-direction:column; min-height:0; }
+  .meta { border:1px solid #303c48; border-radius:6px; padding:5px 7px; margin-bottom:5px; color:#94a2b1; display:flex; justify-content:space-between; }
+  .section { min-height:0; border:1px solid #2d3844; border-radius:7px; overflow:hidden; background:#121820; }
+  .section + .section { margin-top:7px; }
+  .section-head { height:27px; display:flex; align-items:center; justify-content:space-between; padding:0 7px; border-bottom:1px solid #2d3844; color:#b1bdc9; font-weight:700; text-transform:uppercase; letter-spacing:.07em; }
+  .list { padding:6px 7px; color:#8493a3; overflow:hidden; }
+  .list div { padding:2px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .list .active { color:#8dccff; }
+  .list .done { color:#64717d; text-decoration:line-through; }
+  .list .error { color:#ef8d8d; }
+  .balanced .todo { flex:1; }
+  .balanced .agents { flex:1; }
+  .divider { height:5px; margin:1px 0; display:grid; place-items:center; color:#556271; }
+  .natural { overflow:auto; }
+  .natural .section { flex:none; }
+  .natural .todo .list { height:205px; }
+  .natural .agents .list { height:110px; }
+  .accordion .section.collapsed { flex:none; }
+  .accordion .section.collapsed .section-head { border-bottom:0; }
+  .accordion .section.expanded { flex:1; }
+  .summary { padding:7px; color:#788696; }
+  .tag { display:inline-block; margin:0 15px 14px; color:var(--accent); background:color-mix(in srgb,var(--accent) 15%,transparent); border-radius:999px; padding:4px 8px; font-size:11px; font-weight:700; }
+  @media (max-width:1050px){ .grid{grid-template-columns:1fr;} .shell{height:380px;} }
+</style>
+
+<h2>How should Todo and Agents share the sidebar height?</h2>
+<p class="subtitle">Plan and Goal remain compact rows at the top; the queue chip stays in the composer. This choice controls how the two trees behave when either becomes long.</p>
+
+<div class="grid">
+  <div class="card" data-choice="balanced-split" onclick="toggleSelect(this)">
+    <div class="copy"><div class="title"><div class="letter">A</div><h3>Balanced independent trees</h3></div><p>Both trees stay visible. Each section scrolls independently; the divider can be dragged, and each section can collapse.</p></div>
+    <div class="shell"><div class="chat"><div class="bubble me"></div><div class="bubble"></div><div class="bubble"></div><div class="bubble me"></div></div><aside class="rail balanced"><div class="meta"><span>Plan mode</span><span>›</span></div><div class="meta"><span>Goal · 36%</span><span>›</span></div><div class="section todo"><div class="section-head"><span>⌄ Todos</span><span>2/6</span></div><div class="list"><div class="done">✓ Inspect layout</div><div class="active">◉ Build sidebar</div><div>○ Move queue chip</div><div>○ Add narrow mode</div><div>○ Verify history</div></div></div><div class="divider">•••</div><div class="section agents"><div class="section-head"><span>⌄ Agents</span><span>2/4</span></div><div class="list"><div class="active">◆ Main · viewing</div><div>├─ Scout · running</div><div class="error">├─ Reviewer · failed</div><div>└─ Tests · completed</div></div></div></aside></div>
+    <span class="tag">Recommended · always visible</span>
+  </div>
+
+  <div class="card" data-choice="single-scroll" onclick="toggleSelect(this)">
+    <div class="copy"><div class="title"><div class="letter">B</div><h3>Natural height, one sidebar scroll</h3></div><p>Each tree grows to its content and the whole rail scrolls. Simpler, but a large Todo list can push Agents below the fold.</p></div>
+    <div class="shell"><div class="chat"><div class="bubble me"></div><div class="bubble"></div><div class="bubble"></div><div class="bubble me"></div></div><aside class="rail natural"><div class="meta"><span>Plan mode</span><span>›</span></div><div class="meta"><span>Goal · 36%</span><span>›</span></div><div class="section todo"><div class="section-head"><span>⌄ Todos</span><span>2/9</span></div><div class="list"><div class="done">✓ Inspect layout</div><div class="active">◉ Build sidebar</div><div>○ Move queue chip</div><div>○ Add narrow mode</div><div>○ Verify history</div><div>○ Update locales</div><div>○ Smoke test</div><div>○ Review changes</div></div></div><div class="section agents"><div class="section-head"><span>⌄ Agents</span><span>2/4</span></div><div class="list"><div class="active">◆ Main · viewing</div><div>└─ Scout · running</div></div></div></aside></div>
+  </div>
+
+  <div class="card" data-choice="accordion" onclick="toggleSelect(this)">
+    <div class="copy"><div class="title"><div class="letter">C</div><h3>Accordion focus</h3></div><p>One tree receives almost all available height; the other collapses to a summary header. Best density, weakest simultaneous awareness.</p></div>
+    <div class="shell"><div class="chat"><div class="bubble me"></div><div class="bubble"></div><div class="bubble"></div><div class="bubble me"></div></div><aside class="rail accordion"><div class="meta"><span>Plan mode</span><span>›</span></div><div class="meta"><span>Goal · 36%</span><span>›</span></div><div class="section todo collapsed"><div class="section-head"><span>› Todos</span><span>2/6</span></div></div><div class="section agents expanded"><div class="section-head"><span>⌄ Agents</span><span>2/4</span></div><div class="list"><div class="active">◆ Main · viewing</div><div>├─ Scout · running</div><div class="error">├─ Reviewer · failed</div><div>└─ Tests · completed</div></div></div></aside></div>
+  </div>
+</div>
+
+<p style="margin-top:14px;color:var(--muted);font-size:13px">Click the tree behavior you prefer, then respond in chat.</p>
