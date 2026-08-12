@@ -1,0 +1,1 @@
+{"label":"final-complete-tests","cwd":"/Users/dannyb/sources/omp-monorepo/packages/gui","command":["bunx","vitest","run","--maxWorkers=1"],"exitCode":0,"durationMs":68849,"directory":"/Users/dannyb/sources/omp-monorepo/packages/gui/.superpowers/brainstorm/63451-1790774876/state/checks/final-complete-tests"}

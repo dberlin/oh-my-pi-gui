@@ -1,0 +1,1237 @@
+## ipc.test.ts subscribeWindowClosed
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (18)
+
+FAIL  src/main/ipc.test.ts > local-only project handlers > rejects select-project for an SSH-owned active sidecar before local effects
+TypeError: windowManager.subscribeWindowClosed is not a function
+ ❯ Module.registerIpcHandlers src/main/ipc.ts:916:16
+    914|  // Drop a closed window's tray/progress snapshot so the aggregate ref…
+    915|  // only live windows (and re-render the tray with the new aggregate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ registerProjectHandlerFixture src/main/ipc.test.ts:124:2
+ ❯ src/main/ipc.test.ts:257:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/63]⎯
+
+ FAIL  src/main/ipc.test.ts > local-only project handlers > rejects set-project for an SSH-owned active sidecar before local effects
+TypeError: windowManager.subscribeWindowClosed is not a function
+ ❯ Module.registerIpcHandlers src/main/ipc.ts:916:16
+    914|  // Drop a closed window's tray/progress snapshot so the aggregate ref…
+    915|  // only live windows (and re-render the tray with the new aggregate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ registerProjectHandlerFixture src/main/ipc.test.ts:124:2
+ ❯ src/main/ipc.test.ts:272:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/63
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (19)
+
+FAIL  src/main/ipc.test.ts > local SSH settings handlers > rejects malformed SSH management commands before local dispatch
+TypeError: windowManager.subscribeWindowClosed is not a function
+ ❯ Module.registerIpcHandlers src/main/ipc.ts:916:16
+    914|  // Drop a closed window's tray/progress snapshot so the aggregate ref…
+    915|  // only live windows (and re-render the tray with the new aggregate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ registerLocalSshHandlerFixture src/main/ipc.test.ts:221:2
+ ❯ src/main/ipc.test.ts:340:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/63]⎯
+
+ FAIL  src/main/ipc.test.ts > local SSH settings handlers > uses the active local tab's project for SSH settings
+TypeError: windowManager.subscribeWindowClosed is not a function
+ ❯ Module.registerIpcHandlers src/main/ipc.ts:916:16
+    914|  // Drop a closed window's tray/progress snapshot so the aggregate ref…
+    915|  // only live windows (and re-render the tray with the new aggregate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ registerLocalSshHandlerFixture src/main/ipc.test.ts:221:2
+ ❯ src/main/ipc.test.ts:365:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/63]⎯
+
+ FAIL  src/main/ipc.test.t
+
+---
+
+## packaging-config.test.ts afterPack
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
++ Received:
+undefined
+
+ ❯ src/main/packaging-config.test.ts:111:67
+    109|     await savePlistFile(plistPath, original);
+    110|     const hookPath = config.afterPack;
+    111|     expect(hookPath, `${file} declares no afterPack policy hook`).toBe…
+       |                                                                   ^
+    112|     if (!hookPath) continue;
+    113|     const afterPack = require(path.resolve(PACKAGE_ROOT, hookPath)).af…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/63]⎯
+
+ FAIL  src/main/stats-server.test.ts > statsServerPort > accepts the IPv4 loopback URL emitted by the bundled stats command
+AssertionError: expected null to be 3847 // Object.is equality
+
+- Expected:
+3847
+…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (21)
+
+…ate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ src/main/ipc.test.ts:664:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/63]⎯
+
+ FAIL  src/main/packaging-config.test.ts > mac bundle configs > sees every builder variant sitting in the package root
+AssertionError: expected 'electron-builder.base.yml,electron-bu…' to be 'electron-builder.trial.yml,electron-b…' // Object.is equality
+
+Expected: "electron-builder.trial.yml,electron-builder.x64.yml,electron-builder.yml"
+Received: "electron-builder.base.yml,electron-builder.x64.yml,electron-builder.yml"
+
+ ❯ src/main/packaging-config.test.ts:57:5
+     55|     .sort()
+     56|     .join(","),
+     57|   ).toBe("electron-builder.trial.yml,electron-builder.x64.yml,electron…
+       |     ^
+     58|  });
+     59|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/63]⎯
+
+ FAIL  src/main/packaging-config.test.ts > mac bundle configs > registers the omp:// scheme that src/main/deep-link.ts handles
+AssertionError: electron-builder.x64.yml ships no URL scheme: expected [] to include 'omp'
+ ❯ src/main/packaging-config.test.ts:63:51
+     61|   for (const { file, config } of configs) {
+     62|    const schemes = (config.protocols ?? []).flatMap(protocol => protoc…
+     63|    expect(schemes, `${file} ships no URL scheme`).toContain("omp");
+       |                                                   ^
+     64|   }
+     
+
+---
+
+## stats-server.test.ts statsServerPort
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
+…th, `${file} declares no afterPack policy hook`).toBe…
+       |                                                                   ^
+    112|     if (!hookPath) continue;
+    113|     const afterPack = require(path.resolve(PACKAGE_ROOT, hookPath)).af…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/63]⎯
+
+ FAIL  src/main/stats-server.test.ts > statsServerPort > accepts the IPv4 loopback URL emitted by the bundled stats command
+AssertionError: expected null to be 3847 // Object.is equality
+
+- Expected:
+3847
+
++ Received:
+null
+
+ ❯ src/main/stats-server.test.ts:80:76
+     78| describe("statsServerPort", () => {
+     79|  it("accepts the IPv4 loopback URL emitted by the bundled stats comman…
+     80|   expect(statsServerPort("Dashboard available at: http://127.0.0.1:384…
+       |                                                                            ^
+     81|  });
+     82| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/63]⎯
+
+ FAIL  src/renderer/stores/tabs.test.tsx > tabs store switch > joins the owning A recovery …
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (4)
+
+stdout | src/main/stats-server.test.ts > a live listener is never respawned by a demand-driven revive
+[stats-server] ready on port 55123
+
+stdout | src/main/stats-server.test.ts > split numeric loopback readiness selects the bundled listener and resets after exit
+[stats-server] spawning: /var/folders/62/10dlkj4x7_13gk9c_hrjzmcr0000gn/T/.ctx-mode-08U1D8/omp-stats-ready-MJTxc1/stats.ts stats --host 127.0.0.1 --port 0 --no-open
+
+stdout | src/main/stats-server.test.ts > split numeric loopback readiness selects the bundled listener and resets after exit
+[stats-server] ready on port 54321
+
+---
+
+## tabs.test.tsx owning recovery
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
+…back URL emitted by the bundled stats comman…
+     80|   expect(statsServerPort("Dashboard available at: http://127.0.0.1:384…
+       |                                                                            ^
+     81|  });
+     82| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/63]⎯
+
+ FAIL  src/renderer/stores/tabs.test.tsx > tabs store switch > joins the owning A recovery across an A-to-B-to-A route cycle
+AssertionError: expected "vi.fn()" to be called 1 times, but got 2 times
+ ❯ src/renderer/stores/tabs.test.tsx:1138:28
+    1136|   await Promise.all([oldRecovery, switchingBack]);
+    1137|
+    1138|   expect(omp.rpc.getState).toHaveBeenCalledTimes(1);
+       |                            ^
+    1139|   expect(useSessionStore.getState().sessionId).toBe("recovered-a");
+    1140|   expect(useSessionStore.getState().cwd).toBe("/recovered-a");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/63]⎯
+
+ FAIL  src/renderer/components/chat/TranscriptViewport.test.tsx > TranscriptViewport find > closes an already-open find session in one viewport when a second viewport opens its own
+Error: find panes missing
+ ❯ src/renderer/components/chat/TranscriptViewport.test.tsx:1172:32
+    1170|    const paneA = mounted.querySelector<HTMLElement>('[data-pane="a"] .…
+    1171|    const paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .…
+    1172|    if (!paneA || !paneB) thr…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (3)
+
+…    ✓ sanitizes and bounds raw pending arguments before the parsed arguments arrive 1ms
+     ✓ renders a failed undispatched device response through the generic fallback 1ms
+     ✓ keeps an expanded card expanded when the row is virtualized away and back 2ms
+     ✓ lets expand-all override a card's own choice 2ms
+ ✓ src/renderer/components/chat/ChatStream.test.tsx (37 tests) 65ms
+ ✓ src/main/remote-ssh.test.ts (55 tests) 2463ms
+     ✓ executes the workspace helper without following a symlink outside its trusted root  1238ms
+     ✓ executes the discovered POSIX handle helper against a real file…
+
+…s the roving tab stop without stealing focus after the tree loses focus 4ms
+     ✓ collapses branches and uses Right and Left for child and parent navigation 12ms
+     ✓ keeps lifecycle actions isolated from row selection and activation 14ms
+     ✓ does not move focus from a lifecycle button to its owning row during refresh 4ms
+     ✓ guards activation until the incoming tab route is ready 4ms
+     ✓ guards lifecycle actions until the incoming tab route is ready 5ms
+     ✓ shows roster errors rather than an empty claim and recovers through Retry 5ms
+     ✓ retains navigable roster rows when re…
+
+…rnally activated target 3ms
+     ✓ derives explicit and tool-call fallback ancestry with correct aria levels 4ms
+     ✓ keeps historical terminal and parked agents navigable 7ms
+     × updates elapsed time for live agents and freezes terminal and stale duration samples 1059ms
+ ❯ src/renderer/stores/…
+
+---
+
+## CommandPalette.agent-view.test.tsx Todo
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (23)
+
+FAIL  src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx > CommandPalette selected-subagent mode > reveals and focuses an empty Todo section through the real palette command path for the active tab
+AssertionError: expected { width: 300, hydrated: false, …(16) } to match object { manualCollapsed: false, …(3) }
+(14 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "focusRequest": {
+-     "id": "todo",
+-     "seq": 1,
+-   },
++   "focusRequest": null,
+    "manualCollapsed": false,
+-   "narrowOverrideTabId": "tab-a",
++   "narrowOverrideTabId": null,
+    "treeCollapsed": {
+      "agents": false,
+-     "todo": false,
++     "todo": true,
+    },
+  }
+
+ ❯ src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx:263:46
+    261|   await flush();
+    262|
+    263|   expect(useActivitySidebarStore.getState()).toMatchObject({
+       |                                              ^
+    264|    manualCollapsed: false,
+    265|    treeCollapsed: { todo: false, agents: false },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/63]⎯
+
+ FAIL  src/renderer/components/layout/InputArea.queue-shorthand.test.tsx > InputArea prompt history > records a prompt once the sidecar accepts it
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'delivered prompt', [] ]…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
+…nst paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .…
+    1172|    if (!paneA || !paneB) throw new Error("find panes missing");
+       |                                ^
+    1173|
+    1174|    focusOverride(paneA);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/63]⎯
+
+ FAIL  src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx > CommandPalette selected-subagent mode > keeps Main mutation commands unchanged when Main is selected
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx:197:46
+    195|   await mountPalette();
+    196|
+    197|   expect(await runIfPresent("/unsafe-main")).toBe(true);
+       |                                              ^
+    198|   expect(prompt).toHaveBeenCalledWith("/unsafe-main");
+    199|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/63]⎯
+
+ FAIL  src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx > CommandPalette selected-subagent mode > rechecks the target before a command captured on Main can execute
+Error: Expected Main prompt command
+ ❯ src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx:214:32
+    212|   await openPalette();
+    213|   const staleMainCommand = commandButton("/unsafe-main");
+    214|   if (!staleMainCommand) throw new Error("Expected Main prompt command…
+       |                                ^
+    215|   const clickStaleMainComma…
+
+---
+
+## InputArea.queue-shorthand.test.tsx history
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (23)
+
+…   262|
+    263|   expect(useActivitySidebarStore.getState()).toMatchObject({
+       |                                              ^
+    264|    manualCollapsed: false,
+    265|    treeCollapsed: { todo: false, agents: false },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/63]⎯
+
+ FAIL  src/renderer/components/layout/InputArea.queue-shorthand.test.tsx > InputArea prompt history > records a prompt once the sidecar accepts it
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'delivered prompt', [] ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+    "delivered prompt",
+    [],
++   "steer",
+  ]
+
+Number of calls: 1
+
+ ❯ src/renderer/components/layout/InputArea.queue-shorthand.test.tsx:566:18
+    564|   await flush();
+    565|
+    566|   expect(prompt).toHaveBeenCalledWith("delivered prompt", []);
+       |                  ^
+    567|   expect(useInputHistoryStore.getState().entries.map(entry => entry.pr…
+    568|  });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/6…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (10)
+
+…ided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:99162) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | src/renderer/components/layout/InputArea.queue-shorthand.test.tsx > InputArea queue shorthand submit > does not dispatch a deferred prompt through a tab selected after Enter
+An update to MainInputArea inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+a…
+
+…ates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | src/renderer/components/layout/InputArea.queue-shorthand.test.tsx > InputArea queue shorthand submit > stops a multi-item queue before a later item can cross into another tab
+An update to MainInputArea inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+…
+
+---
+
+## Sidebar.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (24)
+
+FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > lists the former titlebar actions below New session and collapses them as one menu
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > + button offers explicit local, remote, and chat creation paths
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > global remote creation opens a host-only chooser
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > uses visible vertical signal lights for session state
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > uses the open tab's live status instead of the session file's stale completion status
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > aligns workspace and session titles with folder, chat, and reserved icon slots
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > right-click on a workspace header opens the agent-only 5-item group menu
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > right-click on a session row opens the 6-item session menu
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > rename and delete stay enabled for idle tasks while another task runs
+ FAIL  src/renderer/components/layout/Sidebar.t…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI typecheck
+
+# GUI typecheck
+
+$ bun run check:types
+
+src/renderer/components/chat/TranscriptViewport.test.tsx(929,8): error TS2740: Type '{ isStreaming: false; awaitingModelSince: null; retryInfo: null; compactionInfo: null; status: "ready"; collapseCompacted: false; switchPending: false; todoHistory: never[]; queued: { steering: never[]; followUp: never[]; }; isChat: false; }' is missing the following properties from type 'MainTranscriptAugments': tabId, hasLiveToolsForStream, lastAppended, transcriptPinNonce, and 2 more.
+src/renderer/components/layout/Sidebar.test.tsx(505,6): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(35,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(67,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(82,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/UpstreamParityRenderers.test.tsx(98,5): error TS17001: JSX elements cannot have multiple attributes with the same name.
+src/renderer/locales/en.ts(862,2): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/locales/zh.ts(844,2): error TS1117: An object literal cannot have multiple properties with the same name.
+$ tsc --noEmit
+
+---
+
+## TranscriptViewport.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
+…p.rpc.getState).toHaveBeenCalledTimes(1);
+       |                            ^
+    1139|   expect(useSessionStore.getState().sessionId).toBe("recovered-a");
+    1140|   expect(useSessionStore.getState().cwd).toBe("/recovered-a");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/63]⎯
+
+ FAIL  src/renderer/components/chat/TranscriptViewport.test.tsx > TranscriptViewport find > closes an already-open find session in one viewport when a second viewport opens its own
+Error: find panes missing
+ ❯ src/renderer/components/chat/TranscriptViewport.test.tsx:1172:32
+    1170|    const paneA = mounted.querySelector<HTMLElement>('[data-pane="a"] .…
+    1171|    const paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .…
+    1172|    if (!paneA || !paneB) throw new Error("find panes missing");
+       |                  …
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI typecheck
+
+# GUI typecheck
+
+$ bun run check:types
+
+src/renderer/components/chat/TranscriptViewport.test.tsx(929,8): error TS2740: Type '{ isStreaming: false; awaitingModelSince: null; retryInfo: null; compactionInfo: null; status: "ready"; collapseCompacted: false; switchPending: false; todoHistory: never[]; queued: { steering: never[]; followUp: never[]; }; isChat: false; }' is missing the following properties from type 'MainTranscriptAugments': tabId, hasLiveToolsForStream, lastAppended, transcriptPinNonce, and 2 more.
+src/renderer/components/layout/Sidebar.test.tsx(505,6): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(35,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(67,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(82,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/UpstreamParityRenderers.test.tsx(98,5): error TS17001: JSX elements cannot have multiple attributes with the same name.
+src/renderer/locales/en.ts(862,2): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/locales/zh.ts(844,2): error TS1117: An object literal cannot have multiple properties with the same name.
+$ tsc --noEmit
+
+---
+
+## AgentTree.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (25)
+
+…ED_GLOB_PATH");
+    791|   expect(framed.textContent).not.toContain("SHARED_BASH_BODY");
+       |                                  ^
+    792|
+    793|   await act(async () => useUiStore.getState().toggleToolsExpandAll());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/63]⎯
+
+ FAIL  src/renderer/components/chat/activity/AgentTree.test.tsx > AgentTree > updates elapsed time for live agents and freezes terminal and stale duration samples
+AssertionError: expected 'stale-agentno turnstale-agent#38s' to contain '7s'
+
+Expected: "7s"
+Received: "stale-agentno turnstale-agent#38s"
+
+ ❯ src/renderer/components/chat/activity/AgentTree.test.tsx:667:42
+    665|   expect(row("live-agent").textContent).toContain("2s");
+    666|   expect(row("done-agent").textContent).toContain("4s");
+    667|   expect(row("stale-agent").textContent).toContain("7s");
+       |                                          ^
+    668|  });
+    669| …
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (3)
+
+… ✓ executes the discovered POSIX handle helper against a real file descriptor  585ms
+     ✓ rejects a same-named file outside every remote trusted root before transferring bytes  540ms
+ ✓ src/renderer/components/settings/ModelCompare.test.tsx (10 tests) 79ms
+ ❯ src/renderer/components/chat/activity/AgentTree.test.tsx (24 tests | 1 failed) 1357ms
+     ✓ keeps Main navigable when the roster is empty 13ms
+     ✓ renders every agent without a summary cutoff 10ms
+     ✓ opens a subagent transcript on one click and returns to Main on one click 7ms
+     ✓ uses Space to select a row without activating…
+
+---
+
+## TodoTree.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (25)
+
+…in("2s");
+    666|   expect(row("done-agent").textContent).toContain("4s");
+    667|   expect(row("stale-agent").textContent).toContain("7s");
+       |                                          ^
+    668|  });
+    669| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/63]⎯
+
+ FAIL  src/renderer/components/chat/activity/TodoTree.test.tsx > TodoTree > sanitizes todo previews without changing stored task content
+AssertionError: expected '\u001b[31mone\u001b[0m' to be 'one' // Object.is equality
+
+Expected: "one"
+Received: "[31mone[0m"
+
+ ❯ src/renderer/components/chat/activity/TodoTree.test.tsx:553:45
+    551|
+    552|   expect(treeItem("one").getAttribute("aria-label")).toBe("one");
+    553|   expect(text("one").getAttribute("title")).toBe("one");
+       |                                             ^
+    554|   expect(treeItem("Build").getAttribute("aria-label")).toBe("…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (5)
+
+…oses after readiness succeeds  312ms
+ ✓ src/renderer/components/layout/WorkspaceCanvas.test.tsx (20 tests) 156ms
+ ✓ src/renderer/components/layout/TabBar.test.tsx (27 tests) 231ms
+ ✓ src/renderer/components/dialogs/SessionTreeDialog.test.tsx (12 tests) 120ms
+ ❯ src/renderer/components/chat/activity/TodoTree.test.tsx (26 tests | 1 failed) 183ms
+     ✓ renders generated and explicit ID provenance on phase and task semantic rows 19ms
+     ✓ renders a stable empty tree body 2ms
+     ✓ keeps Main todos visible but removes every mutation path when read-only 5ms
+     ✓ restores status mutations on Ma…
+
+---
+
+## ToolCard.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (25)
+
+…evelopment.js:15476:11
+ ❯ recursivelyTraversePassiveMountEffects node_modules/react-dom/cjs/react-dom-client.development.js:15439:11
+ ❯ commitPassiveMountOnFiber node_modules/react-dom/cjs/react-dom-client.development.js:15718:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/63]⎯
+
+ FAIL  src/renderer/components/tools/ToolCard.test.tsx > ToolCard adaptive rendering > synchronizes shared expand and collapse across compact and framed cards
+AssertionError: expected 'bashfixture-command1ms$ fixture-comma…' not to contain 'SHARED_BASH_BODY'
+
+Expected: "SHARED_BASH_BODY"
+Received: "bashfixture-command1ms$ fixture-commandSHARED_BASH_BODY"
+
+ ❯ src/renderer/components/tools/ToolCard.test.tsx:791:34
+    789|   const framed = cardByName(container, "bash");
+    790|   expect(compact.textContent).toContain("SHARED_GLOB_PATH");
+    791|   expect(framed.textContent).not.toContain("SHARED_BASH_BODY");
+       |                                  ^
+    792|
+    793|   await act(a…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (3)
+
+✓ src/main/sidecar.test.ts (30 tests) 2903ms
+     ✓ drops a spawn whose env resolution was superseded by a restart  1313ms
+ ✓ src/renderer/components/chat/MessageBubble.test.tsx (21 tests) 174ms
+ ❯ src/renderer/components/tools/ToolCard.test.tsx (31 tests | 1 failed) 131ms
+     ✓ renders settled legacy device references as navigable locations without xdev metadata 12ms
+     ✓ renders Xdev help as bounded escaped documentation instead of LSP execution output 3ms
+     ✓ previews bounded MCP arguments and result or error line…
+
+---
+
+## Canonical protocol check RpcSessionState
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### Canonical protocol check (1)
+
+# Canonical protocol check
+
+$ bun run check:protocol
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### Canonical protocol check (2)
+
+…om type 'ReadableStream': readable, read, setEncoding, pause, and 21 more.
+../coding-agent/src/cli/gc-cli.ts(270,21): error TS2740: Type 'ReadableStream' is missing the following properties from type 'Readable': readableAborted, readableDidRead, readableEncoding, readableEnded, and 26 more.
+scripts/protocol/contract.ts(9,55): error TS2344: Type 'RpcCommand' does not satisfy the constraint '{ id?: string | undefined; type: "negotiate_protocol"; protocolVersion: number; } | { id?: string | undefined; type: "prompt"; message: string; images?: { type: "image"; data: string; mimeType: string; detail?: "auto" | ... 3 more ... | undefined; providerFile?: { ...; } | undefined; url?: string | undefined; }[] | ...'.
+  Type '{ id?: string | undefined; type: "drop_session"; }' is not assignable to type '{ id?: string | undefined; type: "negotiate_protocol"; protocolVersion: number; } | { id?: string | undefined; type: "prompt"; message: string; images?: { type: "image"; data: string; mimeType: string; detail?: "auto" | ... 3 more ... | undefined; providerFile?: { ...; } | undefined; url?: string | undefined; }[] | ...'.
+    Property 'providerId' is missing in type '{ id?: string | undefined; type: "drop_session"; }' but required in type '{ id?: string | undefined; type: "login"; providerId: string; }'.
+scripts/protocol/contract.ts(10,50): error TS2739: Type '{ model?: { id: string; kind?: "chat" | "embedding" | "image" | "judge" | "rerank" | "search" | "stt" | "tiny" | "tts" | "video" | 
+
+> Throttle: call #1/8 in this window. 2 call(s) before soft cap. Prefer ctx_search(queries: [...]) array form for multi-query workloads — it counts as a single call.
+mcp__context_mode_ctx_search
+execute
+ipc.test.ts subscribeWindowClosed
+packaging-config.test.ts afterPack
+stats-server.test.ts statsServerPort
+tabs.test.tsx owning recovery
+CommandPalette.agent-view.test.tsx Todo
+InputArea.queue-shorthand.test.tsx history
+Sidebar.test.tsx
+TranscriptViewport.test.tsx
+AgentTree.test.tsx
+TodoTree.test.tsx
+ToolCard.test.tsx
+Canonical protocol check RpcSessionState
+batch:GUI full Vitest suite
+write
+context-mode
+ctx_search
+text
+## ipc.test.ts subscribeWindowClosed
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (18)
+
+FAIL  src/main/ipc.test.ts > local-only project handlers > rejects select-project for an SSH-owned active sidecar before local effects
+TypeError: windowManager.subscribeWindowClosed is not a function
+ ❯ Module.registerIpcHandlers src/main/ipc.ts:916:16
+    914|  // Drop a closed window's tray/progress snapshot so the aggregate ref…
+    915|  // only live windows (and re-render the tray with the new aggregate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ registerProjectHandlerFixture src/main/ipc.test.ts:124:2
+ ❯ src/main/ipc.test.ts:257:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/63]⎯
+
+ FAIL  src/main/ipc.test.ts > local-only project handlers > rejects set-project for an SSH-owned active sidecar before local effects
+TypeError: windowManager.subscribeWindowClosed is not a function
+ ❯ Module.registerIpcHandlers src/main/ipc.ts:916:16
+    914|  // Drop a closed window's tray/progress snapshot so the aggregate ref…
+    915|  // only live windows (and re-render the tray with the new aggregate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ registerProjectHandlerFixture src/main/ipc.test.ts:124:2
+ ❯ src/main/ipc.test.ts:272:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/63
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (19)
+
+FAIL  src/main/ipc.test.ts > local SSH settings handlers > rejects malformed SSH management commands before local dispatch
+TypeError: windowManager.subscribeWindowClosed is not a function
+ ❯ Module.registerIpcHandlers src/main/ipc.ts:916:16
+    914|  // Drop a closed window's tray/progress snapshot so the aggregate ref…
+    915|  // only live windows (and re-render the tray with the new aggregate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ registerLocalSshHandlerFixture src/main/ipc.test.ts:221:2
+ ❯ src/main/ipc.test.ts:340:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/63]⎯
+
+ FAIL  src/main/ipc.test.ts > local SSH settings handlers > uses the active local tab's project for SSH settings
+TypeError: windowManager.subscribeWindowClosed is not a function
+ ❯ Module.registerIpcHandlers src/main/ipc.ts:916:16
+    914|  // Drop a closed window's tray/progress snapshot so the aggregate ref…
+    915|  // only live windows (and re-render the tray with the new aggregate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ registerLocalSshHandlerFixture src/main/ipc.test.ts:221:2
+ ❯ src/main/ipc.test.ts:365:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/63]⎯
+
+ FAIL  src/main/ipc.test.t
+
+---
+
+## packaging-config.test.ts afterPack
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
++ Received:
+undefined
+
+ ❯ src/main/packaging-config.test.ts:111:67
+    109|     await savePlistFile(plistPath, original);
+    110|     const hookPath = config.afterPack;
+    111|     expect(hookPath, `${file} declares no afterPack policy hook`).toBe…
+       |                                                                   ^
+    112|     if (!hookPath) continue;
+    113|     const afterPack = require(path.resolve(PACKAGE_ROOT, hookPath)).af…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/63]⎯
+
+ FAIL  src/main/stats-server.test.ts > statsServerPort > accepts the IPv4 loopback URL emitted by the bundled stats command
+AssertionError: expected null to be 3847 // Object.is equality
+
+- Expected:
+3847
+…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (21)
+
+…ate).
+    916|  windowManager.subscribeWindowClosed(record => {
+       |                ^
+    917|   for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorks…
+    918|   remoteRequests.cancelOwner(record.id);
+ ❯ src/main/ipc.test.ts:664:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/63]⎯
+
+ FAIL  src/main/packaging-config.test.ts > mac bundle configs > sees every builder variant sitting in the package root
+AssertionError: expected 'electron-builder.base.yml,electron-bu…' to be 'electron-builder.trial.yml,electron-b…' // Object.is equality
+
+Expected: "electron-builder.trial.yml,electron-builder.x64.yml,electron-builder.yml"
+Received: "electron-builder.base.yml,electron-builder.x64.yml,electron-builder.yml"
+
+ ❯ src/main/packaging-config.test.ts:57:5
+     55|     .sort()
+     56|     .join(","),
+     57|   ).toBe("electron-builder.trial.yml,electron-builder.x64.yml,electron…
+       |     ^
+     58|  });
+     59|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/63]⎯
+
+ FAIL  src/main/packaging-config.test.ts > mac bundle configs > registers the omp:// scheme that src/main/deep-link.ts handles
+AssertionError: electron-builder.x64.yml ships no URL scheme: expected [] to include 'omp'
+ ❯ src/main/packaging-config.test.ts:63:51
+     61|   for (const { file, config } of configs) {
+     62|    const schemes = (config.protocols ?? []).flatMap(protocol => protoc…
+     63|    expect(schemes, `${file} ships no URL scheme`).toContain("omp");
+       |                                                   ^
+     64|   }
+     
+
+---
+
+## stats-server.test.ts statsServerPort
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
+…th, `${file} declares no afterPack policy hook`).toBe…
+       |                                                                   ^
+    112|     if (!hookPath) continue;
+    113|     const afterPack = require(path.resolve(PACKAGE_ROOT, hookPath)).af…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/63]⎯
+
+ FAIL  src/main/stats-server.test.ts > statsServerPort > accepts the IPv4 loopback URL emitted by the bundled stats command
+AssertionError: expected null to be 3847 // Object.is equality
+
+- Expected:
+3847
+
++ Received:
+null
+
+ ❯ src/main/stats-server.test.ts:80:76
+     78| describe("statsServerPort", () => {
+     79|  it("accepts the IPv4 loopback URL emitted by the bundled stats comman…
+     80|   expect(statsServerPort("Dashboard available at: http://127.0.0.1:384…
+       |                                                                            ^
+     81|  });
+     82| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/63]⎯
+
+ FAIL  src/renderer/stores/tabs.test.tsx > tabs store switch > joins the owning A recovery …
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (4)
+
+stdout | src/main/stats-server.test.ts > a live listener is never respawned by a demand-driven revive
+[stats-server] ready on port 55123
+
+stdout | src/main/stats-server.test.ts > split numeric loopback readiness selects the bundled listener and resets after exit
+[stats-server] spawning: /var/folders/62/10dlkj4x7_13gk9c_hrjzmcr0000gn/T/.ctx-mode-08U1D8/omp-stats-ready-MJTxc1/stats.ts stats --host 127.0.0.1 --port 0 --no-open
+
+stdout | src/main/stats-server.test.ts > split numeric loopback readiness selects the bundled listener and resets after exit
+[stats-server] ready on port 54321
+
+---
+
+## tabs.test.tsx owning recovery
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
+…back URL emitted by the bundled stats comman…
+     80|   expect(statsServerPort("Dashboard available at: http://127.0.0.1:384…
+       |                                                                            ^
+     81|  });
+     82| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/63]⎯
+
+ FAIL  src/renderer/stores/tabs.test.tsx > tabs store switch > joins the owning A recovery across an A-to-B-to-A route cycle
+AssertionError: expected "vi.fn()" to be called 1 times, but got 2 times
+ ❯ src/renderer/stores/tabs.test.tsx:1138:28
+    1136|   await Promise.all([oldRecovery, switchingBack]);
+    1137|
+    1138|   expect(omp.rpc.getState).toHaveBeenCalledTimes(1);
+       |                            ^
+    1139|   expect(useSessionStore.getState().sessionId).toBe("recovered-a");
+    1140|   expect(useSessionStore.getState().cwd).toBe("/recovered-a");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/63]⎯
+
+ FAIL  src/renderer/components/chat/TranscriptViewport.test.tsx > TranscriptViewport find > closes an already-open find session in one viewport when a second viewport opens its own
+Error: find panes missing
+ ❯ src/renderer/components/chat/TranscriptViewport.test.tsx:1172:32
+    1170|    const paneA = mounted.querySelector<HTMLElement>('[data-pane="a"] .…
+    1171|    const paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .…
+    1172|    if (!paneA || !paneB) thr…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (3)
+
+…    ✓ sanitizes and bounds raw pending arguments before the parsed arguments arrive 1ms
+     ✓ renders a failed undispatched device response through the generic fallback 1ms
+     ✓ keeps an expanded card expanded when the row is virtualized away and back 2ms
+     ✓ lets expand-all override a card's own choice 2ms
+ ✓ src/renderer/components/chat/ChatStream.test.tsx (37 tests) 65ms
+ ✓ src/main/remote-ssh.test.ts (55 tests) 2463ms
+     ✓ executes the workspace helper without following a symlink outside its trusted root  1238ms
+     ✓ executes the discovered POSIX handle helper against a real file…
+
+…s the roving tab stop without stealing focus after the tree loses focus 4ms
+     ✓ collapses branches and uses Right and Left for child and parent navigation 12ms
+     ✓ keeps lifecycle actions isolated from row selection and activation 14ms
+     ✓ does not move focus from a lifecycle button to its owning row during refresh 4ms
+     ✓ guards activation until the incoming tab route is ready 4ms
+     ✓ guards lifecycle actions until the incoming tab route is ready 5ms
+     ✓ shows roster errors rather than an empty claim and recovers through Retry 5ms
+     ✓ retains navigable roster rows when re…
+
+…rnally activated target 3ms
+     ✓ derives explicit and tool-call fallback ancestry with correct aria levels 4ms
+     ✓ keeps historical terminal and parked agents navigable 7ms
+     × updates elapsed time for live agents and freezes terminal and stale duration samples 1059ms
+ ❯ src/renderer/stores/…
+
+---
+
+## CommandPalette.agent-view.test.tsx Todo
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (23)
+
+FAIL  src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx > CommandPalette selected-subagent mode > reveals and focuses an empty Todo section through the real palette command path for the active tab
+AssertionError: expected { width: 300, hydrated: false, …(16) } to match object { manualCollapsed: false, …(3) }
+(14 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "focusRequest": {
+-     "id": "todo",
+-     "seq": 1,
+-   },
++   "focusRequest": null,
+    "manualCollapsed": false,
+-   "narrowOverrideTabId": "tab-a",
++   "narrowOverrideTabId": null,
+    "treeCollapsed": {
+      "agents": false,
+-     "todo": false,
++     "todo": true,
+    },
+  }
+
+ ❯ src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx:263:46
+    261|   await flush();
+    262|
+    263|   expect(useActivitySidebarStore.getState()).toMatchObject({
+       |                                              ^
+    264|    manualCollapsed: false,
+    265|    treeCollapsed: { todo: false, agents: false },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/63]⎯
+
+ FAIL  src/renderer/components/layout/InputArea.queue-shorthand.test.tsx > InputArea prompt history > records a prompt once the sidecar accepts it
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'delivered prompt', [] ]…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
+…nst paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .…
+    1172|    if (!paneA || !paneB) throw new Error("find panes missing");
+       |                                ^
+    1173|
+    1174|    focusOverride(paneA);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/63]⎯
+
+ FAIL  src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx > CommandPalette selected-subagent mode > keeps Main mutation commands unchanged when Main is selected
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx:197:46
+    195|   await mountPalette();
+    196|
+    197|   expect(await runIfPresent("/unsafe-main")).toBe(true);
+       |                                              ^
+    198|   expect(prompt).toHaveBeenCalledWith("/unsafe-main");
+    199|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/63]⎯
+
+ FAIL  src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx > CommandPalette selected-subagent mode > rechecks the target before a command captured on Main can execute
+Error: Expected Main prompt command
+ ❯ src/renderer/components/dialogs/CommandPalette.agent-view.test.tsx:214:32
+    212|   await openPalette();
+    213|   const staleMainCommand = commandButton("/unsafe-main");
+    214|   if (!staleMainCommand) throw new Error("Expected Main prompt command…
+       |                                ^
+    215|   const clickStaleMainComma…
+
+---
+
+## InputArea.queue-shorthand.test.tsx history
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (23)
+
+…   262|
+    263|   expect(useActivitySidebarStore.getState()).toMatchObject({
+       |                                              ^
+    264|    manualCollapsed: false,
+    265|    treeCollapsed: { todo: false, agents: false },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/63]⎯
+
+ FAIL  src/renderer/components/layout/InputArea.queue-shorthand.test.tsx > InputArea prompt history > records a prompt once the sidecar accepts it
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'delivered prompt', [] ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+    "delivered prompt",
+    [],
++   "steer",
+  ]
+
+Number of calls: 1
+
+ ❯ src/renderer/components/layout/InputArea.queue-shorthand.test.tsx:566:18
+    564|   await flush();
+    565|
+    566|   expect(prompt).toHaveBeenCalledWith("delivered prompt", []);
+       |                  ^
+    567|   expect(useInputHistoryStore.getState().entries.map(entry => entry.pr…
+    568|  });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/6…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (10)
+
+…ided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:99162) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | src/renderer/components/layout/InputArea.queue-shorthand.test.tsx > InputArea queue shorthand submit > does not dispatch a deferred prompt through a tab selected after Enter
+An update to MainInputArea inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+a…
+
+…ates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | src/renderer/components/layout/InputArea.queue-shorthand.test.tsx > InputArea queue shorthand submit > stops a multi-item queue before a later item can cross into another tab
+An update to MainInputArea inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+…
+
+---
+
+## Sidebar.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (24)
+
+FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > lists the former titlebar actions below New session and collapses them as one menu
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > + button offers explicit local, remote, and chat creation paths
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > global remote creation opens a host-only chooser
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > uses visible vertical signal lights for session state
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > uses the open tab's live status instead of the session file's stale completion status
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > aligns workspace and session titles with folder, chat, and reserved icon slots
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > right-click on a workspace header opens the agent-only 5-item group menu
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > right-click on a session row opens the 6-item session menu
+ FAIL  src/renderer/components/layout/Sidebar.test.tsx > Sidebar menus and pinned ordering > rename and delete stay enabled for idle tasks while another task runs
+ FAIL  src/renderer/components/layout/Sidebar.t…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI typecheck
+
+# GUI typecheck
+
+$ bun run check:types
+
+src/renderer/components/chat/TranscriptViewport.test.tsx(929,8): error TS2740: Type '{ isStreaming: false; awaitingModelSince: null; retryInfo: null; compactionInfo: null; status: "ready"; collapseCompacted: false; switchPending: false; todoHistory: never[]; queued: { steering: never[]; followUp: never[]; }; isChat: false; }' is missing the following properties from type 'MainTranscriptAugments': tabId, hasLiveToolsForStream, lastAppended, transcriptPinNonce, and 2 more.
+src/renderer/components/layout/Sidebar.test.tsx(505,6): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(35,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(67,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(82,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/UpstreamParityRenderers.test.tsx(98,5): error TS17001: JSX elements cannot have multiple attributes with the same name.
+src/renderer/locales/en.ts(862,2): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/locales/zh.ts(844,2): error TS1117: An object literal cannot have multiple properties with the same name.
+$ tsc --noEmit
+
+---
+
+## TranscriptViewport.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (22)
+
+…p.rpc.getState).toHaveBeenCalledTimes(1);
+       |                            ^
+    1139|   expect(useSessionStore.getState().sessionId).toBe("recovered-a");
+    1140|   expect(useSessionStore.getState().cwd).toBe("/recovered-a");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/63]⎯
+
+ FAIL  src/renderer/components/chat/TranscriptViewport.test.tsx > TranscriptViewport find > closes an already-open find session in one viewport when a second viewport opens its own
+Error: find panes missing
+ ❯ src/renderer/components/chat/TranscriptViewport.test.tsx:1172:32
+    1170|    const paneA = mounted.querySelector<HTMLElement>('[data-pane="a"] .…
+    1171|    const paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .…
+    1172|    if (!paneA || !paneB) throw new Error("find panes missing");
+       |                  …
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI typecheck
+
+# GUI typecheck
+
+$ bun run check:types
+
+src/renderer/components/chat/TranscriptViewport.test.tsx(929,8): error TS2740: Type '{ isStreaming: false; awaitingModelSince: null; retryInfo: null; compactionInfo: null; status: "ready"; collapseCompacted: false; switchPending: false; todoHistory: never[]; queued: { steering: never[]; followUp: never[]; }; isChat: false; }' is missing the following properties from type 'MainTranscriptAugments': tabId, hasLiveToolsForStream, lastAppended, transcriptPinNonce, and 2 more.
+src/renderer/components/layout/Sidebar.test.tsx(505,6): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(35,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(67,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/AskRenderer.test.tsx(82,4): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/components/tools/UpstreamParityRenderers.test.tsx(98,5): error TS17001: JSX elements cannot have multiple attributes with the same name.
+src/renderer/locales/en.ts(862,2): error TS1117: An object literal cannot have multiple properties with the same name.
+src/renderer/locales/zh.ts(844,2): error TS1117: An object literal cannot have multiple properties with the same name.
+$ tsc --noEmit
+
+---
+
+## AgentTree.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (25)
+
+…ED_GLOB_PATH");
+    791|   expect(framed.textContent).not.toContain("SHARED_BASH_BODY");
+       |                                  ^
+    792|
+    793|   await act(async () => useUiStore.getState().toggleToolsExpandAll());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/63]⎯
+
+ FAIL  src/renderer/components/chat/activity/AgentTree.test.tsx > AgentTree > updates elapsed time for live agents and freezes terminal and stale duration samples
+AssertionError: expected 'stale-agentno turnstale-agent#38s' to contain '7s'
+
+Expected: "7s"
+Received: "stale-agentno turnstale-agent#38s"
+
+ ❯ src/renderer/components/chat/activity/AgentTree.test.tsx:667:42
+    665|   expect(row("live-agent").textContent).toContain("2s");
+    666|   expect(row("done-agent").textContent).toContain("4s");
+    667|   expect(row("stale-agent").textContent).toContain("7s");
+       |                                          ^
+    668|  });
+    669| …
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (3)
+
+… ✓ executes the discovered POSIX handle helper against a real file descriptor  585ms
+     ✓ rejects a same-named file outside every remote trusted root before transferring bytes  540ms
+ ✓ src/renderer/components/settings/ModelCompare.test.tsx (10 tests) 79ms
+ ❯ src/renderer/components/chat/activity/AgentTree.test.tsx (24 tests | 1 failed) 1357ms
+     ✓ keeps Main navigable when the roster is empty 13ms
+     ✓ renders every agent without a summary cutoff 10ms
+     ✓ opens a subagent transcript on one click and returns to Main on one click 7ms
+     ✓ uses Space to select a row without activating…
+
+---
+
+## TodoTree.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (25)
+
+…in("2s");
+    666|   expect(row("done-agent").textContent).toContain("4s");
+    667|   expect(row("stale-agent").textContent).toContain("7s");
+       |                                          ^
+    668|  });
+    669| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/63]⎯
+
+ FAIL  src/renderer/components/chat/activity/TodoTree.test.tsx > TodoTree > sanitizes todo previews without changing stored task content
+AssertionError: expected '\u001b[31mone\u001b[0m' to be 'one' // Object.is equality
+
+Expected: "one"
+Received: "[31mone[0m"
+
+ ❯ src/renderer/components/chat/activity/TodoTree.test.tsx:553:45
+    551|
+    552|   expect(treeItem("one").getAttribute("aria-label")).toBe("one");
+    553|   expect(text("one").getAttribute("title")).toBe("one");
+       |                                             ^
+    554|   expect(treeItem("Build").getAttribute("aria-label")).toBe("…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (5)
+
+…oses after readiness succeeds  312ms
+ ✓ src/renderer/components/layout/WorkspaceCanvas.test.tsx (20 tests) 156ms
+ ✓ src/renderer/components/layout/TabBar.test.tsx (27 tests) 231ms
+ ✓ src/renderer/components/dialogs/SessionTreeDialog.test.tsx (12 tests) 120ms
+ ❯ src/renderer/components/chat/activity/TodoTree.test.tsx (26 tests | 1 failed) 183ms
+     ✓ renders generated and explicit ID provenance on phase and task semantic rows 19ms
+     ✓ renders a stable empty tree body 2ms
+     ✓ keeps Main todos visible but removes every mutation path when read-only 5ms
+     ✓ restores status mutations on Ma…
+
+---
+
+## ToolCard.test.tsx
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (25)
+
+…evelopment.js:15476:11
+ ❯ recursivelyTraversePassiveMountEffects node_modules/react-dom/cjs/react-dom-client.development.js:15439:11
+ ❯ commitPassiveMountOnFiber node_modules/react-dom/cjs/react-dom-client.development.js:15718:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/63]⎯
+
+ FAIL  src/renderer/components/tools/ToolCard.test.tsx > ToolCard adaptive rendering > synchronizes shared expand and collapse across compact and framed cards
+AssertionError: expected 'bashfixture-command1ms$ fixture-comma…' not to contain 'SHARED_BASH_BODY'
+
+Expected: "SHARED_BASH_BODY"
+Received: "bashfixture-command1ms$ fixture-commandSHARED_BASH_BODY"
+
+ ❯ src/renderer/components/tools/ToolCard.test.tsx:791:34
+    789|   const framed = cardByName(container, "bash");
+    790|   expect(compact.textContent).toContain("SHARED_GLOB_PATH");
+    791|   expect(framed.textContent).not.toContain("SHARED_BASH_BODY");
+       |                                  ^
+    792|
+    793|   await act(a…
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### GUI full Vitest suite (3)
+
+✓ src/main/sidecar.test.ts (30 tests) 2903ms
+     ✓ drops a spawn whose env resolution was superseded by a restart  1313ms
+ ✓ src/renderer/components/chat/MessageBubble.test.tsx (21 tests) 174ms
+ ❯ src/renderer/components/tools/ToolCard.test.tsx (31 tests | 1 failed) 131ms
+     ✓ renders settled legacy device references as navigable locations without xdev metadata 12ms
+     ✓ renders Xdev help as bounded escaped documentation instead of LSP execution output 3ms
+     ✓ previews bounded MCP arguments and result or error line…
+
+---
+
+## Canonical protocol check RpcSessionState
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### Canonical protocol check (1)
+
+# Canonical protocol check
+
+$ bun run check:protocol
+
+--- [current-session | 2026-10-01 00:47 | batch:GUI full Vitest suite,GUI typecheck,Canonical protocol check,GUI lint,GUI produc] ---
+### Canonical protocol check (2)
+
+…om type 'ReadableStream': readable, read, setEncoding, pause, and 21 more.
+../coding-agent/src/cli/gc-cli.ts(270,21): error TS2740: Type 'ReadableStream' is missing the following properties from type 'Readable': readableAborted, readableDidRead, readableEncoding, readableEnded, and 26 more.
+scripts/protocol/contract.ts(9,55): error TS2344: Type 'RpcCommand' does not satisfy the constraint '{ id?: string | undefined; type: "negotiate_protocol"; protocolVersion: number; } | { id?: string | undefined; type: "prompt"; message: string; images?: { type: "image"; data: string; mimeType: string; detail?: "auto" | ... 3 more ... | undefined; providerFile?: { ...; } | undefined; url?: string | undefined; }[] | ...'.
+  Type '{ id?: string | undefined; type: "drop_session"; }' is not assignable to type '{ id?: string | undefined; type: "negotiate_protocol"; protocolVersion: number; } | { id?: string | undefined; type: "prompt"; message: string; images?: { type: "image"; data: string; mimeType: string; detail?: "auto" | ... 3 more ... | undefined; providerFile?: { ...; } | undefined; url?: string | undefined; }[] | ...'.
+    Property 'providerId' is missing in type '{ id?: string | undefined; type: "drop_session"; }' but required in type '{ id?: string | undefined; type: "login"; providerId: string; }'.
+scripts/protocol/contract.ts(10,50): error TS2739: Type '{ model?: { id: string; kind?: "chat" | "embedding" | "image" | "judge" | "rerank" | "search" | "stt" | "tiny" | "tts" | "video" | 
+
+> Throttle: call #1/8 in this window. 2 call(s) before soft cap. Prefer ctx_search(queries: [...]) array form for multi-query workloads — it counts as a single call.
+native
+OMP

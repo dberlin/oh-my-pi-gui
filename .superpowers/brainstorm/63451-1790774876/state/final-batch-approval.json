@@ -1,0 +1,8 @@
+{
+  "userDecision": "I accept whatever you propose as the best answer",
+  "recommendation": "Adopt the shown upstream visual changes while preserving fork-only activity-sidebar, SSH-session and scoped-transcript functionality.",
+  "approvedItems": ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "T5", "A2", "A3"],
+  "reviewPage": "rebase-final-visual-review-v2.html",
+  "scope": "Shown comparisons and labeled illustrations. Materially different merged visuals require another preview.",
+  "pushAuthorized": false
+}

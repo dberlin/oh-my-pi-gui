@@ -1,0 +1,89 @@
+{
+  "saved": [
+    {
+      "type": "response",
+      "command": "set_model_role",
+      "success": true,
+      "data": {
+        "assignments": {
+          "smol": "amazon-bedrock/anthropic.claude-3-5-haiku-20241022-v1:0"
+        }
+      }
+    },
+    {
+      "type": "response",
+      "command": "set_model_role",
+      "success": true,
+      "data": {
+        "assignments": {
+          "smol": "amazon-bedrock/anthropic.claude-3-5-haiku-20241022-v1:0",
+          "slow": "amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+        }
+      }
+    }
+  ],
+  "beforeClear": {
+    "id": "gui-35",
+    "type": "response",
+    "command": "get_settings",
+    "success": true,
+    "data": {
+      "values": {
+        "modelRoles": {
+          "smol": "amazon-bedrock/anthropic.claude-3-5-haiku-20241022-v1:0",
+          "slow": "amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+        }
+      },
+      "provenance": {
+        "modelRoles": {
+          "layers": [
+            "global"
+          ],
+          "globalValue": {
+            "smol": "amazon-bedrock/anthropic.claude-3-5-haiku-20241022-v1:0",
+            "slow": "amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+          },
+          "globalPath": "/var/folders/62/10dlkj4x7_13gk9c_hrjzmcr0000gn/T/omp-gui-role-transport-HP8yF5/agent/config.yml"
+        }
+      },
+      "advisorEnabled": false,
+      "advisorActive": false
+    }
+  },
+  "cleared": {
+    "type": "response",
+    "command": "set_model_role",
+    "success": true,
+    "data": {
+      "assignments": {
+        "slow": "amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+      }
+    }
+  },
+  "afterClear": {
+    "id": "gui-40",
+    "type": "response",
+    "command": "get_settings",
+    "success": true,
+    "data": {
+      "values": {
+        "modelRoles": {
+          "slow": "amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+        }
+      },
+      "provenance": {
+        "modelRoles": {
+          "layers": [
+            "global"
+          ],
+          "globalValue": {
+            "slow": "amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+          },
+          "globalPath": "/var/folders/62/10dlkj4x7_13gk9c_hrjzmcr0000gn/T/omp-gui-role-transport-HP8yF5/agent/config.yml"
+        }
+      },
+      "advisorEnabled": false,
+      "advisorActive": false
+    }
+  }
+}

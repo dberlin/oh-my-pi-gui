@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "id": "T5",
+      "title": "Per-row status markers removed; conversation navigation retained",
+      "note": "Actual whole-app captures with the same 200-message fixture. Upstream removes row status/check/time markers, not the conversation navigator’s tick rail. Previously approved transcript density is visible here in the full app."
+    },
+    {
+      "id": "A2",
+      "title": "Transcript scroll and send-to-tail controls",
+      "note": "Actual running-app recordings: wheel into history, submit a new prompt, wheel upward, then Jump to latest. These illustrate the real controls; they are not a proof of all hydration/pagination or long-stream anchoring boundaries."
+    }
+  ],
+  "ownedElectronProcessesStopped": true
+}

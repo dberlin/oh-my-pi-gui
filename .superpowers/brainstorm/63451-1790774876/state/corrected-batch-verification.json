@@ -1,0 +1,14 @@
+{
+  "page": "rebase-corrected-settings-batch-v2.html",
+  "newItems": ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "T5", "A2", "A3"],
+  "approved": false,
+  "verified": {
+    "renderedItemCount": 16,
+    "observedBrokenLoadedImages": 0,
+    "anchorSectionTopPx": 41.78125,
+    "navigationPosition": "relative",
+    "representativeSavedImagesInspected": ["settings-upstream-async.png", "settings-upstream-roles.png", "settings-upstream-primitives.png", "base-timeline.png", "upstream-timeline.png"],
+    "motionPreviewsInspected": ["drawer-upstream-motion.webm", "base-tail-controls.webm", "upstream-tail-controls-clean.webm"]
+  },
+  "limits": ["Settings are controlled actual-component fixtures with compiled production CSS, not whole-app captures.", "A3 is a representative illustration using exact production motion classes.", "Final unique sidebar/schema/panel edge captures are pending.", "No rebase or push has been applied."]
+}

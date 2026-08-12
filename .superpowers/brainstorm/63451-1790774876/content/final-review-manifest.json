@@ -1,0 +1,153 @@
+{
+  "approvedFirstBatch": [
+    "S1",
+    "S2",
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "M1",
+    "Q1",
+    "K1",
+    "K2",
+    "A1",
+    "W1",
+    "D1",
+    "T1",
+    "T2",
+    "T3",
+    "T4"
+  ],
+  "awaitingApproval": [
+    {
+      "id": "F1",
+      "title": "Shared loading, error, empty and stale states; disabled controls",
+      "note": "Actual components with exact production CSS. Loading becomes vertical/centered; distinct hard-error, empty-success and stale-retained states gain icons/Retry. Disabled Button/Tabs/menu opacity rises to 70%. Shared destructive-modal styling is shown using an SSH example."
+    },
+    {
+      "id": "F2",
+      "title": "Grouped eligible-model role picker and role-load recovery",
+      "note": "Native selects become searchable grouped eligible-model pickers. Chat/Specialized headings, saved absent-model option and No eligible models state are shown. Role-load failure gets truthful recovery."
+    },
+    {
+      "id": "F3",
+      "title": "Provider list, credentials, stale refresh and logout safety",
+      "note": "Shows disconnected action locks, auth/discovery-specific states, explicit Remove API key/Keep API key undo, and pre-logout confirmation. These are boundary fixtures, not real credentials. A post-save configuration failure was not captured and is not claimed as proof."
+    },
+    {
+      "id": "F4",
+      "title": "Cached, missing and restarting settings-schema notices",
+      "note": "Agent-backed settings disclose unavailable/restarting status, keep cached values for navigation only, lock editing, and expose Retry. These compare rendered recovery components, not an entire settings-navigation interaction."
+    },
+    {
+      "id": "F5",
+      "title": "Agent Hub pause/resume, disconnected actions and roster errors",
+      "note": "Pause all agents/Resume all agents controls are new; disconnected actions lock; roster failure is no longer presented as no agents."
+    },
+    {
+      "id": "F6",
+      "title": "Useful context report when capacity is unknown",
+      "note": "Actual ContextReportDialog: measured used tokens remain useful; Context window unknown replaces misleading percentages/zero capacity. Free/remaining-capacity rows are omitted."
+    },
+    {
+      "id": "F7",
+      "title": "Security prerequisites and enable-before-scan confirmation",
+      "note": "Scan blockers explain missing repository/model; disabled security no longer silently flips on. The enable-scan confirmation is shown separately from the shared dialog styling."
+    },
+    {
+      "id": "F8",
+      "title": "SSH unknown health and explicit host deletion warning",
+      "note": "Never-probed hosts are gray/unknown rather than falsely Connected. Host deletion names the target and requires a cancel-first confirmation."
+    },
+    {
+      "id": "F9",
+      "title": "Repository stale retention and inventory/transcript recovery",
+      "note": "Failed same-session repository refresh retains the last diff; inventory/transcript failures expose recovery rather than empty content or endless loading."
+    },
+    {
+      "id": "F10",
+      "title": "Stats startup/retry, Never, source sections, rankings and list rows",
+      "note": "Actual stats routes with controlled payloads: startup syncing recovery, hard-error disclosure, Never for never-used tools, single positive source section, aggregate-ranked top-four provider timeline, and rendered error/project list responses."
+    },
+    {
+      "id": "F11",
+      "title": "Sidecar restart/exhaustion and dismissible updater failure",
+      "note": "Restart attempts remain amber and visible; exhaustion is red with attempt count. Update notices add a dismiss control and remain hidden after dismissal."
+    },
+    {
+      "id": "F12",
+      "title": "Disconnected MCP and PR creation controls",
+      "note": "Creation forms expose disconnected reasons and lock their mutation actions. Shared disabled styling is already covered in F1."
+    },
+    {
+      "id": "F13",
+      "title": "Command Center fetch failures, chat and disconnected reasons",
+      "note": "A failed command fetch gains explicit alert/Retry. Chat-only restrictions and Sidecar not connected reasons are shown on unavailable rows instead of silent no-ops."
+    },
+    {
+      "id": "T5",
+      "title": "Per-row status markers removed; conversation navigation retained",
+      "note": "Actual whole-app captures with the same 200-message fixture. Upstream removes row status/check/time markers, not the conversation navigator’s tick rail. Previously approved transcript density is visible here in the full app."
+    },
+    {
+      "id": "A2",
+      "title": "Transcript scroll and send-to-tail controls",
+      "note": "Actual running-app recordings: wheel into history, submit a new prompt, wheel upward, then Jump to latest. These illustrate the real controls; they are not a proof of all hydration/pagination or long-stream anchoring boundaries."
+    },
+    {
+      "id": "A3",
+      "title": "Drawer entrance fades become right-to-left slides",
+      "note": "Clearly labeled representative illustration using exact production CSS, not actual drawer content. Applies the same transition class used by Agent Hub transcript/detail, Plugin Detail and Files detail; workspace remains stationary."
+    },
+    {
+      "id": "F14",
+      "title": "Duplicate-key errors and removable global overrides",
+      "note": "Actual RecordKvEditor and SchemaSettingRow: a duplicate rename preserves both rows and shows inline error rather than losing the colliding row; an existing value without a schema default gains Remove global override."
+    },
+    {
+      "id": "F15",
+      "title": "Blocked model rows with explicit disabled/authentication reasons",
+      "note": "Actual ModelCompare rows: unavailable providers dim and disable Use. The bottom box is explicitly labeled illustrative framing; it mirrors real row title attributes because headless screenshots cannot capture native tooltip bubbles."
+    },
+    {
+      "id": "F16",
+      "title": "Skills detail failure gains a Retry action",
+      "note": "Actual SkillsSettingsPage after selecting a skill and failing its detail read. Upstream adds a Refresh-icon Retry below the surfaced error."
+    },
+    {
+      "id": "F17",
+      "title": "Sidebar hard failures and retained-session warnings",
+      "note": "Actual Sidebar: an initial session-list error no longer claims no sessions; a failed refresh retains prior rows and discloses the stale read."
+    },
+    {
+      "id": "F18",
+      "title": "Session and workspace-group deletion confirmations",
+      "note": "Actual Sidebar interaction: tiny inline confirmations become cancel-first modals. Group deletion names the workspace, session count and permanent-file warning."
+    },
+    {
+      "id": "F19",
+      "title": "Queue disconnected status with retained rows",
+      "note": "Actual QueuePanel: disconnected state adds a visible banner; row mutation actions lock instead of permitting silent failure."
+    },
+    {
+      "id": "F20",
+      "title": "PR Center title and probe/list/detail recovery",
+      "note": "Actual PR Center and detail components. Three distinct failure states are shown separately because one production instance cannot truthfully display all three at once."
+    },
+    {
+      "id": "F21",
+      "title": "Benchmark stderr remains visible on successful no-row output",
+      "note": "Actual BenchmarkDialog supplied a successful fixture result with no measured rows and stderr diagnostics. No real benchmark/provider requests were run."
+    },
+    {
+      "id": "F22",
+      "title": "GUI schema visibility removes terminal-only controls",
+      "note": "Source-backed illustration of setting availability, not a screenshot of the generated schema UI. Sample state: plan.enabled=true, plan.autosave=false. Upstream hides plan.autosaveDir unless both are true and removes the four named terminal-only paths from GUI settings. Existing fork palettes/layouts remain unchanged."
+    }
+  ],
+  "localProofFiles": 180,
+  "missingLocalProofFiles": [],
+  "scope": "Shown captures and labeled source-backed illustrations. A materially different merged visual requires another preview.",
+  "rebaseApplied": false,
+  "pushApplied": false
+}

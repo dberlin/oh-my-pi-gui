@@ -1,0 +1,41 @@
+
+Running 1 test using 1 worker
+
+  ✘  1 e2e/real-core.e2e.ts:9:1 › real bundled sidecar persists settings and sessions and serves every stats route (14.4s)
+
+
+  1) e2e/real-core.e2e.ts:9:1 › real bundled sidecar persists settings and sessions and serves every stats route 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('dialog', { name: 'Welcome to omp' })
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByRole('dialog', { name: 'Welcome to omp' })
+
+
+      127 | 		await exportPage.close();
+      128 | 		await page.screenshot({ path: "test-results/04-real-core.png", scale: "css", animations: "disabled" });
+    > 129 | 		await expect(page.getByRole("dialog", { name: "Welcome to omp" })).toBeVisible();
+          | 		                                                                   ^
+      130 | 		await page
+      131 | 			.getByRole("dialog", { name: "Welcome to omp" })
+      132 | 			.getByRole("button", { name: "Close", exact: true })
+        at /Users/dannyb/sources/omp-monorepo/packages/gui/e2e/real-core.e2e.ts:129:70
+
+    Error Context: test-results/real-core.e2e.ts-real-bund-fc726-nd-serves-every-stats-route/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/real-core.e2e.ts-real-bund-fc726-nd-serves-every-stats-route/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/real-core.e2e.ts-real-bund-fc726-nd-serves-every-stats-route/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    e2e/real-core.e2e.ts:9:1 › real bundled sidecar persists settings and sessions and serves every stats route 

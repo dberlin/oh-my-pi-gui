@@ -1,0 +1,1 @@
+{"label":"final-real-core-canonical","cwd":"/Users/dannyb/sources/omp-monorepo/packages/gui","command":["bunx","playwright","test","e2e/real-core.e2e.ts","--workers=1"],"exitCode":1,"durationMs":22021,"directory":"/Users/dannyb/sources/omp-monorepo/packages/gui/.superpowers/brainstorm/63451-1790774876/state/checks/final-real-core-canonical"}

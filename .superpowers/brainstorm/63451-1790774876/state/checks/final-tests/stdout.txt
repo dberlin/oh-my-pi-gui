@@ -1,0 +1,23 @@
+
+ RUN  v4.1.11 /Users/dannyb/sources/omp-monorepo/packages/gui
+
+ ❯ src/renderer/components/layout/Sidebar.test.tsx (21 tests | 1 failed) 291ms
+     × remote host headers open a scoped directory picker at the most recent workspace 16ms
+ ❯ src/main/sidecar.test.ts (30 tests | 1 failed) 7803ms
+     × keeps SSH CLI overlays owned by the remote launch cwd and refreshes them on restart 5005ms
+ ❯ src/renderer/components/settings/ModelCompare.test.tsx (11 tests | 8 failed) 37ms
+     × updates local config roles and reloads the authoritative assignment 16ms
+     × preserves sibling edits made by another window after comparison loaded 4ms
+     × saves SSH roles in the owning pane and prevents overlapping role assignments 2ms
+     × ignores an old pane's role load after switching comparison to another runtime 3ms
+     × blocks row clicks for disabled and signed-out providers without blocking unknown auth 1ms
+     × locks every role control when role loading fails while leaving catalog selection usable 2ms
+     × locks stale assignments when the authoritative read fails after a successful save 2ms
+     × does not commit model or role changes after the owning runtime disconnects 1ms
+
+ Test Files  3 failed | 185 passed (188)
+      Tests  10 failed | 2066 passed (2076)
+     Errors  10 errors
+   Start at  21:17:24
+   Duration  61.84s (transform 1.99s, setup 0ms, import 28.40s, tests 22.80s, environment 7ms)
+

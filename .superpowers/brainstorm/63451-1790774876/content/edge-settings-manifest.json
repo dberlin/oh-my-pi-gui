@@ -1,0 +1,91 @@
+{
+  "proofSet": "schema/model/skill settings edges",
+  "date": "2026-09-30",
+  "revisions": {
+    "base": "892adf91",
+    "upstream": "7b8f6a54"
+  },
+  "harness": {
+    "root": "/tmp/omp-gui-settings-edge-20260930",
+    "baseUrl": "http://127.0.0.1:43130",
+    "upstreamUrl": "http://127.0.0.1:43131",
+    "runtime": "headless Chromium",
+    "viewportCssPixels": { "width": 1440, "height": 900 },
+    "capturePixels": { "width": 1800, "height": 1125 },
+    "components": [
+      "src/renderer/components/settings/editors/RecordKvEditor.tsx",
+      "src/renderer/components/settings/SchemaSettingRow.tsx",
+      "src/renderer/components/settings/ModelCompare.tsx",
+      "src/renderer/components/settings/SkillsSettingsPage.tsx"
+    ],
+    "css": {
+      "base": "out/renderer/assets/index-BgBYePYR.css",
+      "upstream": "out/renderer/assets/index-BEBhGv0Q.css"
+    },
+    "fixtureBoundary": "Controlled minimal RPC/store state around imported production components; headings and tile shells are harness framing."
+  },
+  "screenshots": [
+    {
+      "file": "edge-settings-base-schema-edges.png",
+      "scenario": "schema-edges",
+      "revision": "base",
+      "sha256": "2ea3b646dbfb22a6ee43837d8c735db2edc579f8208f6a640cc336fd0cb4e582",
+      "bytes": 66235,
+      "interaction": "Browser filled the first RecordKvEditor key with beta and blurred it while beta already existed.",
+      "observed": "The alpha row is lost and only beta/existing-row remains. SchemaSettingRow shows the preview global value but no removal action."
+    },
+    {
+      "file": "edge-settings-upstream-schema-edges.png",
+      "scenario": "schema-edges",
+      "revision": "upstream",
+      "sha256": "ea448fafe463e768e1014cabbb0306ec40cce1eb7e352b338688afd1ce4bd415",
+      "bytes": 79388,
+      "interaction": "Browser filled the first RecordKvEditor key with beta and blurred it while beta already existed.",
+      "observed": "Both rows remain. The first row retains first-row and shows the exact red duplicate-key error: “Another entry already uses “beta”. Give this row a different name.” SchemaSettingRow shows Remove global override."
+    },
+    {
+      "file": "edge-settings-base-model-blocked.png",
+      "scenario": "model-blocked",
+      "revision": "base",
+      "sha256": "b932251e91deadcc96f764eb69b6664e0972dc9d9ecb26619798badb44afc593",
+      "bytes": 88901,
+      "observed": "Disabled Lab/frozen-pro and Signed-out Cloud/locked-chat retain enabled Use buttons and pointer rows. Their title attributes both say Click to set as session model."
+    },
+    {
+      "file": "edge-settings-upstream-model-blocked.png",
+      "scenario": "model-blocked",
+      "revision": "upstream",
+      "sha256": "b67c4f40e24300ca8800589840af24cf37701f06cf92ab49e97e626beb48cf7d",
+      "bytes": 90185,
+      "observed": "Both unavailable rows are 0.6 opacity with not-allowed cursors and disabled Use buttons. Exact row reasons are Provider is disabled — enable it in Providers first and Not signed in — sign in from Providers first."
+    },
+    {
+      "file": "edge-settings-base-skills-detail-error.png",
+      "scenario": "skills-detail-error",
+      "revision": "base",
+      "sha256": "832c5292e03abc07514aad18d8929e9c146d8b9149c0f93fa1d738bc55eaac40",
+      "bytes": 89280,
+      "observed": "The selected managed skill shows its detail-read error without a Retry action."
+    },
+    {
+      "file": "edge-settings-upstream-skills-detail-error.png",
+      "scenario": "skills-detail-error",
+      "revision": "upstream",
+      "sha256": "b83f26c0ebfd473daa4fadef0512330602282ab13e05ea08bd449e99cf65f9f4",
+      "bytes": 91614,
+      "observed": "The same detail-read error is followed by an enabled Retry button containing the production RefreshCw icon."
+    }
+  ],
+  "computedChecks": {
+    "schema": "No horizontal overflow; both setting rows were 636px wide; upstream duplicate error used rgb(230, 160, 154); only upstream exposed Remove global override.",
+    "model": "No viewport overflow; upstream target rows computed cursor:not-allowed, opacity:0.6, Use disabled=true; base Use disabled=false and cursor:pointer.",
+    "skills": "No viewport overflow; master/detail panes computed 280px and 1052px wide; upstream Retry was enabled and contained an SVG icon; base had no Retry.",
+    "animation": "After settling each scene, document.getAnimations() returned no running animations."
+  },
+  "limitations": [
+    "These are controlled actual-component fixtures, not full application or Electron screenshots.",
+    "Chromium page screenshots do not reliably include native title bubbles. The ModelCompare captures therefore include a clearly labelled harness-only illustrative mirror that reads the exact live title attributes from the imported production rows; the reason strings are not hard-coded into the mirror.",
+    "Only the four requested surfaces are covered. Shared AsyncSection and generic disabled primitives are intentionally excluded."
+  ],
+  "uncapturedGaps": []
+}

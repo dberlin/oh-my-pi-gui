@@ -1,0 +1,168 @@
+## Approval-first capture order
+
+1. **Command Center / slash commands** — open with the title-bar search button or ⌘K; capture a normal agent tab, a chat tab, disconnected sidecar, and failed command fetch. Also select parameterized rows to show composer prefill.
+2. **Menus and shortcuts** — capture macOS app menus (View, new Window, expanded Session and Tools) plus `/hotkeys`; include the new Native menu section and a reserved-chord conflict.
+3. **Shell navigation** — title-bar `…` session actions, sidebar navigation with Command Center shortcut and Capabilities, tab-bar `…`, history scope selector, and session/group delete modal.
+4. **Safety/failure states** — Full access confirmation, sidecar restart attempt/exhaustion banner, quit-with-live-work native warning, changed-resources restart prompt, and disconnected dialog controls.
+5. **Context/model dialogs** — unknown context-window views, model provider Login affordance, standardized retry/empty states, and benchmark stderr.
+6. **Public site** — wide and mobile captures of hero/nav and Install/Updates showing macOS + Windows builds and new copy.
+7. **Documentation screenshots** — review as documentation assets only; do not treat their addition as an implementation delta.
+
+## 1. Dialog framework and animations
+
+- **All Modal dialogs** — `src/renderer/components/common/Modal.tsx: Modal`, `hooks/use-overlay-presence.ts: useOverlayPresence`, `styles/global.css:.omp-fade-out/.omp-scale-out`. Before, callers could clear payload during close and collapse the exiting panel, and the old exit class wiring often snapped away. After, the last open title/body is retained, the closing overlay is inert, and backdrop/panel animate out for **150 ms** (fade plus scale to 0.96/translateY 6 px); reduced-motion skips the exit. Open and close any dialog with button, Escape, and backdrop to expose.
+- **Command Palette** independently gains `omp-fade-in`; **ContextMenu** gains `omp-pop-in`. Disabled Button/Tabs/context-menu rows become less faded (opacity 0.70 vs 0.50/0.40/0.45), so capture a menu/dialog containing unavailable actions.
+- **AsyncSection** — new `components/common/AsyncSection.tsx`. Before, affected panes used plain spinner/error text/empty text. After, initial error has amber AlertTriangle, optional heading, and Retry; empty has Inbox; stale data stays visible under a warning banner with Retry. Used by Active Tools, Session Info, Workspace Directories and settings/panel surfaces.
+- **ConfirmDialog** — new `components/common/ConfirmDialog.tsx: ConfirmDialog`: compact destructive modal with muted message, amber consequence line, safe Cancel autofocus, danger confirm. Used here for sidebar deletes and Full access; settings-only uses are flagged below.
+
+## 2. Dialog-by-dialog observable inventory
+
+### Command Palette (`dialogs/CommandPalette.tsx: CommandPalette`, roughly upstream lines 150–720)
+- Before: a failed `getAvailableCommands` silently left only whatever rows existed; no error disclosure/retry. After: red one-line **“Could not load this session's commands.”** strip plus **Retry** below search; disconnected rows show **“Sidecar not connected”** and are disabled, while native `new-tab`, `new-chat-tab`, `close`, and `quit` remain usable.
+- Before: chat tabs advertised tool/mode commands that no-op. After: `plan`, `goal`, `loop`, `vibe`, `modes`, `task`, `tan`, `security`, `tree`, and `git` remain visible but disabled with **“Needs an agent session — chat sessions run without tools”** (`lib/command-availability.ts: CHAT_DEAD_COMMANDS`).
+- Before: terminal-only rows used a generic unsupported reason. After: **“Available in the terminal client only.”**
+- Before: palette selection of argument-taking commands dispatched without arguments and produced Usage replies. After, selection closes palette and prefills composer: `/join `, `/btw `, `/tan `, `/omfg `, `/session pin `, `/mcp unauth `, `/mcp smithery-search `, `/security show `, `/security import `, `/security validate `. Capture each representative action by selecting it from ⌘K.
+- Keyboard ownership moves from input to panel: arrows/Escape work after clicking a row; navigation skips disabled rows; Enter on a focused row no longer double-runs; IME composition is ignored.
+
+### Hotkeys (`dialogs/HotkeysDialog.tsx: GROUPS/HotkeysDialog`; `lib/keymap.ts`; `shared/hotkeys.ts`)
+- New **Native menu** group lists system-owned chords: ⇧⌘O Show/hide globally, ⌘N New session, ⌘E Export HTML, ⇧⌘N New window, ⇧⌘W Close window. New remappable **⌘W Close tab** and reserved **⌃G Edit draft in full-screen editor** rows; ⌃R History now comes from the reserved registry.
+- Reopening clears prior filter/capture/reset confirmation. Remapping to a native chord is a blocking error (**“Held by the native menu for …”**); collision with composer ⌃R/⌃G is a warning (**“The composer uses it for … while focused”**). Capture Hotkeys, search “window”, then attempt to bind an action to ⇧⌘W and ⌃G.
+
+### Context and session information
+- **ContextReportDialog** (`contextUsageView`, `ContextReportDialog`): before, `contextWindow <= 0` produced unavailable. After, unknown capacity remains useful: heading **“{used} tokens used”**, **“Context window unknown”**, bars normalized across used categories, no percentages and no Free row. Known capacity remains used/window/percent + Free.
+- **SessionInfoDialog**: replaces plain states with AsyncSection + Retry; unknown capacity shows token count and “Context window unknown” instead of a misleading 0%/0 window. Note: the right-side compact value uses the existing null-token formatter, so verify the actual glyph in capture.
+- **ContextUsagePopover** (`layout/ContextUsagePopover.tsx`): unknown capacity now keeps the gauge trigger visible, shows used tokens and an unknown-window card, omits percent/progress/remaining, adds Retry when breakdown unavailable and **Open full context report**. It pop-in/scale-outs and Escape no longer aborts the turn behind it.
+
+### Fetch/retry and sidecar-disconnected dialogs
+- **ActiveToolsDialog**: plain spinner/error/empty becomes AsyncSection (AlertTriangle/Inbox/Retry); stale tool rows can remain under a warning. Disconnected explicitly says **Sidecar not connected**.
+- **BranchPickerDialog**: error gains Retry with rotate icon; disconnected says **Sidecar not connected**, disables Retry and branch rows with tooltip. Search ignores IME.
+- **SessionPickerDialog**: load error gains Retry + rotate icon; search ignores IME.
+- **SessionTreeDialog/SessionTreeNodeCard**: disconnected error + disabled Retry; all branch/restore/label actions disabled with not-connected tooltip; load error gains Retry; label input is IME-safe.
+- **WorkspaceDirsDialog**: standardized spinner/error/empty/Retry; disconnected error; add/remove/replace controls disabled with sidecar tooltip.
+- **ModelPicker**: disconnected explicit error and disabled Retry/model rows; unauthenticated but available providers now show an accent **Login** button beside provider heading, closing picker and opening Providers. Model/catalog race work is internal except it prevents stale labels/rows.
+- **ImportForeignDialog**: disconnected per-source error, disabled Refresh/import rows/import-selected; after a batch, list reloads so completion markers/current availability refresh.
+- **ForceToolDialog**: disconnected load error and disabled Clear/Apply.
+- **CollabDialog**: Host/Join/Leave disabled and tooltip while disconnected.
+- **CopySelectorDialog**: disconnected error instead of attempting load; IME-safe filtering.
+- **FirstRunOnboardingDialog**: provider load reports **Sidecar not connected** and Continue is disabled with tooltip.
+- **HandoffDialog**, **RenameSessionDialog**, **WorktreeDialog**, **PlanApprovalDialog**, **ShareSessionDialog**, **DebugConsoleDialog**: every RPC action is now disabled while disconnected and gets localized tooltip; Share also reports not responding during prepare. Plan’s Dismiss/Refine/choice buttons are all gated.
+- **WorktreeCloseDialog**: disconnected before status query now renders the new exact copy **“The sidecar is not connected. Keep the worktree and close the tab, or cancel.”** rather than generic **“Unable to determine worktree status.”** Keep-close path remains available; destructive flow does not proceed.
+
+### Other dialog visuals
+- **BenchmarkDialog**: before, successful no-row runs could look empty even when benchmark wrote diagnostics to stderr. After, stderr always appears in a max-height scrollable monospaced box: muted border/text on otherwise-successful run, or beneath red error with spacing on failure.
+- **Sidebar delete confirmation** (shared ConfirmDialog, `layout/Sidebar.tsx`): before, first trash click replaced row actions with tiny inline ✓/×. After, session/group deletes open a centered modal naming the target; group modal includes session count and irreversible warning; Cancel is autofocus.
+- **ApprovalControl Full access**: before, choosing Full access applied immediately. After, modal copy is exact: **“Switch to full access?”**, **“Every tool call — file writes, commands, network — will run without asking.”**, warning **“This is a saved setting: new sessions start in full access too.”**, action **“Turn on full access”**. Dropdown itself gains roving keyboard focus and exit animation.
+- **No normal visual delta**: `ComposerEditorDialog.tsx` and `ThemePickerDialog.tsx` only consolidate IME protection; `HandoffDialog.tsx` ordinary connected state is unchanged. `FirstRun…`, Rename, Worktree, Plan, Share, Debug ordinary connected layouts are otherwise unchanged apart from disabled opacity.
+
+## 3. Shell/navigation and copy
+
+- **TitleBar** (`layout/TitleBar.tsx: actionMenuItems`): new Search icon opens Command Center. New right-side `…` **Session actions** menu contains Import Session, Branch from Message, Session Tree (disabled on chat), Session Info, Share, Context Report, Active Tools, Usage, Session Stats, each with icon + existing description. Sidebar toggle now has aria-label; rename Escape is consumed rather than aborting a run.
+- **Sidebar navigation** (`layout/Sidebar.tsx`): Command Center navigation row now displays the live remapped shortcut and tooltip **“Open Command Center ({shortcut})”**; Capabilities gets a new Sparkles row. Expand/collapse gets a title. Session list failures no longer masquerade as “no sessions”: no cached rows → **“Could not load your sessions.”** + error + Retry; cached rows → **“Showing the sessions that last loaded: {error}”**. Failed pin/alias writes roll back optimistic UI and toast **“Could not save the pinned list.”** or existing rename failure copy.
+- **TabBar** (`layout/TabBar.tsx`): new `…` **Tab actions** button opens existing tab context actions even when chip overflow makes them hard to reach. Tabs use roving focus and Left/Right/Home/End navigation. ×, ⌘W, and menu Close Tab now share one inline live-run confirmation; worktrees still detour to cleanup dialog.
+- **HistorySearchOverlay / input-history store**: before, ⌃R searched a single global list with no workspace attribution. After, default scope is **Current workspace**, selector offers **All workspaces**, displays current path or **Includes history saved before workspace tracking**, and all-workspace rows show path or **Older history · workspace unknown**. Outside click/Escape closes only overlay. Entries are recorded with cwd and draft navigation is isolated per tab/session owner.
+- **ContextMenu**: pop-in animation; disabled items opacity 70%; Escape closes only the top menu instead of also closing a dialog behind it.
+- Parent-observed shell additions are accounted here: Command Center shortcut hint, title/session/tab action menus, and History. Composer **Edit Draft** corresponds to new reserved ⌃G Hotkeys row; normal editor dialog visuals did not otherwise change.
+
+## 4. Slash-command and registry changes (`lib/command-registry.ts` symbols `buildCommandMenu`, `commandArgPrefill`)
+
+- `/drop` row becomes **`/delete` — Delete Session**, retaining `drop` as alias.
+- New **`/close` — Close Window**: closes only this GUI window, other windows continue.
+- `/quit`/`/exit`: label changes from **Close Window** to **Quit omp** and now requests app-wide quit through guarded preload IPC.
+- New **`/restart` — Restart OMP Core**, blocked with existing busy toast while stream/compaction active; success toast says restarting.
+- New native **`/modes`** row opens Modes; new **`/git`** opens Git Changes; new **`/hub`** opens Agent Hub’s hub tab.
+- `/providers` gains alias `/setup`. `/login` and `/logout` copy becomes **Open provider login/logout**, clarifying each opens Providers for account choice rather than performing login blindly.
+- `/ssh list`, `/ssh add`, `/ssh remove`: before disabled “no native surface”; after open SSH Settings.
+- Native aliases are claimed when merging sidecar commands, preventing dead duplicate `/models`/`/modes` rows.
+- Chat availability list and parameterized prefill behavior are as described under Command Palette and also govern composer completion.
+
+## 5. Native app menus and keybindings
+
+`src/main/menu.ts: buildMenu`, `main/i18n.ts: TEXT`, `shared/hotkeys.ts:NATIVE_CHORDS`:
+
+- **Before menu topology**: File included Open Project, New Session/Tab/Chat Tab/Window, Settings and generic Close; View only Sidebar/Panel plus Electron reload/zoom/fullscreen; Session only Export HTML/Handoff.
+- **After**:
+  - File removes generic Close; new Window menu owns **Close Tab**, **Close Window** (⇧⌘W), Minimize, and macOS Zoom/Bring All to Front.
+  - View adds **Command Center, Context Report, Session Stats, Jobs, Keyboard Shortcuts** before Sidebar/Panel.
+  - Session adds **Import Session, Branch from Message, Session Tree**, separator, **Session Info, Share Session**, then Export HTML/Handoff.
+  - New Tools menu: **Agent Hub, Modes, Providers & Login, Model Roles, Select Model, Capabilities, Usage**, separator, **Extensions, Plugins & Resources, PR Center, Workspace Directories, Git Changes, Restart OMP Core**, separator, **Debug Console**.
+- Settings, Sidebar, and Panel native accelerators are removed because renderer keymap owns/remaps them. Native fixed chords are centralized and shown in Hotkeys. ⌘W now closes a tab; ⇧⌘W closes a window.
+- **Scenario**: open each menu in English and Chinese; invoke surfaces while sidecar is starting/asleep to prove window-only navigation remains available. On a chat tab, Tools → Git Changes to expose warning **Needs an agent session…**.
+
+## 6. Native windows, dialogs, tray, preload
+
+- **App quit guard** (`main/app-quit.ts: installQuitGuard`; `preload/index.ts: omp.app.quit`): idle tabs quit silently. With any stream/compaction, ⌘Q, native Quit, or `/quit` opens native warning:
+  - Title **Sessions are still running**
+  - Detail **“{working} of {total} sessions are still working in {windows} window(s). Quitting stops them and their agents.”**
+  - Buttons **Quit anyway** / **Keep working**, safe button default/cancel. Repeated ⌘Q does not stack dialogs.
+- **Resources-changed recovery** (`main/window.ts:#confirmRestartForChangedResources`): before, eligible renderer failure automatically relaunched/killed live agents. After, one native question per run: **Restart to finish updating**; body says installed files changed and gives working/total count; buttons **Restart now** / **Later**. Console errors and navigation no longer trigger relaunch; only main-frame load failure or reloadable process death.
+- **Window restore** (`main/window.ts`, `window-bounds.ts`, `index.ts`): all saved windows/layouts restore, not only primary; closing a secondary removes it from next launch; off-screen windows recenter/fit within primary work area; Windows auto-hides native menu bar. Explicit OS path opens/focuses that workspace; bare New Window uses GUI-owned/last usable workspace rather than Finder `/`. Capture restart with two windows and unplugged-display geometry if board needs behavioral proof rather than a static frame.
+- **Deep link/open-file** (`main/deep-link.ts`): startup URLs/files are queued until setup; second-instance absolute workspace paths now focus an existing window or spawn one instead of no-op.
+- **Tray** (`main/tray.ts`, `tray-labels.ts`): header changes from **“● omp — project”** to **“omp — project · Idle/Running/Needs input/Error”** (localized); same state appears in hover tooltip. Context with tokens but unknown capacity now displays **Context: — · N tokens** instead of omitting usage. Status aggregates all windows with error > running > waiting > idle; Show/Hide targets focused window. Static π icon itself does not visually change. Menu no longer disappears while open due background updates.
+- **Sidecar crash loop** (`main/sidecar.ts`, `hooks/use-rpc-events.ts`, `stores/ui.ts`, `layout/SidecarBanner.tsx`): before only final red failure; after each respawn shows amber banner with spinning Refresh icon, **Agent restarting**, **Restart attempt {attempt}/{maxAttempts} — {reason}**; exhaustion returns red **Gave up after {maxAttempts} restart attempts** and includes first stderr line in reason. Dismiss now hides this diagnostic until a new diagnostic/recovery rather than clearing underlying state. Packaged missing binary copy changes from developer build instruction to **“omp is missing from this installation (…). Reinstall omp GUI, then relaunch.”**
+- **Stats start state** (`main/ipc.ts`, `hooks/use-stats.ts`): dashboard remains in loading/ **“Stats server is starting and syncing history…”** while retrying every 2 s for up to 90 s, then shows terminal error; wrong-shaped list response is error, not empty rows. This is a stats-surface capture, not a new dialog.
+- **Updater**: interrupted macOS transfer resumes from `.partial`, so update progress may reopen above zero. Renderer updater store persists dismissed-version and dismissed-error across relaunch; successful update status re-arms a dismissed error. New UpdateBanner close tooltip is **Dismiss this update notice**. No new native dialog.
+- **Preload subscribe guard** is internal except it prevents one broken IPC listener from freezing later visible updates; preload’s only direct new affordance is app-wide guarded quit.
+
+## 7. State-driven visible changes from hooks/stores
+
+- Context usage refreshes on heartbeat/idle snapshots and model switches; the gauge/cost no longer freezes between transcript appends or retains the prior model window.
+- Model/provider catalog commits are generation-guarded, preventing stale provider/model rows after a push/read race; reselecting current model repairs stale label from response.
+- Session-list, subagent-roster, and active-resource failures are no longer false empty states. Subagent panels show **Could not load the subagent roster** while preserving stale rows (owning panel, not duplicated here).
+- Unanswered historical tool calls now render terminal **Interrupted** rather than spinning forever; only unanswered calls in the currently live trailing turn remain running (`stores/tools.ts: hydrateMessages`).
+- Streaming text keeps six reveal frontiers so already shown text does not restart/flicker its fade. This is transcript-only presentation and is flagged for the transcript owner rather than duplicated as an approval tile.
+- New session-store pin nonce snaps transcript to live edge after submit; transcript-specific layout is likewise delegated.
+
+## 8. Remote-image / renderer HTML effect
+
+`src/renderer/index.html` removes `https:`/`http:` from `img-src`; `lib/markdown.tsx` adds localized fallback. Before, a Markdown `![alt](https://…)` loaded inline. After, it shows **Remote image not loaded** with **Open** action (English/Chinese) rather than making a remote image request. Capture a message containing a remote Markdown image; this is an observable security/visual change, not formatting-only.
+
+## 9. Public download site (`index.html` → `site/index.html`)
+
+- Site root moves under `site/`; `.nojekyll` follows. Ten WebPs move from `docs/screenshots/` to `site/assets/`; jj reports renames with no binary-byte delta, so **path/build layout only**, not new visuals.
+- Version changes v0.9.5 → fallback v0.9.11. Nav button changes **Download v0.9.5** → **Choose a build v0.9.11** and anchors to Install.
+- Hero badge changes from dated redesign/omp-version release note to **v0.9.11 · Sep 2026 — bundled agent, Apple Silicon, Intel & Windows**.
+- New third CTA: **Windows build · x64 installer** in hero and Install; description metadata adds Windows x64.
+- Feature chip **Structured job coordination** added.
+- Update section changes DMG-only/not-notarized language to macOS ad-hoc signed + Windows unsigned, **Get the matching build**, **Install and reopen**, and first-launch directions for both macOS and Windows SmartScreen.
+- Install lead changes Mac-only → platform build; note adds **More info → Run anyway**.
+- New runtime GitHub latest-release fetch updates version/date and arm64/x64 DMG/Windows setup links; static v0.9.11 remains no-JS/rate-limit fallback.
+- Exposure: load `site/index.html` wide/mobile with network success and blocked GitHub API; capture nav/hero CTAs, feature-chip rail, Updates steps, Install CTAs/note.
+
+## 10. Documentation-only screenshot classification
+
+Exactly 24 new binaries, no replaced prior counterpart in the base diff:
+- `docs/screenshots/en/{01-conversation,02-workspace,03-models,04-providers,05-model-roles,06-agent-hub,07-statistics,08-context,09-commands,10-settings,11-split,12-usage}.png`
+- Same 12 under `docs/screenshots/zh/`.
+These document product surfaces but do not alter runtime UI. Review for documentation accuracy/localization separately from product-change approval.
+
+## 11. Locale accounting and delegated copy
+
+- **Exact totals**: EN +159/−0/~7; ZH +159/−0/~7 (`locales/en.ts`, `zh.ts`). Seven changed meanings in both languages:
+  1. paste hint **Esc to paste inline → Esc to cancel**;
+  2. Full access description adds that it stays on for new sessions;
+  3. `/quit` **Close Window → Quit omp**;
+  4. quit description becomes app-wide guarded quit;
+  5. Todo cycle hint adds right-click blocked/abandoned;
+  6. failed-start copy changes build/install advice → Restart/Logs advice;
+  7. security disabled copy changes automatic enable → asks before enabling.
+- Target-owned new families are all accounted above: `titlebar.*`, `tabs.actions`, `worktreeClose.notConnected`, `input.history.*`, `input.approval.yoloConfirm*`, `contextUsage.*`, `sidebar.{loadFailed,stale,pinFailed}`, `palette.*`, `cmd.{delete,close,restart,modes,git,hub,openLogin,openLogout}`, `unavailable.chatSession`, `contextReport.*`, `hotkeys.*`, `sidecar.{restartingTitle,attempt,exhausted}`, dialog not-connected keys, and stats starting state.
+- **Settings/panels intentionally not duplicated, but all locale additions are attributed**:
+  - Providers/Model Roles/Model Compare/Provider Config: load/stale/auth/login/logout/API-key/model-kind copy.
+  - Capabilities Home: **Command Center**, **Browse all commands**, **Quick actions** cards/grid (parent has directly observed this).
+  - Settings connection/schema and KV editor: reconnect/cache/no-schema/restart-failed/duplicate-key copy.
+  - Security and SSH: enable-scan and delete-host ConfirmDialogs; Providers logout ConfirmDialog.
+  - Agent Hub/Subagent DAG: pause/resume/failure/load-failed.
+  - Inventory/Repository Changes/Stats: stale, RPC failed, stats starting/Never.
+  - Tool output: new Coordination Wait/Process/Message/jobs/agents/status labels; Find result/error/hit/coverage/relevance labels; image count; Interrupted; diff Copy/Copied/Show more.
+  - Markdown remote image copy is included above.
+  - Transcript/dock copy delegated: `chat.delegatedTo`, Todo right-click blocked/abandoned.
+- Dynamic-key entries with no literal single-key use are accounted, not orphaned: Model Role section/kind maps, native Hotkeys rows, and Coordination status map. Locale parity test changes are test-only.
+
+## 12. Formatting/internal-only classification
+
+- Dialog tests, hook/store tests, main tests: evidence only, no visual delta.
+- `ComposerEditorDialog.tsx` and `ThemePickerDialog.tsx`: IME behavior only; no normal rendering change.
+- `src/renderer/index.html` markup is formatting-identical except CSP; its visible remote-image consequence is explicitly listed.
+- Site asset moves and `.nojekyll`: deployment/path-only; the binaries themselves are unchanged.
+- Main broker removal, event batching, session caches/index, bundled binary resolution, models config, shell env, launch argv parsing, tab-layout serialization, updater hashing/partial sweep, and stats restart budget are internal. Their only user-visible consequences (window/path restoration, error wording, update progress resume, stats starting/error state) are already listed.
+- No scoped changed implementation remains unclassified.

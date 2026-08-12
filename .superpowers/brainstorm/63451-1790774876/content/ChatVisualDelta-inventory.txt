@@ -1,0 +1,243 @@
+## Completeness
+
+Compared `892adf914b843fe478793aa0f83a4218e7c49ff0` → `main@upstream` for every changed file under the assigned paths. Result: **57 production files + 30 test-only files; zero unclassified paths**. Theme CSS files were checked: upstream does **not** change `theme-dark.css` or `theme-light.css`. `src/renderer/index.html` was also checked because it globally affects rendering.
+
+## 1. Transcript and chat surface
+
+### 1.1 Editorial transcript is materially narrower and denser
+
+**Before:** 72rem reading column; rounded bordered user cards; roomier 30px tool/process/thinking headers; assistant prose at the full GUI font size; larger thinking text/body; tool result bodies effectively only horizontal-overflow constrained.
+
+**After:**
+- Reading column drops **72rem → 60rem** (`styles/components.css:428-431`).
+- User turns tighten from `24/16px` vertical padding to `18/12px`; user bubble becomes a flat, faint background with a **2px left border**, no outer border/radius, 12px left inset, and a 24px author column (`components.css:638-675`).
+- Assistant turns tighten to 8/12px; compact turns to 1px vertical padding (`components.css:693-701`).
+- Normal assistant Markdown shrinks to roughly **13/15 of GUI size** with 1.52 line-height; compact assistant output is 11.5/15 with 1.4 line-height (`components.css:937-948`).
+- Tool/process headers become 24px high; tool name ≈11/15, summary ≈10/15, duration ≈9.5/15; chevrons are always faintly visible instead of hidden until hover; expanded bodies cap at `min(18rem,34vh)` and scroll (`components.css:706-826`).
+- Thinking header becomes 24px; body caps at `min(12rem,30vh)`, shrinks to ≈10.5/15, tighter table/cell/p spacing (`components.css:880-974`).
+- Read-group header is smaller, body inset drops 21→16px, and the always-visible file tree preview is removed (`ReadGroupCard.tsx:97-113`, CSS around 844-879).
+
+**Screenshot scenario:** use a completed turn containing a user prompt, reasoning, 3+ tools (including grouped reads), and a long assistant answer. Capture `.omp-transcript-editorial` at 1400×900. This single comparison exposes width, bubble shape, typography, spacing, chevrons, tool-body cap, and missing read-tree preview.
+
+### 1.2 Timeline/status rail is removed
+
+**Before:** every transcript row could show a left-side check, rocket, spinner/dot, error X, and timeline time infrastructure.
+
+**After:** `TimelineMarker` and its rendered callsite are deleted from `ChatStream.tsx` (old block removed around upstream lines 598 and 656); all `.omp-timeline-*` CSS is deleted (`components.css` diff around old 649-714). Process groups use a small accent pulse dot only while active and a state-colored text summary (`ExecutionGroup.tsx:63-91`). The source adds a “Tasks” label, but editorial CSS hides `.omp-execution-group-title`, so the main transcript primarily shows the live dot + summary.
+
+**Screenshot scenario:** same mixed transcript, once while a process group runs and once completed/failed. Compare the left rail and process header.
+
+### 1.3 Arrival and streaming motion changes
+
+- New transcript rows receive a one-shot `.omp-row-arrive` fade-up only when genuinely appended near the live tail; hydration, pagination, session switch, bulk restores, and recycled virtual rows do not replay it (`ChatStream.tsx:342-369`; `chat-stream-utils.ts:createRowEntranceState/claimRowEntrances`; CSS `components.css:1027-1033`).
+- Dock cards gain `omp-fade-up` (`dock/DockCard.tsx:73`), though the fork no longer mounts docks.
+- Streaming text changes from re-keyed per-frame animation to append-only spans: newest chunk remains at 0.8 opacity/0.3px blur and transitions to full opacity when the next chunk arrives (`StreamingText.tsx:25-52`; CSS `components.css:37-58`). Completed Markdown blocks no longer animate again. Reduced-motion forces full opacity (`components.css:336-346`).
+
+**Video scenario:** ask for a multi-paragraph answer and record token streaming plus a newly arriving user/tool/assistant row. Static screenshots only show the latest chunk’s slight dim/blur; motion approval needs video.
+
+### 1.4 Tail following and scroll intent
+
+Upstream raises live-edge tolerance from <1px to 24px, uses explicit gesture direction, observes the canvas rather than the fixed-height scroller, preserves the visible reading anchor through remeasurements, and only re-pins after a tailward gesture. Sending explicitly reclaims the bottom even if the reader was in history (`ChatStream.tsx:236-511`; `chat-stream-utils.ts:LIVE_EDGE_SLACK_PX/shouldRePinTranscript`; `use-composer-submit.ts` near `pinTranscriptToBottom`).
+
+**Behavior scenario:** start a long streaming reply, wheel upward, wait for growth (view must remain put), wheel down to the edge (following resumes), then scroll up and send a prompt (jumps to bottom). Not a useful static screenshot except for the “Jump to latest” state.
+
+### 1.5 User model-delegation chips
+
+**Before:** submitted `<model agent="m1" name="…"/>` tags or unconverted `^provider/model` text could appear literally in the user bubble.
+
+**After:** they are stripped from body Markdown and rendered above it as accent, monospace, rounded chips with a 10px Bot icon and “Delegated to {name}” tooltip (`MessageBubble.tsx:267-360`; `lib/model-mentions.ts:31-52`). Composer completion also adds `^` model suggestions with canonical `^provider/id`, model display-name description, and a trailing space; disabled on tool-free chat tabs (`use-completion-menu.ts` model provider around 239-301).
+
+**Screenshot scenario:** in an agent tab type `^` and capture completion; submit `^provider/model explain this` and capture the resulting user chip. DOM: user bubble containing `span[title^="Delegated to"]`.
+
+### 1.6 Smaller chat deltas
+
+- `ThinkingBlock`: completed reasoning no longer displays “(collapsed)/(expanded)” or “Show/Hide reasoning”; those strings move to the button’s ARIA label. Level remains, and editorial CSS exposes compact word/line count (`ThinkingBlock.tsx:189-215`; CSS `913-924`).
+- `CustomMessageCard`: async-result payloads without a `jobs` array no longer invent a blank job row; they show delivery text or “finished” (`CustomMessageCard.tsx:305-365`).
+- `ExecutionGroup`: spinner/check/error icons are replaced by an active-only pulse dot and state-colored compact summary (`ExecutionGroup.tsx:63-91`).
+
+## 2. Composer and run controls
+
+### 2.1 Two new always-visible toolbar affordances
+
+Upstream adds:
+- **Edit Draft** square-pen button (`data-draft-editor-trigger`), equivalent to `⌃G`, opening expanded paste-marker content.
+- **History** clock/history button (`aria-label="History"`), opening prompt history.
+
+Evidence: `InputArea.tsx:562-579, 963-989`. Base only exposed these through keyboard shortcuts.
+
+**Screenshot scenario:** idle main-agent composer; capture toolbar selectors `[data-draft-editor-trigger]` and `button[aria-label="History"]`. Fork interaction: add only inside `MainInputArea`; do not expose them in the fork’s subagent read-only composer.
+
+### 2.2 Prompt history becomes workspace-aware
+
+**Before:** Ctrl+R searched one global list; each row showed prompt + age. Arrow recall included attempts recorded before delivery succeeded.
+
+**After:** default scope is **Current workspace**, with a select for **All workspaces**. Current scope shows the shortened cwd beside the selector; all-workspace rows add each entry’s shortened path or “Older history · workspace unknown”; the header adds combobox/listbox semantics and outside-click closes it (`HistorySearchOverlay.tsx:44-205`). Only accepted sends are recorded; failed/blocked/partially dispatched queue shorthands stay out (`use-composer-submit.ts` changed record points).
+
+**Screenshot scenario:** seed history in two cwd values, click History, capture current-workspace view, switch select to “All workspaces,” capture path subtitles. Selectors: `select[aria-label="History scope"]`, `[role="listbox"]`.
+
+### 2.3 Large-paste choice is now cancellable
+
+**Before:** Escape chose “Paste inline”; there was no Cancel button, and outside click did not dismiss.
+
+**After:** Escape and outside pointer cancel without inserting; visible **Cancel** button is added; dialog enters with `omp-pop-in` (`InputArea.tsx:177-190, 562-572, 706-761`).
+
+**Screenshot scenario:** paste text over configured large-paste threshold. Capture the four actions (inline, wrap, save file, Cancel). Then Escape and confirm composer remains unchanged.
+
+### 2.4 Approval and mode controls
+
+- Selecting **Full access** now opens a confirmation dialog: “Switch to full access?”, explains all file/command/network calls run without asking, warns the saved setting affects new sessions, and requires “Turn on full access”; Cancel is autofocused. Stricter modes still apply immediately (`ApprovalControl.tsx:103-153`; shared `ConfirmDialog`).
+- Approval and Thinking menus autofocus the selected radio item and support Arrow/Home/End. Approval, Thinking, Modes, run-settings, and context popovers now animate in and play a 150ms scale-out before unmount (`use-overlay-presence.ts`; `global.css:350-380`).
+- Modes adds **Prewalk** to active-mode summary and More toggles; Goal/Loop/Vibe/Roles rows gain right chevrons indicating navigation rather than toggles (`ComposerModes.tsx:43-67, 187-235, 259-285`).
+
+**Screenshot scenarios:** approval trigger → choose Full access (confirmation); More modes → capture chevrons + Prewalk; narrow composer until run settings collapse under ellipsis and record open/close motion.
+
+### 2.5 Context usage states
+
+**Before:** unknown model capacity rendered a static gauge + em dash and no popover. Breakdown failure only showed “temporarily unavailable.”
+
+**After:** unknown capacity remains a button showing the measured used-token count; popover omits percentage/progress/remaining cards and shows “Context window unknown.” Breakdown failure adds **Retry**. Every popover adds **Open full context report**. Known capacity retains segmented categories (`ContextUsagePopover.tsx:156-365`; `lib/context-usage.ts`).
+
+**Screenshot scenarios:** fixture `contextWindow:0,tokens>0`; known capacity; failed `getContextReport`. Selector `.omp-context-usage-trigger`, portal `#omp-context-usage-popover`.
+
+## 3. Shell, navigation, and status
+
+### 3.1 Title bar actions
+
+Upstream adds a compact **Commands** search-icon button immediately after sidebar toggle and a **Session actions** ellipsis at the right. The action menu contains Import, Branch, Session Tree (disabled in chat), Session Info, Share, Context Report, Active Tools, Usage & Quotas, and Stats (`TitleBar.tsx:185-284, 285-407`). Session stats can refresh while streaming via a paced `statsPulse` rather than freezing until completion (`TitleBar.tsx:46-122`).
+
+**Screenshot scenario:** title bar idle, then click `button[aria-label="Session actions"]`; also capture chat-tab menu to show disabled Session Tree.
+
+### 3.2 Sidebar quick actions and destructive confirmations
+
+- Quick actions gain **Capabilities**. Command Center row gains the live configured shortcut rendered in a bordered `<kbd>` and tooltip; navigation collapse button gains tooltip (`Sidebar.tsx:600-699`).
+- Session-list full failure now says “Could not load your sessions,” shows the error, and offers Retry instead of claiming the list is empty. A refresh failure with cached sessions adds “Showing the sessions that last loaded: {error}” (`Sidebar.tsx:708-739`).
+- Session/workspace deletion replaces tiny inline ✓/✕ controls with centered destructive dialogs that name the target; group deletion shows count and permanent-file warning (`Sidebar.tsx:81, 344-381, 1125-1155`; `ConfirmDialog.tsx`).
+
+**Screenshot scenarios:** expand sidebar navigation and capture Command Center shortcut + Capabilities; inject session-list failure with/without cached rows; click row trash; open workspace context menu → delete group.
+
+### 3.3 Tab bar
+
+- Visible `…` **Tab actions** button opens the active/first tab’s existing context menu, removing context-click discoverability dependence (`TabBar.tsx:405-429`).
+- ArrowLeft/Right/Home/End rove focus and switch tabs; only active tab is in tab order (`TabBar.tsx:85-120, 384-411`).
+- `⌘W` and native Close Tab now share the chip’s close policy: live/starting tabs arm the same inline confirmation; second close confirms; worktrees detour to cleanup; final tab closes the window (`App.tsx:426-433`; `lib/tab-close.ts`; `TabBar.tsx`).
+- Restored “asleep” tabs use a dim inert status rather than warning/booting (`SplitWorkspace.tsx:71-78`; `lib/tab-signal.ts`).
+
+**Screenshot scenario:** multiple tabs including a live tab; capture ellipsis, then press ⌘W and capture the chip’s inline “Close running tab?” ✓/✕ state. Keyboard focus ring can be captured after ArrowRight.
+
+### 3.4 Sidecar and updater banners
+
+- Sidecar restart attempts now remain visible as amber banner with spinning Refresh icon, “Agent restarting,” “Restart attempt N/M — reason.” Exhaustion becomes red “Agent unavailable” with “Gave up after N restart attempts.” Close dismisses the status banner until a new diagnostic (`SidecarBanner.tsx:23-94`).
+- Update-check error banner gains an X labeled “Dismiss this update notice”; dismissal survives polling until a successful check resets it (`UpdateBanner.tsx:97-121`).
+
+**Screenshot scenarios:** sidecar status `restarting` with restart metadata; exhausted `error`; updater `error/showInBanner:true`.
+
+### 3.5 Inspector panel width
+
+Panel width now persists under `gui.panelWidth`; drag changes debounce-save. The separator is focusable and keyboard-resizable by 24px with arrows, Home=min 360 and End=max/viewport limit (`PanelContainer.tsx:17, 65-108, 190-218`). Static appearance is unchanged except a visible focus state if supplied by browser defaults/classes.
+
+### 3.6 App/native menu behavior
+
+Window-only actions (Settings, Usage, Model Picker, Import, Branch, Session Tree, Capabilities, Git, restart, Command Center, Context, Jobs, Stats, Hotkeys, Session Info, Share, workspace dirs, Agent Hub, Modes, Providers, Roles, Extensions, Inventory, PR Center, Debug) are moved before the live-sidecar routing gate, so they work while starting/asleep/recovering. Git on a chat tab warns instead of opening. Close Tab is wired after the route gate (`App.tsx:559-675`). This is interaction-visible but not a new static element by itself.
+
+## 4. Tools and rendering helpers
+
+### 4.1 Explicit interrupted state
+
+**Before:** a tool aborted before any result could remain visually running or specialized renderers could falsely show “No matches.”
+
+**After:** amber rail/background, Ban icon, screen-reader + visible **Interrupted** label; output-less abort falls back to argument rows instead of a false verdict (`ToolCard.tsx:53-182`). Grouped reads use an amber dot for aborted calls (`ReadGroupCard.tsx:18-64`).
+
+**Screenshot scenario:** start a long shell/tool call, abort the turn before result, expand `[data-tool-status="aborted"]`.
+
+### 4.2 New semantic `find` card
+
+New renderer shows query, scope, keywords, pending “searching…”, failed state, ranked files with relevance score, clickable path, ranked line ranges/snippets, lines scanned/partial coverage, file count, threshold, truncation, errors/failure details, and “No relevant passages found” (`FindRenderer.tsx:68-252`). ANSI controls are stripped and tabs expanded.
+
+**Screenshot scenarios:** prompt the model to use `find` for a semantic concept with multiple hits; fixture zero hits; fixture error. DOM card `data-tool-name="find"` after registry integration.
+
+### 4.3 Coordination protocol cards
+
+New `CoordinationRenderer.tsx` provides:
+- `wait`: jobs/agents/messages/cancellations with status icons, duration, exit codes and bounded ANSI output (`WaitRenderer`, line 281).
+- `read proc://…`: process/job/daemon/agent snapshots, terminal rows/logs, pid/state/duration (`ProcReadRenderer`, line 370).
+- `write agent://…` and `write proc://…`: peer message, stdin/mode/kill, receipts, jobs, daemon and cancelled rows (`ProtocolWriteRenderer`, line 472).
+
+**Screenshot scenarios:** fixture tool names/args `wait`, `read {path:"proc://<id>"}`, `write {path:"agent://<id>",content:"…"}`, and `write {path:"proc://<id>/kill"}`. These are best captured expanded.
+
+### 4.4 Tool registry/header changes
+
+Collapsed summaries move out of `MessageBubble` into registry-owned `getToolSummary`, adding meaningful summaries for find, AST, LSP, debug, GitHub, wait, todo, memory, retain/recall/reflect, generate_image, TTS, and xd:// device writes; text is sanitized and capped at 160 chars (`tools/index.tsx:145-232`). `xd://` writes render as the actual delegated device/tool result instead of a file-write line count (`WriteRendererOrDevice`, lines 56-98; `lib/xdev.ts`).
+
+Canonical image registration changes from legacy `image`/`image_gen`/`inspect_image` to **`generate_image`**. This is a visible historical-compatibility delta: on pure upstream old aliases fall back generic, while new canonical calls get ImageRenderer.
+
+### 4.5 Image, read, and diff rendering
+
+- ImageRenderer previews **all** returned `{data,mimeType}` images in a wrapping grid, displays first saved image path or subject/prompt, and shows `×N` when multiple (`ImageRenderer.tsx:18-58`; `format.ts` image extraction).
+- Read of `proc://` routes to coordination renderer. Ordinary text reads now retain CodeBlock’s copy control (base explicitly set `showCopy={false}`); images/errors use shared 288px cap, errors scroll (`ReadRenderer.tsx:42-96`).
+- DiffView initially paints 150 rows, reveals 600 per click, hard caps at 3000, adds “Show N more lines,” and adds a top-right hover/focus **Copy diff** button that becomes a green check/“Diff copied” (`lib/diff.tsx:354-570`).
+
+**Screenshot scenarios:** generate two images; expand `read package.json` and hover its code block; expand a >150-line edit/apply_patch and hover top right, then capture Show 600 more lines.
+
+### 4.6 Remote Markdown images become opt-in
+
+**Before:** http(s) Markdown image source rendered as `<img>` and attempted a network load.
+
+**After:** bordered inline placeholder with ImageOff icon, alt text or “Remote image not loaded,” and explicit underlined **Open** link; no image request (`lib/markdown.tsx:386-508`). CSP also removes `https:`/`http:` from `img-src` in `src/renderer/index.html`.
+
+**Screenshot scenario:** assistant message `![Example](https://example.com/image.png)`. Compare loaded/broken image behavior to the new placeholder; selector `a` text “Open” beside ImageOff.
+
+## 5. Shared/global effects
+
+- `global.css:460-480` adds color transitions to **every** button, link, summary, role=button/menuitem/menuitemcheckbox/option/tab. This affects all scoped surfaces; static screenshots look the same, hover/focus video does not.
+- `.omp-fade-out` and `.omp-scale-out` are now real utilities (`global.css:350-380`), enabling visible 150ms exits rather than snap-unmounts.
+- Context menus gain pop-in animation and disabled opacity 0.70 instead of 0.45. Shared Button disabled opacity likewise rises 0.50→0.70; target surfaces use both.
+- No upstream theme-token or light/dark palette delta. `lib/themes.ts` only rewrites equivalent object merges (`{...}` → direct spread/Object.assign); classify as non-visual.
+
+## 6. Fork interactions that must be preserved
+
+1. **Transcript cutover:** fork `ChatStream.tsx` is only an adapter; real virtualizer is new `TranscriptViewport.tsx`. Upstream scroll pinning, row arrival, timeline removal, and send-to-bottom must be ported into `TranscriptViewport`, including its main/subagent projection distinction. Replacing with upstream ChatStream would delete fork transcript find, projected subagent transcripts, disclosure carry-over, and agent-view behavior.
+2. **Docks were intentionally removed:** fork deleted every `chat/dock/*` component and replaced them with `WorkspaceCanvas` + `ActivitySidebar` (`TodoTree`, AgentTree, Plan/Goal sections). Do not resurrect upstream DockCard/AgentsDockCard/TodoDockCard. Evaluate the upstream Todo semantics (3-state click cycle, blocked/abandoned context menu, rollback) against the fork’s TodoTree separately; the DockCard fade is inapplicable.
+3. **Tool architecture is richer on fork:** fork already resolves xd:// and MCP/help through `tool-presentation.ts`, has compact/framed/domain shells, collapsed previews, PathLink summaries, persisted disclosure, renderer error boundaries, and subagent-local entries. Port Find/Coordination, interrupted status, multi-image and sanitization into this architecture; do not replace it with upstream’s simpler `index.tsx`/ToolCard. Preserve fork legacy image aliases while adding `generate_image`.
+4. **Tool CSS directly conflicts:** fork replaced editorial-only tool styling with `[data-tool-shell]` shell-specific cards. Upstream’s compact 24px/scroll-cap rules cannot be copied wholesale without erasing framed/domain visual design; each shell needs explicit approval.
+5. **Title bar duplication risk:** fork already has a large responsive Command Center field (`⌘K`) and direct settings/providers/PR/agent/stats/usage/panel controls. Upstream adds a second command icon and a session-actions menu. Approval should decide coexistence vs consolidation; do not remove fork controls accidentally.
+6. **Composer additions belong only to main target:** fork has `MainInputArea` and a read-only subagent composer plus QueueComposerChip. Add History/Edit Draft/model delegation only to main; preserve read-only target and queue chip.
+7. **App architecture:** fork adds `AppGlobalActions`, transcript-find menu routing, agent-view state, deep links, plugin-theme lifecycle and additional dialogs. Port upstream close-tab and sidecar-independent menu behavior into those gates, not by replacing App.
+8. **Workspace shell:** fork’s ActivitySidebar/WorkspaceCanvas and responsive rail are fork-only. Upstream’s 60rem transcript/CSS and shell actions must be judged with that rail open/compact.
+9. **Themes:** fork changed `theme-dark.css` and `theme-light.css`; upstream did not. Preserve fork palettes exactly.
+10. **Sidebar/remote support:** fork has remote workspace/session affordances not present upstream. Integrate confirmations/errors/quick actions without removing remote rows/actions.
+
+## 7. Changed files classified non-visual
+
+Production files with no independent consumer-visible delta:
+- `components/chat/dock/AgentsDockCard.tsx`, `components/tools/TaskRenderer.tsx`, `components/tools/VibeRenderer.tsx`: replace per-component 1-second timers with shared `useNowTick`; elapsed labels should render identically.
+- `components/tools/GrepRenderer.tsx`: iteration syntax only (`[...keys]` → iterator), same rows/order.
+- `components/layout/input-area-utils.ts`: moves `CHAT_DEAD_COMMANDS` to shared command availability; no output itself.
+- `lib/now-tick.ts`: timer consolidation only.
+- `lib/themes.ts`: equivalent merge/allocation refactor; no token change.
+- `lib/preview.ts`: factors height constants; no independent change, though Read/Markdown consumers above use them.
+- `lib/ime.ts`: no static visual; prevents Enter/arrows/Escape from leaking out of IME composition.
+- `lib/optimistic.ts`, `lib/xdev.ts`, `lib/tab-close.ts`, `lib/tab-signal.ts`, `chat-stream-utils.ts`, `lib/context-usage.ts`, `lib/model-mentions.ts`, `lib/command-availability.ts`: no DOM of their own, but they directly drive the visible/interaction changes already inventoried; therefore not dismissed as formatting.
+
+All **30 changed test files** are test-only/non-production visual files:
+`ChatStream.test.tsx`, `CustomMessageCard.test.tsx`, `StreamingText.test.tsx`, `dock/TodoDockCard.test.tsx`, `ApprovalControl.test.tsx`, `ContextUsagePopover.test.tsx`, `InputArea.queue-shorthand.test.tsx`, `Sidebar.test.tsx`, `SidecarBanner.test.tsx`, `TabBar.test.tsx`, `TitleBar.test.tsx`, `UpdateBanner.test.tsx`, `use-completion-menu.test.ts`, `FindRenderer.test.tsx`, `ToolCard.test.tsx`, `ToolRegistry.test.tsx`, `UpstreamParityRenderers.test.tsx`, `command-registry-actions.test.ts`, `command-registry-availability.test.ts`, `command-registry-submenus.test.ts`, `composer-submit.test.ts`, `diff.test.tsx`, `format.test.ts`, `ime.test.ts`, `keymap.test.ts`, `markdown-image.test.tsx`, `model-mentions.test.ts`, `tab-close.test.ts`, `tab-signal.test.ts`, `xdev.test.ts`.
+
+## 8. Command/support changes with limited direct static surface
+
+These are consumer-visible interactions but mostly not standalone screenshots in this slice:
+- Slash/native registry adds `/delete` (alias `/drop`), `/close`, `/restart`, `/modes`, `/git`, `/hub`; `/setup` aliases Providers; login/logout labels become “Open provider login/logout”; SSH list/add/remove open the native host manager; parameterized palette actions prefill composer instead of running without arguments (`lib/command-registry.ts`).
+- `/delete` and `/drop` now require GUI confirmation (`lib/composer-submit.ts`).
+- Chat-tab command availability consistently disables plan/goal/loop/vibe/modes/task/tan/security/tree/git rather than offering silent no-ops (`lib/command-availability.ts`, `use-completion-menu.ts`).
+- Keymap adds remappable **Close tab = ⌘W**, reserves composer/native chords, and centralizes Escape consumption so closing a menu/rename does not also abort a run (`lib/keymap.ts`, `App.tsx`).
+
+## 9. Priority approval-board captures
+
+1. **Mixed completed transcript**: user + reasoning + process group + grouped reads + long answer — captures the largest CSS redesign and timeline removal.
+2. **Idle composer toolbar + History open**: new Edit Draft/History buttons, workspace scope/path rows.
+3. **Title/tab shell menus**: Session actions open + Tab actions visible; include fork current capture to expose duplication risk.
+4. **Approval Full access confirmation** and **Sidebar delete confirmation**: two distinct safety surfaces/copy.
+5. **Tool suite**: interrupted tool, Find hits, Wait/proc card, multi-image card, >150-line diff with copy/show-more.
+6. **Remote Markdown image placeholder**.
+7. **Restarting sidecar banner** and sidebar load-failure retry state.
+8. **Motion recording**: streaming chunks/new row arrival plus menu close; static comparison cannot approve these accurately.
+
+No implementation, tests, builds, fetches, or VCS mutation were performed, per read-only assignment.

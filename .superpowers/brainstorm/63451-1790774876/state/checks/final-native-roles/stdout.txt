@@ -1,0 +1,1 @@
+Real Electron role transport: concurrent deltas preserved; clear kept sibling; live native reads reflect edits

@@ -1,0 +1,1 @@
+{"decision":"Adopt canonical metrics","source":"functions.ask explicit user selection","scope":"Behavior stats compatibility: canonical frustration counts at /api/stats/frustration; preserve shell/model table; remove unavailable raw-signal trend","preview":"behavior-canonical-candidate.png","previewData":"labeled fixtures, actual compiled GUI surface","pushAuthorized":false}

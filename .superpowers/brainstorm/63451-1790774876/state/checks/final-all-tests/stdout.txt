@@ -1,0 +1,11 @@
+
+ RUN  v4.1.11 /Users/dannyb/sources/omp-monorepo/packages/gui
+
+ ❯ src/renderer/components/chat/TranscriptViewport.test.tsx (16 tests | 1 failed) 177ms
+     × routes find and next from a split composer to its owning main viewport 11ms
+
+ Test Files  1 failed | 187 passed (188)
+      Tests  1 failed | 2084 passed (2085)
+   Start at  21:35:55
+   Duration  59.17s (transform 2.14s, setup 0ms, import 30.15s, tests 18.13s, environment 8ms)
+

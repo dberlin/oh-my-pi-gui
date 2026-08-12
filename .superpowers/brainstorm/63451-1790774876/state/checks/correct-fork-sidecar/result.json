@@ -1,0 +1,1 @@
+{"label":"correct-fork-sidecar","cwd":"/tmp/omp-gui-sidecar-source-ffcdw3/packages/gui","command":["bun","run","build:omp"],"exitCode":0,"durationMs":7088,"directory":"/Users/dannyb/sources/omp-monorepo/packages/gui/.superpowers/brainstorm/63451-1790774876/state/checks/correct-fork-sidecar"}

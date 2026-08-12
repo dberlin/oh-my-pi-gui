@@ -1,0 +1,27 @@
+$ vite build && bun scripts/check-main-bundle.ts
+<script src="./pre-paint.js"> in "/index.html" can't be bundled without type="module" attribute
+Found 2 warnings while optimizing generated CSS:
+
+Issue #1:
+[2m│   color: var(--omp-selection-text);[22m
+[2m│ }[22m
+[2m│[22m ::highlight(omp-find) {
+[2m┆[22m             [33m[2m^--[22m 'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?[39m
+[2m┆[22m
+[2m│   background-color: var(--omp-find-match);[22m
+[2m│ }[22m
+
+Issue #2:
+[2m│   background-color: var(--omp-find-match);[22m
+[2m│ }[22m
+[2m│[22m ::highlight(omp-find-current) {
+[2m┆[22m             [33m[2m^--[22m 'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?[39m
+[2m┆[22m
+[2m│   background-color: var(--omp-find-current);[22m
+[2m│   color: var(--omp-find-current-text);[22m
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

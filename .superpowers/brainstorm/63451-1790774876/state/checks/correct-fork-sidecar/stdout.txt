@@ -1,0 +1,13 @@
+[build:omp] staging @oh-my-pi/pi-natives-darwin-arm64@18.4.4 (target darwin-arm64)
+bun add v1.4.2 (744846f84)
+
+installed @oh-my-pi/pi-natives-darwin-arm64@18.4.4
+
+1 package installed [178.00ms]
+Building dashboard client...
+Build complete
+Generated src/embedded-client.generated.txt
+Generated ../coding-agent/src/export/html/tool-views.generated.js (276.1 KiB)
+[build:omp] staged native companion: /private/tmp/omp-gui-sidecar-source-ffcdw3/packages/gui/resources/pi_natives.darwin-arm64.node
+Reset src/embedded-client.generated.txt
+built bundled omp → /private/tmp/omp-gui-sidecar-source-ffcdw3/packages/gui/resources/omp

@@ -1,0 +1,11 @@
+
+ RUN  v4.1.11 /Users/dannyb/sources/omp-monorepo/packages/gui
+
+ ❯ src/main/sidecar.test.ts (30 tests | 1 failed) 2933ms
+     × keeps SSH CLI overlays owned by the remote launch cwd and refreshes them on restart 60ms
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  1 failed | 184 passed (185)
+   Start at  21:31:08
+   Duration  5.44s (transform 623ms, setup 0ms, import 1.38s, tests 3.77s, environment 0ms)
+
