@@ -1,0 +1,7 @@
+{
+  "userDecision": "All approved",
+  "followUpInstruction": "(Keep going on your fixes)",
+  "approvedItems": ["S1", "S2", "C1", "C2", "C3", "C4", "M1", "Q1", "K1", "K2", "A1", "W1", "D1", "T1", "T2", "T3", "T4"],
+  "scope": "Shown ready-batch comparisons only. Unshown settings/failure-state, full ChatStream lifecycle and any materially different merged visuals remain gated.",
+  "pushAuthorized": false
+}

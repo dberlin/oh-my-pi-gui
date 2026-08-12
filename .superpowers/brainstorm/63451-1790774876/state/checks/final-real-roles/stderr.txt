@@ -1,0 +1,22 @@
+ZodError: [
+  {
+    "code": "invalid_value",
+    "values": [
+      true
+    ],
+    "path": [
+      "success"
+    ],
+    "message": "Invalid input: expected true"
+  },
+  {
+    "expected": "object",
+    "code": "invalid_type",
+    "path": [
+      "data"
+    ],
+    "message": "Invalid input: expected object, received undefined"
+  }
+]
+
+Bun v1.4.2 (macOS arm64)

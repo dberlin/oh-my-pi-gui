@@ -1,0 +1,59 @@
+<style>
+  .choices { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-top:18px; }
+  .choice { cursor:pointer; border:1px solid var(--border); border-radius:14px; overflow:hidden; background:var(--card-bg); transition:.15s ease; }
+  .choice:hover { border-color:var(--accent); transform:translateY(-1px); }
+  .choice.selected { outline:2px solid var(--accent); border-color:var(--accent); }
+  .head { padding:13px 14px 9px; min-height:92px; }
+  .headline { display:flex; gap:9px; align-items:center; margin-bottom:5px; }
+  .letter { width:26px; height:26px; border-radius:8px; display:grid; place-items:center; background:var(--accent); color:white; font-weight:700; flex:none; }
+  .head h3 { margin:0; font-size:15px; }
+  .head p { margin:0; color:var(--muted); font-size:12px; line-height:1.4; }
+  .app { height:360px; margin:0 10px 12px; border:1px solid #34404c; border-radius:9px; overflow:hidden; background:#10151b; color:#dbe5ef; font:10px/1.35 ui-monospace,SFMono-Regular,monospace; display:grid; grid-template-rows:28px 1fr; }
+  .top { background:#171d25; border-bottom:1px solid #303a45; display:flex; align-items:center; padding:0 8px; color:#8794a2; justify-content:space-between; }
+  .body { display:grid; grid-template-rows:1fr auto 66px; min-height:0; }
+  .upper { display:grid; grid-template-columns:minmax(0,1fr) 120px; min-height:0; }
+  .chat { padding:12px 10px; }
+  .bubble { height:24px; background:#1b2530; border:1px solid #2b3947; border-radius:7px; margin-bottom:9px; width:72%; }
+  .bubble.me { margin-left:auto; width:48%; background:#172b3e; }
+  .rail { border-left:1px solid #303a45; background:#151b22; padding:7px; overflow:hidden; }
+  .rail-row { border:1px solid #303a45; border-radius:6px; padding:5px 6px; margin-bottom:6px; color:#a5b0bd; display:flex; justify-content:space-between; }
+  .rail-row.compact { background:#18212b; color:#8dccff; }
+  .rail-title { color:#aab6c3; font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; display:flex; justify-content:space-between; margin:7px 1px 4px; }
+  .tree { border-left:1px solid #36414d; margin-left:4px; padding-left:7px; color:#8493a2; }
+  .tree div { padding:1.5px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tree .active { color:#8dccff; }
+  .tree .done { color:#65717d; text-decoration:line-through; }
+  .strip { min-height:0; border-top:1px solid #303a45; background:#161d25; padding:6px 9px; display:flex; gap:6px; align-items:center; }
+  .pill { border:1px solid #374452; border-radius:999px; padding:3px 7px; color:#9ca9b6; white-space:nowrap; }
+  .composer { border-top:1px solid #303a45; padding:7px 9px; background:#11171d; }
+  .box { height:48px; border:1px solid #3b4855; background:#171e26; border-radius:8px; position:relative; }
+  .box:before { content:'Message Main…'; color:#5c6977; position:absolute; left:8px; top:7px; }
+  .box:after { content:'send'; color:#8291a0; position:absolute; right:8px; bottom:6px; }
+  .queue { position:absolute; left:8px; bottom:5px; color:#f0b86a; border:1px solid #5a4932; border-radius:999px; padding:1px 5px; }
+  .commands { color:#8dccff; border:1px solid #37506a; border-radius:5px; padding:2px 5px; }
+  .recommended { display:inline-block; margin:0 14px 13px; padding:4px 8px; border-radius:999px; color:var(--accent); background:color-mix(in srgb,var(--accent) 15%,transparent); font-size:11px; font-weight:700; }
+  @media (max-width:1050px){ .choices{grid-template-columns:1fr;} .app{height:330px;} }
+</style>
+
+<h2>Where do Plan, Goal, and Queue go?</h2>
+<p class="subtitle">All three keep the selected right sidebar with Todo and Agents trees. The difference is how the other current dock surfaces remain accessible.</p>
+
+<div class="choices">
+  <div class="choice" data-choice="sidebar-composer" onclick="toggleSelect(this)">
+    <div class="head"><div class="headline"><div class="letter">A</div><h3>Sidebar metadata + composer queue</h3></div><p>Plan and Goal become compact collapsible rows in the rail. Queue becomes a composer chip. Everything stays visible without another horizontal band.</p></div>
+    <div class="app"><div class="top"><span>Main session</span><span>Ready</span></div><div class="body"><div class="upper"><div class="chat"><div class="bubble me"></div><div class="bubble"></div><div class="bubble"></div></div><aside class="rail"><div class="rail-row compact"><span>Plan mode</span><span>›</span></div><div class="rail-row"><span>Goal · 36%</span><span>›</span></div><div class="rail-title"><span>Todos</span><span>2/5</span></div><div class="tree"><div class="done">✓ Inspect</div><div class="active">◉ Implement</div><div>○ Verify</div></div><div class="rail-title"><span>Agents</span><span>1/2</span></div><div class="tree"><div class="active">◆ Main</div><div>└ Scout</div></div></aside></div><div></div><div class="composer"><div class="box"><span class="queue">2 queued</span></div></div></div></div>
+    <span class="recommended">Recommended · no feature loss</span>
+  </div>
+
+  <div class="choice" data-choice="commands-only" onclick="toggleSelect(this)">
+    <div class="head"><div class="headline"><div class="letter">B</div><h3>Strict two-tree sidebar</h3></div><p>The rail contains only Todo and Agents. Plan, Goal, and Queue disappear from persistent chrome and open only through commands/dialogs.</p></div>
+    <div class="app"><div class="top"><span>Main session</span><span class="commands">⌘K Commands</span></div><div class="body"><div class="upper"><div class="chat"><div class="bubble me"></div><div class="bubble"></div><div class="bubble"></div></div><aside class="rail"><div class="rail-title"><span>Todos</span><span>2/5</span></div><div class="tree"><div class="done">✓ Inspect</div><div class="active">◉ Implement</div><div>○ Verify</div></div><div class="rail-title"><span>Agents</span><span>1/2</span></div><div class="tree"><div class="active">◆ Main</div><div>└ Scout</div></div></aside></div><div></div><div class="composer"><div class="box"></div></div></div></div>
+  </div>
+
+  <div class="choice" data-choice="bottom-strip" onclick="toggleSelect(this)">
+    <div class="head"><div class="headline"><div class="letter">C</div><h3>Compact strip above composer</h3></div><p>Todo and Agents move right, but Plan, Goal, and Queue remain as a thin horizontal status/action strip above the composer.</p></div>
+    <div class="app"><div class="top"><span>Main session</span><span>Ready</span></div><div class="body"><div class="upper"><div class="chat"><div class="bubble me"></div><div class="bubble"></div><div class="bubble"></div></div><aside class="rail"><div class="rail-title"><span>Todos</span><span>2/5</span></div><div class="tree"><div class="done">✓ Inspect</div><div class="active">◉ Implement</div><div>○ Verify</div></div><div class="rail-title"><span>Agents</span><span>1/2</span></div><div class="tree"><div class="active">◆ Main</div><div>└ Scout</div></div></aside></div><div class="strip"><span class="pill">Plan mode</span><span class="pill">Goal 36%</span><span class="pill">2 queued</span></div><div class="composer"><div class="box"></div></div></div></div>
+  </div>
+</div>
+
+<p style="margin-top:14px;color:var(--muted);font-size:13px">Click the option that best matches the amount of persistent status you want, then respond in chat.</p>

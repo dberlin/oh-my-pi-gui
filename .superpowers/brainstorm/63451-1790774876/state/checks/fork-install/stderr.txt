@@ -1,0 +1,7 @@
+note: skipped 1 workspace listed in bun.lock but not on disk: "@oh-my-pi/omp-gui"
+Resolving dependencies
+Resolved, downloaded and extracted [2]
+
+$ bun run gen:tool-views
+$ bun --cwd=packages/collab-web run gen:tool-views
+$ bun scripts/build-tool-views.ts

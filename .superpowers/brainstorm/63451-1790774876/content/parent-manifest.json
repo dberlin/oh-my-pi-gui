@@ -1,0 +1,860 @@
+{
+  "base": "892adf914b843fe478793aa0f83a4218e7c49ff0",
+  "fork": "358d4bea",
+  "upstream": "7b8f6a54",
+  "rebaseApplied": false,
+  "parentSections": [
+    {
+      "id": "S1",
+      "title": "Navigation and action discovery",
+      "note": "Adds a compact Command Center icon, Session actions and Tab actions menus, sidebar Capabilities entry, and command shortcut hint. The current fork already has a large Commands field; adopting these additions must not remove its existing controls or activity rail. Integrated placement will be shown again if conflict resolution changes the approved layout."
+    },
+    {
+      "id": "S2",
+      "title": "Command Center semantics and availability",
+      "note": "Adds Git, Hub, Modes, Restart Core, Close Window and Delete Session commands; renames login/logout and app-wide Quit. Argument-taking selections prefill the composer instead of running incomplete commands. Chat-only, terminal-only and disconnected actions become visibly disabled with reasons; native window commands remain available. Failed command loads show an error and Retry. Source-exact state inventory is included below; the component-state gallery covers the shared disabled/error treatment."
+    },
+    {
+      "id": "C1",
+      "title": "Edit Draft and workspace-aware prompt history",
+      "note": "Adds visible Edit Draft and History toolbar buttons. History defaults to the current workspace, offers All workspaces, adds path/legacy-entry attribution, and records only accepted sends. Outside click and Escape dismiss the overlay. Arrow recall remains isolated to its owning tab/session."
+    },
+    {
+      "id": "C2",
+      "title": "Large paste can be cancelled",
+      "note": "Before: three choices; Escape inserts the pasted content. Upstream: a fourth Cancel button; Escape and outside click cancel without insertion. These are real paste-handler captures using identical 3,000-line clipboard event fixtures."
+    },
+    {
+      "id": "C3",
+      "title": "Model delegation completion and chips",
+      "note": "Typing ^ offers canonical provider/model suggestions in agent sessions; submitted delegation tags are removed from the prose and displayed as named Bot chips. Tool-free chat sessions do not offer delegation. The transcript gallery also shows the resulting chips."
+    },
+    {
+      "id": "C4",
+      "title": "Modes and reasoning controls",
+      "note": "Modes adds Prewalk to the More toggles and active summary, and navigation chevrons for Goal/Loop/Vibe/Roles. Approval and Thinking menus gain selected-radio focus and Arrow/Home/End navigation; their open/close motion appears under A1."
+    },
+    {
+      "id": "M1",
+      "title": "Capabilities becomes a native action launcher",
+      "note": "Retains the existing seven discovery cards and adds Command Center, Quick actions, and grouped Model/Providers/Extensions/Modes/Session/PR/Stats/Security/System/Copy actions. All three upstream scroll positions are shown; this is not merely the first screenful."
+    },
+    {
+      "id": "Q1",
+      "title": "Explicit full-access safety gate",
+      "note": "Choosing Full access from a stricter mode applies immediately before. Upstream asks for confirmation, explains unrestricted file/command/network calls, warns the setting persists for new sessions, and autofocuses Cancel. Normal stricter-mode changes remain immediate."
+    },
+    {
+      "id": "K1",
+      "title": "Shortcut ownership and close semantics",
+      "note": "Hotkeys adds Native menu chords, remappable ⌘W Close tab, reserved ⌃G Edit Draft and composer History ownership. Native/composer collisions show specific blocking errors or warnings. Close chip, ⌘W and menu Close Tab share the same live-run confirmation; final-tab close closes only that window. Tab arrows/Home/End rove focus. Settings Cmd/Ctrl+K focuses its search."
+    },
+    {
+      "id": "K2",
+      "title": "Native menus, safety warnings, tray and window restoration",
+      "note": "Expands macOS View/Session menus; adds Window and Tools menus. App-wide quit with live work asks before stopping sessions; changed installation resources ask before restart. Tray names the aggregate Idle/Running/Needs input/Error state and handles unknown context capacity. All saved windows/layouts restore, off-screen windows fit the current work area, explicit workspace paths focus/open their workspace; Windows menu bar auto-hides. The illustrations below are explicitly distinguished from OS captures."
+    },
+    {
+      "id": "A1",
+      "title": "Streaming, row, overlay and drawer motion; scroll intent",
+      "note": "Actual base/upstream recordings show streamed text and Command Center transitions. Upstream uses append-only streaming reveals, one-shot genuine-arrival row animation, 150ms retained-content modal/popover exits, context-menu pop-in, right-entry drawers and global color transitions. Reduced-motion skips reveal/exit effects. Scroll preserves reading anchors, repins only near the tail after tailward gestures, and sending returns to the live edge. Panel width persists and supports keyboard resizing. Videos show motion; static cards cannot approve it by themselves."
+    },
+    {
+      "id": "W1",
+      "title": "Public download site",
+      "note": "Landing page moves into site/ (assets are unchanged moves), adds Windows x64 download choices and platform-specific first-launch guidance, updates its release fallback to v0.9.11 and dynamically reads the latest release. Nav changes Download to Choose a build, and feature chips include structured job coordination. Wide/mobile hero, Updates and Install are shown."
+    },
+    {
+      "id": "D1",
+      "title": "Release version and documentation-only screenshots",
+      "note": "GUI version advances 0.9.6 → 0.9.11. README/release copy adds the new capabilities and Windows install/packaging instructions. The 24 new English/Chinese screenshots below are documentation assets, not proposed removal of fork UI. Click any thumbnail to inspect full resolution; all twelve surfaces per language are included."
+    }
+  ],
+  "nativeMenuDefinitions": {
+    "base": [
+      {
+        "label": "omp",
+        "items": [
+          {
+            "label": "About omp",
+            "type": "normal",
+            "accelerator": null,
+            "role": "about"
+          },
+          {
+            "label": "Settings…",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+,",
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Services",
+            "type": "normal",
+            "accelerator": null,
+            "role": "services"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Hide omp",
+            "type": "normal",
+            "accelerator": "Command+H",
+            "role": "hide"
+          },
+          {
+            "label": "Hide Others",
+            "type": "normal",
+            "accelerator": "Command+Alt+H",
+            "role": "hideothers"
+          },
+          {
+            "label": "Show All",
+            "type": "normal",
+            "accelerator": null,
+            "role": "unhide"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Quit omp",
+            "type": "normal",
+            "accelerator": "CommandOrControl+Q",
+            "role": "quit"
+          }
+        ]
+      },
+      {
+        "label": "File",
+        "items": [
+          {
+            "label": "Open Project…",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "New Session",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+N",
+            "role": null
+          },
+          {
+            "label": "New Tab",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "New Chat Tab",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "New Window",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+Shift+N",
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Close Window",
+            "type": "normal",
+            "accelerator": "CommandOrControl+W",
+            "role": "close"
+          }
+        ]
+      },
+      {
+        "label": "Edit",
+        "items": [
+          {
+            "label": "Undo",
+            "type": "normal",
+            "accelerator": "CommandOrControl+Z",
+            "role": "undo"
+          },
+          {
+            "label": "Redo",
+            "type": "normal",
+            "accelerator": "Shift+CommandOrControl+Z",
+            "role": "redo"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Cut",
+            "type": "normal",
+            "accelerator": "CommandOrControl+X",
+            "role": "cut"
+          },
+          {
+            "label": "Copy",
+            "type": "normal",
+            "accelerator": "CommandOrControl+C",
+            "role": "copy"
+          },
+          {
+            "label": "Paste",
+            "type": "normal",
+            "accelerator": "CommandOrControl+V",
+            "role": "paste"
+          },
+          {
+            "label": "Select All",
+            "type": "normal",
+            "accelerator": "CommandOrControl+A",
+            "role": "selectall"
+          }
+        ]
+      },
+      {
+        "label": "View",
+        "items": [
+          {
+            "label": "Toggle Sidebar",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+B",
+            "role": null
+          },
+          {
+            "label": "Toggle Panel",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+J",
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Reload",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+R",
+            "role": "reload"
+          },
+          {
+            "label": "Force Reload",
+            "type": "normal",
+            "accelerator": "Shift+CmdOrCtrl+R",
+            "role": "forcereload"
+          },
+          {
+            "label": "Toggle Developer Tools",
+            "type": "normal",
+            "accelerator": "Alt+Command+I",
+            "role": "toggledevtools"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Actual Size",
+            "type": "normal",
+            "accelerator": "CommandOrControl+0",
+            "role": "resetzoom"
+          },
+          {
+            "label": "Zoom In",
+            "type": "normal",
+            "accelerator": "CommandOrControl+Plus",
+            "role": "zoomin"
+          },
+          {
+            "label": "Zoom Out",
+            "type": "normal",
+            "accelerator": "CommandOrControl+-",
+            "role": "zoomout"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Toggle Full Screen",
+            "type": "normal",
+            "accelerator": "Control+Command+F",
+            "role": "togglefullscreen"
+          }
+        ]
+      },
+      {
+        "label": "Session",
+        "items": [
+          {
+            "label": "Export HTML",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+E",
+            "role": null
+          },
+          {
+            "label": "Handoff",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          }
+        ]
+      },
+      {
+        "label": "Help",
+        "items": [
+          {
+            "label": "About omp",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Documentation",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          }
+        ]
+      }
+    ],
+    "upstream": [
+      {
+        "label": "omp",
+        "items": [
+          {
+            "label": "About omp",
+            "type": "normal",
+            "accelerator": null,
+            "role": "about"
+          },
+          {
+            "label": "Settings…",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Services",
+            "type": "normal",
+            "accelerator": null,
+            "role": "services"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Hide omp",
+            "type": "normal",
+            "accelerator": "Command+H",
+            "role": "hide"
+          },
+          {
+            "label": "Hide Others",
+            "type": "normal",
+            "accelerator": "Command+Alt+H",
+            "role": "hideothers"
+          },
+          {
+            "label": "Show All",
+            "type": "normal",
+            "accelerator": null,
+            "role": "unhide"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Quit omp",
+            "type": "normal",
+            "accelerator": "CommandOrControl+Q",
+            "role": "quit"
+          }
+        ]
+      },
+      {
+        "label": "File",
+        "items": [
+          {
+            "label": "Open Project…",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "New Session",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+N",
+            "role": null
+          },
+          {
+            "label": "New Tab",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "New Chat Tab",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "New Window",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+Shift+N",
+            "role": null
+          }
+        ]
+      },
+      {
+        "label": "Edit",
+        "items": [
+          {
+            "label": "Undo",
+            "type": "normal",
+            "accelerator": "CommandOrControl+Z",
+            "role": "undo"
+          },
+          {
+            "label": "Redo",
+            "type": "normal",
+            "accelerator": "Shift+CommandOrControl+Z",
+            "role": "redo"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Cut",
+            "type": "normal",
+            "accelerator": "CommandOrControl+X",
+            "role": "cut"
+          },
+          {
+            "label": "Copy",
+            "type": "normal",
+            "accelerator": "CommandOrControl+C",
+            "role": "copy"
+          },
+          {
+            "label": "Paste",
+            "type": "normal",
+            "accelerator": "CommandOrControl+V",
+            "role": "paste"
+          },
+          {
+            "label": "Select All",
+            "type": "normal",
+            "accelerator": "CommandOrControl+A",
+            "role": "selectall"
+          }
+        ]
+      },
+      {
+        "label": "View",
+        "items": [
+          {
+            "label": "Command Center",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Context Report",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Session Stats",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Jobs",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Keyboard Shortcuts",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Toggle Sidebar",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Toggle Panel",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Reload",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+R",
+            "role": "reload"
+          },
+          {
+            "label": "Force Reload",
+            "type": "normal",
+            "accelerator": "Shift+CmdOrCtrl+R",
+            "role": "forcereload"
+          },
+          {
+            "label": "Toggle Developer Tools",
+            "type": "normal",
+            "accelerator": "Alt+Command+I",
+            "role": "toggledevtools"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Actual Size",
+            "type": "normal",
+            "accelerator": "CommandOrControl+0",
+            "role": "resetzoom"
+          },
+          {
+            "label": "Zoom In",
+            "type": "normal",
+            "accelerator": "CommandOrControl+Plus",
+            "role": "zoomin"
+          },
+          {
+            "label": "Zoom Out",
+            "type": "normal",
+            "accelerator": "CommandOrControl+-",
+            "role": "zoomout"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Toggle Full Screen",
+            "type": "normal",
+            "accelerator": "Control+Command+F",
+            "role": "togglefullscreen"
+          }
+        ]
+      },
+      {
+        "label": "Window",
+        "items": [
+          {
+            "label": "Close Tab",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Close Window",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+Shift+W",
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Minimize",
+            "type": "normal",
+            "accelerator": "CommandOrControl+M",
+            "role": "minimize"
+          },
+          {
+            "label": "Zoom",
+            "type": "normal",
+            "accelerator": null,
+            "role": "zoom"
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Bring All to Front",
+            "type": "normal",
+            "accelerator": null,
+            "role": "front"
+          }
+        ]
+      },
+      {
+        "label": "Session",
+        "items": [
+          {
+            "label": "Import Session",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Branch from Message",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Session Tree",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Session Info",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Share Session",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Export HTML",
+            "type": "normal",
+            "accelerator": "CmdOrCtrl+E",
+            "role": null
+          },
+          {
+            "label": "Handoff",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          }
+        ]
+      },
+      {
+        "label": "Tools",
+        "items": [
+          {
+            "label": "Agent Hub",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Modes",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Providers & Login",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Model Roles",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Select Model",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Capabilities",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Usage",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Extensions",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Plugins & Resources",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "PR Center",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Workspace Directories",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Git Changes",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Restart OMP Core",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "",
+            "type": "separator",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Debug Console",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          }
+        ]
+      },
+      {
+        "label": "Help",
+        "items": [
+          {
+            "label": "About omp",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          },
+          {
+            "label": "Documentation",
+            "type": "normal",
+            "accelerator": null,
+            "role": null
+          }
+        ]
+      }
+    ]
+  },
+  "nativeQuitGuardObservedOptions": {
+    "type": "warning",
+    "buttons": [
+      "Quit anyway",
+      "Keep working"
+    ],
+    "defaultId": 1,
+    "cancelId": 1,
+    "message": "Sessions are still running",
+    "detail": "1 of 1 sessions are still working in 1 window(s). Quitting stops them and their agents."
+  },
+  "screenDir": "/Users/dannyb/sources/omp-monorepo/packages/gui/.superpowers/brainstorm/63451-1790774876/content",
+  "captureRoot": "/tmp/omp-gui-approval-aPLkG1",
+  "previewRoots": {
+    "base": "/tmp/omp-gui-base-visual-20260930",
+    "upstream": "/tmp/omp-gui-upstream-visual-20260930"
+  },
+  "approval": "Every visual change requires explicit user approval; no default approval",
+  "limits": [
+    "Native OS screenshots unavailable; native visuals explicitly illustrated from actual Menu definitions/source-exact warning text."
+  ]
+}

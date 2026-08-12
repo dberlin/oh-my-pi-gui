@@ -1,0 +1,43 @@
+
+Running 1 test using 1 worker
+
+  ✘  1 e2e/real-core.e2e.ts:9:1 › real bundled sidecar persists settings and sessions and serves every stats route (21.5s)
+
+
+  1) e2e/real-core.e2e.ts:9:1 › real bundled sidecar persists settings and sessions and serves every stats route 
+
+    Error: expect(locator).not.toContainText(expected) failed
+
+    Locator: getByRole('dialog')
+    Expected substring: not "Stats unavailable"
+    Received string: "Stats — BehaviorOverviewModelsProvidersToolsCostsErrorsBehaviorGainProjectsRequests1h24h7d30d90dallSyncLocal indexed history · 24h · across projects and sessionsStats unavailable.Error: Invalid stats path: /api/stats/frustrationRetry"
+    Timeout: 15000ms
+
+    Call log:
+      - Expect "not toContainText" with timeout 15000ms
+      - waiting for getByRole('dialog')
+        34 × locator resolved to <div role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="_r_4a_" aria-label="Stats — Behavior" class="omp-dialog-panel omp-scale-in flex flex-col overflow-hidden rounded-2xl border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg) omp-dialog-size-full">…</div>
+           - unexpected value "Stats — BehaviorOverviewModelsProvidersToolsCostsErrorsBehaviorGainProjectsRequests1h24h7d30d90dallSyncLocal indexed history · 24h · across projects and sessionsStats unavailable.Error: Invalid stats path: /api/stats/frustrationRetry"
+
+
+      162 | 			await stats.locator("nav").getByRole("button", { name: label, exact: true }).click();
+      163 | 			await expect(stats.getByText("Loading stats…", { exact: true })).toHaveCount(0, { timeout: 30000 });
+    > 164 | 			await expect(stats).not.toContainText("Stats unavailable", { timeout: 15000 });
+          | 			                        ^
+      165 | 			await page.screenshot({ path: `test-results/stats-${label}.png`, scale: "css", animations: "disabled" });
+      166 | 		}
+      167 | 		await page.keyboard.press("Escape");
+        at /Users/dannyb/sources/omp-monorepo/packages/gui/e2e/real-core.e2e.ts:164:28
+
+    Error Context: test-results/real-core.e2e.ts-real-bund-fc726-nd-serves-every-stats-route/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/real-core.e2e.ts-real-bund-fc726-nd-serves-every-stats-route/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/real-core.e2e.ts-real-bund-fc726-nd-serves-every-stats-route/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    e2e/real-core.e2e.ts:9:1 › real bundled sidecar persists settings and sessions and serves every stats route 

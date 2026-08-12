@@ -1,0 +1,204 @@
+## 1. Shared primitives — screenshot these first because the changes propagate
+
+### Disabled affordances become substantially more visible
+- **Before:** shared `Button` used `disabled:opacity-50`; shared `Tabs` used `disabled:opacity-40`; disabled context-menu rows used `opacity-45`.
+- **After:** all three use `opacity-70` (`common/Button.tsx:53`, `Tabs.tsx:58`, `ContextMenu.tsx:142`). This is primitive-wide and changes every disabled control/tab/menu item in the target surfaces.
+- **Scenario:** disconnect the sidecar, then open Settings, Agent Hub, Modes, Queue, and Extensions. Capture disabled controls against both light and dark themes; upstream controls look less washed out than base.
+
+### Async state primitive
+- `AsyncSection` is new (`common/AsyncSection.tsx:15-114`). It renders:
+  - initial loading as centered **vertical** spinner + optional label;
+  - hard error with yellow `AlertTriangle`, optional title, message, and Refresh-icon Retry;
+  - empty success with `Inbox` icon;
+  - stale-data failure as a warning banner above retained children with Retry.
+- **Subtle stats-wide delta:** old stats loading put spinner and text horizontally; the shared primitive stacks them vertically. Old stale banner was `mb-3`; new is `m-3`, and Retry gains a Refresh icon (`stats/shared.tsx:23-40`).
+- **Scenario:** Stats with delayed response, hard 500, empty range, then successful data followed by failed refresh. Also Model Roles with the same four fixtures.
+
+### Context menu behavior and motion
+- **Before:** menu appeared without `omp-pop-in`; Escape could bubble to a dialog behind it; disabled rows were dimmer.
+- **After:** `omp-pop-in`, 70% disabled opacity, IME-aware key handling, and `stopPropagation()` on Escape (`ContextMenu.tsx:67-75,107-145`).
+- **Scenario:** open any row context menu inside a window, record opening animation, then press Escape. Only the menu should close upstream; the underlying window stays open. Start IME composition and verify Escape does not incorrectly dismiss.
+
+## 2. Settings shell and Overview
+
+### Agent-disconnected notice and locked schema pages
+- `SettingsConnectionNotice` is new (`SettingsWindow.tsx` upstream lines 137-177; insertion around rendered content at 1015-1021).
+- **Before:** cached schema could remain looking editable, or agent-backed tabs showed generic loading/error states.
+- **After:** agent schema/Advanced pages show a yellow warning panel with:
+  - starting/restarting: **“Waiting for the agent process”**, **“The settings schema will return when the agent reconnects.”**;
+  - unavailable: **“Agent settings are unavailable”**, **“Reconnect the agent before editing these settings.”**;
+  - cached schema: **“Cached values are shown for navigation only and are locked until reconnect.”**;
+  - no schema: **“No settings values are available until the agent reconnects.”**;
+  - Retry with Refresh icon, disabled while already waiting/busy.
+- GUI and Overview remain navigable; agent schema contents render only while ready (`SettingsWindow.tsx` diff at new 1427-1458).
+- **Scenario:** Cmd+, open an agent schema tab with (a) cached schema + failed sidecar, (b) no schema + failed sidecar, and (c) `starting`; compare notice copy, role (`alert` vs `status`), and Retry state.
+
+### Navigation/focus
+- Settings group headers gain left ChevronDown when their group owns the active page and ChevronRight otherwise (`SettingsWindow.tsx` new 922-934).
+- Cmd/Ctrl+K now focuses/selects the global settings search while the relevant search field is shown (new 577-590, ref at 996).
+- **Scenario:** Settings sidebar with several expanded groups; switch pages to move chevrons, then press Cmd+K and capture focused search.
+
+### Overview becomes a native action launcher
+- **Before:** seven discovery cards: TTSR, Agents, Model Roles, Advisor, Modes, Memory, Tools.
+- **After:** retains those and adds:
+  - featured **Command Center** card: “Browse every GUI command, mode, provider action, extension action, and shortcut from one searchable palette,” button **Browse all commands**;
+  - **Quick actions**: BTW, TAN, OMFG, Guided Goal, Queue;
+  - **Model**: Model, Model Roles, Model Compare, Benchmark;
+  - **Providers**: Providers, Add Provider, Usage;
+  - **Extensions**: Skills, MCP, Plugins, Marketplace, Templates, Memory, Hooks, Commands;
+  - **Modes**: Modes, Vibe, Collab, Live;
+  - **Session**: Clear, Import, Session Info, Tree, Share, Handoff, Export, Dump, Fork, Retry, Resend;
+  - **PR Center**: PR Center, Workspace Directories;
+  - **Stats/context**: Context, Tools, Stats, Jobs, Debug;
+  - **Security/system**: Security, SSH, Hotkeys, Theme, Settings, Changelog, Updates;
+  - **Copy/force** card.
+- Evidence: `CapabilitiesHome.tsx` new `CapabilityTarget` union and `TargetButton` (lines 40-75,151-165), cards at 209-234 and 328-411; dispatch is wired in `SettingsWindow.tsx` new 708-881.
+- **Scenario:** Cmd+, **Overview**, 1400×900. Capture top (Command Center + Quick actions), middle (existing capability cards + model/providers/extensions), and lower action grid. Click one internal settings target and one external window target to verify affordance destinations.
+
+## 3. Settings content surfaces
+
+### Model Roles (`/model-roles` / command palette Model Roles)
+- **Before:** each role had a plain native `<select>` populated with every available model; loading was spinner-only; empty was a bordered text box.
+- **After:** each role gets a custom combobox/listbox with ChevronDown, focused Search input, outside-click close, Arrow/Home/End navigation, grouped eligible candidates, model display name plus `provider/id`, and a preserved **“{model} (saved)”** option when the saved assignment is absent from candidates (`ModelRolesWindow.tsx` new 47-280).
+- Roles are split under **Chat roles** and **Specialized roles** headings; candidates are grouped as Chat, Tiny, Image, Speech (TTS), Transcription (STT), Search, Judge. A role without candidates shows **“No eligible models for this role.”** (`ModelRolesWindow.tsx` new 378-406; locale keys `modelRoles.section.*`, `kind.*`, `noCandidates`).
+- Uses AsyncSection: **Could not load model roles**, stale banner **Showing the last roles that loaded successfully**, retry, distinct empty state. Disconnected picker/Refresh is disabled with **Sidecar not connected**.
+- **Seed:** chat role with two chat candidates; TTS role with one candidate; search role with none; one saved legacy model not in candidates. Open the chat picker and type a provider substring. Separately fail refresh after rows load.
+
+### Model Compare (`/model-compare`)
+- **Before:** every noncurrent row had pointer/hover treatment and could be selected through the whole row/Use button, even if provider was disabled or definitely unauthenticated.
+- **After:** blocked rows use `cursor-not-allowed opacity-60`, lose hover, ignore assignment, disable **Use**, and expose exact tooltip:
+  - **“Not signed in — sign in from Providers first”**;
+  - **“Provider is disabled — enable it in Providers first”**.
+  Unknown authentication remains selectable rather than being treated as signed out (`ModelCompare.tsx:518-539,610-643`; reason logic new 146-154).
+- Role selector, Use, and Refresh also lock while disconnected with **Not connected** title (`ModelCompare.tsx:612-638,696-705`).
+- **Seed:** current model; enabled authenticated model; enabled unauthenticated model; disabled model; model whose provider is absent from provider metadata. Capture row opacity/cursors/tooltips and Use states.
+
+### Providers (`/providers`)
+- **Truthful states:** hard-load error now says **Could not load the provider list**; failed refresh with retained rows says **Showing the last providers that loaded successfully**; provider discovery failures remain separate; refresh-pending banner gains a small spinner (`ProvidersWindow.tsx:347-383`). Empty **No authenticated providers** only appears after a successful nonloading/nonerror read.
+- Refresh/Login/Logout/credential-login Edit lock while disconnected and show **Sidecar not connected** (`ProviderRow` lines 103-141; window 333-343).
+- Credential-source-aware row actions: an authenticated custom provider whose key is in `models.yml` no longer offers misleading Logout; it retains Edit because reload would re-install that key (`ProvidersWindow.tsx:75-82`).
+- Custom-provider help path changes from `~/.omp/models.yml` to `~/.omp/agent/models.yml`; adds **“Use Add Provider for a supported endpoint; use models.yml for advanced or custom provider definitions.”** If configs have no discovered model, a yellow message names IDs and suggests checking base URL/API key/model list (`ProvidersWindow.tsx:433-455`).
+- Success toast uses provider display name, not ID. If logout cannot remove an externally supplied key, warning copy explains the provider remains authenticated.
+- **Seed:** authenticated built-in OAuth provider, unauthenticated login-capable provider, custom provider with `hasApiKey=true`, unlisted custom config `acme`, one discovery error, and `refreshPending=true`; then fail a refresh while keeping rows.
+- Logout confirmation UI lives in an excluded dialog partition and is not inventoried here.
+
+### Schema rows/editors
+- `SchemaSettingRow`: when a setting has no schema default but currently has a value, a ghost button appears below it: **Remove global override** (`SchemaSettingRow.tsx:569-578`).
+- `RecordKvEditor`: renaming a key to an existing key now leaves the row and prints red inline **“Another entry already uses “{key}”. Give this row a different name.”** (`RecordKvEditor.tsx` new 53-54,87-162).
+- `ModelValueSelect`: options force-refresh through the model store every open; disabled providers now render as disabled/faded, non-clickable rows rather than recognition-only selectable rows (`ModelValueSelect.tsx` new 194-202).
+- `EnumerableSelect`: refetches on every open (concurrent opens share one request), so changed model/provider/enum options become visible without process restart; Escape is IME-safe and does not leak to an outer layer (`EnumerableSelect.tsx` new 39-139,332).
+- `ArrayChipEditor` and `ProviderLimitsEditor`: IME composition no longer accidentally submits/commits on composition key events; no static styling change.
+- **Seed:** no-default custom scalar with a value; record `{alpha:1,beta:2}` then rename beta→alpha; disabled provider option; mutate options between two dropdown opens.
+
+### Schema visibility/localization
+- `plan.autosaveDir` now appears only when both `plan.enabled` and `plan.autosave` are true (`settings-schema-utils.ts:27`).
+- Additional terminal-only controls disappear from GUI settings: `tui.vimModeDisplay`, `statusLine.leftSegments`, `statusLine.rightSegments`, `statusLine.segmentOptions` (`settings-schema-utils.ts:52-65`). This is a visible removal, not formatting.
+- Chinese localization is added for visible 18.2.x settings including advisor max notes, browser freeze/idle close, collab auto-start, experimental context management, composer recall/shape/token rate, pinned agents, semantic Find, loop timeout, plan autosave/path, stream redaction/server, agent service-tier overrides, and speculative execution/max-in-flight. `schema-option-zh.ts` adds enum labels such as Braille/Pulse/Moon/Dots, Collapsed, Percentage, Append/Rebuild, and View. TUI-only labels are translated but filtered from GUI by the utility above.
+- **Scenario:** Chinese language + schema fixture containing those entries; capture each owning tab, then toggle plan and autosave to reveal autosave directory.
+
+### Skills (`/skills`)
+- **Before:** on initial failure, loading/empty ordering could show spinner or no skills; detail failure had only an error box.
+- **After:** list error outranks empty and shows yellow alert icon + message + Retry; detail error gains Refresh-icon Retry. Refresh, create/save/edit/remove and detail actions lock while disconnected (`SkillsSettingsPage.tsx` new 343-360,397-400,468-588).
+- **Scenario:** fail initial `getSkills`; then load one managed skill and fail its detail; finally disconnect with editor open.
+
+### Security (`/security`)
+- Scan button now has explicit reason text beside it and title for disconnected, scan already running, missing repository, or missing model (`SecuritySettingsPage.tsx` new 170-179,361-375). Copy includes **“Open a Git repository before scanning.”** and **“Select a security model before scanning.”**
+- Disabled summary copy changes from “it will be enabled for the first scan” to **“Security disabled — a scan will ask to enable it.”** A scan no longer silently flips the master switch; confirmation belongs to the excluded dialog partition.
+- Retry, cancel, validation, disposition, and scan controls lock while disconnected (`SecuritySettingsPage.tsx` new 303-312,542-652).
+- **Seed:** dashboard variants: no repository; repository + no model; active scan; security disabled but otherwise ready; disconnected with a selected finding.
+
+### SSH (`/ssh`)
+- **Before:** a freshly added/never-tested selected host could show a green dot and **Connected** simply because there was no failed result.
+- **After:** explicit health is failed / healthy / unknown. Never-probed host is gray and labeled the localized unknown state; test success or discovered OS is green; failed test is red (`SshSettingsPage.tsx` `hostHealth` new 20-26; detail lines 373-392).
+- Initial load has a centered spinner; load errors suppress the empty-host CTA. Add/refresh/test/save/delete lock while disconnected (`SshSettingsPage.tsx` new 272-364,489-510).
+- **Seed:** three hosts: `{os:undefined,no test}`, `{os:'linux'}`, `{test:{ok:false}}`; select each. Also delayed initial load and failed initial load.
+- Delete confirmation belongs to the excluded dialog partition.
+
+### Updates and Usage
+- Updates: app update check still runs while disconnected, but OMP-core result reports **Sidecar not connected** instead of generic **Core check failed** (`UpdatesSettingsPage.tsx` new 47-76). Scenario: Settings→Updates with sidecar down but updater available.
+- Usage (`/usage`): quota reports and local session tallies are split. Quotas reload on open, tab change, and explicit Refresh; tallies follow the active tab/session store. Reset countdown receives a ticking `now`, so visible “resets in …” text advances rather than freezing (`UsageWindow.tsx` new 50-157,174-261). Refresh locks disconnected with explanatory title (`272-282`).
+- **Seed:** two tabs with distinct token/cost tallies, one quota resetting soon, switch tabs while Usage is open and wait across a countdown boundary.
+
+## 4. Panels
+
+### Agent Hub (`hub` action / Agent Hub window)
+- Adds top-level **Pause all agents** / **Resume all agents** button with Pause/Play icon, pressed state, loading state, and failure toast; disabled while disconnected (`AgentHubWindow.tsx:868-884`).
+- Abort turn, row abort/confirm, and parked-agent revive lock while disconnected with reason titles (`HubRow` lines 581-621; hub 885-896).
+- A roster load failure no longer reads as no agents: red **Could not load the subagent roster**, raw error, Refresh-icon Retry; no-agents copy remains only for successful empty data (`AgentHubWindow.tsx:899-928`; `SubagentDag.tsx` new 160-170).
+- Definition settings Refresh/retry and mutations lock while disconnected (`AgentHubWindow.tsx:403-464` and supporting `agent-hub-settings.ts`).
+- Transcript/detail drawer motion changes from fade-in to `omp-slide-in-right` (`AgentHubWindow.tsx:667`).
+- **Seed:** working + stale + parked agents, `agentsPaused=false`; capture pause, resume, disconnected controls, and roster failure. Open one agent to capture drawer motion.
+
+### Extensions / MCP / inventory
+- Extensions settings (`/extensions`, `/mcp`, `/skills`) propagate readiness to all refresh/retry, enable/disable, add-server, and row menu actions; disabled MCP menu title becomes **not connected** rather than generic menu (`ExtensionsPanel.tsx` relevant new 367-424,750-782; `mcp/McpServerCard.tsx:85-171`).
+- Inventory Settings Resources (`/plugins`, `/marketplace`, templates, memory) applies the same lock/reason to Refresh and row mutations (`InventoryPanel.tsx` new 184-251,305-314,527-801).
+- Marketplace Add source/input/add, browse, refresh, remove-confirm/remove, retry, and plugin actions all lock disconnected (`MarketplacesSection.tsx` new 37-98,402-510).
+- Plugin detail drawer:
+  - failed refresh with old detail keeps content and adds red **Showing the details from the last successful load. {error}** banner + Retry;
+  - disconnected state disables the entire feature/settings fieldset and top action;
+  - drawer changes fade-in→slide-in-right (`PluginDetailDrawer.tsx` new 568,596-772).
+- **Seed:** loaded plugin with editable feature/settings, then fail detail refresh; disconnect; open drawer from list to compare motion. For marketplace, disconnect with a source typed and a card in remove-confirm state.
+
+### Modes (`/modes`)
+- Failed/disconnected load now stops loading and shows error rather than lingering spinner. Retry/Refresh buttons disable with **not connected** title.
+- Goal objective save, resume/pause/drop/start, loop/live controls all include readiness in disabled state (`ModesPanel.tsx` new 276-318,388-649).
+- **Seed:** active Goal with dirty objective, active Loop, disconnected sidecar; then hard initial RPC failure.
+
+### Queue (`/queue`)
+- Adds a visible bordered **Sidecar not connected** status banner at top when disconnected (`QueuePanel.tsx` new 452-457).
+- Every row edit/save, up/down, lane move, remove, clear-lane, and other mutation is disabled; relevant icons expose not-connected title (`QueuePanel.tsx` new 111-317,337-483).
+- Most of the 80+/80− diff is an internal optimistic-mutation helper refactor; it has no separate static visual delta beyond preserving rollback/toast behavior.
+- **Seed:** two Steering and two Follow-up items, one item in edit mode, then disconnect; capture banner and all disabled icon states.
+
+### Logs
+- **Before:** initial batch failure could leave **Waiting for logs** / **No matching logs** with no recovery control.
+- **After:** error replaces list content with red `role=alert` and RotateCw **Retry** (`LogPanel.tsx:188-213`). Successful reload clears it.
+- **Scenario:** open Logs/debug panel with initial `getLogs` failure, then click Retry into a batch containing multiple levels.
+
+### Repository changes (`git` action)
+- **Before:** every refresh cleared rows/selection and showed Loading; a failed refresh discarded the visible diff.
+- **After:** only changing to a different tab RPC clears data. Same-session refresh retains last good file list/diff; failure prints the existing error above retained content. Initial load still shows Loading (`RepositoryChanges.tsx:16-40,86-89`).
+- **Seed:** repo with one modified file and selected diff; fail Refresh. Also switch session to prove old checkout does not leak.
+
+### PR Center
+- Window title changes from empty to localized PR Center title (`PrCenterWindow.tsx` old/new line 90/95).
+- Refresh can probe when repo capability is not established. Create remains disabled but now has a concrete reason (probing or unavailable reason).
+- Probe failure with no repo shows centered red alert + Retry; list failure with zero rows shows Retry instead of looking like empty/loading (`PrCenterWindow.tsx` new 79-146,169-182).
+- Detail failure no longer spins forever: centered alert + Retry. Changing selected PR keys the pane and gives `omp-fade-up`, replaying entrance and resetting per-PR expansion (`PrDetailPane.tsx` new 96-130).
+- **Seed:** probe error; unavailable repo; available repo with list error; one selected PR whose detail fails; two valid PRs switched back-to-back.
+
+### Files
+- File detail root gains `omp-slide-in-right` (`FilesPanel.tsx:193`).
+- **Scenario:** sidebar Files, click a file from list; record entry motion. This one-line diff is visual, not formatting-only.
+
+## 5. Stats Dashboard (`/stats`)
+
+- **Starting server recovery:** startup/sync failure is treated as transient; toast now says **Stats server is starting and syncing history…**, routes remain in loading and recover on retry (`StatsDashboard.tsx` new 61-65). Refresh keys the whole active route so state actually resets (`169`).
+- **Gain / by source:** before section required more than one source key and included zero-hit rows. After it appears with even one positive source and filters `hits <= 0` (`GainRoute.tsx:55,127-146`). Seed one source with 3 hits and several zero-hit sources.
+- **Provider timeline:** top four series are sorted by aggregate token total instead of insertion order (`ProvidersRoute.tsx:160-166`). Seed five providers where the fifth inserted has the highest total; it should now enter the chart.
+- **Tools:** `lastUsed <= 0` displays **Never**, not a Jan 1970 locale date (`ToolsRoute.tsx:80-94`; locale line 2168). Seed one never-used and one recent tool.
+- **Errors/Projects:** switch to `useStatsList` (`ErrorsRoute.tsx:29`, `ProjectsRoute.tsx:47`) so list endpoint payloads render through the list-aware hook. Seed one error and one folder/project result and verify rows appear.
+- **Shared states:** use the AsyncSection scenarios from section 1. Stats hard errors retain title **Unavailable**, empty retains current-range copy, and stale errors retain prior charts/tables.
+
+## 6. Copy/locales
+
+`en.ts` and `zh.ts` add parity for all included user-visible states. Important exact English strings not already quoted above:
+- `settings.restoreUnset`: **Remove global override** (en line 57)
+- `pluginDetail.stale`: **Showing the details from the last successful load.** (line 991)
+- `common.notConnected`: **Sidecar not connected** (line 1012)
+- `stats.starting`: **Stats server is starting and syncing history…** (line 2106)
+- `stats.tools.never`: **Never** (line 2168)
+- `subagent.loadFailed`: **Could not load the subagent roster.** (line 2697)
+
+## 7. Formatting/internal-only classification and exclusions
+
+- **No included production file is wholly formatting-only.** Every included changed production file either changes rendering, visible data, motion, keyboard/focus behavior, or availability states.
+- Large hunks that are **internal/reindent-only within otherwise visual files**:
+  - `PluginDetailDrawer.tsx`: most removed/re-added JSX is fieldset wrapping/indentation; visual deltas are only stale banner/retry, disconnected lock, and slide motion.
+  - `QueuePanel.tsx`: optimistic mutation-helper replacement is internal; visual deltas are disconnected banner and disabled actions.
+  - `ModelCompare.tsx`, `ModelValueSelect.tsx`, `ProvidersWindow.tsx`, `UsageWindow.tsx`: store/catalog ownership rewiring is internal except where it changes stale/current rows, blocked affordances, refresh results, countdowns, or tallies listed above.
+  - `stats/shared.tsx`: extraction to AsyncSection is architectural, but not formatting-only because loading orientation/banner spacing/retry icon change.
+  - `common/index.ts`, `settings-window-model.ts`, `agent-hub-settings.ts`: export/helper plumbing only; they enable the rendered behavior documented with their callers.
+  - Tests (`*.test.tsx`, `locales.test.ts`) are non-rendering evidence and require no approval frame.
+- **Explicitly excluded by assignment:** `common/ConfirmDialog.tsx`, `common/Modal.tsx`; `settings/ProviderConfigDialog.tsx`; `panels/mcp/McpServerWizard.tsx`; `panels/pr/PrCreateDialog.tsx`; `panels/SubagentTranscript.tsx`. Their callers may mention that a flow now continues into a confirmation, but the dialog visuals themselves are not classified here.
+- **Remaining unclassified included paths: none.**

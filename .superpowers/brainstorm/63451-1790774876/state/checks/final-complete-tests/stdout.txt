@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/dannyb/sources/omp-monorepo/packages/gui
+
+
+ Test Files  188 passed (188)
+      Tests  2088 passed (2088)
+   Start at  07:11:27
+   Duration  68.40s (transform 2.34s, setup 0ms, import 33.69s, tests 22.72s, environment 9ms)
+

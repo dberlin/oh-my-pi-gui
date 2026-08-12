@@ -1,0 +1,3 @@
+$ bun --cwd=packages/stats run gen:stats
+$ bun scripts/generate-client-bundle.ts --generate
+$ bun run build.ts

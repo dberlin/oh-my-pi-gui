@@ -1,0 +1,6 @@
+
+Running 1 test using 1 worker
+
+  ✓  1 e2e/real-core.e2e.ts:9:1 › real bundled sidecar persists settings and sessions and serves every stats route (9.7s)
+
+  1 passed (9.9s)

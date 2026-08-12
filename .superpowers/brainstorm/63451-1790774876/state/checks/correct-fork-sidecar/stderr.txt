@@ -1,0 +1,12 @@
+$ bun scripts/build-bundled-omp.ts
+$ bun scripts/check-protocol.ts
+Resolving dependencies
+Resolved, downloaded and extracted [2]
+Saved lockfile
+$ bun scripts/generate-client-bundle.ts --generate
+$ bun run build.ts
+$ bun scripts/build-tool-views.ts
+$ bun scripts/embed-native.ts
+/private/tmp/omp-gui-sidecar-source-ffcdw3/packages/gui/resources/omp: replacing existing signature
+$ bun scripts/generate-client-bundle.ts --reset
+$ bun scripts/embed-native.ts --reset

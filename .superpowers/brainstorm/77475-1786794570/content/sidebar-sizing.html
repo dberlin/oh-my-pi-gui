@@ -1,0 +1,59 @@
+<style>
+  .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:17px; margin-top:18px; }
+  .card { cursor:pointer; border:1px solid var(--border); border-radius:14px; overflow:hidden; background:var(--card-bg); transition:.15s ease; }
+  .card:hover { border-color:var(--accent); transform:translateY(-1px); }
+  .card.selected { outline:2px solid var(--accent); border-color:var(--accent); }
+  .copy { padding:14px 15px 9px; min-height:108px; }
+  .heading { display:flex; align-items:center; gap:9px; margin-bottom:5px; }
+  .letter { width:27px; height:27px; border-radius:8px; display:grid; place-items:center; background:var(--accent); color:#fff; font-weight:750; flex:none; }
+  h3 { margin:0; font-size:15px; }
+  .copy p { margin:0; color:var(--muted); font-size:12.5px; line-height:1.4; }
+  .window { height:340px; margin:0 13px 13px; border:1px solid #35414d; border-radius:9px; overflow:hidden; background:#10151b; color:#dbe4ed; font:10px/1.35 ui-monospace,SFMono-Regular,monospace; display:grid; grid-template-rows:28px 1fr 58px; }
+  .top { display:flex; justify-content:space-between; align-items:center; padding:0 8px; background:#171d25; border-bottom:1px solid #303a45; color:#8794a2; }
+  .canvas { display:grid; min-height:0; }
+  .wide .canvas { grid-template-columns:1fr 145px; }
+  .fixed .canvas { grid-template-columns:1fr 126px; }
+  .overlay .canvas { grid-template-columns:1fr 38px; position:relative; }
+  .chat { padding:11px; }
+  .bubble { height:24px; width:72%; border:1px solid #2d3946; border-radius:7px; background:#1c2530; margin-bottom:9px; }
+  .bubble.me { width:46%; margin-left:auto; background:#172a3c; }
+  .rail { position:relative; border-left:1px solid #34404c; background:#151b22; padding:7px; overflow:hidden; }
+  .handle { position:absolute; left:-3px; top:0; bottom:0; width:6px; background:linear-gradient(90deg,transparent,#4f6072,transparent); opacity:.7; }
+  .rail-head { display:flex; justify-content:space-between; color:#a9b5c1; margin-bottom:6px; }
+  .meta { border:1px solid #303b47; border-radius:5px; padding:4px 5px; margin-bottom:5px; color:#8f9eac; }
+  .title { text-transform:uppercase; letter-spacing:.07em; color:#aab5c1; display:flex; justify-content:space-between; margin:7px 1px 4px; }
+  .tree { border-left:1px solid #37424e; padding-left:6px; margin-left:3px; color:#8492a1; }
+  .tree div { padding:1.5px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tree .active { color:#8dccff; }
+  .composer { border-top:1px solid #303a45; padding:6px 9px; background:#11171d; }
+  .box { height:43px; border:1px solid #3b4855; border-radius:7px; background:#171e26; }
+  .collapsed { border-left:1px solid #34404c; background:#151b22; display:flex; flex-direction:column; align-items:center; gap:9px; padding-top:9px; color:#8dccff; }
+  .icon { width:24px; height:24px; border:1px solid #3a4a59; border-radius:6px; display:grid; place-items:center; }
+  .overlay-panel { position:absolute; right:38px; top:8px; bottom:8px; width:150px; background:#171e26; border:1px solid #405062; border-radius:7px; box-shadow:0 10px 30px #0009; padding:7px; }
+  .badge { display:inline-block; margin:0 14px 13px; padding:4px 8px; border-radius:999px; color:var(--accent); background:color-mix(in srgb,var(--accent) 15%,transparent); font-size:11px; font-weight:700; }
+  .measure { position:absolute; left:8px; right:8px; bottom:8px; border-top:1px dashed #516171; color:#657586; text-align:center; padding-top:3px; }
+  @media(max-width:1050px){.grid{grid-template-columns:1fr}.window{height:310px}}
+</style>
+
+<h2>How should the right sidebar size and collapse?</h2>
+<p class="subtitle">The GUI already has an optional outer tools panel, so the in-canvas activity rail needs a predictable narrow-window behavior.</p>
+
+<div class="grid">
+  <div class="card" data-choice="resizable-collapse" onclick="toggleSelect(this)">
+    <div class="copy"><div class="heading"><div class="letter">A</div><h3>Resizable + compact collapse</h3></div><p>Default 300px, draggable within limits, width remembered. Collapse leaves a slim Todo/Agents launcher; narrow canvases collapse automatically.</p></div>
+    <div class="window wide"><div class="top"><span>Main session</span><span>Activity ◀</span></div><div class="canvas"><div class="chat"><div class="bubble me"></div><div class="bubble"></div><div class="bubble"></div></div><aside class="rail"><div class="handle"></div><div class="rail-head"><b>Activity</b><span>›</span></div><div class="meta">Plan mode ›</div><div class="meta">Goal · 36% ›</div><div class="title"><span>Todos</span><span>2/6</span></div><div class="tree"><div class="active">◉ Build sidebar</div><div>○ Verify history</div></div><div class="title"><span>Agents</span><span>1/3</span></div><div class="tree"><div class="active">◆ Main</div><div>└ Scout</div></div><div class="measure">240–420px</div></aside></div><div class="composer"><div class="box"></div></div></div>
+    <span class="badge">Recommended · adaptable</span>
+  </div>
+
+  <div class="card" data-choice="fixed-collapse" onclick="toggleSelect(this)">
+    <div class="copy"><div class="heading"><div class="letter">B</div><h3>Fixed width + manual collapse</h3></div><p>Always 288px when open. A single toggle hides it completely. Simple and stable, but less flexible beside the outer tools panel.</p></div>
+    <div class="window fixed"><div class="top"><span>Main session</span><span>Activity ◀</span></div><div class="canvas"><div class="chat"><div class="bubble me"></div><div class="bubble"></div><div class="bubble"></div></div><aside class="rail"><div class="rail-head"><b>Activity</b><span>›</span></div><div class="meta">Plan mode ›</div><div class="meta">Goal · 36% ›</div><div class="title"><span>Todos</span><span>2/6</span></div><div class="tree"><div class="active">◉ Build sidebar</div><div>○ Verify history</div></div><div class="title"><span>Agents</span><span>1/3</span></div><div class="tree"><div class="active">◆ Main</div><div>└ Scout</div></div><div class="measure">288px fixed</div></aside></div><div class="composer"><div class="box"></div></div></div>
+  </div>
+
+  <div class="card" data-choice="overlay-drawer" onclick="toggleSelect(this)">
+    <div class="copy"><div class="heading"><div class="letter">C</div><h3>Compact launcher + overlay drawer</h3></div><p>The transcript always keeps full width. Todo/Agents icons open a temporary drawer over the conversation rather than reserving permanent space.</p></div>
+    <div class="window overlay"><div class="top"><span>Main session</span><span>Activity</span></div><div class="canvas"><div class="chat"><div class="bubble me"></div><div class="bubble"></div><div class="bubble"></div></div><div class="collapsed"><div class="icon">✓</div><div class="icon">◆</div></div><div class="overlay-panel"><div class="rail-head"><b>Activity</b><span>×</span></div><div class="meta">Plan mode ›</div><div class="title"><span>Todos</span><span>2/6</span></div><div class="tree"><div class="active">◉ Build sidebar</div><div>○ Verify</div></div><div class="title"><span>Agents</span><span>1/3</span></div><div class="tree"><div class="active">◆ Main</div><div>└ Scout</div></div></div></div><div class="composer"><div class="box"></div></div></div>
+  </div>
+</div>
+
+<p style="margin-top:14px;color:var(--muted);font-size:13px">Click the sizing behavior you want, then respond in chat.</p>

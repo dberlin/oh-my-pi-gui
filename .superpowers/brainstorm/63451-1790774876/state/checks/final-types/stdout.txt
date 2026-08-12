@@ -1,0 +1,5 @@
+src/renderer/components/settings/ModelCompare.tsx(254,4): error TS2304: Cannot find name 'setRoleAssignments'.
+src/renderer/stores/tabs.test.tsx(1127,49): error TS2304: Cannot find name 'SessionStore'.
+src/renderer/stores/tabs.test.tsx(1155,49): error TS2304: Cannot find name 'SessionStore'.
+src/renderer/stores/tabs.test.tsx(1166,30): error TS2304: Cannot find name 'SessionStore'.
+src/renderer/stores/tabs.test.tsx(1167,30): error TS2304: Cannot find name 'SessionStore'.

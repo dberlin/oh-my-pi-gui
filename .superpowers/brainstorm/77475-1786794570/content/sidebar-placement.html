@@ -1,0 +1,74 @@
+<style>
+  .layout-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-top:20px; }
+  .layout-card { cursor:pointer; border:1px solid var(--border); border-radius:14px; overflow:hidden; background:var(--card-bg); transition:.15s ease; }
+  .layout-card:hover { border-color:var(--accent); transform:translateY(-1px); }
+  .layout-card.selected { outline:2px solid var(--accent); border-color:var(--accent); }
+  .layout-label { padding:14px 16px 10px; display:flex; gap:10px; align-items:flex-start; }
+  .layout-label .letter { flex:0 0 auto; width:28px; height:28px; border-radius:8px; display:grid; place-items:center; background:var(--accent); color:white; font-weight:700; }
+  .layout-label h3 { margin:0 0 3px; font-size:16px; }
+  .layout-label p { margin:0; color:var(--muted); font-size:13px; line-height:1.4; }
+  .app { margin:0 14px 14px; height:355px; display:grid; grid-template-columns:54px 1fr; grid-template-rows:34px 1fr; border:1px solid #36404d; border-radius:10px; overflow:hidden; background:#11161d; color:#dce4ee; font:11px/1.35 ui-monospace,SFMono-Regular,monospace; }
+  .global { grid-row:1/3; background:#171d25; border-right:1px solid #303945; padding:9px 7px; color:#8793a1; }
+  .global div { height:8px; background:#313b48; border-radius:4px; margin-bottom:8px; }
+  .top { background:#151b22; border-bottom:1px solid #303945; display:flex; align-items:center; padding:0 10px; color:#8f9aa8; }
+  .main { display:grid; grid-template-rows:1fr 74px; min-height:0; }
+  .upper { display:grid; min-height:0; }
+  .right .upper { grid-template-columns:minmax(0,1fr) 150px; }
+  .left .upper { grid-template-columns:150px minmax(0,1fr); }
+  .transcript { padding:14px; background:#10151b; overflow:hidden; }
+  .msg { max-width:74%; height:28px; background:#1c2530; border:1px solid #2d3946; border-radius:8px; margin-bottom:10px; }
+  .msg.short { width:54%; }
+  .msg.user { margin-left:auto; background:#17283a; border-color:#24445f; }
+  .rail { background:#151b22; border-color:#303945; padding:9px; overflow:hidden; }
+  .right .rail { border-left:1px solid #303945; }
+  .left .rail { border-right:1px solid #303945; }
+  .section-title { color:#a9b4c1; font-weight:700; font-size:10px; text-transform:uppercase; letter-spacing:.08em; display:flex; justify-content:space-between; margin:2px 0 6px; }
+  .tree { border-left:1px solid #36404d; margin-left:4px; padding-left:8px; margin-bottom:14px; }
+  .tree div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#8997a7; padding:2px 0; }
+  .tree .active { color:#8dccff; }
+  .tree .done { color:#647181; text-decoration:line-through; }
+  .composer { border-top:1px solid #303945; background:#11161d; padding:9px 12px; }
+  .box { height:52px; border:1px solid #3a4654; border-radius:9px; background:#151c24; position:relative; }
+  .box:before { content:'Message Main…'; position:absolute; left:10px; top:9px; color:#596675; }
+  .box:after { content:'model  ·  send'; position:absolute; right:9px; bottom:7px; color:#718092; }
+  .rec { display:inline-flex; align-items:center; gap:6px; margin-top:12px; padding:6px 10px; border-radius:999px; background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent); font-size:12px; font-weight:650; }
+  @media (max-width:900px){ .layout-grid{grid-template-columns:1fr;} }
+</style>
+
+<h2>Where should the in-canvas activity sidebar live?</h2>
+<p class="subtitle">Both options remove the stacked Todo/Agents cards and the graph. The composer remains the only full-width horizontal band at the bottom.</p>
+
+<div class="layout-grid">
+  <div class="layout-card" data-choice="right-sidebar" onclick="toggleSelect(this)">
+    <div class="layout-label"><div class="letter">A</div><div><h3>Right activity sidebar</h3><p>Recommended. Balances the existing global session sidebar on the left and keeps transcript reading anchored in the larger center area.</p></div></div>
+    <div class="app right">
+      <div class="global"><div></div><div></div><div></div><div></div><div></div></div>
+      <div class="top">session.ts &nbsp; / &nbsp; Main</div>
+      <div class="main">
+        <div class="upper">
+          <div class="transcript"><div class="msg user short"></div><div class="msg"></div><div class="msg short"></div><div class="msg user"></div></div>
+          <aside class="rail"><div class="section-title"><span>Todos</span><span>2/5</span></div><div class="tree"><div class="done">✓ Inspect layout</div><div class="active">◉ Move activity rail</div><div>○ Update tests</div></div><div class="section-title"><span>Agents</span><span>1/3</span></div><div class="tree"><div class="active">◆ Main · viewing</div><div>├─ Scout · running</div><div>└─ Reviewer · done</div></div></aside>
+        </div>
+        <div class="composer"><div class="box"></div></div>
+      </div>
+    </div>
+    <div style="padding:0 16px 14px"><span class="rec">Recommended</span></div>
+  </div>
+
+  <div class="layout-card" data-choice="left-sidebar" onclick="toggleSelect(this)">
+    <div class="layout-label"><div class="letter">B</div><div><h3>Left activity sidebar</h3><p>Keeps navigation adjacent to the transcript start, but creates two left rails beside each other and shifts conversation content farther right.</p></div></div>
+    <div class="app left">
+      <div class="global"><div></div><div></div><div></div><div></div><div></div></div>
+      <div class="top">session.ts &nbsp; / &nbsp; Main</div>
+      <div class="main">
+        <div class="upper">
+          <aside class="rail"><div class="section-title"><span>Todos</span><span>2/5</span></div><div class="tree"><div class="done">✓ Inspect layout</div><div class="active">◉ Move activity rail</div><div>○ Update tests</div></div><div class="section-title"><span>Agents</span><span>1/3</span></div><div class="tree"><div class="active">◆ Main · viewing</div><div>├─ Scout · running</div><div>└─ Reviewer · done</div></div></aside>
+          <div class="transcript"><div class="msg user short"></div><div class="msg"></div><div class="msg short"></div><div class="msg user"></div></div>
+        </div>
+        <div class="composer"><div class="box"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:16px;color:var(--muted);font-size:13px">Click a layout to select it, then tell me in chat what feels right or wrong.</p>

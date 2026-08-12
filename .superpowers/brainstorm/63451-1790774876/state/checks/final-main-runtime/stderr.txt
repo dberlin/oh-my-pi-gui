@@ -1,0 +1,32 @@
+(node:20641) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:20644) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/main/sidecar.test.ts > SidecarManager remote SSH lifecycle > keeps SSH CLI overlays owned by the remote launch cwd and refreshes them on restart
+AssertionError: expected { …(2) } to deeply equal { …(2) }
+
+- Expected
++ Received
+
+  {
+-   "cwd": "/var/folders/62/10dlkj4x7_13gk9c_hrjzmcr0000gn/T/omp-gui-remote-cli-cwd-lS5uGi",
++   "cwd": "/private/var/folders/62/10dlkj4x7_13gk9c_hrjzmcr0000gn/T/omp-gui-remote-cli-cwd-lS5uGi",
+    "settings": {
+      "inherited": "remote-origin",
+      "temperature": 0.7,
+    },
+  }
+
+ ❯ src/main/sidecar.test.ts:1140:66
+    1138|    sidecar.start();
+    1139|    await ready;
+    1140|    expect(JSON.parse(await fs.readFile(agentValuePath, "utf8"))).toEqu…
+       |                                                                  ^
+    1141|     cwd: tempDir,
+    1142|     settings: { temperature: 0.7, inherited: "remote-origin" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

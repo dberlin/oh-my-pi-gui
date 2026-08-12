@@ -1,0 +1,1 @@
+{"label":"delivery-real-core","cwd":"/Users/dannyb/sources/omp-monorepo/packages/gui","command":["bunx","playwright","test","e2e/real-core.e2e.ts","--workers=1"],"exitCode":0,"durationMs":10506,"directory":"/Users/dannyb/sources/omp-monorepo/packages/gui/.superpowers/brainstorm/63451-1790774876/state/checks/delivery-real-core"}

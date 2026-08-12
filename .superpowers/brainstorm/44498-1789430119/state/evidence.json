@@ -1,0 +1,69 @@
+{
+  "beforeRevision": "4fa845f40e0b",
+  "upstreamRevision": "892adf914b84",
+  "previewWorkspace": "/Users/dannyb/sources/omp-monorepo/packages/gui/.superpowers/rebase-preview-20260914",
+  "slowResults": [
+    {
+      "side": "before",
+      "at8": {
+        "dialog": true,
+        "disabled": false,
+        "alerts": [
+          "Model switch failedRPC timeout (8000ms): set_model"
+        ]
+      },
+      "at10": {
+        "dialog": true,
+        "model": "alternate-fixture"
+      },
+      "faults": []
+    },
+    {
+      "side": "after",
+      "at8": {
+        "dialog": true,
+        "disabled": true,
+        "alerts": []
+      },
+      "at10": {
+        "dialog": false,
+        "model": "alternate-fixture"
+      },
+      "faults": []
+    }
+  ],
+  "cycleResults": [
+    {
+      "side": "before",
+      "at8": [
+        "Command failedRPC timeout (8000ms): cycle_model"
+      ]
+    },
+    {
+      "side": "after",
+      "at8": []
+    }
+  ],
+  "bridgeResults": [
+    {
+      "side": "before",
+      "state": {
+        "dialog": true,
+        "alerts": []
+      },
+      "faults": [
+        "Error invoking remote method 'rpc:command-for-tab': Error: Preview: connection lost during model switch"
+      ]
+    },
+    {
+      "side": "after",
+      "state": {
+        "dialog": true,
+        "alerts": [
+          "Model switch failedError: Error invoking remote method 'rpc:command-for-tab': Error: Preview: connection lost during model switch"
+        ]
+      },
+      "faults": []
+    }
+  ]
+}

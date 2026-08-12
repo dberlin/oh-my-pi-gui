@@ -1,0 +1,128 @@
+{
+  "captureSet": "edge-panel",
+  "created": "2026-09-30",
+  "base": {
+    "revision": "892adf91",
+    "checkout": "/tmp/omp-gui-base-visual-20260930",
+    "port": 43132
+  },
+  "upstream": {
+    "revision": "7b8f6a54",
+    "checkout": "/tmp/omp-gui-upstream-visual-20260930",
+    "port": 43133
+  },
+  "protocol": {
+    "runtime": "Headless Chromium; no Electron",
+    "harness": "/tmp/omp-gui-panel-edge-20260930",
+    "components": "Actual imported production components",
+    "styles": {
+      "base": "out/renderer/assets/index-BgBYePYR.css",
+      "upstream": "out/renderer/assets/index-BEBhGv0Q.css"
+    },
+    "framing": "Fixture labels and surrounding workspace/section frames are illustrative. Sidebar, QueuePanel, PrCenterWindow/PrDetailPane, BenchmarkDialog, their dialogs, and their controls are production components.",
+    "settling": "Before every PNG, the harness waited for controlled RPC effects and awaited all finite Web Animations with a bounded fallback; infinite loading spinners were intentionally preserved where they are the base behavior.",
+    "inspection": "All 18 PNGs were opened and visually inspected after capture. Dialog/panel boxes had non-zero computed dimensions; representative measured layouts were Queue section 1036x365.4375 CSS px and PR dialog 1168x788 CSS px."
+  },
+  "groups": [
+    {
+      "id": "sidebar-session-list-failure",
+      "source": [
+        "src/renderer/components/layout/Sidebar.tsx (upstream 710-739)",
+        "src/renderer/hooks/use-session-list.ts (upstream 26-68)",
+        "DialogsAndPublicVisualDelta-inventory.txt lines 57-64"
+      ],
+      "description": "An initial session-index failure was previously rendered as the successful dashed empty state. Upstream instead names the failure, preserves the raw reason, and offers Retry.",
+      "base": "edge-panel-base-sidebar-hard.png",
+      "upstream": "edge-panel-upstream-sidebar-hard.png"
+    },
+    {
+      "id": "sidebar-stale-retained-rows",
+      "source": [
+        "src/renderer/components/layout/Sidebar.tsx (upstream 710-715)",
+        "src/renderer/hooks/use-session-list.ts (upstream 33-51)",
+        "DialogsAndPublicVisualDelta-inventory.txt lines 57-64"
+      ],
+      "description": "After a successful three-row load, a controlled refresh fails. Both captures retain the rows; upstream adds the explicit 'Showing the sessions that last loaded' warning and failure reason, while base remains silent.",
+      "base": "edge-panel-base-sidebar-stale.png",
+      "upstream": "edge-panel-upstream-sidebar-stale.png"
+    },
+    {
+      "id": "sidebar-session-delete-confirmation",
+      "source": [
+        "src/renderer/components/layout/Sidebar.tsx (base 498-520; upstream 505-514 and 1129-1151)",
+        "DialogsAndPublicVisualDelta-inventory.txt lines 51-54"
+      ],
+      "description": "Deleting the named 'Provider migration audit' session changes from a tiny row-local check/cancel pair to the shared centered confirmation, with a target-specific permanent transcript warning and safe Cancel autofocus.",
+      "base": "edge-panel-base-sidebar-session-delete.png",
+      "upstream": "edge-panel-upstream-sidebar-session-delete.png"
+    },
+    {
+      "id": "sidebar-group-delete-confirmation",
+      "source": [
+        "src/renderer/components/layout/Sidebar.tsx (base 884-906; upstream 1026-1037 and 1129-1151)",
+        "DialogsAndPublicVisualDelta-inventory.txt lines 51-54"
+      ],
+      "description": "Deleting the alpha-platform workspace group changes from a tiny group-row check/cancel pair to a centered modal that names the workspace, states the count of three sessions, and adds the irreversible session-file warning.",
+      "base": "edge-panel-base-sidebar-group-delete.png",
+      "upstream": "edge-panel-upstream-sidebar-group-delete.png"
+    },
+    {
+      "id": "queue-disconnected-banner",
+      "source": [
+        "src/renderer/components/panels/QueuePanel.tsx (upstream 353-493, especially 449-458)",
+        "ManagementVisualDelta-inventory.txt lines 147-151"
+      ],
+      "description": "With two Steering and two Queued items retained while the session status is exited, upstream adds the bordered 'Sidecar not connected' banner and disables mutation controls. Base presents the same rows without connection disclosure.",
+      "base": "edge-panel-base-queue-disconnected.png",
+      "upstream": "edge-panel-upstream-queue-disconnected.png"
+    },
+    {
+      "id": "pr-center-probe-error-and-title",
+      "source": [
+        "src/renderer/components/panels/PrCenterWindow.tsx (base 89-130; upstream 94-159)",
+        "ManagementVisualDelta-inventory.txt lines 163-168"
+      ],
+      "description": "A failed repository probe previously left PR Center on an indefinite Detecting spinner and the outer window title blank. Upstream adds the localized outer title plus centered error and Retry.",
+      "base": "edge-panel-base-pr-probe-error.png",
+      "upstream": "edge-panel-upstream-pr-probe-error.png"
+    },
+    {
+      "id": "pr-center-list-error",
+      "source": [
+        "src/renderer/components/panels/PrCenterWindow.tsx (base 131-163; upstream 160-205)",
+        "ManagementVisualDelta-inventory.txt lines 163-168"
+      ],
+      "description": "With a valid repo but no loaded PR rows, base places the error over misleading empty copy. Upstream suppresses the empty claim and renders an explicit Retry in the list pane; the new outer PR Center title is also visible.",
+      "base": "edge-panel-base-pr-list-error.png",
+      "upstream": "edge-panel-upstream-pr-list-error.png"
+    },
+    {
+      "id": "pr-center-detail-error",
+      "source": [
+        "src/renderer/components/panels/pr/PrDetailPane.tsx (base 76 onward; upstream 77-118)",
+        "src/renderer/components/panels/PrCenterWindow.tsx (selected PR pane)",
+        "ManagementVisualDelta-inventory.txt lines 163-168"
+      ],
+      "description": "After selecting PR #418, the detail RPC fails. Base leaves the detail pane spinning on Loading despite the list-side error. Upstream replaces the spinner with the exact detail error and Retry.",
+      "base": "edge-panel-base-pr-detail-error.png",
+      "upstream": "edge-panel-upstream-pr-detail-error.png"
+    },
+    {
+      "id": "benchmark-success-stderr-no-rows",
+      "source": [
+        "src/renderer/components/dialogs/BenchmarkDialog.tsx (base 62-75 and 161-211; upstream 66-82 and 168-235)",
+        "DialogsAndPublicVisualDelta-inventory.txt lines 51-53"
+      ],
+      "description": "A successful benchmark returns zero model rows and two stderr diagnostic lines. Base shows only the empty results headers. Upstream renders stderr in the new muted bordered monospaced diagnostic box above those headers.",
+      "base": "edge-panel-base-benchmark-stderr.png",
+      "upstream": "edge-panel-upstream-benchmark-stderr.png"
+    }
+  ],
+  "limits": [
+    "These are controlled production-component fixtures, not screenshots of a live Electron application.",
+    "No native shell, preload bridge, real GitHub, real session files, or provider benchmark process was exercised; minimum protocol fixtures supplied only the states needed for these visual deltas.",
+    "PR probe, list, and detail failures are separate pairs because one production PR Center instance cannot truthfully display all three mutually exclusive states simultaneously.",
+    "The base PR probe and base PR detail spinners are intentionally infinite and therefore were not awaited as finite animations.",
+    "No generic disabled-primitive or unrelated error state was recaptured."
+  ]
+}

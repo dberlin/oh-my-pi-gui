@@ -1,0 +1,17 @@
+src/renderer/components/chat/chat-stream-utils.ts:19:10: warning eslint(no-unused-vars): Identifier 'isCompletionMessage' is imported but never used. help: Consider removing this import.
+src/renderer/components/chat/chat-stream-utils.ts:276:10: warning eslint(no-unused-vars): Function 'hasProcessNarration' is declared but never used. help: Consider removing this declaration.
+src/main/sidecar-pool.ts:828:22: warning unicorn(no-useless-spread): `Promise.all` accepts an iterable, so it's unnecessary to convert the iterable to an array. help: Consider removing the spread operator.
+src/main/remote-ipc.ts:709:83: warning unicorn(prefer-string-starts-ends-with): Prefer String#startsWith over a regex with a caret. help: Replace `/^\\\\/.test(value)` with `value.startsWith('\\\\')`.
+src/main/remote-ipc.ts:836:82: warning unicorn(prefer-string-starts-ends-with): Prefer String#startsWith over a regex with a caret. help: Replace `/^\\\\/.test(root)` with `root.startsWith('\\\\')`.
+src/main/remote-ipc.ts:837:62: warning unicorn(prefer-string-starts-ends-with): Prefer String#startsWith over a regex with a caret. help: Replace `/^\\\\/.test(value)` with `value.startsWith('\\\\')`.
+src/renderer/stores/subagents.ts:92:57: warning eslint(no-useless-escape): Unnecessary escape character '/' help: Replace `\/` with `/`.
+src/renderer/components/chat/StreamingText.test.tsx:7:10: warning eslint(no-unused-vars): Identifier 'useToolsStore' is imported but never used. help: Consider removing this import.
+src/renderer/components/chat/StreamingText.test.tsx:8:10: warning eslint(no-unused-vars): Identifier 'useUiStore' is imported but never used. help: Consider removing this import.
+src/renderer/components/chat/MessageBubble.tsx:19:10: warning eslint(no-unused-vars): Identifier 'useUiStore' is imported but never used. help: Consider removing this import.
+src/main/remote-ssh.ts:1540:6: warning eslint(no-template-curly-in-string): Template placeholders will not interpolate in regular strings help: Did you mean to use a template string literal?
+src/main/remote-ssh.ts:1542:6: warning eslint(no-template-curly-in-string): Template placeholders will not interpolate in regular strings help: Did you mean to use a template string literal?
+src/main/remote-ssh.ts:1545:6: warning eslint(no-template-curly-in-string): Template placeholders will not interpolate in regular strings help: Did you mean to use a template string literal?
+src/main/remote-ssh.ts:1550:67: warning eslint(no-template-curly-in-string): Template placeholders will not interpolate in regular strings help: Did you mean to use a template string literal?
+src/main/local-ssh-settings.ts:301:20: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.
+src/main/local-ssh-settings.ts:315:25: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.
+src/main/local-ssh-settings.ts:336:30: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.
