@@ -1337,4 +1337,30 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		description: "xhigh 思考等级的推理 token 预算（默认 32768）",
 	},
 	"thinkingBudgets.max": { label: "思考预算（max）", description: "max 思考等级的推理 token 预算（默认 32768）" },
+	"display.hideToolActivity": {
+		label: "隐藏工具活动",
+		description: "在转录中隐藏模型发起的工具调用及其结果",
+	},
+	externalThinking: {
+		label: "外部思考",
+		description: "使用私有 think 工具，并将推理工作交给 GPT Responses 模型",
+	},
+	"lsp.shared": {
+		label: "共享语言服务器",
+		description: "通过守护进程代理，让同一项目的 omp 实例共享语言服务器；不可用时回退到私有服务器",
+	},
+	"browser.relay": {
+		label: "浏览器中继",
+		description:
+			"通过 omp 浏览器中继控制自己的 Chrome 标签页。只需安装一次扩展（`omp browser-relay install`）；浏览器工具需要时会自动启动中继服务器。它优先于浏览器 CDP URL；可设置 PI_BROWSER_RELAY=0 或 PI_BROWSER_RELAY=1 覆盖。",
+	},
+	"browser.relayUrl": {
+		label: "浏览器中继 URL",
+		description: "omp 浏览器中继端点（默认 http://127.0.0.1:9224）",
+	},
+	"providers.webSearchTimeoutSeconds": {
+		label: "网络搜索超时",
+		description: "每个提供商的搜索传输硬超时；超时后 web_search 会尝试下一个回退项，单位为秒（最大 300）",
+	},
+	"searxng.safesearch": { label: "SearXNG 安全搜索" },
 };

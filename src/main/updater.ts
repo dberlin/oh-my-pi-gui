@@ -17,6 +17,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import pkg from "electron-updater";
 import type { UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
+import { mainT } from "./i18n";
 import { settleIncompleteUpdateCheck } from "./updater-state";
 
 const { autoUpdater } = pkg;
@@ -96,7 +97,7 @@ export function setupUpdater(): void {
 		broadcast({ state: "checking" });
 		try {
 			await autoUpdater.checkForUpdates();
-			const settled = settleIncompleteUpdateCheck(current, true);
+			const settled = settleIncompleteUpdateCheck(current, true, mainT("updates.noResult"));
 			if (settled !== current) broadcast(settled);
 		} catch (error) {
 			broadcast({ state: "error", message: error instanceof Error ? error.message : String(error) });

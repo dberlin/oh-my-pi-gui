@@ -131,7 +131,7 @@ export function App() {
 	const providerConfigEdit = useUiStore(s => s.providerConfigEdit);
 	const closeProviderConfig = useUiStore(s => s.closeProviderConfig);
 	const activeTabId = useTabsStore(s => s.activeTabId);
-	const { setLang } = useLang();
+	const { lang, setLang } = useLang();
 	const t = useT();
 
 	// Keep the system-tray menu synced with live app state.
@@ -484,8 +484,7 @@ export function App() {
 				return;
 			}
 			if (action === "toggle-language") {
-				const current = typeof localStorage !== "undefined" ? localStorage.getItem("omp.lang") : null;
-				setLang(current === "zh" ? "en" : "zh");
+				setLang(lang === "zh" ? "en" : "zh");
 				return;
 			}
 			// New tab actions never touch the live run — they must stay OUT of the
@@ -547,14 +546,14 @@ export function App() {
 					const response = await window.omp.rpc.handoff();
 					if (!response.success) throw new Error(response.error);
 					await hydrateSession();
-					toast({ variant: "success", message: "Handoff created in a new session." });
+					toast({ variant: "success", message: t("app.handoffCreated") });
 				}
 			} catch (error) {
-				toast({ variant: "error", title: "Action failed", message: String(error) });
+				toast({ variant: "error", title: t("app.actionFailed"), message: String(error) });
 			}
 		};
 		return window.omp.events.onMenuAction((action, payload) => void run(action, payload));
-	}, [setLang, t]);
+	}, [lang, setLang, t]);
 
 	return (
 		<div className="flex h-screen w-screen overflow-hidden text-[var(--omp-text)]">

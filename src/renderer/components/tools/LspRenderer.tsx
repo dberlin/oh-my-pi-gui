@@ -248,12 +248,12 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 					<div className="flex items-center gap-1.5 font-mono text-omp-xs">
 						{parsed.errors > 0 && (
 							<span className="rounded bg-[var(--omp-error)]/15 px-1 py-px font-semibold text-[var(--omp-error)]">
-								{parsed.errors} error{parsed.errors === 1 ? "" : "s"}
+								{t("tools.lsp.errors", { count: parsed.errors })}
 							</span>
 						)}
 						{parsed.warnings > 0 && (
 							<span className="rounded bg-[var(--omp-warning)]/15 px-1 py-px font-semibold text-[var(--omp-warning)]">
-								{parsed.warnings} warning{parsed.warnings === 1 ? "" : "s"}
+								{t("tools.lsp.warnings", { count: parsed.warnings })}
 							</span>
 						)}
 						{parsed.errors === 0 && parsed.warnings === 0 && (
@@ -292,15 +292,12 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 									{group.file}
 								</span>
 								<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">
-									{group.locs.length} {parsed.noun}
-									{group.locs.length === 1 ? "" : "s"}
+									{t("tools.lsp.locations", { count: group.locs.length })}
 								</span>
 							</div>
 							{group.locs.map((loc, i) => (
 								<div key={i} className="flex gap-2 pl-4 text-[var(--omp-muted)]">
-									<span>
-										line {loc.line}, col {loc.col}
-									</span>
+									<span>{t("tools.lsp.location", { line: loc.line, column: loc.col })}</span>
 								</div>
 							))}
 						</div>
@@ -318,7 +315,9 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 							<span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]">
 								{sym.icon} {sym.name}
 							</span>
-							<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">line {sym.line}</span>
+							<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">
+								{t("tools.lsp.line", { line: sym.line })}
+							</span>
 						</div>
 					))}
 					{parsed.symbols.length === 0 && (

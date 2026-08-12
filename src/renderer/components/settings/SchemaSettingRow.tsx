@@ -17,6 +17,7 @@ import { ProviderLimitsEditor } from "./editors/ProviderLimitsEditor";
 import { RecordKvEditor } from "./editors/RecordKvEditor";
 import { Toggle } from "./editors/Toggle";
 import { ModelValueSelect, settingRefKind } from "./ModelValueSelect";
+import { ZH_SCHEMA_OPTION_TEXT } from "./schema-option-zh";
 import { ZH_SETTINGS } from "./schema-zh";
 
 let themePreviewActive = false;
@@ -59,12 +60,13 @@ function shellOptions(): Promise<EnumerableOption[]> {
 }
 
 function SettingStatus({ dirty, saving, saved }: { dirty: boolean; saving: boolean; saved: boolean }) {
-	if (saving) return <span className="shrink-0 text-omp-xs text-(--omp-muted)">Saving…</span>;
+	const t = useT();
+	if (saving) return <span className="shrink-0 text-omp-xs text-(--omp-muted)">{t("common.saving")}</span>;
 	if (dirty) {
 		return (
 			<span className="flex shrink-0 items-center gap-1 text-omp-xs text-(--omp-warning)">
 				<span className="size-1.5 rounded-full bg-(--omp-warning)" />
-				Unsaved
+				{t("common.unsaved")}
 			</span>
 		);
 	}
@@ -72,7 +74,7 @@ function SettingStatus({ dirty, saving, saved }: { dirty: boolean; saving: boole
 		return (
 			<span className="flex shrink-0 items-center gap-0.5 text-omp-xs text-(--omp-success)">
 				<Check size={10} />
-				Saved
+				{t("common.saved")}
 			</span>
 		);
 	}
@@ -135,15 +137,15 @@ function SchemaSettingRow({
 						savedTimer.current = window.setTimeout(() => setSaved(false), 2000);
 					}
 				} else {
-					toast({ variant: "error", title: "Setting not saved", message: res.error });
+					toast({ variant: "error", title: t("settings.saveFailed"), message: res.error });
 				}
 			} catch (err) {
-				toast({ variant: "error", title: "Setting not saved", message: String(err) });
+				toast({ variant: "error", title: t("settings.saveFailed"), message: String(err) });
 			} finally {
 				setSaving(false);
 			}
 		},
-		[entry.path, entry.type, onCommitted],
+		[entry.path, entry.type, onCommitted, t],
 	);
 
 	const commitText = useCallback(() => {
@@ -171,7 +173,7 @@ function SchemaSettingRow({
 		try {
 			parsed = JSON.parse(draft);
 		} catch (err) {
-			setError(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
+			setError(t("settings.editors.errInvalidJson", { error: err instanceof Error ? err.message : String(err) }));
 			return;
 		}
 		if (entry.type === "array" && !Array.isArray(parsed)) {
@@ -270,7 +272,7 @@ function SchemaSettingRow({
 						<span className="text-xs text-(--omp-muted)">••••••••</span>
 						<Button onClick={() => setRevealed(true)} size="sm" type="button" variant="ghost">
 							<Eye size={12} className="mr-1 inline" />
-							Reveal
+							{t("common.reveal")}
 						</Button>
 					</div>
 				) : stringArray ? (
@@ -320,7 +322,7 @@ function SchemaSettingRow({
 							{entry.secret === true && (
 								<Button onClick={() => setRevealed(false)} size="sm" type="button" variant="ghost">
 									<EyeOff size={12} className="mr-1 inline" />
-									Hide
+									{t("common.hide")}
 								</Button>
 							)}
 							{dirty && (
@@ -333,7 +335,7 @@ function SchemaSettingRow({
 									type="button"
 									variant="ghost"
 								>
-									Reset
+									{t("common.reset")}
 								</Button>
 							)}
 							<Button
@@ -344,7 +346,7 @@ function SchemaSettingRow({
 								type="button"
 								variant="secondary"
 							>
-								Apply
+								{t("common.apply")}
 							</Button>
 						</div>
 					</>
@@ -379,11 +381,19 @@ function SchemaSettingRow({
 					}}
 					value={current ?? ""}
 				>
-					{current === undefined && <option value="">(unset)</option>}
+					{current === undefined && <option value="">{t("common.unset")}</option>}
 					{!hasCurrent && current !== undefined && <option value={current}>{current}</option>}
 					{options.map(option => (
-						<option key={option.value} title={option.description} value={option.value}>
-							{option.label}
+						<option
+							key={option.value}
+							title={
+								lang === "zh" && option.description
+									? (ZH_SCHEMA_OPTION_TEXT[option.description] ?? option.description)
+									: option.description
+							}
+							value={option.value}
+						>
+							{lang === "zh" ? (ZH_SCHEMA_OPTION_TEXT[option.label] ?? option.label) : option.label}
 						</option>
 					))}
 				</select>
@@ -456,7 +466,7 @@ function SchemaSettingRow({
 					/>
 					{entry.secret === true && (
 						<button
-							aria-label={masked ? "Reveal value" : "Hide value"}
+							aria-label={masked ? t("common.revealValue") : t("common.hideValue")}
 							className="absolute top-1/2 right-2 -translate-y-1/2 text-(--omp-dim) hover:text-(--omp-text)"
 							onClick={() => setRevealed(!revealed)}
 							type="button"

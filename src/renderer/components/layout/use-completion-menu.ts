@@ -9,6 +9,7 @@
 import { useEffect } from "react";
 import type { AvailableCommand } from "../../../shared/rpc-types";
 import { getEmojiSuggestions } from "../../lib/emoji";
+import { useT } from "../../lib/i18n";
 import {
 	CHAT_DEAD_COMMANDS,
 	fuzzyScore,
@@ -50,6 +51,7 @@ export function useCompletionMenu({
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 	setMenu: (menu: CompletionMenu | null) => void;
 }) {
+	const t = useT();
 	// Derive the completion menu from the draft around the caret. Provider
 	// chain (TUI getSuggestions order): slash-arg → github-ref → slash names →
 	// @mention → emoji. First provider with items wins; async providers (emoji
@@ -141,8 +143,16 @@ export function useCompletionMenu({
 					: qualifier === "issue"
 						? [{ value: `issue://${number} `, label: `issue://${number}` }]
 						: [
-								{ value: `pr://${number} `, label: `pr://${number}`, description: "pull request" },
-								{ value: `issue://${number} `, label: `issue://${number}`, description: "issue" },
+								{
+									value: `pr://${number} `,
+									label: `pr://${number}`,
+									description: t("input.githubPullRequest"),
+								},
+								{
+									value: `issue://${number} `,
+									label: `issue://${number}`,
+									description: t("input.githubIssue"),
+								},
 							];
 			apply({ source: "github-ref", rangeStart, items });
 			return () => {
@@ -217,5 +227,5 @@ export function useCompletionMenu({
 		return () => {
 			cancelled = true;
 		};
-	}, [text, filePaths, commands, emojiAutocomplete, isChat, textareaRef.current, setMenu]);
+	}, [text, filePaths, commands, emojiAutocomplete, isChat, textareaRef.current, setMenu, t]);
 }

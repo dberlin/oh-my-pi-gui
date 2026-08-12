@@ -102,4 +102,68 @@ describe("LangSwitcher", () => {
 			delete globals.localStorage;
 		}
 	});
+
+	it("hydrates a main-process preference without overwriting it from the inferred renderer language", async () => {
+		const store: Record<string, string> = {};
+		const writes: Array<{ key: string; value: unknown }> = [];
+		globals.localStorage = {
+			getItem: (key: string) => store[key] ?? null,
+			setItem: (key: string, value: string) => {
+				store[key] = value;
+			},
+			removeItem: (key: string) => {
+				delete store[key];
+			},
+		};
+		const bridgeWindow = window as unknown as {
+			omp?: {
+				prefs: {
+					get: (key: string) => Promise<unknown>;
+					set: (key: string, value: unknown) => Promise<void>;
+				};
+			};
+		};
+		bridgeWindow.omp = {
+			prefs: {
+				get: async () => "zh",
+				set: async (key, value) => {
+					writes.push({ key, value });
+				},
+			},
+		};
+		try {
+			await mountSwitcher();
+			expect(document.querySelector("button")?.textContent).toContain("中文");
+			expect(writes).toEqual([]);
+		} finally {
+			delete bridgeWindow.omp;
+			delete globals.localStorage;
+		}
+	});
+
+	it("does not persist an inferred language when neither store has an explicit preference", async () => {
+		const writes: Array<{ key: string; value: unknown }> = [];
+		const bridgeWindow = window as unknown as {
+			omp?: {
+				prefs: {
+					get: (key: string) => Promise<unknown>;
+					set: (key: string, value: unknown) => Promise<void>;
+				};
+			};
+		};
+		bridgeWindow.omp = {
+			prefs: {
+				get: async () => undefined,
+				set: async (key, value) => {
+					writes.push({ key, value });
+				},
+			},
+		};
+		try {
+			await mountSwitcher();
+			expect(writes).toEqual([]);
+		} finally {
+			delete bridgeWindow.omp;
+		}
+	});
 });

@@ -5,6 +5,7 @@
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { SettingEntry } from "../../../../shared/rpc-types";
+import { useT } from "../../../lib/i18n";
 import { Input } from "../../common";
 import { SchemaSettingRow } from "../SchemaSettingRow";
 import { isSettingVisibleInGui } from "../settings-schema-utils";
@@ -18,6 +19,7 @@ function AdvancedTab({
 	values: Record<string, unknown>;
 	onCommitted: (path: string, value: unknown) => void;
 }) {
+	const t = useT();
 	const [query, setQuery] = useState("");
 	const advanced = useMemo(
 		() =>
@@ -41,12 +43,12 @@ function AdvancedTab({
 				<Input
 					className="pl-7"
 					onChange={event => setQuery(event.target.value)}
-					placeholder={`Filter ${advanced.length} advanced settings…`}
+					placeholder={t("settings.advancedFilter", { count: advanced.length })}
 					value={query}
 				/>
 			</div>
 			{filtered.length === 0 ? (
-				<div className="py-10 text-center text-xs text-(--omp-dim)">No advanced settings match.</div>
+				<div className="py-10 text-center text-xs text-(--omp-dim)">{t("settings.advancedEmpty")}</div>
 			) : (
 				filtered.map(entry => (
 					<SchemaSettingRow entry={entry} key={entry.path} onCommitted={onCommitted} value={values[entry.path]} />

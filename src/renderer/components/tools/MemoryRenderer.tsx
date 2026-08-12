@@ -42,7 +42,9 @@ export function MemoryRenderer({ args, result, isError, isPartial, partialResult
 	const foundMatch = text.match(/^Found (\d+) relevant/);
 	const isRetain = bullets.length > 0;
 	const isRecall = !isRetain && (foundMatch != null || text.startsWith("No relevant memories"));
-	const operation = isRetain ? "retain" : isRecall ? "recall" : query ? "reflect" : "memory";
+	const operation = t(
+		`tools.memory.operation.${isRetain ? "retain" : isRecall ? "recall" : query ? "reflect" : "memory"}`,
+	);
 	const count = typeof details?.count === "number" ? details.count : undefined;
 	// Recall body drops the "Found N relevant memories (…)" header line.
 	const recallBody = isRecall && foundMatch ? text.replace(/^[^\n]*\n+/, "").trim() : "";
@@ -55,12 +57,12 @@ export function MemoryRenderer({ args, result, isError, isPartial, partialResult
 				{query && <span className="min-w-0 flex-1 truncate text-[var(--omp-dim)]">{query}</span>}
 				{isRecall && (
 					<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">
-						{foundMatch ? `${foundMatch[1]} found` : "no matches"}
+						{foundMatch ? t("tools.memory.found", { count: foundMatch[1] }) : t("tools.memory.noMatches")}
 					</span>
 				)}
 				{isRetain && count != null && (
 					<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">
-						{count} {count === 1 ? "memory" : "memories"}
+						{t("tools.memory.count", { count })}
 					</span>
 				)}
 			</div>
@@ -76,7 +78,9 @@ export function MemoryRenderer({ args, result, isError, isPartial, partialResult
 						</div>
 					))}
 					{bullets.length > MAX_BULLETS && (
-						<div className="text-omp-xs text-[var(--omp-dim)]">… {bullets.length - MAX_BULLETS} more</div>
+						<div className="text-omp-xs text-[var(--omp-dim)]">
+							{t("tools.memory.more", { count: bullets.length - MAX_BULLETS })}
+						</div>
 					)}
 					{text && <div className="mt-0.5 text-omp-xs text-[var(--omp-dim)]">{text.replace(/\.$/, "")}</div>}
 				</div>

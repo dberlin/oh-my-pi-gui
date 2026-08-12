@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Secondary text hierarchy**: session-list titles now use smaller, quieter typography, expanded reasoning content renders smaller, dimmer, and without bold emphasis, and the sidebar utility bar now aligns with the main status footer height.
+- **Model token accounting**: the model stats table now shows exact uncached input, output, cache-read, and cache-write token counts plus cache hit rate for cost analysis.
+- **English and Chinese GUI localization**: completed bilingual coverage for native menus, settings and dynamic schema options, onboarding, notifications, accessibility text, tool renderers, and shared application surfaces, with persisted language selection synchronized across renderer and main processes.
+
 ## [0.7.4] - 2026-08-12
 
 ### Fixed

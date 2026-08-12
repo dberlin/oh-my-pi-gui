@@ -605,7 +605,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 				const res = await ctx.rpc.compact();
 				if (!res.success) throw new Error(res.error);
 				await ctx.hydrateSession();
-				toast({ variant: "success", title: "Compacted", message: "Context compacted successfully" });
+				toast({ variant: "success", title: t("command.compactedTitle"), message: t("command.compactedMessage") });
 			},
 		},
 	});

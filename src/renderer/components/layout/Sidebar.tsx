@@ -262,7 +262,7 @@ export function Sidebar() {
 	};
 
 	const utilityButton =
-		"omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]";
+		"omp-pressable flex h-6 w-7 shrink-0 items-center justify-center rounded-md text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]";
 
 	return (
 		<>
@@ -541,10 +541,10 @@ export function Sidebar() {
 																		if (event.key === "Escape") setRenaming(false);
 																	}}
 																	onClick={event => event.stopPropagation()}
-																	className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-omp-md font-medium text-[var(--omp-text)] outline-none"
+																	className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-omp-md font-normal text-[var(--omp-muted)] outline-none"
 																/>
 															) : (
-																<span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-omp-lg font-medium leading-5 text-[var(--omp-text)]">
+																<span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-omp-md font-normal leading-5 text-[var(--omp-muted)]">
 																	{session.kind === "chat" && (
 																		<MessageCircle
 																			size={11}
@@ -645,7 +645,7 @@ export function Sidebar() {
 
 				{/* Bottom utility row: theme + language only — stats/settings live in the
 				    TitleBar, and the files button was a subset of the drawer toggle. */}
-				<div className="flex items-center gap-0.5 border-t border-[var(--omp-border-muted)] px-2 py-2">
+				<div className="flex h-7 shrink-0 items-center gap-0.5 border-t border-[var(--omp-border-muted)] px-2">
 					<button
 						type="button"
 						onClick={openThemePicker}
@@ -653,9 +653,9 @@ export function Sidebar() {
 						aria-label={t("themePicker.aria")}
 						className={utilityButton}
 					>
-						<Palette size={15} />
+						<Palette size={13} />
 					</button>
-					<LangSwitcher className="h-8 px-1.5" />
+					<LangSwitcher className="h-6 max-h-6 rounded-md px-1.5 text-omp-sm [&_svg]:size-[14px]" />
 					<div className="flex-1" />
 				</div>
 				<div

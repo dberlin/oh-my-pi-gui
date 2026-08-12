@@ -73,7 +73,7 @@ export function ReadGroupCard({
 							)}
 						/>
 					)}
-					<span className="font-medium">Read</span>
+					<span className="font-medium">{t("tools.read.label")}</span>
 					<span className="truncate font-mono text-omp-sm text-(--omp-accent)">
 						{entry.path}
 						{entry.selector ? `:${entry.selector}` : ""}

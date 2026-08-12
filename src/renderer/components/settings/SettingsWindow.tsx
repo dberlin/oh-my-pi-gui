@@ -157,7 +157,7 @@ export function SettingsWindow() {
 				const result = schemaRes.data as SettingsSchemaResult | undefined;
 				if (!result || !Array.isArray(result.entries) || !Array.isArray(result.tabs)) {
 					setSchema(null);
-					setLoadError("Malformed settings schema response");
+					setLoadError(t("settings.schemaMalformed"));
 					setLoadState("error");
 					return;
 				}
@@ -184,7 +184,7 @@ export function SettingsWindow() {
 		return () => {
 			cancelled = true;
 		};
-	}, [open, reloadToken, sidecarReady]);
+	}, [open, reloadToken, sidecarReady, t]);
 
 	const handleCommitted = useCallback((path: string, value: unknown) => {
 		setValues(prev => ({ ...prev, [path]: value }));
@@ -280,7 +280,7 @@ export function SettingsWindow() {
 		const parsed = Number(fontSizeDraft);
 		if (!Number.isFinite(parsed) || parsed < 10 || parsed > 20) {
 			setFontSizeDraft(null);
-			toast({ variant: "warning", message: "Font size must be between 10 and 20px" });
+			toast({ variant: "warning", message: t("settings.fontSizeRange") });
 			return;
 		}
 		setFontSize(parsed);
@@ -905,24 +905,22 @@ export function SettingsWindow() {
 								{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "loading" && (
 									<div className="flex items-center justify-center gap-2 py-10">
 										<Spinner size="sm" />
-										<span className="text-xs text-(--omp-muted)">Loading settings schema…</span>
+										<span className="text-xs text-(--omp-muted)">{t("settings.schemaLoading")}</span>
 									</div>
 								)}
 								{(isSchemaTab || tab === ADVANCED_TAB_ID) && loadState === "error" && (
 									<div className="flex flex-col items-center gap-3 py-10">
 										<span className="text-xs text-(--omp-error)">
-											{loadError ?? "Failed to load settings"}
+											{loadError ?? t("settings.schemaLoadFailed")}
 										</span>
-										<span className="text-omp-xs text-(--omp-dim)">
-											The agent process may not be responding. Runtime and GUI tabs remain available.
-										</span>
+										<span className="text-omp-xs text-(--omp-dim)">{t("settings.schemaUnavailable")}</span>
 										<Button
 											onClick={() => setReloadToken(token => token + 1)}
 											size="sm"
 											type="button"
 											variant="secondary"
 										>
-											Retry
+											{t("common.retry")}
 										</Button>
 									</div>
 								)}

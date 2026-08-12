@@ -36,7 +36,7 @@ interface ThemeEntry {
 	description: string;
 }
 
-/** Catalog themes (labels/descriptions are theme metadata and stay as-authored). */
+/** Catalog themes; locale keys mirror each stable theme selection id. */
 const THEME_ENTRIES: ThemeEntry[] = (Object.keys(THEMES) as ThemeName[]).map(name => ({
 	selection: name as ThemeSelection,
 	label: THEMES[name].label,
@@ -59,7 +59,11 @@ export function ThemePickerDialog() {
 	const entries = useMemo<ThemeEntry[]>(
 		() => [
 			{ selection: "system", label: t("themePicker.system"), description: t("themePicker.systemDesc") },
-			...THEME_ENTRIES,
+			...THEME_ENTRIES.map(entry => ({
+				...entry,
+				label: t(`themePicker.theme.${entry.selection}.label`),
+				description: t(`themePicker.theme.${entry.selection}.description`),
+			})),
 		],
 		[t],
 	);

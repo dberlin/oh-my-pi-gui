@@ -83,6 +83,9 @@ const ALLOW_IDENTICAL: Record<string, true> = {
 	"stats.requests.detail.api": true, // API — protocol acronym
 	"chat.exec.python": true, // Python — language name
 	"chat.exec.shell": true, // Shell — universal term in zh dev UIs
+	"themePicker.theme.nord.label": true, // Nord — theme name
+	"themePicker.theme.solarized.label": true, // Solarized — theme name
+	"themePicker.theme.latte.label": true, // Latte — theme name
 };
 
 const LATIN_LETTER = /[a-zA-Z]/;

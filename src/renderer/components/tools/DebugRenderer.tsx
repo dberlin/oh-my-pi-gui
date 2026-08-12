@@ -221,9 +221,15 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 								className="h-1.5 w-1.5 mt-1.5 shrink-0 rounded-full"
 								style={{ background: bp.verified ? "var(--omp-success)" : "var(--omp-warning)" }}
 							/>
-							<span className="text-[var(--omp-text)]">line {bp.line ?? "?"}</span>
-							<span className="text-[var(--omp-dim)]">{bp.verified ? "verified" : "pending"}</span>
-							{bp.condition && <span className="truncate text-[var(--omp-muted)]">if {bp.condition}</span>}
+							<span className="text-[var(--omp-text)]">{t("tools.debug.line", { line: bp.line ?? "?" })}</span>
+							<span className="text-[var(--omp-dim)]">
+								{bp.verified ? t("tools.debug.verified") : t("tools.debug.pending")}
+							</span>
+							{bp.condition && (
+								<span className="truncate text-[var(--omp-muted)]">
+									{t("tools.debug.condition", { condition: bp.condition })}
+								</span>
+							)}
 						</div>
 					))}
 				</div>

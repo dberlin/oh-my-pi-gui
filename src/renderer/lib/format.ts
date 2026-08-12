@@ -2,6 +2,7 @@
  * Formatting + small value-extraction utilities shared by renderer components.
  * No runtime dependencies.
  */
+import { getCurrentLanguage, translate } from "./i18n";
 
 /** Join class names, dropping falsy parts. */
 export function cx(...parts: Array<string | false | null | undefined>): string {
@@ -14,25 +15,28 @@ export function formatTimeAgo(iso: string | undefined | null): string {
 	const then = Date.parse(iso);
 	if (Number.isNaN(then)) return "";
 	const seconds = Math.max(0, (Date.now() - then) / 1000);
-	if (seconds < 45) return "just now";
-	if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-	if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`;
-	if (seconds < 604_800) return `${Math.floor(seconds / 86_400)}d`;
-	return new Date(then).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+	if (seconds < 45) return translate("time.justNow");
+	if (seconds < 3600) return translate("time.minutesShort", { count: Math.floor(seconds / 60) });
+	if (seconds < 86_400) return translate("time.hoursShort", { count: Math.floor(seconds / 3600) });
+	if (seconds < 604_800) return translate("time.daysShort", { count: Math.floor(seconds / 86_400) });
+	const locale = getCurrentLanguage() === "zh" ? "zh-CN" : "en-US";
+	return new Date(then).toLocaleDateString(locale, { month: "short", day: "numeric" });
 }
 
 /** Full clock string for tooltips. */
 export function formatClock(value: number | string | undefined | null): string {
 	const timestamp = toMs(value);
-	return timestamp == null ? "" : new Date(timestamp).toLocaleString();
+	const locale = getCurrentLanguage() === "zh" ? "zh-CN" : "en-US";
+	return timestamp == null ? "" : new Date(timestamp).toLocaleString(locale);
 }
 
 /** Compact hour/minute label for dense visual timelines. */
 export function formatShortClock(value: number | string | undefined | null): string {
 	const timestamp = toMs(value);
+	const locale = getCurrentLanguage() === "zh" ? "zh-CN" : "en-US";
 	return timestamp == null
 		? ""
-		: new Date(timestamp).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+		: new Date(timestamp).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 /** Accepts epoch ms (number) or ISO strings. */
@@ -55,13 +59,13 @@ export function durationBetween(
 	return formatDuration(ms);
 }
 
-/** 824 → "824ms", 12400 → "12.4s", 185000 → "3m 5s" */
+/** Compact locale-aware duration for dense status surfaces. */
 export function formatDuration(ms: number): string {
-	if (ms < 1000) return `${Math.round(ms)}ms`;
-	if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-	const m = Math.floor(ms / 60_000);
-	const s = Math.round((ms % 60_000) / 1000);
-	return `${m}m ${s}s`;
+	if (ms < 1000) return translate("time.millisecondsShort", { count: Math.round(ms) });
+	if (ms < 60_000) return translate("time.secondsDecimalShort", { count: (ms / 1000).toFixed(1) });
+	const minutes = Math.floor(ms / 60_000);
+	const seconds = Math.round((ms % 60_000) / 1000);
+	return translate("time.minutesSecondsShort", { minutes, seconds });
 }
 
 const EXT_LANG: Record<string, string> = {

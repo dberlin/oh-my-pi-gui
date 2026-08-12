@@ -1,6 +1,6 @@
 import { Globe } from "lucide-react";
 import { resultText } from "../../lib/format";
-import { useT } from "../../lib/i18n";
+import { translate, useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
@@ -45,12 +45,12 @@ function formatAge(ageSeconds: number | undefined): string {
 	const mins = Math.floor(ageSeconds / 60);
 	const hours = Math.floor(mins / 60);
 	const days = Math.floor(hours / 24);
-	if (days > 30) return `${Math.floor(days / 30)}mo ago`;
-	if (days > 6) return `${Math.floor(days / 7)}w ago`;
-	if (days > 0) return `${days}d ago`;
-	if (hours > 0) return `${hours}h ago`;
-	if (mins > 0) return `${mins}m ago`;
-	return "just now";
+	if (days > 30) return translate("time.monthsAgo", { count: Math.floor(days / 30) });
+	if (days > 6) return translate("time.weeksAgo", { count: Math.floor(days / 7) });
+	if (days > 0) return translate("time.daysAgo", { count: days });
+	if (hours > 0) return translate("time.hoursAgo", { count: hours });
+	if (mins > 0) return translate("time.minutesAgo", { count: mins });
+	return translate("time.justNow");
 }
 
 function domainOf(url: string | undefined): string {
@@ -101,10 +101,14 @@ export function WebSearchRenderer({ args, result, isPartial }: ToolRendererProps
 	const usageParts: string[] = [];
 	if (parsed.usage) {
 		const u = parsed.usage;
-		if (typeof u.inputTokens === "number") usageParts.push(`in ${u.inputTokens}`);
-		if (typeof u.outputTokens === "number") usageParts.push(`out ${u.outputTokens}`);
-		if (typeof u.totalTokens === "number") usageParts.push(`total ${u.totalTokens}`);
-		if (typeof u.searchRequests === "number") usageParts.push(`search ${u.searchRequests}`);
+		if (typeof u.inputTokens === "number")
+			usageParts.push(t("tools.websearch.inputTokens", { count: u.inputTokens }));
+		if (typeof u.outputTokens === "number")
+			usageParts.push(t("tools.websearch.outputTokens", { count: u.outputTokens }));
+		if (typeof u.totalTokens === "number")
+			usageParts.push(t("tools.websearch.totalTokens", { count: u.totalTokens }));
+		if (typeof u.searchRequests === "number")
+			usageParts.push(t("tools.websearch.searchRequests", { count: u.searchRequests }));
 	}
 
 	return (
@@ -116,14 +120,14 @@ export function WebSearchRenderer({ args, result, isPartial }: ToolRendererProps
 				</span>
 				{parsed.sources.length > 0 && (
 					<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">
-						{parsed.sources.length} source{parsed.sources.length === 1 ? "" : "s"}
+						{t("tools.websearch.sources", { count: parsed.sources.length })}
 					</span>
 				)}
 			</div>
 
 			{parsed.error && (
 				<div className="rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
-					Error: {parsed.error}
+					{t("tools.websearch.error", { error: parsed.error })}
 				</div>
 			)}
 

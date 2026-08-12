@@ -732,6 +732,18 @@
 	line-height: 1.65;
 }
 
+/* Reasoning stays visually subordinate to the assistant response. */
+.omp-transcript-editorial .omp-thinking-body .markdown-body {
+	font-size: var(--text-omp-sm);
+	line-height: 1.55;
+	color: var(--omp-dim);
+}
+
+.omp-transcript-editorial .omp-thinking-body .markdown-body :is(h1, h2, h3, h4, h5, h6, strong) {
+	color: var(--omp-dim);
+	font-weight: 400;
+}
+
 .omp-transcript-editorial .markdown-body p {
 	margin: 0.78em 0;
 }

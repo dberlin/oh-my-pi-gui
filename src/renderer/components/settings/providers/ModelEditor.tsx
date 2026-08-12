@@ -295,11 +295,15 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 										className={INPUT_CLASS}
 										disabled={readonly || disabled}
 									>
-										<option value="effort">effort</option>
-										<option value="budget">budget</option>
-										<option value="google-level">google-level</option>
-										<option value="anthropic-adaptive">anthropic-adaptive</option>
-										<option value="anthropic-budget-effort">anthropic-budget-effort</option>
+										<option value="effort">{t("providerCfg.form.thinkingModeEffort")}</option>
+										<option value="budget">{t("providerCfg.form.thinkingModeBudget")}</option>
+										<option value="google-level">{t("providerCfg.form.thinkingModeGoogle")}</option>
+										<option value="anthropic-adaptive">
+											{t("providerCfg.form.thinkingModeAnthropicAdaptive")}
+										</option>
+										<option value="anthropic-budget-effort">
+											{t("providerCfg.form.thinkingModeAnthropicBudgetEffort")}
+										</option>
 									</select>
 								</label>
 

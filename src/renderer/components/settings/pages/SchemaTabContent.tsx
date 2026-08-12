@@ -5,7 +5,7 @@
 
 import { useMemo } from "react";
 import type { SettingEntry } from "../../../../shared/rpc-types";
-import { useLang } from "../../../lib/i18n";
+import { useLang, useT } from "../../../lib/i18n";
 import { Section } from "../editors/Section";
 import { SchemaSettingRow } from "../SchemaSettingRow";
 import { ZH_GROUP_TITLES } from "../schema-zh";
@@ -36,9 +36,10 @@ export function SchemaTabContent({
 		[visibleEntries, tabId, groups],
 	);
 	const { lang } = useLang();
+	const t = useT();
 
 	if (tabEntries.length === 0) {
-		return <div className="py-10 text-center text-xs text-(--omp-dim)">No settings in this section.</div>;
+		return <div className="py-10 text-center text-xs text-(--omp-dim)">{t("settings.sectionEmpty")}</div>;
 	}
 
 	const renderRow = (entry: SettingEntry) => (

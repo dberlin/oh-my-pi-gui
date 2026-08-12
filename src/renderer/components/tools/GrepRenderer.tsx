@@ -195,7 +195,7 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 				<span className="ml-auto flex shrink-0 items-center gap-1.5 text-omp-xs text-[var(--omp-dim)]">
 					{scope && (
 						<span className="max-w-40 truncate" title={scope}>
-							in {scope}
+							{t("tools.grep.scope", { scope })}
 						</span>
 					)}
 					{truncated && !isPartial && (

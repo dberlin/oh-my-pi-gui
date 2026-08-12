@@ -19,12 +19,12 @@ interface TodoCompletionTransition {
 	content: string;
 }
 
-const STATUS_META: Record<TodoTask["status"], { icon: typeof Circle; color: string; label: string }> = {
-	pending: { icon: Circle, color: "var(--omp-dim)", label: "pending" },
-	in_progress: { icon: CircleDot, color: "var(--omp-accent)", label: "in progress" },
-	completed: { icon: CheckCircle2, color: "var(--omp-success)", label: "completed" },
-	blocked: { icon: XCircle, color: "var(--omp-warning)", label: "blocked" },
-	abandoned: { icon: MinusCircle, color: "var(--omp-dim)", label: "abandoned" },
+const STATUS_META: Record<TodoTask["status"], { icon: typeof Circle; color: string }> = {
+	pending: { icon: Circle, color: "var(--omp-dim)" },
+	in_progress: { icon: CircleDot, color: "var(--omp-accent)" },
+	completed: { icon: CheckCircle2, color: "var(--omp-success)" },
+	blocked: { icon: XCircle, color: "var(--omp-warning)" },
+	abandoned: { icon: MinusCircle, color: "var(--omp-dim)" },
 };
 
 function asPhases(value: unknown): TodoDetailsPhase[] {

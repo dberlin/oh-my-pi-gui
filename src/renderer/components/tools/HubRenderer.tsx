@@ -1,5 +1,6 @@
 import { Radio, Send, SquareTerminal, Users } from "lucide-react";
 import { cx, formatDuration, resultText } from "../../lib/format";
+import { translate, useT } from "../../lib/i18n";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -179,7 +180,7 @@ function isLaunchDetails(details: Record<string, unknown>): boolean {
 function messageAge(ts: number | undefined): string {
 	if (!ts) return "";
 	const seconds = Math.max(0, (Date.now() - ts) / 1000);
-	return seconds < 45 ? "just now" : formatDuration(Date.now() - ts);
+	return seconds < 45 ? translate("time.justNow") : formatDuration(Date.now() - ts);
 }
 
 const STATE_COLOR: Record<string, string> = {
@@ -197,6 +198,12 @@ const STATE_COLOR: Record<string, string> = {
 
 /** Hub: peer roster, job list, process list, or message log depending on the op. */
 export function HubRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+	const t = useT();
+	const stateLabel = (state: string): string => {
+		const key = `tools.hub.state.${state}`;
+		const label = t(key);
+		return label === key ? state : label;
+	};
 	const op = typeof args.op === "string" ? args.op : "";
 	const effective = isPartial ? partialResult : result;
 	const details = resultDetails(effective);
@@ -305,7 +312,9 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 									{peer.unread}
 								</span>
 							)}
-							{peer.state && <span className="ml-auto text-omp-xs text-[var(--omp-dim)]">{peer.state}</span>}
+							{peer.state && (
+								<span className="ml-auto text-omp-xs text-[var(--omp-dim)]">{stateLabel(peer.state)}</span>
+							)}
 						</div>
 					))}
 				</div>
@@ -340,7 +349,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 					{cancelled.map(c => (
 						<div key={c.id} className="flex items-center gap-2">
 							<span className="font-semibold text-[var(--omp-text)]">{c.id}</span>
-							<span className="text-[var(--omp-dim)]">{c.status ?? "cancelled"}</span>
+							<span className="text-[var(--omp-dim)]">{stateLabel(c.status ?? "cancelled")}</span>
 						</div>
 					))}
 				</div>
@@ -355,20 +364,32 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 								style={{ background: STATE_COLOR[proc.state ?? ""] ?? "var(--omp-dim)" }}
 							/>
 							<span className="font-semibold text-[var(--omp-text)]">{proc.name}</span>
-							{proc.pid != null && <span className="text-omp-xs text-[var(--omp-dim)]">pid {proc.pid}</span>}
+							{proc.pid != null && (
+								<span className="text-omp-xs text-[var(--omp-dim)]">
+									{t("tools.hub.pid", { pid: proc.pid })}
+								</span>
+							)}
 							{proc.exitCode != null && (
-								<span className="text-omp-xs text-[var(--omp-dim)]">exit {proc.exitCode}</span>
+								<span className="text-omp-xs text-[var(--omp-dim)]">
+									{t("tools.hub.exit", { code: proc.exitCode })}
+								</span>
 							)}
 							{proc.restartCount != null && (
 								<span className="text-omp-xs text-[var(--omp-dim)]">↻ {proc.restartCount}</span>
 							)}
-							{proc.state && <span className="ml-auto text-omp-xs text-[var(--omp-dim)]">{proc.state}</span>}
+							{proc.state && (
+								<span className="ml-auto text-omp-xs text-[var(--omp-dim)]">{stateLabel(proc.state)}</span>
+							)}
 						</div>
 					))}
 				</div>
 			)}
 
-			{matched && <div className="font-mono text-omp-sm text-[var(--omp-success)]">matched: {matched}</div>}
+			{matched && (
+				<div className="font-mono text-omp-sm text-[var(--omp-success)]">
+					{t("tools.hub.matched", { value: matched })}
+				</div>
+			)}
 
 			{terminalRows.length > 0 && (
 				<pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">

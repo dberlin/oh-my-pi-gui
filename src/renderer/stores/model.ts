@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ModelInfo, RpcSessionState, ThinkingLevel } from "../../shared/rpc-types";
+import { translate } from "../lib/i18n";
 import { toast } from "./toast";
 
 interface ModelStore {
@@ -51,7 +52,7 @@ export const useModelStore = create<ModelStore>()(set => ({
 			const data = res.data as { enabled?: boolean; active?: boolean } | undefined;
 			set({ fastModeEnabled: data?.enabled ?? false, fastModeActive: data?.active ?? false });
 		} else {
-			toast({ variant: "error", title: "Fast mode", message: res.error });
+			toast({ variant: "error", title: translate("model.fastMode"), message: res.error });
 		}
 	},
 	reset: () => set(initialState),

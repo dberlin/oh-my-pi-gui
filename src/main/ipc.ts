@@ -37,7 +37,9 @@ import type {
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
 import type { RpcCommand, RpcSessionState } from "../shared/rpc-types";
 import { openInExternalEditor } from "./editor";
+import { mainT } from "./i18n";
 import type { LogWatcher } from "./log-watcher";
+import { createMenu } from "./menu";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
@@ -728,6 +730,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			throw new Error("Invalid preference key");
 		}
 		prefsStore.set(payload.key, payload.value);
+		if (payload.key === "language" && (payload.value === "en" || payload.value === "zh")) {
+			createMenu(windowManager, deps.spawnWindow);
+		}
 	});
 
 	// Sidecar control
@@ -743,7 +748,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const sidecar = sidecarFor(deps, event);
 		if (!sidecar) return null;
 		const result = await dialog.showOpenDialog(win, {
-			title: "Open project",
+			title: mainT("dialog.openProject"),
 			defaultPath: sidecar.cwd,
 			properties: ["openDirectory", "createDirectory"],
 		});

@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { en } from "../locales/en";
 import { zh } from "../locales/zh";
 
@@ -8,13 +8,26 @@ export type Lang = "en" | "zh";
 const LOCALES: Record<Lang, Locale> = { en, zh };
 const LANG_KEY = "omp.lang";
 
-function getInitialLang(): Lang {
+function readStoredLanguage(): Lang | undefined {
 	try {
 		const stored = localStorage.getItem(LANG_KEY);
-		if (stored === "zh" || stored === "en") return stored;
+		return stored === "zh" || stored === "en" ? stored : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function storeLanguage(lang: Lang): void {
+	try {
+		localStorage.setItem(LANG_KEY, lang);
 	} catch {
 		/* ignore */
 	}
+}
+
+export function getCurrentLanguage(): Lang {
+	const stored = readStoredLanguage();
+	if (stored) return stored;
 	const nav = typeof navigator !== "undefined" ? (navigator.language ?? "en") : "en";
 	return nav.startsWith("zh") ? "zh" : "en";
 }
@@ -36,7 +49,7 @@ function translateForLang(lang: Lang, key: string, params?: Record<string, strin
  * runtime language switches apply without a subscription.
  */
 export function translate(key: string, params?: Record<string, string | number>): string {
-	return translateForLang(getInitialLang(), key, params);
+	return translateForLang(getCurrentLanguage(), key, params);
 }
 
 interface I18nContextValue {
@@ -48,15 +61,36 @@ interface I18nContextValue {
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-	const [lang, setLangState] = useState<Lang>(getInitialLang);
+	const [lang, setLangState] = useState<Lang>(getCurrentLanguage);
+	const userSelected = useRef(false);
+
+	useEffect(() => {
+		const prefs = window.omp?.prefs;
+		if (!prefs) return;
+		const stored = readStoredLanguage();
+		let cancelled = false;
+		void prefs
+			.get("language")
+			.then(value => {
+				if (cancelled || userSelected.current) return;
+				if (value === "en" || value === "zh") {
+					storeLanguage(value);
+					setLangState(value);
+				} else if (stored) {
+					void prefs.set("language", stored).catch(() => {});
+				}
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	const setLang = useCallback((next: Lang) => {
+		userSelected.current = true;
 		setLangState(next);
-		try {
-			localStorage.setItem(LANG_KEY, next);
-		} catch {
-			/* ignore */
-		}
+		storeLanguage(next);
+		void window.omp?.prefs?.set("language", next).catch(() => {});
 	}, []);
 
 	const t = useCallback(

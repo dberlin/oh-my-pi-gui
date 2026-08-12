@@ -31,12 +31,12 @@ import { type UiTodoPhase, type UiTodoTask, useTodoStore } from "../../../stores
 import { Badge, type BadgeVariant } from "../../common";
 import { DockCard } from "./DockCard";
 
-const STATUS_META: Record<TodoTask["status"], { label: string; variant: BadgeVariant; dot: boolean }> = {
-	pending: { label: "pending", variant: "muted", dot: false },
-	in_progress: { label: "in progress", variant: "info", dot: true },
-	completed: { label: "completed", variant: "success", dot: false },
-	blocked: { label: "blocked", variant: "warning", dot: true },
-	abandoned: { label: "abandoned", variant: "error", dot: false },
+const STATUS_META: Record<TodoTask["status"], { variant: BadgeVariant; dot: boolean }> = {
+	pending: { variant: "muted", dot: false },
+	in_progress: { variant: "info", dot: true },
+	completed: { variant: "success", dot: false },
+	blocked: { variant: "warning", dot: true },
+	abandoned: { variant: "error", dot: false },
 };
 
 const STATUS_LABEL_KEY: Record<TodoTask["status"], string> = {

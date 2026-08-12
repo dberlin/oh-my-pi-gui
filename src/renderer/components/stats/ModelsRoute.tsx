@@ -21,6 +21,7 @@ interface ModelRow {
 	totalOutputTokens: number;
 	totalCacheReadTokens: number;
 	totalCacheWriteTokens: number;
+	cacheRate: number;
 	totalCost: number;
 	avgDuration: number | null;
 	avgTtft: number | null;
@@ -48,6 +49,7 @@ interface ModelsData {
 	modelSeries: ModelSeriesPoint[];
 	modelPerformanceSeries: PerformancePoint[];
 }
+const tokenCountFormatter = new Intl.NumberFormat("en-US");
 
 export function ModelsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
@@ -84,13 +86,34 @@ export function ModelsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 				),
 			},
 			{
-				key: "tokens",
-				label: t("stats.col.tokens"),
+				key: "inputTokens",
+				label: t("stats.col.inputTokens"),
 				align: "right",
-				render: row =>
-					compact(
-						row.totalInputTokens + row.totalOutputTokens + row.totalCacheReadTokens + row.totalCacheWriteTokens,
-					),
+				render: row => tokenCountFormatter.format(row.totalInputTokens),
+			},
+			{
+				key: "outputTokens",
+				label: t("stats.col.outputTokens"),
+				align: "right",
+				render: row => tokenCountFormatter.format(row.totalOutputTokens),
+			},
+			{
+				key: "cacheReadTokens",
+				label: t("stats.col.cacheReadTokens"),
+				align: "right",
+				render: row => tokenCountFormatter.format(row.totalCacheReadTokens),
+			},
+			{
+				key: "cacheWriteTokens",
+				label: t("stats.col.cacheWriteTokens"),
+				align: "right",
+				render: row => tokenCountFormatter.format(row.totalCacheWriteTokens),
+			},
+			{
+				key: "cacheRate",
+				label: t("stats.col.cacheHitRate"),
+				align: "right",
+				render: row => <span title={t("stats.models.cacheHitFormula")}>{(row.cacheRate * 100).toFixed(2)}%</span>,
 			},
 			{ key: "cost", label: t("stats.col.cost"), align: "right", render: row => formatUsd(row.totalCost) },
 			{ key: "ttft", label: t("stats.col.ttft"), align: "right", render: row => formatMs(row.avgTtft) },

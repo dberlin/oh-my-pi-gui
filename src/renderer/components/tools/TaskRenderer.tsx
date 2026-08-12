@@ -135,7 +135,7 @@ function YieldLines({ value }: { value: unknown }) {
 					<span className="shrink-0 text-[var(--omp-dim)]">└</span>
 					<span className="min-w-0 truncate" title={yieldPreview(item, t("tools.task.yieldLastTurn"))}>
 						<span className="text-[var(--omp-dim)]">
-							yield{Array.isArray(item.type) ? "+" : ""}[{labels.join(", ")}]:
+							{t("tools.task.yieldLabel", { suffix: Array.isArray(item.type) ? "+" : "" })}[{labels.join(", ")}]:
 						</span>{" "}
 						<span className="text-[var(--omp-muted)]">{yieldPreview(item, t("tools.task.yieldLastTurn"))}</span>
 					</span>

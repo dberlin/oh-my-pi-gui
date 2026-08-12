@@ -3,6 +3,7 @@
  */
 import { app, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { IPC_EVENTS, type MenuAction } from "../shared/ipc-types";
+import { getMainLanguage, mainT } from "./i18n";
 import type { SpawnWindow, WindowManager } from "./window";
 
 function sendMenuAction(windowManager: WindowManager, spawnWindow: SpawnWindow, action: MenuAction): void {
@@ -20,6 +21,7 @@ function sendMenuAction(windowManager: WindowManager, spawnWindow: SpawnWindow, 
 }
 
 export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindow): void {
+	const language = getMainLanguage();
 	const template: MenuItemConstructorOptions[] = [
 		...(process.platform === "darwin"
 			? [
@@ -28,7 +30,7 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 						submenu: [
 							{ role: "about" as const },
 							{
-								label: "Settings…",
+								label: mainT("menu.settings", language),
 								accelerator: "CmdOrCtrl+,",
 								click: () => sendMenuAction(windowManager, spawnWindow, "open-settings"),
 							},
@@ -45,10 +47,10 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 				]
 			: []),
 		{
-			label: "File",
+			label: mainT("menu.file", language),
 			submenu: [
 				{
-					label: "Open Project…",
+					label: mainT("menu.openProject", language),
 					// No accelerator: ⌘⇧O is owned by the globalShortcut window
 					// toggle (index.ts). Registering it here too makes macOS fire
 					// both (dialog + hide) and Windows swallow the menu shortcut
@@ -57,7 +59,7 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 				},
 				{ type: "separator" },
 				{
-					label: "New Session",
+					label: mainT("menu.newSession", language),
 					accelerator: "CmdOrCtrl+N",
 					click: () => sendMenuAction(windowManager, spawnWindow, "new-session"),
 				},
@@ -65,15 +67,15 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 					// No accelerator: ⌘T/⇧⌘T live in the renderer keymap so users can
 					// remap them. A menu accelerator would fire first and make the
 					// remappable chords dead (precedent: ⌘⇧O above).
-					label: "New Tab",
+					label: mainT("menu.newTab", language),
 					click: () => sendMenuAction(windowManager, spawnWindow, "new-tab"),
 				},
 				{
-					label: "New Chat Tab",
+					label: mainT("menu.newChatTab", language),
 					click: () => sendMenuAction(windowManager, spawnWindow, "new-chat-tab"),
 				},
 				{
-					label: "New Window",
+					label: mainT("menu.newWindow", language),
 					accelerator: "CmdOrCtrl+Shift+N",
 					click: () => {
 						// Open a parallel window in the target window's project (its
@@ -89,7 +91,7 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 					: [
 							{ type: "separator" as const },
 							{
-								label: "Settings…",
+								label: mainT("menu.settings", language),
 								accelerator: "CmdOrCtrl+,",
 								click: () => sendMenuAction(windowManager, spawnWindow, "open-settings"),
 							},
@@ -99,7 +101,7 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 			],
 		},
 		{
-			label: "Edit",
+			label: mainT("menu.edit", language),
 			submenu: [
 				{ role: "undo" },
 				{ role: "redo" },
@@ -111,15 +113,15 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 			],
 		},
 		{
-			label: "View",
+			label: mainT("menu.view", language),
 			submenu: [
 				{
-					label: "Toggle Sidebar",
+					label: mainT("menu.toggleSidebar", language),
 					accelerator: "CmdOrCtrl+B",
 					click: () => sendMenuAction(windowManager, spawnWindow, "toggle-sidebar"),
 				},
 				{
-					label: "Toggle Panel",
+					label: mainT("menu.togglePanel", language),
 					accelerator: "CmdOrCtrl+J",
 					click: () => sendMenuAction(windowManager, spawnWindow, "toggle-panel"),
 				},
@@ -136,28 +138,28 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 			],
 		},
 		{
-			label: "Session",
+			label: mainT("menu.session", language),
 			submenu: [
 				{
-					label: "Export HTML",
+					label: mainT("menu.exportHtml", language),
 					accelerator: "CmdOrCtrl+E",
 					click: () => sendMenuAction(windowManager, spawnWindow, "export-html"),
 				},
 				{
-					label: "Handoff",
+					label: mainT("menu.handoff", language),
 					click: () => sendMenuAction(windowManager, spawnWindow, "handoff"),
 				},
 			],
 		},
 		{
-			label: "Help",
+			label: mainT("menu.help", language),
 			submenu: [
 				{
-					label: "About omp",
+					label: mainT("menu.about", language),
 					click: () => app.showAboutPanel(),
 				},
 				{
-					label: "Documentation",
+					label: mainT("menu.documentation", language),
 					click: () => void shell.openExternal("https://github.com/nornzach/oh-my-pi-gui"),
 				},
 			],

@@ -349,10 +349,10 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 							setAuth((event.target.value || undefined) as "apiKey" | "none" | "oauth" | undefined)
 						}
 					>
-						<option value="">apiKey (default)</option>
-						<option value="apiKey">apiKey</option>
-						<option value="none">none</option>
-						<option value="oauth">oauth</option>
+						<option value="">{t("providerCfg.form.authApiKeyDefault")}</option>
+						<option value="apiKey">{t("providerCfg.form.authApiKey")}</option>
+						<option value="none">{t("common.none")}</option>
+						<option value="oauth">OAuth</option>
 					</select>
 					<span className="mt-1 block text-omp-sm text-(--omp-dim)">{t("providerCfg.form.authHint")}</span>
 				</div>
@@ -381,13 +381,13 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 							disabled={readonly || submitting}
 							onChange={event => setDiscoveryType(event.target.value || undefined)}
 						>
-							<option value="">(none)</option>
-							<option value="ollama">ollama</option>
+							<option value="">{t("common.noneParenthesized")}</option>
+							<option value="ollama">Ollama</option>
 							<option value="llama.cpp">llama.cpp</option>
-							<option value="lm-studio">lm-studio</option>
-							<option value="openai-models-list">openai-models-list</option>
-							<option value="proxy">proxy</option>
-							<option value="litellm">litellm</option>
+							<option value="lm-studio">LM Studio</option>
+							<option value="openai-models-list">{t("providerCfg.form.discoveryOpenAiList")}</option>
+							<option value="proxy">{t("providerCfg.form.discoveryProxy")}</option>
+							<option value="litellm">LiteLLM</option>
 						</select>
 						<Input
 							type="number"
@@ -427,7 +427,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 						disabled={readonly || submitting}
 						onChange={event => setTransport((event.target.value || undefined) as "pi-native" | undefined)}
 					>
-						<option value="">(default)</option>
+						<option value="">{t("common.defaultParenthesized")}</option>
 						<option value="pi-native">pi-native</option>
 					</select>
 				</div>

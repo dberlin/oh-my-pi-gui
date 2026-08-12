@@ -17,6 +17,7 @@ import {
 	type ThinkingLevel,
 	type TodoPhase,
 } from "../../shared/rpc-types";
+import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useExtensionUiStore } from "../stores/extension-ui";
@@ -142,14 +143,16 @@ function notifyOnAgentEnd(event: Extract<AgentSessionEvent, { type: "agent_end" 
 	if (last?.stopReason === "aborted") return;
 	const sessionName = useSessionStore.getState().sessionName || "Oh My Pi";
 	if (last?.stopReason === "error") {
-		const detail =
+		const message =
 			typeof last.errorMessage === "string" && last.errorMessage
-				? `: ${last.errorMessage.replace(/\s+/g, " ").slice(0, 120)}`
-				: "";
-		void maybeNotify("error", sessionName, `Stopped with error${detail}`);
+				? translate("events.notificationErrorDetail", {
+						error: last.errorMessage.replace(/\s+/g, " ").slice(0, 120),
+					})
+				: translate("events.notificationError");
+		void maybeNotify("error", sessionName, message);
 		return;
 	}
-	void maybeNotify("completion", sessionName, "Complete");
+	void maybeNotify("completion", sessionName, translate("events.notificationComplete"));
 }
 
 /**
@@ -169,8 +172,8 @@ function toastOnAgentError(event: Extract<AgentSessionEvent, { type: "agent_end"
 	const detail =
 		typeof last.errorMessage === "string" && last.errorMessage
 			? last.errorMessage.replace(/\s+/g, " ").slice(0, 200)
-			: "Unknown error";
-	useToastStore.getState().push({ variant: "error", title: "Turn failed", message: detail });
+			: translate("common.unknownError");
+	useToastStore.getState().push({ variant: "error", title: translate("events.turnFailed"), message: detail });
 }
 
 /** Apply a get_state snapshot to every state-derived store. */
@@ -470,7 +473,9 @@ export function useRpcEvents(): void {
 					case "auto_compaction_end": {
 						useSessionStore.setState({ isCompacting: false, compactionInfo: null });
 						if (event.aborted) {
-							useToastStore.getState().push({ variant: "warning", message: "Compaction aborted" });
+							useToastStore
+								.getState()
+								.push({ variant: "warning", message: translate("events.compactionAborted") });
 						}
 						break;
 					}
@@ -491,7 +496,12 @@ export function useRpcEvents(): void {
 						});
 						useToastStore.getState().push({
 							variant: "warning",
-							message: `Retry ${event.attempt}/${event.maxAttempts} in ${Math.round(event.delayMs / 1000)}s: ${event.errorMessage}`,
+							message: translate("events.retryScheduled", {
+								attempt: event.attempt,
+								max: event.maxAttempts,
+								seconds: Math.round(event.delayMs / 1000),
+								error: event.errorMessage,
+							}),
 							durationMs: event.delayMs + 2000,
 						});
 						break;
@@ -508,11 +518,13 @@ export function useRpcEvents(): void {
 								: {}),
 						});
 						if (event.success) {
-							useToastStore.getState().push({ variant: "success", message: "Retry succeeded" });
+							useToastStore.getState().push({ variant: "success", message: translate("events.retrySucceeded") });
 						} else {
 							useToastStore.getState().push({
 								variant: "error",
-								message: `Retry failed: ${event.finalError ?? "unknown error"}`,
+								message: translate("events.retryFailed", {
+									error: event.finalError ?? translate("common.unknownError"),
+								}),
 							});
 						}
 						break;
@@ -520,14 +532,14 @@ export function useRpcEvents(): void {
 					case "retry_fallback_applied": {
 						useToastStore.getState().push({
 							variant: "info",
-							message: `Fell back from ${event.from} to ${event.to}`,
+							message: translate("events.fallbackApplied", { from: event.from, to: event.to }),
 						});
 						break;
 					}
 					case "retry_fallback_succeeded": {
 						useToastStore.getState().push({
 							variant: "success",
-							message: `Fallback to ${event.model} succeeded`,
+							message: translate("events.fallbackSucceeded", { model: event.model }),
 						});
 						break;
 					}
@@ -573,7 +585,7 @@ export function useRpcEvents(): void {
 					case "ttsr_triggered": {
 						useToastStore.getState().push({
 							variant: "info",
-							message: "Time-traveling rules injected",
+							message: translate("events.ttsrInjected"),
 							durationMs: 3000,
 						});
 						break;
@@ -687,15 +699,16 @@ export function useRpcEvents(): void {
 						if (pending) {
 							const sw = await window.omp.rpc.switchSession(pending);
 							if (!sw.success) {
-								useToastStore
-									.getState()
-									.push({ variant: "error", message: `Could not open session: ${sw.error}` });
+								useToastStore.getState().push({
+									variant: "error",
+									message: translate("events.sessionOpenFailed", { error: sw.error }),
+								});
 							}
 						}
 						const res = await window.omp.rpc.getState();
 						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== statusTabId) return;
 						if (!res.success) {
-							useUiStore.getState().setSidecarError("Sidecar ready but not responding to commands");
+							useUiStore.getState().setSidecarError(translate("events.sidecarNoResponse"));
 						} else {
 							useUiStore.getState().clearSidecarError();
 							void hydrateSession();
@@ -703,12 +716,12 @@ export function useRpcEvents(): void {
 						}
 					} catch {
 						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== statusTabId) return;
-						useUiStore.getState().setSidecarError("Sidecar health check failed — agent process may be stuck");
+						useUiStore.getState().setSidecarError(translate("events.sidecarHealthFailed"));
 					}
 				})();
 			} else if (payload.status === "error" || payload.status === "exited") {
 				stopHeartbeat();
-				useUiStore.getState().setSidecarError(payload.message ?? "Sidecar process failed");
+				useUiStore.getState().setSidecarError(payload.message ?? translate("events.sidecarProcessFailed"));
 			}
 		};
 
@@ -759,7 +772,7 @@ export function useRpcEvents(): void {
 			if (!acceptsActiveTabEvents()) return;
 			useToastStore.getState().push({
 				variant: "error",
-				title: "Extension error",
+				title: translate("events.extensionError"),
 				message: `${frame.extensionPath} (${frame.event}): ${frame.error}`,
 			});
 		});

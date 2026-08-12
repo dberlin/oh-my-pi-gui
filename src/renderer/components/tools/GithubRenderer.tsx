@@ -239,7 +239,9 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 				<span className="text-[var(--omp-muted)]">{opTitle}</span>
 				{entity.repo && <span className="truncate text-[var(--omp-status-path)]">{entity.repo}</span>}
 				{watch?.state === "watching" && (
-					<span className="ml-auto shrink-0 animate-pulse text-omp-xs text-[var(--omp-accent)]">watching…</span>
+					<span className="ml-auto shrink-0 animate-pulse text-omp-xs text-[var(--omp-accent)]">
+						{t("tools.github.watching")}
+					</span>
 				)}
 				{externalUrl && entity.number == null && !entity.title && (
 					<button
@@ -271,7 +273,10 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 								background: "var(--omp-bg-tertiary)",
 							}}
 						>
-							{entity.state}
+							{t(`tools.github.state.${entity.state.toLowerCase()}`) ===
+							`tools.github.state.${entity.state.toLowerCase()}`
+								? entity.state
+								: t(`tools.github.state.${entity.state.toLowerCase()}`)}
 						</span>
 					)}
 					{externalUrl && (
@@ -305,7 +310,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 								)}
 							</div>
 							{run.jobs.length === 0 && (
-								<div className="text-omp-xs text-[var(--omp-dim)]">waiting for workflow jobs…</div>
+								<div className="text-omp-xs text-[var(--omp-dim)]">{t("tools.github.waitingJobs")}</div>
 							)}
 							{run.jobs.map(job => (
 								<div key={job.id ?? job.name} className="flex items-center gap-2">
@@ -313,7 +318,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 									<span className="min-w-0 flex-1 truncate text-[var(--omp-muted)]">{job.name}</span>
 									{job.durationSeconds != null && (
 										<span className="shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
-											{job.durationSeconds}s
+											{t("time.secondsShort", { count: job.durationSeconds })}
 										</span>
 									)}
 								</div>
@@ -323,14 +328,15 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 					{watch.failedLogs.map((log, i) => (
 						<div key={i} className="rounded bg-[var(--omp-tool-error-bg)]/40 px-2 py-1">
 							<div className="font-mono text-omp-xs text-[var(--omp-error)]">
-								{log.jobName ?? "job"} <span className="text-[var(--omp-dim)]">{log.context}</span>
+								{log.jobName ?? t("tools.github.job")}{" "}
+								<span className="text-[var(--omp-dim)]">{log.context}</span>
 							</div>
 							{log.available && log.tail ? (
 								<pre className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-omp-xs leading-[1.45] text-[var(--omp-muted)]">
 									{log.tail}
 								</pre>
 							) : (
-								<div className="text-omp-xs text-[var(--omp-dim)]">log tail unavailable</div>
+								<div className="text-omp-xs text-[var(--omp-dim)]">{t("tools.github.logUnavailable")}</div>
 							)}
 						</div>
 					))}

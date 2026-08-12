@@ -5,12 +5,13 @@
  */
 
 import { toast } from "../stores/toast";
+import { translate } from "./i18n";
 
 export async function exportSessionHtml(): Promise<boolean> {
 	const outputPath = await window.omp.system.showSaveDialog("session.html");
 	if (!outputPath) return false;
 	const response = await window.omp.rpc.exportHtml(outputPath);
 	if (!response.success) throw new Error(response.error);
-	toast({ variant: "success", title: "Session exported", message: outputPath });
+	toast({ variant: "success", title: translate("export.sessionExported"), message: outputPath });
 	return true;
 }
