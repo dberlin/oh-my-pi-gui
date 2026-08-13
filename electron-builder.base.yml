@@ -1,0 +1,83 @@
+appId: sh.omp.gui
+productName: omp
+afterPack: scripts/after-pack.cjs
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**/*
+  - "!node_modules/**/*"
+asar: true
+compression: maximum
+# Both architecture-specific configurations inherit the registered deep-link scheme.
+protocols:
+  - name: omp
+    schemes:
+      - omp
+
+mac:
+  category: public.app-category.developer-tools
+  icon: resources/icon.icns
+  # Seal the complete bundle even when no Developer ID certificate is available.
+  # This preserves macOS's user-override flow instead of presenting the app as damaged.
+  identity: "-"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: omp uses the microphone for voice dictation in the composer.
+    NSCameraUsageDescription: omp does not use the camera.
+    NSBluetoothAlwaysUsageDescription: omp does not use Bluetooth.
+    NSBluetoothPeripheralUsageDescription: omp does not use Bluetooth.
+    NSAppTransportSecurity:
+      NSAllowsArbitraryLoads: false
+      NSAllowsLocalNetworking: true
+  notarize: false
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
+linux:
+  icon: resources/icons
+  category: Development
+  executableName: omp-gui
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  desktop:
+    entry:
+      StartupWMClass: omp-gui
+
+appImage:
+  compression: gzip
+
+deb:
+  artifactName: omp_${version}_${arch}.${ext}
+
+publish:
+  provider: github
+  owner: nornzach
+  repo: oh-my-pi-gui
+

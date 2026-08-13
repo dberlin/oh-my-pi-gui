@@ -2,14 +2,13 @@
  * Main process entry point for the omp GUI.
  * App lifecycle: ready → window, sidecar, session index, IPC, tray, menu, deep links, updater.
  */
-
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
 import Store from "electron-store";
 import { nativeAccelerator } from "../shared/hotkeys";
-import type { SessionKind } from "../shared/ipc-types";
+import type { SessionKind, SessionTarget } from "../shared/ipc-types";
 import { installQuitGuard, requestQuit } from "./app-quit";
 import { bundledOmpFilename, resolveOmpCandidate } from "./bundled-omp-path";
 import { setupDeepLinks } from "./deep-link";
@@ -19,6 +18,9 @@ import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
 import { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
+import { RemoteAcpClient } from "./remote-acp";
+import { RemoteHostCatalog, type RemoteHostCatalogPrefs } from "./remote-host-catalog";
+import { nodeRemoteProcessRunner, RemoteSshService } from "./remote-ssh";
 import { writeRuntimeLog } from "./runtime-log";
 import { SessionIndex } from "./session-index";
 import { shellSpawnEnv } from "./shell-env";
@@ -117,7 +119,7 @@ function resolveSourceCli(): string | null {
 	return null;
 }
 
-interface MainPrefs {
+interface MainPrefs extends RemoteHostCatalogPrefs {
 	lastProject?: string;
 	proxyUrl?: string;
 	/** One layout per live window, in window order. */
@@ -216,7 +218,9 @@ let statsServer: StatsServerManager | null = null;
 let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
-
+let remoteServices: { ssh: RemoteSshService; catalog: RemoteHostCatalog; acp: RemoteAcpClient } | null = null;
+let shutdownStarted = false;
+let shutdownComplete = false;
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
 	if (typeof value === "string") return { message: value };
@@ -291,10 +295,21 @@ function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null
 }
 
 /** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
- *  With no target, create a fresh global chat; explicit workspace/session
- *  requests retain their selected/fallback cwd and requested session kind. */
-function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKind): BrowserWindow | null {
-	const restoreSavedLayout = cwd === undefined && pendingSessionPath === undefined && kind === undefined;
+ *  With no target, create a fresh global chat; explicit workspace/session or
+ *  remote target requests retain their selected/fallback cwd and requested session kind. */
+function spawnWindow(
+	cwd?: string,
+	pendingSessionPath?: string,
+	kind?: SessionKind,
+	target?: SessionTarget,
+	resumeSessionId?: string,
+): BrowserWindow | null {
+	const restoreSavedLayout =
+		cwd === undefined &&
+		pendingSessionPath === undefined &&
+		kind === undefined &&
+		target === undefined &&
+		resumeSessionId === undefined;
 	if (restoreSavedLayout) {
 		const [saved] = readSavedTabLayouts();
 		if (saved) {
@@ -302,24 +317,24 @@ function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKi
 			if (restored) return restored;
 		}
 	}
-	const target = resolveWindowSpawnTarget(
-		cwd,
-		pendingSessionPath,
-		kind,
-		resolveInitialCwd(),
-		ensureDefaultWorkspace(),
-	);
-	const win = windowManager.createWindow({ cwd: target.cwd, pendingSessionPath });
-	const sidecar = sidecarPool.acquire(
-		target.cwd,
+	const resolved = target
+		? {
+				cwd: cwd && cwd.length > 0 ? cwd : target.type === "ssh" ? target.cwd : resolveInitialCwd(),
+				kind: kind ?? "agent",
+				fresh: false,
+				placeholder: false,
+			}
+		: resolveWindowSpawnTarget(cwd, pendingSessionPath, kind, resolveInitialCwd(), ensureDefaultWorkspace());
+	const win = windowManager.createWindow({ cwd: resolved.cwd, pendingSessionPath, target, resumeSessionId });
+	const sidecar = sidecarPool.acquire({
+		cwd: resolved.cwd,
 		win,
-		undefined,
-		undefined,
-		target.kind,
-		undefined,
-		target.fresh,
-		target.placeholder,
-	);
+		kind: resolved.kind,
+		target,
+		resumeSessionId,
+		fresh: resolved.fresh,
+		placeholder: resolved.placeholder,
+	});
 	if (!sidecar) {
 		win.close();
 		return null;
@@ -330,19 +345,25 @@ function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKi
 app.whenReady().then(() => {
 	installMainRuntimeLogging();
 	windowManager = new WindowManager();
+	const remoteSsh = new RemoteSshService(nodeRemoteProcessRunner);
+	const remoteHostCatalog = new RemoteHostCatalog(prefsStore());
+	const remoteAcp = new RemoteAcpClient(remoteSsh);
+	remoteServices = { ssh: remoteSsh, catalog: remoteHostCatalog, acp: remoteAcp };
 
 	const initialCwd = resolveInitialCwd();
 	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bundledOmp = resolveBundledOmp();
 	const sourceCli = resolveSourceCli();
-	sidecarPool = new SidecarPool((cwd, kind, fresh) => {
+	sidecarPool = new SidecarPool(options => {
 		const sc = new SidecarManager({
 			binaryPath: bundledOmp ?? "",
 			packaged: app.isPackaged,
 			sourceCli: sourceCli ?? undefined,
-			cwd,
-			kind,
-			fresh,
+			cwd: options.cwd,
+			kind: options.kind,
+			fresh: options.fresh,
+			target: options.target,
+			resumeSessionId: options.resumeSessionId,
 			proxyEnv: resolveProxyEnvForSpawn,
 			shellEnv: shellSpawnEnv,
 			// Finder-launched omp has no terminal, and a sidecar that dies before
@@ -358,6 +379,8 @@ app.whenReady().then(() => {
 					{ cwd: report.cwd },
 				);
 			},
+			remoteSsh,
+			remoteHostCatalog,
 		});
 		// Ready-health-check applies to every pooled sidecar, not just the first.
 		sc.on("status", ({ status }) => {
@@ -407,6 +430,9 @@ app.whenReady().then(() => {
 		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
+		remoteSsh,
+		remoteHostCatalog,
+		remoteAcp,
 	});
 
 	// Global shortcut: Cmd+Shift+O — toggle focused window, else show the most
@@ -466,15 +492,36 @@ app.on("window-all-closed", () => {
 	}
 });
 
-// Cleanup on quit, behind the "sessions are still working" confirmation: ⌘Q
-// used to SIGTERM every live agent run without a word.
+function beginShutdown(): void {
+	if (shutdownStarted) return;
+	shutdownStarted = true;
+	statsServer?.kill();
+	sessionIndex?.stop();
+	logWatcher?.stop();
+	destroyTray();
+	const sidecars = sidecarPool?.disposeAll() ?? Promise.resolve();
+	const ssh = remoteServices?.ssh;
+	remoteServices = null;
+	void sidecars
+		.catch(error => {
+			writeRuntimeLog({ source: "sidecar-shutdown", ...errorMessage(error) });
+		})
+		.then(() => ssh?.dispose())
+		.catch(error => {
+			writeRuntimeLog({ source: "remote-ssh-shutdown", ...errorMessage(error) });
+		})
+		.finally(() => {
+			shutdownComplete = true;
+			app.quit();
+		});
+}
+
+// Gate every quit path on active-session confirmation, then keep Electron
+// alive until local and remote children have both finished terminating.
 installQuitGuard(
 	() => (sidecarPool ? sidecarPool.tabInventory() : []),
-	() => {
-		statsServer?.kill();
-		sidecarPool?.disposeAll();
-		sessionIndex?.stop();
-		logWatcher?.stop();
-		destroyTray();
-	},
+	beginShutdown,
 );
+app.on("before-quit", event => {
+	if (shutdownStarted && !shutdownComplete) event.preventDefault();
+});

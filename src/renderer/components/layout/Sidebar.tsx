@@ -25,6 +25,7 @@ import {
 	Plus,
 	RefreshCw,
 	Search,
+	Server,
 	Settings,
 	Sparkles,
 	SquarePen,
@@ -32,17 +33,18 @@ import {
 	Trash2,
 } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SessionInfo } from "../../../shared/ipc-types";
+import type { RemoteHistorySession, SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow } from "../../hooks/use-session-switch";
-import { basename, cx } from "../../lib/format";
+import { basename, cx, formatTimeAgo, sanitizeDisplayText, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { compileKeymap, KEYMAP_ACTIONS, onEscape } from "../../lib/keymap";
 import { sessionDisplayTitle } from "../../lib/session-title";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../lib/tab-signal";
+import { type RemoteHostState, useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
@@ -83,6 +85,18 @@ type PendingDelete = { kind: "session"; session: SessionInfo } | { kind: "group"
 
 type SidebarMode = "code" | "work";
 
+interface RemoteHistoryGroup {
+	alias: string;
+	aliasLabel: string;
+	hostState: RemoteHostState;
+	sessions: RemoteHistorySession[];
+}
+
+const REMOTE_ALIAS_LIMIT = 64;
+const REMOTE_TITLE_LIMIT = 160;
+const REMOTE_PATH_LIMIT = 512;
+
+
 function modifiedAt(session: SessionInfo): number {
 	const timestamp = Date.parse(session.modified);
 	return Number.isFinite(timestamp) ? timestamp : 0;
@@ -97,10 +111,9 @@ function SidebarRowTitle({ className, title }: { className?: string; title: stri
 }
 
 /**
- * Left rail with two agent-capable lanes plus global tool-free chats. Code
- * groups project sessions by workspace; Work uses one GUI-owned default
- * workspace with no folder picker. The main action creates an agent, while the
- * adjacent quick-chat action creates a chat.
+ * Left rail with the upstream Code/Work lanes plus global tool-free chats and
+ * host-scoped remote history. Remote history stays capability-safe: it loads
+ * per host and only exposes operations implemented by the remote ACP server.
  */
 export function Sidebar() {
 	const tabRpc = useTabRpc();
@@ -118,13 +131,10 @@ export function Sidebar() {
 	const [navigationExpanded, setNavigationExpanded] = useState(true);
 	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(null);
 	const switchPendingTo = useSessionStore(s => s.switchPending?.toId ?? null);
-	// Resizable left rail (mirrors PanelContainer's right-rail drag, but the
-	// handle sits on the right edge and dragging right grows the sidebar).
 	const SIDEBAR_MIN = 180;
 	const SIDEBAR_MAX = 420;
 	const [sidebarWidth, setSidebarWidth] = useState(236);
 	const sidebarWidthRef = useRef(236);
-	// Layout widths persist like every other chrome pref; restored on mount.
 	useEffect(() => {
 		void window.omp.prefs
 			.get("sidebarWidth")
@@ -137,17 +147,16 @@ export function Sidebar() {
 			.catch(() => {});
 	}, []);
 	const sidebarDragging = useRef(false);
-	const startSidebarDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+	const startSidebarDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
 		sidebarDragging.current = true;
-		e.currentTarget.setPointerCapture(e.pointerId);
+		event.currentTarget.setPointerCapture(event.pointerId);
 	}, []);
-	const onSidebarDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+	const onSidebarDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
 		if (!sidebarDragging.current) return;
-		// Sidebar is left-anchored: dragging right grows it.
-		const host = e.currentTarget.parentElement;
+		const host = event.currentTarget.parentElement;
 		if (!host) return;
 		const hostRect = host.getBoundingClientRect();
-		const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX - hostRect.left));
+		const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, event.clientX - hostRect.left));
 		sidebarWidthRef.current = clamped;
 		setSidebarWidth(clamped);
 	}, []);
@@ -157,18 +166,18 @@ export function Sidebar() {
 	}, []);
 	const [deleting, setDeleting] = useState(false);
 	const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-	// Deleting a session hard-deletes its transcript file, so the row and menu
-	// clicks only queue it: the dialog names the target and states the
-	// consequence before anything is removed.
 	const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
 	const [renamingSessionPath, setRenamingSessionPath] = useState<string | null>(null);
 	const [workspaceOpen, setWorkspaceOpen] = useState(false);
 	const [renameDraft, setRenameDraft] = useState("");
-	// Mode selector, workspace group context menu, session row context menu.
 	const [modeMenu, setModeMenu] = useState<ContextMenuAnchor | null>(null);
 	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
 	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SessionInfo } | null>(null);
-	// Workspace display alias rename (group header inline input).
+	const [expandedRemoteHosts, setExpandedRemoteHosts] = useState<Record<string, boolean>>({});
+	const [remoteSessionMenu, setRemoteSessionMenu] = useState<{
+		anchor: ContextMenuAnchor;
+		session: RemoteHistorySession;
+	} | null>(null);
 	const [renamingGroupCwd, setRenamingGroupCwd] = useState<string | null>(null);
 	const [groupRenameDraft, setGroupRenameDraft] = useState("");
 	const groupRenameRef = useRef<HTMLInputElement>(null);
@@ -185,16 +194,22 @@ export function Sidebar() {
 	const touchSession = useSidebarPrefs(s => s.touchSession);
 	const renameRef = useRef<HTMLInputElement>(null);
 	const { sessions, isLoading, error: listError, refresh, deleteSession, renameSession } = useSessionList("global");
+	const remoteHosts = useRemoteStore(s => s.hosts);
+	const remoteCatalogStatus = useRemoteStore(s => s.catalogStatus);
+	const remoteCatalogError = useRemoteStore(s => s.catalogError);
+	const loadRemoteCatalog = useRemoteStore(s => s.loadCatalog);
+	const refreshRemoteHistory = useRemoteStore(s => s.refreshHistory);
 	const sessionId = useSessionStore(s => s.sessionId);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const isCompacting = useSessionStore(s => s.isCompacting);
-	// Sidebar signal-light state for the ATTACHED session: a blocking
-	// confirmation (plan approval / ask / permission) overrides the running
-	// signal — it needs the user, not just time.
 	const awaitingConfirmation = useAwaitingConfirmation();
 	const openThemePicker = useUiStore(s => s.openThemePicker);
 	const openSessionPicker = useUiStore(s => s.openSessionPicker);
+
+	useEffect(() => {
+		if (remoteCatalogStatus === "idle") void loadRemoteCatalog();
+	}, [loadRemoteCatalog, remoteCatalogStatus]);
 
 	useEffect(() => {
 		void window.omp.sidecar
@@ -208,7 +223,6 @@ export function Sidebar() {
 			.catch(() => {});
 	}, []);
 
-	// Opening a session from the global search keeps the lane label honest.
 	useEffect(() => {
 		if (!defaultWorkspace || !cwd) return;
 		setMode(activeTabKind === "chat" ? "code" : cwd === defaultWorkspace ? "work" : "code");
@@ -247,9 +261,6 @@ export function Sidebar() {
 				}),
 		[sessions, pinnedSessions, recencyForSession],
 	);
-
-	// Code sessions stay grouped by project. Pins remain a priority partition,
-	// with MRU inside it.
 	const groups = useMemo<WorkspaceGroup[]>(() => {
 		const byCwd = new Map<string, SessionInfo[]>();
 		for (const session of codeSessions) {
@@ -277,17 +288,30 @@ export function Sidebar() {
 		});
 		return result;
 	}, [codeSessions, groupAliases, pinnedGroups, pinnedSessions, recencyForSession, workspaceLastUsed]);
+	const remoteGroups = useMemo<RemoteHistoryGroup[]>(
+		() =>
+			Object.entries(remoteHosts).map(([alias, hostState]) => ({
+				alias,
+				aliasLabel: sanitizeDisplayText(alias, REMOTE_ALIAS_LIMIT),
+				hostState,
+				sessions: hostState.history,
+			})),
+		[remoteHosts],
+	);
+	const remoteSessionCount = useMemo(
+		() => remoteGroups.reduce((count, group) => count + group.sessions.length, 0),
+		[remoteGroups],
+	);
 	const totalCount = mode === "work" ? workSessions.length : codeSessions.length + chatSessions.length;
 	const visibleGroups = mode === "code" ? groups : [];
 	const chatsCollapsed = collapsed.__chats__ ?? false;
 
 	const isCollapsed = (groupCwd: string) => {
 		if (groupCwd in collapsed) return collapsed[groupCwd];
-		// Default: current workspace expanded, others collapsed (Codex-style).
 		return groupCwd !== cwd;
 	};
 	const toggleGroup = (groupCwd: string) => {
-		setCollapsed(prev => ({ ...prev, [groupCwd]: !isCollapsed(groupCwd) }));
+		setCollapsed(previous => ({ ...previous, [groupCwd]: !isCollapsed(groupCwd) }));
 	};
 	const tabForSession = (session: SessionInfo) =>
 		tabs.find(tab => tab.sessionId === session.id) ?? (session.id === sessionId ? activeTab : undefined);
@@ -315,8 +339,6 @@ export function Sidebar() {
 		setWorkspaceOpen(true);
 	};
 
-	// Explicit parallel action: open this session in a NEW window with its own
-	// sidecar, leaving the current window's running session untouched.
 	const openSessionInNewWindow = async (session: SessionInfo) => {
 		const ok = await window.omp.sessions.openInNewWindow({ sessionPath: session.path, cwd: session.cwd });
 		if (!ok) {
@@ -324,6 +346,20 @@ export function Sidebar() {
 			return;
 		}
 		touchSession(session.path, session.kind === "chat" ? undefined : session.cwd);
+	};
+
+	const toggleRemoteHost = (alias: string) => {
+		const nextExpanded = !(expandedRemoteHosts[alias] ?? false);
+		setExpandedRemoteHosts(current => ({ ...current, [alias]: nextExpanded }));
+		if (nextExpanded && remoteHosts[alias]?.historyStatus === "idle") void refreshRemoteHistory(alias);
+	};
+
+	const resumeRemoteSession = (session: RemoteHistorySession) => {
+		void openTab({ target: session.target, cwd: session.cwd, resumeSessionId: session.sessionId });
+	};
+
+	const startAnotherRemoteSession = (session: RemoteHistorySession) => {
+		void openTab({ target: session.target, cwd: session.cwd });
 	};
 
 	const startRename = (session: SessionInfo) => {
@@ -522,6 +558,52 @@ export function Sidebar() {
 		);
 	};
 
+	const renderRemoteSessionRow = (session: RemoteHistorySession) => {
+		const title =
+			sanitizeDisplayText(session.title, REMOTE_TITLE_LIMIT) ||
+			sanitizeDisplayText(basename(session.cwd), REMOTE_TITLE_LIMIT) ||
+			t("remote.history.untitled");
+		const displayCwd = shortenPath(sanitizeDisplayText(session.cwd, REMOTE_PATH_LIMIT));
+		const updated = formatTimeAgo(session.updatedAt);
+		return (
+			<div
+				key={`${session.target.hostAlias}:${session.sessionId}`}
+				role="button"
+				tabIndex={0}
+				data-remote-session={session.sessionId}
+				onClick={() => resumeRemoteSession(session)}
+				onContextMenu={event => setRemoteSessionMenu({ anchor: anchorFromEvent(event), session })}
+				onKeyDown={event => {
+					if (event.key === "Enter") resumeRemoteSession(session);
+				}}
+				className="group cursor-pointer rounded-md border border-transparent px-2 py-1.5 transition-colors duration-150 ease-out hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]"
+			>
+				<div className="flex min-w-0 items-center gap-1.5">
+					<Server size={11} className="shrink-0 text-[var(--omp-accent)]" aria-label={t("remote.title.ssh")} />
+					<span className="min-w-0 flex-1 truncate text-omp-md text-[var(--omp-muted)]" title={title}>
+						{title}
+					</span>
+					{updated && <span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">{updated}</span>}
+					<button
+						type="button"
+						title={t("remote.history.startAnother")}
+						aria-label={t("remote.history.startAnother")}
+						onClick={event => {
+							event.stopPropagation();
+							startAnotherRemoteSession(session);
+						}}
+						className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+					>
+						<Plus size={11} />
+					</button>
+				</div>
+				<div className="ml-4 truncate font-mono text-omp-xs text-[var(--omp-dim)]" title={displayCwd}>
+					{displayCwd}
+				</div>
+			</div>
+		);
+	};
+
 	const utilityButton =
 		"omp-pressable flex h-6 w-7 shrink-0 items-center justify-center rounded-md text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]";
 
@@ -708,7 +790,7 @@ export function Sidebar() {
 					</span>
 					{totalCount > 0 && (
 						<span
-							className="rounded-full bg-[var(--omp-bg-tertiary)] px-2 py-0.5 text-omp-xs tabular-nums text-[var(--omp-dim)]" // surface-ok: count pill
+							className="rounded-full bg-[var(--omp-bg-tertiary)] px-2 py-0.5 text-omp-xs tabular-nums text-[var(--omp-dim)]"
 						>
 							{totalCount}
 						</span>
@@ -733,18 +815,21 @@ export function Sidebar() {
 							</Button>
 						</div>
 					)}
-					{!isLoading && !listError && totalCount === 0 && (
-						<div className="mx-1 mt-2 flex flex-col items-center rounded-xl border border-dashed border-[var(--omp-border-muted)] px-4 py-6 text-center">
-							{mode === "code" ? (
-								<Code2 size={20} className="mb-2 text-[var(--omp-muted)]" />
-							) : (
-								<BriefcaseBusiness size={20} className="mb-2 text-[var(--omp-muted)]" />
-							)}
-							<div className="text-omp-lg font-medium text-[var(--omp-muted)]">
-								{mode === "code" ? t("sidebar.emptyCode") : t("sidebar.emptyWork")}
+					{!isLoading &&
+						!listError &&
+						totalCount === 0 &&
+						(mode === "work" || (remoteCatalogStatus !== "loading" && remoteGroups.length === 0)) && (
+							<div className="mx-1 mt-2 flex flex-col items-center rounded-xl border border-dashed border-[var(--omp-border-muted)] px-4 py-6 text-center">
+								{mode === "code" ? (
+									<Code2 size={20} className="mb-2 text-[var(--omp-muted)]" />
+								) : (
+									<BriefcaseBusiness size={20} className="mb-2 text-[var(--omp-muted)]" />
+								)}
+								<div className="text-omp-lg font-medium text-[var(--omp-muted)]">
+									{mode === "code" ? t("sidebar.emptyCode") : t("sidebar.emptyWork")}
+								</div>
 							</div>
-						</div>
-					)}
+						)}
 					{mode === "work" && workSessions.length > 0 && (
 						<div className="space-y-px" data-work-section>
 							{workSessions.map(session => renderSessionRow(session))}
@@ -754,7 +839,7 @@ export function Sidebar() {
 						<div className="mb-1" data-chat-section>
 							<button
 								type="button"
-								onClick={() => setCollapsed(prev => ({ ...prev, __chats__: !chatsCollapsed }))}
+								onClick={() => setCollapsed(previous => ({ ...previous, __chats__: !chatsCollapsed }))}
 								aria-expanded={!chatsCollapsed}
 								className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left text-omp-md font-normal text-[var(--omp-muted)] hover:text-[var(--omp-text)]"
 							>
@@ -920,6 +1005,151 @@ export function Sidebar() {
 							</div>
 						);
 					})}
+					{mode === "code" &&
+						(remoteGroups.length > 0 ||
+							remoteCatalogStatus === "loading" ||
+							remoteCatalogStatus === "error") && (
+						<section className="mt-2 border-t border-[var(--omp-border-muted)] pt-2" data-remote-history>
+							<div className="mb-1 flex items-center justify-between px-2">
+								<span className="flex items-center gap-1.5 text-omp-xs font-semibold uppercase tracking-[0.12em] text-[var(--omp-dim)]">
+									<Server size={11} className="text-[var(--omp-accent)]" />
+									{t("remote.history.section")}
+								</span>
+								{remoteSessionCount > 0 && (
+									<span className="rounded-full border border-[var(--omp-border-muted)] px-2 py-0.5 text-omp-xs tabular-nums text-[var(--omp-dim)]">
+										{remoteSessionCount}
+									</span>
+								)}
+							</div>
+							{remoteCatalogStatus === "loading" && remoteGroups.length === 0 && (
+								<div className="flex items-center gap-2 px-3 py-2 text-omp-md text-[var(--omp-muted)]">
+									<RefreshCw size={12} className="animate-spin text-[var(--omp-accent)]" />
+									{t("remote.history.loadingHosts")}
+								</div>
+							)}
+							{remoteCatalogStatus === "error" && remoteGroups.length === 0 && (
+								<div className="mx-1 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-2.5 py-2">
+									<div className="text-omp-md text-[var(--omp-error)]">{t("remote.history.catalogError")}</div>
+									{remoteCatalogError && (
+										<div className="mt-0.5 truncate text-omp-xs text-[var(--omp-muted)]">
+											{sanitizeDisplayText(remoteCatalogError, REMOTE_TITLE_LIMIT)}
+										</div>
+									)}
+									<button
+										type="button"
+										onClick={() => void loadRemoteCatalog()}
+										className="mt-1 text-omp-xs font-medium text-[var(--omp-link)] hover:underline"
+									>
+										{t("remote.history.retry")}
+									</button>
+								</div>
+							)}
+							{remoteGroups.map(({ alias, aliasLabel, hostState, sessions: remoteSessions }) => {
+								const expanded = expandedRemoteHosts[alias] ?? false;
+								return (
+									<div key={alias} data-remote-host={alias} className="mb-0.5">
+										<div className="group flex items-center gap-1 rounded-md px-1.5 py-0.5 text-omp-xs font-medium uppercase tracking-[0.08em] text-[var(--omp-dim)] hover:text-[var(--omp-muted)]">
+											<button
+												type="button"
+												data-remote-host-toggle
+												aria-expanded={expanded}
+												onClick={() => toggleRemoteHost(alias)}
+												className="flex min-w-0 flex-1 items-center gap-1 text-left"
+											>
+												{expanded ? (
+													<ChevronDown size={12} className="shrink-0" />
+												) : (
+													<ChevronRight size={12} className="shrink-0" />
+												)}
+												<Server size={11} className="shrink-0 text-[var(--omp-accent)]" />
+												<span className="min-w-0 flex-1 truncate">{aliasLabel}</span>
+												{hostState.historyStatus === "ready" && (
+													<span className="shrink-0 tabular-nums font-normal">{remoteSessions.length}</span>
+												)}
+											</button>
+											<button
+												type="button"
+												disabled={hostState.historyStatus === "loading"}
+												title={t("remote.history.refresh")}
+												aria-label={t("remote.history.refresh")}
+												onClick={event => {
+													event.stopPropagation();
+													void refreshRemoteHistory(alias);
+												}}
+												className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
+											>
+												<RefreshCw
+													size={10}
+													className={cx(hostState.historyStatus === "loading" && "animate-spin")}
+												/>
+											</button>
+										</div>
+										<div
+											className="omp-sidebar-group"
+											data-remote-history-group={alias}
+											data-state={expanded ? "expanded" : "collapsed"}
+											aria-hidden={!expanded}
+											inert={!expanded}
+										>
+											<div className="omp-sidebar-group-content">
+												<div className="space-y-px">
+													{hostState.historyStatus === "loading" && (
+														<div className="flex items-center gap-2 px-3 py-2 text-omp-md text-[var(--omp-muted)]">
+															<RefreshCw size={12} className="animate-spin text-[var(--omp-accent)]" />
+															{t("remote.history.loading")}
+														</div>
+													)}
+													{hostState.historyStatus === "idle" && (
+														<div className="px-3 py-2 text-omp-md text-[var(--omp-dim)]">
+															{t("remote.history.expandToLoad")}
+														</div>
+													)}
+													{hostState.historyStatus === "unsupported" && (
+														<div className="mx-1 rounded-lg border border-[var(--omp-warning)]/35 bg-[var(--omp-warning-dim)] px-2.5 py-2">
+															<div className="text-omp-md text-[var(--omp-warning)]">
+																{t("remote.history.unsupported")}
+															</div>
+															<div className="mt-0.5 text-omp-xs text-[var(--omp-muted)]">
+																{t("remote.history.unsupportedReason")}
+															</div>
+														</div>
+													)}
+													{hostState.historyStatus === "error" && (
+														<div className="mx-1 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-2.5 py-2">
+															<div className="text-omp-md text-[var(--omp-error)]">
+																{t("remote.history.loadError")}
+															</div>
+															{hostState.historyError && (
+																<div className="mt-0.5 truncate text-omp-xs text-[var(--omp-muted)]">
+																	{sanitizeDisplayText(hostState.historyError, REMOTE_TITLE_LIMIT)}
+																</div>
+															)}
+															<button
+																type="button"
+																data-remote-history-retry
+																onClick={() => void refreshRemoteHistory(alias)}
+																className="mt-1 text-omp-xs font-medium text-[var(--omp-link)] hover:underline"
+															>
+																{t("remote.history.retry")}
+															</button>
+														</div>
+													)}
+													{hostState.historyStatus === "ready" &&
+														(remoteSessions.length > 0 ? (
+															remoteSessions.map(renderRemoteSessionRow)
+														) : (
+															<div className="px-3 py-2 text-omp-md text-[var(--omp-dim)]">
+																{t("remote.history.empty")}
+															</div>
+														))}
+												</div>
+											</div>
+										</div>
+									</div>
+								);
+							})}
+						</section>
+					)}
 				</div>
 
 				{/* Bottom utility row: theme + language only — stats/settings live in the
@@ -1133,7 +1363,6 @@ export function Sidebar() {
 						/>
 					);
 				})()}
-
 			<ConfirmDialog
 				open={pendingDelete !== null}
 				title={pendingDelete?.kind === "group" ? t("sidebar.deleteGroupConfirm") : t("sidebar.deleteConfirm")}
@@ -1157,6 +1386,60 @@ export function Sidebar() {
 				}}
 				onCancel={() => setPendingDelete(null)}
 			/>
+
+			{remoteSessionMenu && (
+				<ContextMenu
+					x={remoteSessionMenu.anchor.x}
+					y={remoteSessionMenu.anchor.y}
+					onClose={() => setRemoteSessionMenu(null)}
+					items={[
+						{
+							id: "remote-resume",
+							label: t("remote.history.resume"),
+							icon: ChevronRight,
+							onSelect: () => {
+								const { session } = remoteSessionMenu;
+								setRemoteSessionMenu(null);
+								resumeRemoteSession(session);
+							},
+						},
+						{
+							id: "remote-start-another",
+							label: t("remote.history.startAnother"),
+							icon: Plus,
+							onSelect: () => {
+								const { session } = remoteSessionMenu;
+								setRemoteSessionMenu(null);
+								startAnotherRemoteSession(session);
+							},
+						},
+						{
+							id: "remote-rename-unsupported",
+							label: t("remote.history.rename"),
+							icon: Pencil,
+							disabled: true,
+							disabledReason: t("remote.history.renameUnsupportedReason"),
+							onSelect: () => {},
+						},
+						{
+							id: "remote-delete-unsupported",
+							label: t("remote.history.delete"),
+							icon: Trash2,
+							disabled: true,
+							disabledReason: t("remote.history.deleteUnsupportedReason"),
+							onSelect: () => {},
+						},
+						{
+							id: "remote-search-unsupported",
+							label: t("remote.history.searchTranscript"),
+							icon: Search,
+							disabled: true,
+							disabledReason: t("remote.history.searchUnsupportedReason"),
+							onSelect: () => {},
+						},
+					]}
+				/>
+			)}
 		</>
 	);
 }

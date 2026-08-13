@@ -72,7 +72,7 @@ afterEach(async () => {
 
 function seedActiveTab(kind: "agent" | "chat"): void {
 	useTabsStore.setState({
-		tabs: [{ id: "t0", cwd: "/work", status: "ready", kind, unreadDone: false }],
+		tabs: [{ id: "t0", cwd: "/work", status: "ready", kind, target: { type: "local" }, unreadDone: false }],
 		activeTabId: "t0",
 		bundles: new Map(),
 	});

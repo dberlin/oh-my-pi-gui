@@ -8,3 +8,6 @@ declare module "*.md?raw" {
 	const content: string;
 	export default content;
 }
+
+// CSS is loaded for side effects by Vite.
+declare module "*.css";

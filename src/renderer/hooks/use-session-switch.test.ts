@@ -130,8 +130,8 @@ function installMockOmp(): MockOmp {
 function seedTabs(): void {
 	useTabsStore.setState({
 		tabs: [
-			{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-			{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", target: { type: "local" }, unreadDone: false },
+			{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", target: { type: "local" }, unreadDone: false },
 		],
 		activeTabId: "t0",
 		bundles: new Map(),
@@ -428,7 +428,9 @@ describe("switchSessionNow F-OWN owner guard", () => {
 
 	it("opens an agent session in a new agent tab when the active tab is chat", async () => {
 		useTabsStore.setState({
-			tabs: [{ kind: "chat", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false }],
+			tabs: [
+				{ kind: "chat", id: "t0", cwd: "/alpha", status: "ready", target: { type: "local" }, unreadDone: false },
+			],
 			activeTabId: "t0",
 			bundles: new Map(),
 		});

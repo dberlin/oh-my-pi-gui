@@ -1,11 +1,12 @@
 /**
  * Session tab strip, mounted between TitleBar and SidecarBanner. One chip per
- * pooled sidecar tab: session title (or cwd basename; identical untitled
- * labels disambiguate with an index suffix), a slow status signal, a muted
- * workspace subtitle, a close × (hidden at the single-tab floor,
- * inline-confirmed while a run is live), and a trailing "+" that opens a
- * fresh session tab in the current cwd. The strip scrolls horizontally on
- * overflow instead of shrinking chips past readability.
+ * pooled sidecar tab: session title (or local cwd basename / host-qualified
+ * remote basename; identical untitled labels disambiguate with an index
+ * suffix), a slow status signal, a muted workspace subtitle, a close ×
+ * (hidden at the single-tab floor, inline-confirmed while a run is live), and
+ * a trailing "+" that opens a fresh session tab in the current cwd. The strip
+ * scrolls horizontally on overflow instead of shrinking chips past
+ * readability.
  */
 
 import {
@@ -18,6 +19,7 @@ import {
 	MoreHorizontal,
 	Plus,
 	Rows2,
+	Server,
 	X,
 } from "lucide-react";
 import {
@@ -136,6 +138,9 @@ function TabChip({
 			/>
 			{tab.worktree && (
 				<GitBranch size={11} className="shrink-0 text-[var(--omp-accent)]" aria-label={t("tabs.kind.worktree")} />
+			)}
+			{tab.target?.type === "ssh" && (
+				<Server size={11} className="shrink-0 text-[var(--omp-accent)]" aria-label={t("remote.title.ssh")} />
 			)}
 			{tab.kind === "chat" && (
 				<MessageCircle size={11} className="shrink-0 text-[var(--omp-muted)]" aria-label={t("tabs.kind.chat")} />

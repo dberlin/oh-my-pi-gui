@@ -166,7 +166,9 @@ describe("InventoryPanel", () => {
 		useSessionStore.setState({ status: "ready", cwd: "/repo" });
 		useTabsStore.setState({
 			activeTabId: "tab-1",
-			tabs: [{ id: "tab-1", cwd: "/repo", status: "ready", kind: "agent", unreadDone: false }],
+			tabs: [
+				{ id: "tab-1", cwd: "/repo", status: "ready", kind: "agent", target: { type: "local" }, unreadDone: false },
+			],
 			bundles: new Map(),
 		});
 		resetTabRoute();

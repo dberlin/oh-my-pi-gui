@@ -220,6 +220,46 @@ function toastOnAgentError(tabId: string, event: Extract<AgentSessionEvent, { ty
 	useToastStore.getState().push({ variant: "error", title: translate("events.turnFailed"), message: detail });
 }
 
+/** Apply a get_state snapshot to every state-derived store. */
+function applySessionState(state: RpcSessionState, fallbackName?: string): void {
+	useModelStore.getState().setFromState(state);
+	useSessionStore.getState().setFromState(state);
+	useTabsStore.getState().applyHydratedCwd(state.cwd);
+	if (!state.sessionName && fallbackName) {
+		useSessionStore.setState({ sessionName: fallbackName });
+	}
+	useSettingsStore.getState().setFromState(state);
+	useTodoStore.getState().setPhases(state.todoPhases);
+}
+
+/**
+ * Light re-sync of session state (no transcript/subagent fetch). Used for
+ * model_changed: a model switch does not rewrite history, so refetching the
+ * transcript mid-run would only race the live stream. Also fired on
+ * agent_start: server-side plan-mode exits (plan_approval accept) emit no
+ * event, so turn start is the sync point that keeps planModeEnabled honest.
+ */
+async function refreshSessionState(tabId = useTabsStore.getState().activeTabId): Promise<void> {
+	if (!tabId) return;
+	// Closed tabs keep their tombstone: never resurrect a runtime for them.
+	// Live tabs may legitimately lack one yet (boot race) — create on demand.
+	const runtime = isTabClosed(tabId) ? sessionRuntime(tabId) : ensureTabRuntime(tabId);
+	if (!runtime) return;
+	const sessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
+	try {
+		const res = await runtime.command({ type: "get_state" });
+		if (
+			sessionRuntime(tabId) === runtime &&
+			sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId === sessionId &&
+			res.success &&
+			res.data != null
+		) {
+			withSessionRuntime(tabId, () => applySessionState(res.data as RpcSessionState));
+		}
+	} catch {
+		// Transient — the next heartbeat or hydration retries.
+	}
+}
 /** Goal statuses past which no live goal remains — the composer chip must clear. */
 const TERMINAL_GOAL_STATUSES: Record<string, true> = { dropped: true, complete: true };
 

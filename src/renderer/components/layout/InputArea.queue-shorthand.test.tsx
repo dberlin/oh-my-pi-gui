@@ -181,8 +181,8 @@ async function mount(withRuntime = false): Promise<void> {
 	});
 	useTabsStore.setState({
 		tabs: [
-			{ kind: "agent", id: "t0", cwd: "/tmp", status: "ready", unreadDone: false },
-			{ kind: "agent", id: "t1", cwd: "/other", status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t0", cwd: "/tmp", status: "ready", target: { type: "local" }, unreadDone: false },
+			{ kind: "agent", id: "t1", cwd: "/other", status: "ready", target: { type: "local" }, unreadDone: false },
 		],
 		activeTabId: "t0",
 		bundles: new Map(),
