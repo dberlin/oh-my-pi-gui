@@ -1,6 +1,6 @@
 /**
  * The GUI's built-in stats dashboard server, spawned from the SAME bundled
- * omp binary as the agent sidecar (`omp stats --no-open`).
+ * omp binary as the agent sidecar (`omp stats --port <port>`).
  *
  * Internal to the GUI's closed loop: spawned on app start, killed on quit,
  * localhost-only. No external `omp stats` process is required and none is
@@ -14,6 +14,14 @@ import { MAX_RESTART_ATTEMPTS, RestartBudget, type Revive } from "./stats-restar
 
 // Bind a private ephemeral port; separate GUI instances must not share an index or listener.
 const DEFAULT_PORT = 0;
+export function statsServerArgs(port: number): string[] {
+	return ["stats", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
+}
+
+export function statsServerPort(output: string): number | null {
+	const match = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):([0-9]+)(?=[\s/])/.exec(output);
+	return match && Number(match[1]) > 0 ? Number(match[1]) : null;
+}
 
 export class StatsServerManager extends EventEmitter {
 	#child: ChildProcess | null = null;
@@ -51,10 +59,7 @@ export class StatsServerManager extends EventEmitter {
 	}
 
 	#spawn(): void {
-		// The bundled omp registers this flag as --no-open (kebab-case, per
-		// `omp stats --help`), not the camelCase --noOpen the oclif property
-		// name suggests — the latter is rejected as an unknown option.
-		const args = ["stats", "--host", "127.0.0.1", "--port", String(DEFAULT_PORT), "--no-open"];
+		const args = statsServerArgs(DEFAULT_PORT);
 		console.log(`[stats-server] spawning: ${this.#binaryPath} ${args.join(" ")}`);
 		let child: ChildProcess;
 		try {
@@ -75,11 +80,11 @@ export class StatsServerManager extends EventEmitter {
 		child.stdout?.on("data", (chunk: Buffer) => {
 			stdout = (stdout + chunk.toString("utf-8")).slice(-4096);
 			const text = stripVTControlCharacters(stdout);
-			const match = /http:\/\/(?:localhost|127\.0\.0\.1):([0-9]+)(?=[\s/])/.exec(text);
-			if (match && Number(match[1]) > 0) {
-				this.#port = Number(match[1]);
+			const port = statsServerPort(text);
+			if (port !== null) {
+				this.#port = port;
 				this.#budget.noteReady();
-				console.log(`[stats-server] ready on http://localhost:${this.#port}`);
+				console.log(`[stats-server] ready on port ${this.#port}`);
 				this.emit("ready", this.#port);
 				stdout = "";
 			}
