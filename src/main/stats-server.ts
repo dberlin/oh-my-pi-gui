@@ -1,6 +1,6 @@
 /**
  * The GUI's built-in stats dashboard server, spawned from the SAME bundled
- * omp binary as the agent sidecar (`omp stats --no-open`).
+ * omp binary as the agent sidecar (`omp stats --port <port>`).
  *
  * Internal to the GUI's closed loop: spawned on app start, killed on quit,
  * localhost-only. No external `omp stats` process is required and none is
@@ -13,6 +13,14 @@ import { EventEmitter } from "node:events";
 const DEFAULT_PORT = 3847;
 const MAX_RESTART_ATTEMPTS = 3;
 const RESTART_DELAYS = [1000, 2000, 4000];
+export function statsServerArgs(port: number): string[] {
+	return ["stats", "--port", String(port), "--no-open"];
+}
+
+export function statsServerPort(output: string): number | null {
+	const match = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):(\d+)/.exec(output);
+	return match ? Number(match[1]) : null;
+}
 
 export class StatsServerManager extends EventEmitter {
 	#child: ChildProcess | null = null;
@@ -37,10 +45,7 @@ export class StatsServerManager extends EventEmitter {
 	}
 
 	#spawn(): void {
-		// The bundled omp registers this flag as --no-open (kebab-case, per
-		// `omp stats --help`), not the camelCase --noOpen the oclif property
-		// name suggests — the latter is rejected as an unknown option.
-		const args = ["stats", "--port", String(DEFAULT_PORT), "--no-open"];
+		const args = statsServerArgs(DEFAULT_PORT);
 		console.log(`[stats-server] spawning: ${this.#binaryPath} ${args.join(" ")}`);
 		let child: ChildProcess;
 		try {
@@ -59,11 +64,11 @@ export class StatsServerManager extends EventEmitter {
 
 		child.stdout?.on("data", (chunk: Buffer) => {
 			const text = chunk.toString("utf-8");
-			const match = /http:\/\/localhost:(\d+)/.exec(text);
-			if (match) {
-				this.#port = Number(match[1]);
+			const port = statsServerPort(text);
+			if (port !== null) {
+				this.#port = port;
 				this.#restartCount = 0;
-				console.log(`[stats-server] ready on http://localhost:${this.#port}`);
+				console.log(`[stats-server] ready on port ${this.#port}`);
 				this.emit("ready", this.#port);
 			}
 		});

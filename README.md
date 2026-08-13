@@ -129,20 +129,20 @@ Then build (all commands run from `packages/gui`):
 
 ```bash
 bun run build             # renderer + main + preload → out/
-bun run build:omp         # compile the agent sidecar → resources/omp  (arm64)
-bun run build:omp:x64     # …and the Intel sidecar → resources/omp.x64 (cross-build on Apple Silicon)
+bun run build:omp         # sidecar + signed native companion → resources/omp  (arm64)
+bun run build:omp:x64     # …and Intel sidecar + available CPU companion(s) → resources/omp.x64
 bun run package:mac:arm64 # → dist/omp-<ver>-arm64.dmg (ships resources/omp)
 bun run package:mac:x64   # → dist/omp-<ver>.dmg       (ships resources/omp.x64)
 ```
 
-`build:omp` stages the matching `pi_natives` native addon automatically (downloading the published `@oh-my-pi/pi-natives-<platform>` package when missing, replacing stale-version addons), embeds it into the binary, and restores the natives tree afterwards — its errors name the missing piece and the fix. Every `package:*` script rebuilds the Electron app before packaging so a stale `out/` directory cannot produce an old GUI; run the matching `build:omp*` first whenever agent/sidecar source changed. `package:mac:arm64` / `package:mac:x64` exist because the two architectures use different electron-builder configs (`electron-builder.yml` vs `electron-builder.x64.yml`); packaging Intel with the default config ships the wrong-arch sidecar.
+`build:omp` stages the matching `pi_natives` native addon automatically (downloading the published `@oh-my-pi/pi-natives-<platform>` package when missing, replacing stale-version addons), embeds it into the binary, and copies it beside the sidecar as a package-signable native companion before restoring the monorepo natives tree. The companion is required in signed macOS apps because hardened runtime library validation rejects the sidecar's runtime-extracted ad-hoc addon. Every `package:*` script rebuilds the Electron app before packaging so a stale `out/` directory cannot produce an old GUI; run the matching `build:omp*` first whenever agent/sidecar source changed. `package:mac:arm64` / `package:mac:x64` use architecture-specific electron-builder configs so the sidecar and companions always match.
 
-**Without the monorepo** (e.g. CI artifact assembly): drop a prebuilt sidecar into `resources/omp` (arm64) and/or `resources/omp.x64` (Intel), run `bun run build` + the matching `package:mac:*` script, and skip `build:omp` entirely. The release apps already include the sidecar, so end users never need any of this.
+**Without the monorepo** (e.g. CI artifact assembly): provide the prebuilt sidecar and its matching native companion files under `resources/` (`omp` + `pi_natives.darwin-arm64.node` for arm64; `omp.x64` + the published `pi_natives.darwin-x64-*.node` variant files for Intel), run `bun run build` plus the matching `package:mac:*` script, and skip `build:omp`. Release apps already contain these artifacts.
 
 #### Dev commands
 
 ```bash
-bun run dev               # electron-vite dev with HMR (uses resources/omp as the sidecar)
+bun run dev               # Vite 8 HMR (uses resources/omp as the sidecar)
 OMP_SIDECAR=source bun run dev   # dev override: run the monorepo agent source instead
 bunx vitest run           # test suite
 bun run check:types       # tsc
@@ -154,7 +154,7 @@ bun run check:types       # tsc
 
 | Symptom | Cause → fix |
 |---|---|
-| `Built-in omp not found` at startup | No `resources/omp` in the clone — it is gitignored. Run `bun run build:omp` (needs the monorepo layout above) or drop in a prebuilt sidecar. |
+| `Built-in omp not found` at startup | `resources/omp` or its matching `resources/pi_natives.*.node` companion is absent. Run `bun run build:omp` in the nested monorepo checkout, or provide both prebuilt artifacts. |
 | `build-bundled-omp must run inside the omp monorepo` | The repo isn't at `packages/gui/` inside a monorepo clone. Re-create the nested checkout (step 1–2 above). |
 | `replacing stale addon … version sentinel ≠ <ver>` | Informational: the monorepo's cached `pi_natives` was from an older release; the script replaced it automatically. No action needed. |
 | `Failed to download @oh-my-pi/pi-natives-<platform>@<ver>` | That natives version isn't on npm yet (fresh upstream bump). Build it from source: `bun --cwd=packages/natives run build` (Rust toolchain required), then re-run `build:omp`. |
@@ -283,20 +283,20 @@ cd gui && bun install
 
 ```bash
 bun run build             # 渲染层 + 主进程 + preload → out/
-bun run build:omp         # 编译 agent sidecar → resources/omp（arm64）
-bun run build:omp:x64     # 再编译 Intel sidecar → resources/omp.x64（Apple Silicon 上交叉构建）
+bun run build:omp         # arm64 sidecar 与可签名原生 companion → resources/omp
+bun run build:omp:x64     # Intel sidecar 与当前发行版提供的 CPU companions → resources/omp.x64
 bun run package:mac:arm64 # → dist/omp-<版本>-arm64.dmg（随包 resources/omp）
 bun run package:mac:x64   # → dist/omp-<版本>.dmg（随包 resources/omp.x64）
 ```
 
-`build:omp` 会自动准备匹配的 `pi_natives` 原生插件（缺失时从 npm 下载已发布的 `@oh-my-pi/pi-natives-<平台>` 包,版本不符时自动替换）,将其嵌入二进制,并在结束后还原 natives 目录——脚本报错会明确指出缺失的部分和修复方法。每个 `package:*` 脚本都会先重新构建 Electron 应用,避免残留的旧 `out/` 被再次封装；agent/sidecar 源码有改动时,仍需先运行匹配架构的 `build:omp*`。`package:mac:arm64` / `package:mac:x64` 之所以分开,是因为两种架构使用不同的 electron-builder 配置（`electron-builder.yml` 与 `electron-builder.x64.yml`）;用默认配置打 Intel 包会装入错误架构的 sidecar。
+`build:omp` 会自动准备匹配的 `pi_natives` 原生插件（缺失时从 npm 下载已发布的 `@oh-my-pi/pi-natives-<平台>` 包，版本不符时自动替换），将其嵌入 sidecar，并在还原 monorepo natives 目录前把它复制到 sidecar 旁作为可由打包流程签名的原生 companion。签名后的 macOS 应用必须携带该 companion：hardened runtime 会拒绝 sidecar 在运行时解出的 ad-hoc 插件。每个 `package:*` 脚本都会先重新构建 Electron 应用，避免残留的旧 `out/` 被再次封装；agent/sidecar 源码有改动时，仍需先运行匹配架构的 `build:omp*`。`package:mac:arm64` / `package:mac:x64` 使用架构专用 electron-builder 配置，确保 sidecar 与 companions 架构一致。
 
-**没有 monorepo 时**（如 CI 组装产物）：把预编译 sidecar 放入 `resources/omp`（arm64）和/或 `resources/omp.x64`（Intel）,执行 `bun run build` 加对应的 `package:mac:*` 脚本,完全跳过 `build:omp`。Release 应用已内置 sidecar,最终用户无需关心以上任何步骤。
+**没有 monorepo 时**（如 CI 组装产物）：需要在 `resources/` 同时提供预编译 sidecar 与匹配的原生 companions（arm64 为 `omp` + `pi_natives.darwin-arm64.node`；Intel 为 `omp.x64` + 当前发行版提供的 `pi_natives.darwin-x64-*.node` 变体文件），再执行 `bun run build` 和对应的 `package:mac:*`，并跳过 `build:omp`。Release 应用已内置这些产物。
 
 #### 开发命令
 
 ```bash
-bun run dev               # electron-vite 开发模式(HMR,使用 resources/omp 作为 sidecar)
+bun run dev               # Vite 8 开发模式（HMR，使用 resources/omp）
 OMP_SIDECAR=source bun run dev   # 开发覆盖:改为运行 monorepo 中的 agent 源码
 bunx vitest run           # 测试套件
 bun run check:types       # tsc 类型检查
@@ -308,7 +308,7 @@ bun run check:types       # tsc 类型检查
 
 | 症状 | 原因与修复 |
 |---|---|
-| 启动时报 `Built-in omp not found` | 克隆中没有 `resources/omp`（该文件不入库）。在上方嵌套结构中运行 `bun run build:omp`,或放入预编译 sidecar。 |
+| 启动时报 `Built-in omp not found` | `resources/omp` 或匹配的 `resources/pi_natives.*.node` companion 缺失。在嵌套 monorepo 中运行 `bun run build:omp`，或同时提供预编译 sidecar 与 companion。 |
 | 报 `build-bundled-omp must run inside the omp monorepo` | 仓库不在 monorepo 克隆的 `packages/gui/` 位置。按上方第 1–2 步重建嵌套检出。 |
 | 日志出现 `replacing stale addon … version sentinel ≠ <版本>` | 提示信息：monorepo 缓存的 `pi_natives` 来自旧版本,脚本已自动替换。无需处理。 |
 | 报 `Failed to download @oh-my-pi/pi-natives-<平台>@<版本>` | 该版本原生插件尚未发布到 npm（上游刚升版）。改用源码构建：`bun --cwd=packages/natives run build`（需要 Rust 工具链）,然后重跑 `build:omp`。 |

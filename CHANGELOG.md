@@ -99,7 +99,12 @@
 - **Fresh local packages**: every packaging command now rebuilds the Electron app first instead of silently reusing an old `out/` directory.
 - **Default startup tab**: untargeted launches and new windows now open a fresh, unnamed global chat without inheriting a random recent workspace or auto-resuming its session; the chat's internal process cwd is no longer presented as a selected workspace.
 - **Streaming transcript reading position**: any manual scroll-up releases tail following immediately; live-row growth no longer competes with native browser anchoring, and finalizing a streamed response preserves the virtual row identity instead of snapping an unpinned reader to the bottom.
+- **SSH host settings**: made session hydration preserve the tab working directory when older sidecars omit it, preventing the Settings window from crashing while SSH hosts load.
 - **Nested-checkout React resolution**: added the missing `linkedom` test dependency and made Vitest use one React module graph across hoisted workspace dependencies, preventing invalid-hook failures after clean dependency installs.
+- **Electron packaging**: pinned the Electron toolchain version so `electron-builder` can resolve the platform binary from the nested GUI checkout, and restored dedicated arm64/x64 configs over one shared base so each package selects the correct sidecar and native companions.
+- **Signed sidecar startup**: packaged the matching `pi_natives` addon beside the bundled `omp` binary so electron-builder signs both with the same team, preventing hardened-runtime library validation from terminating RPC and stats sidecars at startup.
+- **Bundled stats dashboard**: restored a supported `omp stats --no-open` mode for the embedded server and recognized IPv4 loopback readiness output, avoiding external browser launches and stale startup state.
+- **Electron development commands**: made `preview` launch the built desktop app again and kept Chromium sandboxing enabled during Vite development unless `NO_SANDBOX=1` is explicitly set.
 ## [0.8.0] - 2026-08-14
 
 ### Changed

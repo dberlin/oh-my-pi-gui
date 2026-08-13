@@ -68,14 +68,14 @@ const initialState = {
 export const useSessionStore = create<SessionStore>()(set => ({
 	...initialState,
 	setFromState: state =>
-		set({
+		set(current => ({
 			sessionId: state.sessionId,
 			// Sessions whose auto-title never ran carry an empty title slot on
 			// disk; normalize "" to null so the TitleBar falls through to the
 			// session-list title/first message instead of rendering blank.
 			sessionName: state.sessionName || null,
 			sessionFile: state.sessionFile,
-			cwd: state.cwd,
+			cwd: state.cwd ?? current.cwd,
 			isStreaming: state.isStreaming,
 			isCompacting: state.isCompacting,
 			contextUsage: state.contextUsage,
@@ -85,7 +85,7 @@ export const useSessionStore = create<SessionStore>()(set => ({
 			prewalkArmed: state.prewalkArmed ?? false,
 			agentsPaused: state.agentsPaused ?? false,
 			agentsPausedAt: state.agentsPausedAt ?? null,
-		}),
+		})),
 	setStatus: (status, cwd) => set({ status, cwd }),
 	reset: () => set(initialState),
 }));

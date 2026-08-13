@@ -980,7 +980,7 @@ export interface RpcSessionState {
 	followUpMode: "all" | "one-at-a-time";
 	interruptMode: "immediate" | "wait";
 	sessionFile: string | null;
-	cwd: string;
+	cwd?: string;
 	sessionId: string;
 	sessionName: string | null;
 	fastModeEnabled: boolean;

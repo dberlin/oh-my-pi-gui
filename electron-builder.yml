@@ -1,78 +1,14 @@
-appId: sh.omp.gui
-productName: omp
-directories:
-  buildResources: resources
-  output: dist
-files:
-  - out/**/*
-  - "!node_modules/**/*"
+extends: ./electron-builder.base.yml
+
 extraResources:
   - from: resources/omp
     to: omp
-asar: true
-compression: maximum
+  - from: resources/pi_natives.darwin-arm64.node
+    to: pi_natives.darwin-arm64.node
 
 mac:
-  category: public.app-category.developer-tools
-  icon: resources/icon.icns
-  # Seal the complete bundle even when no Developer ID certificate is available.
-  # This preserves macOS's user-override flow instead of presenting the app as damaged.
-  identity: "-"
   target:
-    # arm64 only here — x64 builds go through electron-builder.x64.yml, which
-    # points extraResources at the x86_64 sidecar (resources/omp.x64) instead of
-    # the arm64 one below. Building x64 from this config would ship the wrong-arch
-    # sidecar.
     - target: dmg
       arch: [arm64]
     - target: zip
       arch: [arm64]
-  hardenedRuntime: true
-  gatekeeperAssess: false
-  entitlements: resources/entitlements.mac.plist
-  entitlementsInherit: resources/entitlements.mac.plist
-  extendInfo:
-    NSMicrophoneUsageDescription: omp uses the microphone for voice dictation in the composer.
-  notarize: false
-
-dmg:
-  contents:
-    - x: 130
-      y: 220
-    - x: 410
-      y: 220
-      type: link
-      path: /Applications
-
-win:
-  icon: resources/icon.ico
-  target:
-    - target: nsis
-      arch: [x64]
-    - target: portable
-      arch: [x64]
-
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  deleteAppDataOnUninstall: false
-
-linux:
-  icon: resources/icons
-  category: Development
-  target:
-    - target: AppImage
-      arch: [x64]
-    - target: deb
-      arch: [x64]
-  desktop:
-    entry:
-      StartupWMClass: omp-gui
-
-publish:
-  provider: github
-  owner: nornzach
-  repo: oh-my-pi-gui
-
-electronLanguages:
-  - en

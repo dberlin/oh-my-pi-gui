@@ -8,6 +8,7 @@ dist/
 # Bundled agent sidecar binaries (build with `bun run build:omp`; >100MB, not committed)
 resources/omp
 resources/omp.*
+resources/pi_natives.*.node
 
 # Logs & OS cruft
 *.log
