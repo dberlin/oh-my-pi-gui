@@ -179,6 +179,7 @@ function toastOnAgentError(event: Extract<AgentSessionEvent, { type: "agent_end"
 function applySessionState(state: RpcSessionState, fallbackName?: string): void {
 	useModelStore.getState().setFromState(state);
 	useSessionStore.getState().setFromState(state);
+	useTabsStore.getState().applyHydratedCwd(state.cwd);
 	if (!state.sessionName && fallbackName) {
 		useSessionStore.setState({ sessionName: fallbackName });
 	}

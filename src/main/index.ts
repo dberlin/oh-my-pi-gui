@@ -2,30 +2,31 @@
  * Main process entry point for the omp GUI.
  * App lifecycle: ready → window, sidecar, session index, IPC, tray, menu, deep links, updater.
  */
-
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
 import Store from "electron-store";
-import type { SessionKind } from "../shared/ipc-types";
-import { setupDeepLinks } from "./deep-link";
-import { ensureDefaultWorkspace } from "./default-workspace";
-import { registerIpcHandlers } from "./ipc";
+import type { SessionKind, SessionTarget } from "../shared/ipc-types";
 import { LogWatcher } from "./log-watcher";
-import { createMenu } from "./menu";
-import { writeRuntimeLog } from "./runtime-log";
+import { RemoteAcpClient } from "./remote-acp";
+import { RemoteHostCatalog, type RemoteHostCatalogPrefs } from "./remote-host-catalog";
 import { SessionIndex } from "./session-index";
-import { shellSpawnEnv } from "./shell-env";
 import { SidecarManager } from "./sidecar";
 import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
-import { type PersistedTabLayout, sanitizePersistedTabLayout } from "./tab-layout";
-import { createTray, destroyTray } from "./tray";
-import { setupUpdater } from "./updater";
 import { WindowManager } from "./window";
+import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
+import { createMenu } from "./menu";
+import { createTray, destroyTray } from "./tray";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { nodeRemoteProcessRunner, RemoteSshService } from "./remote-ssh";
+import { registerIpcHandlers } from "./ipc";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
+import { setupDeepLinks } from "./deep-link";
+import { setupUpdater } from "./updater";
+import { shellSpawnEnv } from "./shell-env";
+import { type PersistedTabLayout, sanitizePersistedTabLayout } from "./tab-layout";
+import { writeRuntimeLog } from "./runtime-log";
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -96,7 +97,7 @@ function resolveSourceCli(): string | null {
 	return null;
 }
 
-interface MainPrefs {
+interface MainPrefs extends RemoteHostCatalogPrefs {
 	lastProject?: string;
 	proxyUrl?: string;
 	tabLayout?: PersistedTabLayout;
@@ -197,7 +198,9 @@ let statsServer: StatsServerManager | null = null;
 let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
-
+let remoteServices: { ssh: RemoteSshService; catalog: RemoteHostCatalog; acp: RemoteAcpClient } | null = null;
+let shutdownStarted = false;
+let shutdownComplete = false;
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
 	if (typeof value === "string") return { message: value };
@@ -231,10 +234,21 @@ function installMainRuntimeLogging(): void {
 }
 
 /** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
- *  With no target, create a fresh global chat; explicit workspace/session
- *  requests retain their selected/fallback cwd and requested session kind. */
-function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKind): BrowserWindow | null {
-	const restoreSavedLayout = cwd === undefined && pendingSessionPath === undefined && kind === undefined;
+ *  With no target, create a fresh global chat; explicit workspace/session or
+ *  remote target requests retain their selected/fallback cwd and requested session kind. */
+function spawnWindow(
+	cwd?: string,
+	pendingSessionPath?: string,
+	kind?: SessionKind,
+	target?: SessionTarget,
+	resumeSessionId?: string,
+): BrowserWindow | null {
+	const restoreSavedLayout =
+		cwd === undefined &&
+		pendingSessionPath === undefined &&
+		kind === undefined &&
+		target === undefined &&
+		resumeSessionId === undefined;
 	const savedLayout = restoreSavedLayout ? sanitizePersistedTabLayout(prefsStore().get("tabLayout")) : null;
 	if (savedLayout) {
 		const activeCwd = savedLayout.tabs[savedLayout.activeIndex]?.cwd ?? savedLayout.tabs[0]?.cwd;
@@ -244,24 +258,24 @@ function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKi
 			win.close();
 		}
 	}
-	const target = resolveWindowSpawnTarget(
-		cwd,
-		pendingSessionPath,
-		kind,
-		resolveInitialCwd(),
-		ensureDefaultWorkspace(),
-	);
-	const win = windowManager.createWindow({ cwd: target.cwd, pendingSessionPath });
-	const sidecar = sidecarPool.acquire(
-		target.cwd,
+	const resolved = target
+		? {
+				cwd: cwd && cwd.length > 0 ? cwd : target.type === "ssh" ? target.cwd : resolveInitialCwd(),
+				kind: kind ?? "agent",
+				fresh: false,
+				placeholder: false,
+			}
+		: resolveWindowSpawnTarget(cwd, pendingSessionPath, kind, resolveInitialCwd(), homedir());
+	const win = windowManager.createWindow({ cwd: resolved.cwd, pendingSessionPath, target, resumeSessionId });
+	const sidecar = sidecarPool.acquire({
+		cwd: resolved.cwd,
 		win,
-		undefined,
-		undefined,
-		target.kind,
-		undefined,
-		target.fresh,
-		target.placeholder,
-	);
+		kind: resolved.kind,
+		target,
+		resumeSessionId,
+		fresh: resolved.fresh,
+		placeholder: resolved.placeholder,
+	});
 	if (!sidecar) {
 		win.close();
 		return null;
@@ -272,20 +286,28 @@ function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKi
 app.whenReady().then(() => {
 	installMainRuntimeLogging();
 	windowManager = new WindowManager();
+	const remoteSsh = new RemoteSshService(nodeRemoteProcessRunner);
+	const remoteHostCatalog = new RemoteHostCatalog(prefsStore());
+	const remoteAcp = new RemoteAcpClient(remoteSsh);
+	remoteServices = { ssh: remoteSsh, catalog: remoteHostCatalog, acp: remoteAcp };
 
 	const initialCwd = resolveInitialCwd();
 	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bundledOmp = resolveBundledOmp();
 	const sourceCli = resolveSourceCli();
-	sidecarPool = new SidecarPool((cwd, kind, fresh) => {
+	sidecarPool = new SidecarPool(options => {
 		const sc = new SidecarManager({
 			binaryPath: bundledOmp ?? "",
 			sourceCli: sourceCli ?? undefined,
-			cwd,
-			kind,
-			fresh,
+			cwd: options.cwd,
+			kind: options.kind,
+			fresh: options.fresh,
+			target: options.target,
+			resumeSessionId: options.resumeSessionId,
 			proxyEnv: resolveProxyEnvForSpawn,
 			shellEnv: shellSpawnEnv,
+			remoteSsh,
+			remoteHostCatalog,
 		});
 		// Ready-health-check applies to every pooled sidecar, not just the first.
 		sc.on("status", ({ status }) => {
@@ -329,6 +351,9 @@ app.whenReady().then(() => {
 		logWatcher,
 		windowManager,
 		spawnWindow,
+		remoteSsh,
+		remoteHostCatalog,
+		remoteAcp,
 	});
 
 	// Global shortcut: Cmd+Shift+O — toggle focused window, else show the most
@@ -380,10 +405,28 @@ app.on("window-all-closed", () => {
 });
 
 // Cleanup on quit
-app.on("before-quit", () => {
+app.on("before-quit", event => {
+	if (shutdownComplete) return;
+	event.preventDefault();
+	if (shutdownStarted) return;
+	shutdownStarted = true;
 	statsServer?.kill();
-	sidecarPool?.disposeAll();
 	sessionIndex?.stop();
 	logWatcher?.stop();
 	destroyTray();
+	const sidecars = sidecarPool?.disposeAll() ?? Promise.resolve();
+	const ssh = remoteServices?.ssh;
+	remoteServices = null;
+	void sidecars
+		.catch(error => {
+			writeRuntimeLog({ source: "sidecar-shutdown", ...errorMessage(error) });
+		})
+		.then(() => ssh?.dispose())
+		.catch(error => {
+			writeRuntimeLog({ source: "remote-ssh-shutdown", ...errorMessage(error) });
+		})
+		.finally(() => {
+			shutdownComplete = true;
+			app.quit();
+		});
 });

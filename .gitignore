@@ -10,6 +10,9 @@ resources/omp
 resources/omp.*
 resources/pi_natives.*.node
 
+# Workspace-local OMP host configuration may contain private endpoints and usernames.
+.omp/ssh.json
+
 # Logs & OS cruft
 *.log
 .DS_Store

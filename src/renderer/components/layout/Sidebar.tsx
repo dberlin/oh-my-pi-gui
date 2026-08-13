@@ -1,47 +1,41 @@
 import {
-	BarChart3,
-	Bot,
-	BriefcaseBusiness,
 	Check,
 	ChevronDown,
 	ChevronRight,
-	ChevronUp,
-	Code2,
-	Coins,
 	ExternalLink,
 	GitBranchPlus,
-	GitPullRequest,
-	Keyboard,
 	MessageCircle,
+	MessageCirclePlus,
 	MessageSquarePlus,
 	MoreHorizontal,
 	Palette,
-	PanelRight,
 	Pencil,
 	Pin,
 	PinOff,
-	Plug,
 	Plus,
+	RefreshCw,
 	Search,
-	Settings,
-	SquarePen,
+	Server,
 	SquareTerminal,
 	Trash2,
 	X,
 } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SessionInfo } from "../../../shared/ipc-types";
+import type { RemoteHistorySession, SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow } from "../../hooks/use-session-switch";
-import { basename, cx } from "../../lib/format";
+import { basename, cx, formatTimeAgo, sanitizeDisplayText, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { mergeContentMatches, rankSessions } from "../../lib/session-search";
 import { sessionDisplayTitle } from "../../lib/session-title";
+import { type RemoteHostState, useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
+import { PiLogo } from "../common";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { LangSwitcher } from "../common/LangSwitcher";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
@@ -70,7 +64,38 @@ interface WorkspaceGroup {
 	sessions: SessionInfo[];
 }
 
-type SidebarMode = "code" | "work";
+interface RemoteHistoryGroup {
+	alias: string;
+	aliasLabel: string;
+	hostState: RemoteHostState;
+	sessions: RemoteHistorySession[];
+}
+
+const REMOTE_ALIAS_LIMIT = 64;
+const REMOTE_TITLE_LIMIT = 160;
+const REMOTE_PATH_LIMIT = 512;
+
+function filterRemoteHistory(hosts: Record<string, RemoteHostState>, query: string): RemoteHistoryGroup[] {
+	const tokens = sanitizeDisplayText(query, REMOTE_TITLE_LIMIT).toLowerCase().split(/\s+/).filter(Boolean);
+	return Object.entries(hosts)
+		.map(([alias, hostState]) => {
+			const aliasLabel = sanitizeDisplayText(alias, REMOTE_ALIAS_LIMIT);
+			const aliasHaystack = aliasLabel.toLowerCase();
+			const aliasMatches = tokens.length > 0 && tokens.every(token => aliasHaystack.includes(token));
+			const sessions =
+				tokens.length === 0 || aliasMatches
+					? hostState.history
+					: hostState.history.filter(session => {
+							const cwd = sanitizeDisplayText(session.cwd, REMOTE_PATH_LIMIT);
+							const title = sanitizeDisplayText(session.title, REMOTE_TITLE_LIMIT);
+							const haystack = `${aliasLabel} ${cwd} ${title}`.toLowerCase();
+							return tokens.every(token => haystack.includes(token));
+						});
+			return { alias, aliasLabel, hostState, sessions, aliasMatches };
+		})
+		.filter(group => tokens.length === 0 || group.aliasMatches || group.sessions.length > 0)
+		.map(({ aliasMatches: _aliasMatches, ...group }) => group);
+}
 
 function modifiedAt(session: SessionInfo): number {
 	const timestamp = Date.parse(session.modified);
@@ -86,16 +111,17 @@ function SidebarRowTitle({ className, title }: { className?: string; title: stri
 }
 
 /**
- * Left rail with two agent-capable lanes plus global tool-free chats. Code
- * groups project sessions by workspace; Work uses one GUI-owned default
- * workspace with no folder picker. The main action creates an agent, while the
- * adjacent quick-chat action creates a chat.
+ * Left rail: one-row search+new-session, local Agent sessions grouped under
+ * workspaces, host-scoped remote history loaded only when expanded, and a
+ * separate global Chat section. Chat sessions never appear inside a workspace
+ * even though their files retain a cwd for runtime use. Compact title-only
+ * items share the same local task actions; remote rows expose only capability-
+ * safe actions. A bottom utility row follows (theme + language — stats/settings
+ * live in the TitleBar, no duplicated chrome).
  */
 export function Sidebar() {
+	const [query, setQuery] = useState("");
 	const t = useT();
-	const [mode, setMode] = useState<SidebarMode>("code");
-	const [navigationExpanded, setNavigationExpanded] = useState(true);
-	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(null);
 	const switchPendingTo = useUiStore(s => s.switchPending?.toId ?? null);
 	// Resizable left rail (mirrors PanelContainer's right-rail drag, but the
 	// handle sits on the right edge and dragging right grows the sidebar).
@@ -134,6 +160,8 @@ export function Sidebar() {
 		sidebarDragging.current = false;
 		void window.omp.prefs.set("sidebarWidth", sidebarWidthRef.current).catch(() => {});
 	}, []);
+	const [contentPaths, setContentPaths] = useState<ReadonlySet<string>>(new Set());
+	const searchGenerationRef = useRef(0);
 	const [deleting, setDeleting] = useState(false);
 	const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 	// Inline delete confirmation: the first click swaps the trash button for an
@@ -144,18 +172,21 @@ export function Sidebar() {
 	const [renamingSessionPath, setRenamingSessionPath] = useState<string | null>(null);
 	const [workspaceOpen, setWorkspaceOpen] = useState(false);
 	const [renameDraft, setRenameDraft] = useState("");
-	// Mode selector, workspace group context menu, session row context menu.
-	const [modeMenu, setModeMenu] = useState<ContextMenuAnchor | null>(null);
+	// "+" type dropdown, workspace group context menu, session row context menu.
+	const [plusMenu, setPlusMenu] = useState<ContextMenuAnchor | null>(null);
 	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
 	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SessionInfo } | null>(null);
+	const [expandedRemoteHosts, setExpandedRemoteHosts] = useState<Record<string, boolean>>({});
+	const [remoteSessionMenu, setRemoteSessionMenu] = useState<{
+		anchor: ContextMenuAnchor;
+		session: RemoteHistorySession;
+	} | null>(null);
 	// Workspace display alias rename (group header inline input).
 	const [renamingGroupCwd, setRenamingGroupCwd] = useState<string | null>(null);
 	const [groupRenameDraft, setGroupRenameDraft] = useState("");
 	const groupRenameRef = useRef<HTMLInputElement>(null);
 	const openTab = useTabsStore(s => s.openTab);
 	const tabs = useTabsStore(s => s.tabs);
-	const activeTabId = useTabsStore(s => s.activeTabId);
-	const activeTabKind = tabs.find(tab => tab.id === activeTabId)?.kind;
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
@@ -164,6 +195,15 @@ export function Sidebar() {
 	const touchSession = useSidebarPrefs(s => s.touchSession);
 	const renameRef = useRef<HTMLInputElement>(null);
 	const { sessions, isLoading, deleteSession, renameSession } = useSessionList("global");
+	const remoteHosts = useRemoteStore(s => s.hosts);
+	const remoteCatalogStatus = useRemoteStore(s => s.catalogStatus);
+	const remoteCatalogError = useRemoteStore(s => s.catalogError);
+	const loadRemoteCatalog = useRemoteStore(s => s.loadCatalog);
+	const refreshRemoteHistory = useRemoteStore(s => s.refreshHistory);
+
+	useEffect(() => {
+		if (remoteCatalogStatus === "idle") void loadRemoteCatalog();
+	}, [loadRemoteCatalog, remoteCatalogStatus]);
 	const sessionId = useSessionStore(s => s.sessionId);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
@@ -173,25 +213,26 @@ export function Sidebar() {
 	// signal — it needs the user, not just time.
 	const awaitingConfirmation = useAwaitingConfirmation();
 	const openThemePicker = useUiStore(s => s.openThemePicker);
-	const openSessionPicker = useUiStore(s => s.openSessionPicker);
 
+	// Debounced full-transcript content search (main-process grep over the
+	// session files). Best-effort: failures simply yield no content matches.
 	useEffect(() => {
-		void window.omp.sidecar
-			.defaultWorkspace()
-			.then(workspace => {
-				setDefaultWorkspace(workspace);
-				const tabState = useTabsStore.getState();
-				const activeKind = tabState.tabs.find(tab => tab.id === tabState.activeTabId)?.kind;
-				if (activeKind !== "chat" && useSessionStore.getState().cwd === workspace) setMode("work");
-			})
-			.catch(() => {});
-	}, []);
-
-	// Opening a session from the global search keeps the lane label honest.
-	useEffect(() => {
-		if (!defaultWorkspace || !cwd) return;
-		setMode(activeTabKind === "chat" ? "code" : cwd === defaultWorkspace ? "work" : "code");
-	}, [activeTabKind, cwd, defaultWorkspace]);
+		const q = query.trim();
+		if (q.length < 2 || sessions.length === 0) {
+			setContentPaths(new Set());
+			return;
+		}
+		const generation = ++searchGenerationRef.current;
+		const timer = setTimeout(() => {
+			window.omp.sessions
+				.search(q, "global")
+				.then(paths => {
+					if (searchGenerationRef.current === generation) setContentPaths(new Set(paths));
+				})
+				.catch(() => {});
+		}, 200);
+		return () => clearTimeout(timer);
+	}, [query, sessions.length]);
 
 	// Click elsewhere or Escape cancels a pending inline delete confirm
 	// ("✕ or clicking elsewhere cancels" — the ✕ half lives on the buttons).
@@ -225,45 +266,25 @@ export function Sidebar() {
 		};
 	}, [confirmingAny]);
 
+	// Filter once, then split the navigation model by immutable session kind.
+	// Agent sessions remain workspace-owned; chats are a global peer section.
+	const filteredSessions = useMemo(
+		() => mergeContentMatches(rankSessions(sessions, query), sessions, contentPaths),
+		[sessions, query, contentPaths],
+	);
+
+	const browsingByRecency = query.trim().length === 0;
 	const recencyForSession = useCallback(
 		(session: SessionInfo) => sessionLastUsed[session.path] ?? modifiedAt(session),
 		[sessionLastUsed],
 	);
-	const agentSessions = useMemo(() => sessions.filter(session => session.kind !== "chat"), [sessions]);
-	const codeSessions = useMemo(
-		() => agentSessions.filter(session => !defaultWorkspace || session.cwd !== defaultWorkspace),
-		[agentSessions, defaultWorkspace],
-	);
-	const workSessions = useMemo(
-		() =>
-			agentSessions
-				.filter(session => defaultWorkspace !== null && session.cwd === defaultWorkspace)
-				.toSorted((a, b) => {
-					const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
-					const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
-					if (aPinned !== bPinned) return aPinned - bPinned;
-					return recencyForSession(b) - recencyForSession(a);
-				}),
-		[agentSessions, defaultWorkspace, pinnedSessions, recencyForSession],
-	);
-	const chatSessions = useMemo(
-		() =>
-			sessions
-				.filter(session => session.kind === "chat")
-				.toSorted((a, b) => {
-					const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
-					const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
-					if (aPinned !== bPinned) return aPinned - bPinned;
-					return recencyForSession(b) - recencyForSession(a);
-				}),
-		[sessions, pinnedSessions, recencyForSession],
-	);
 
-	// Code sessions stay grouped by project. Pins remain a priority partition,
-	// with MRU inside it.
+	// Group Agent sessions by workspace. Normal browsing is MRU; search keeps
+	// relevance order. Pins remain a priority partition, with MRU inside it.
 	const groups = useMemo<WorkspaceGroup[]>(() => {
 		const byCwd = new Map<string, SessionInfo[]>();
-		for (const session of codeSessions) {
+		for (const session of filteredSessions) {
+			if (session.kind === "chat") continue;
 			const list = byCwd.get(session.cwd) ?? [];
 			list.push(session);
 			byCwd.set(session.cwd, list);
@@ -275,21 +296,48 @@ export function Sidebar() {
 				const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
 				const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
 				if (aPinned !== bPinned) return aPinned - bPinned;
-				return recencyForSession(b) - recencyForSession(a);
+				return browsingByRecency ? recencyForSession(b) - recencyForSession(a) : 0;
 			}),
 		}));
 		result.sort((a, b) => {
 			const aPinned = pinnedGroups.includes(a.cwd) ? 0 : 1;
 			const bPinned = pinnedGroups.includes(b.cwd) ? 0 : 1;
 			if (aPinned !== bPinned) return aPinned - bPinned;
+			if (!browsingByRecency) return 0;
 			const aRecency = Math.max(workspaceLastUsed[a.cwd] ?? 0, ...a.sessions.map(recencyForSession));
 			const bRecency = Math.max(workspaceLastUsed[b.cwd] ?? 0, ...b.sessions.map(recencyForSession));
 			return bRecency - aRecency;
 		});
 		return result;
-	}, [codeSessions, groupAliases, pinnedGroups, pinnedSessions, recencyForSession, workspaceLastUsed]);
-	const totalCount = mode === "work" ? workSessions.length : codeSessions.length + chatSessions.length;
-	const visibleGroups = mode === "code" ? groups : [];
+	}, [
+		browsingByRecency,
+		filteredSessions,
+		groupAliases,
+		pinnedGroups,
+		pinnedSessions,
+		recencyForSession,
+		workspaceLastUsed,
+	]);
+
+	const chatSessions = useMemo(
+		() =>
+			filteredSessions
+				.filter(session => session.kind === "chat")
+				.toSorted((a, b) => {
+					const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
+					const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
+					if (aPinned !== bPinned) return aPinned - bPinned;
+					return browsingByRecency ? recencyForSession(b) - recencyForSession(a) : 0;
+				}),
+		[browsingByRecency, filteredSessions, pinnedSessions, recencyForSession],
+	);
+	const remoteGroups = useMemo(() => filterRemoteHistory(remoteHosts, query), [remoteHosts, query]);
+	const remoteSessionCount = useMemo(
+		() => remoteGroups.reduce((count, group) => count + group.sessions.length, 0),
+		[remoteGroups],
+	);
+	const agentCount = useMemo(() => groups.reduce((n, group) => n + group.sessions.length, 0), [groups]);
+	const totalCount = agentCount + chatSessions.length;
 	const chatsCollapsed = collapsed.__chats__ ?? false;
 
 	const isCollapsed = (groupCwd: string) => {
@@ -311,13 +359,6 @@ export function Sidebar() {
 		if (session.id === sessionId) return;
 		void openTab({ cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent" });
 	};
-	const startNew = () => {
-		if (mode === "work") {
-			void openTab({ kind: "agent", work: true });
-			return;
-		}
-		setWorkspaceOpen(true);
-	};
 
 	// Explicit parallel action: open this session in a NEW window with its own
 	// sidecar, leaving the current window's running session untouched.
@@ -328,6 +369,20 @@ export function Sidebar() {
 			return;
 		}
 		touchSession(session.path, session.kind === "chat" ? undefined : session.cwd);
+	};
+
+	const toggleRemoteHost = (alias: string) => {
+		const nextExpanded = !(expandedRemoteHosts[alias] ?? false);
+		setExpandedRemoteHosts(current => ({ ...current, [alias]: nextExpanded }));
+		if (nextExpanded && remoteHosts[alias]?.historyStatus === "idle") void refreshRemoteHistory(alias);
+	};
+
+	const resumeRemoteSession = (session: RemoteHistorySession) => {
+		void openTab({ target: session.target, cwd: session.cwd, resumeSessionId: session.sessionId });
+	};
+
+	const startAnotherRemoteSession = (session: RemoteHistorySession) => {
+		void openTab({ target: session.target, cwd: session.cwd });
 	};
 
 	const startRename = (session: SessionInfo) => {
@@ -555,6 +610,52 @@ export function Sidebar() {
 		);
 	};
 
+	const renderRemoteSessionRow = (session: RemoteHistorySession) => {
+		const title =
+			sanitizeDisplayText(session.title, REMOTE_TITLE_LIMIT) ||
+			sanitizeDisplayText(basename(session.cwd), REMOTE_TITLE_LIMIT) ||
+			t("remote.history.untitled");
+		const displayCwd = shortenPath(sanitizeDisplayText(session.cwd, REMOTE_PATH_LIMIT));
+		const updated = formatTimeAgo(session.updatedAt);
+		return (
+			<div
+				key={`${session.target.hostAlias}:${session.sessionId}`}
+				role="button"
+				tabIndex={0}
+				data-remote-session={session.sessionId}
+				onClick={() => resumeRemoteSession(session)}
+				onContextMenu={event => setRemoteSessionMenu({ anchor: anchorFromEvent(event), session })}
+				onKeyDown={event => {
+					if (event.key === "Enter") resumeRemoteSession(session);
+				}}
+				className="group cursor-pointer rounded-md border border-transparent px-2 py-1.5 transition-colors duration-150 ease-out hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]"
+			>
+				<div className="flex min-w-0 items-center gap-1.5">
+					<Server size={11} className="shrink-0 text-[var(--omp-accent)]" aria-label={t("remote.title.ssh")} />
+					<span className="min-w-0 flex-1 truncate text-omp-md text-[var(--omp-muted)]" title={title}>
+						{title}
+					</span>
+					{updated && <span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">{updated}</span>}
+					<button
+						type="button"
+						title={t("remote.history.startAnother")}
+						aria-label={t("remote.history.startAnother")}
+						onClick={event => {
+							event.stopPropagation();
+							startAnotherRemoteSession(session);
+						}}
+						className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+					>
+						<Plus size={11} />
+					</button>
+				</div>
+				<div className="ml-4 truncate font-mono text-omp-xs text-[var(--omp-dim)]" title={displayCwd}>
+					{displayCwd}
+				</div>
+			</div>
+		);
+	};
+
 	const utilityButton =
 		"omp-pressable flex h-6 w-7 shrink-0 items-center justify-center rounded-md text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]";
 
@@ -564,150 +665,47 @@ export function Sidebar() {
 				className="omp-session-sidebar relative flex h-full shrink-0 flex-col border-r border-[var(--omp-border-muted)] bg-[var(--omp-sidebar-bg)]"
 				style={{ width: sidebarWidth }}
 			>
-				<div className="drag-region flex h-12 shrink-0 items-center gap-1 border-b border-[var(--omp-border-muted)] px-2.5">
+				<div className="drag-region flex h-12 shrink-0 items-center gap-2 border-b border-[var(--omp-border-muted)] px-3">
+					<PiLogo tile size={24} />
+					<div className="font-display text-omp-lg font-semibold tracking-[-0.01em] text-[var(--omp-text)]">
+						oh-my-pi
+					</div>
+				</div>
+
+				{/* One row: search + new-session "+" button */}
+				<div className="flex items-center gap-1.5 px-3 pb-2 pt-3">
+					<div className="relative min-w-0 flex-1">
+						<Search
+							size={13}
+							className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--omp-dim)]"
+						/>
+						<input
+							value={query}
+							onChange={event => setQuery(event.target.value)}
+							onKeyDown={event => {
+								if (event.key === "Escape" && query) {
+									event.stopPropagation();
+									setQuery("");
+									event.currentTarget.blur();
+								}
+							}}
+							placeholder={t("sidebar.search")}
+							className="h-8 w-full rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] pl-8 pr-2 text-omp-md text-[var(--omp-text)] outline-none transition-colors placeholder:text-[var(--omp-dim)] focus:border-[var(--omp-input-focus-border)]"
+						/>
+					</div>
 					<button
 						type="button"
 						onClick={event => {
 							const rect = event.currentTarget.getBoundingClientRect();
-							setModeMenu({
-								x: Number.isFinite(rect.left) ? rect.left : 8,
-								y: (Number.isFinite(rect.bottom) ? rect.bottom : 40) + 6,
-							});
+							setPlusMenu({ x: rect.left, y: rect.bottom + 6 });
 						}}
-						aria-label={t("sidebar.mode.aria")}
-						aria-expanded={modeMenu !== null}
+						title={t("sidebar.newSession")}
+						aria-label={t("sidebar.newSession")}
+						aria-expanded={plusMenu !== null}
 						aria-haspopup="menu"
-						className="no-drag omp-pressable flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2 font-display text-omp-lg font-semibold text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
+						className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110"
 					>
-						{mode === "code" ? <Code2 size={15} /> : <BriefcaseBusiness size={15} />}
-						<span>{t(`sidebar.mode.${mode}`)}</span>
-						<ChevronDown size={13} className="text-[var(--omp-dim)]" />
-					</button>
-					<div className="flex-1" />
-					<button
-						type="button"
-						onClick={openSessionPicker}
-						title={t("sidebar.search")}
-						aria-label={t("sidebar.search")}
-						className="no-drag omp-pressable flex h-7 w-7 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-					>
-						<Search size={15} />
-					</button>
-				</div>
-
-				<div className="flex items-center gap-1 px-2 pb-2 pt-2">
-					<button
-						type="button"
-						data-sidebar-new-agent
-						onClick={startNew}
-						className="omp-pressable flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-omp-md font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
-					>
-						{mode === "code" ? <SquarePen size={15} /> : <BriefcaseBusiness size={15} />}
-						<span className="min-w-0 flex-1 truncate">
-							{mode === "code" ? t("sidebar.newCode") : t("sidebar.newWork")}
-						</span>
-					</button>
-					{mode === "code" && (
-						<button
-							type="button"
-							data-sidebar-new-chat
-							onClick={() => void openTab({ kind: "chat" })}
-							title={t("sidebar.quickChat")}
-							aria-label={t("sidebar.quickChat")}
-							className="omp-pressable flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-						>
-							<MessageSquarePlus size={16} />
-						</button>
-					)}
-				</div>
-
-				<div className="px-2 pb-2" data-sidebar-navigation>
-					<div
-						aria-hidden={!navigationExpanded}
-						className="omp-sidebar-group"
-						data-state={navigationExpanded ? "expanded" : "collapsed"}
-						inert={!navigationExpanded}
-					>
-						<div className="omp-sidebar-group-content space-y-0.5">
-							{[
-								{
-									id: "commands",
-									icon: Search,
-									label: t("titlebar.commands"),
-									onClick: () => useUiStore.getState().openCommandPalette(),
-								},
-								{
-									id: "agents",
-									icon: Bot,
-									label: t("titlebar.agentHub"),
-									onClick: () => useUiStore.getState().openAgentHub(),
-								},
-								{
-									id: "providers",
-									icon: Plug,
-									label: t("titlebar.providers"),
-									onClick: () => useUiStore.getState().openProviders(),
-								},
-								{
-									id: "usage",
-									icon: Coins,
-									label: t("titlebar.usage"),
-									onClick: () => useUiStore.getState().openUsage(),
-								},
-								{
-									id: "stats",
-									icon: BarChart3,
-									label: t("titlebar.stats"),
-									onClick: () => useUiStore.getState().openStatsDashboard(),
-								},
-								{
-									id: "pull-requests",
-									icon: GitPullRequest,
-									label: t("titlebar.prCenter"),
-									onClick: () => useUiStore.getState().openPrCenter(),
-								},
-								{
-									id: "workspace",
-									icon: PanelRight,
-									label: t("titlebar.workspace"),
-									onClick: () => useUiStore.getState().togglePanel(),
-								},
-								{
-									id: "hotkeys",
-									icon: Keyboard,
-									label: t("titlebar.hotkeys"),
-									onClick: () => useUiStore.getState().openHotkeys(),
-								},
-								{
-									id: "settings",
-									icon: Settings,
-									label: t("titlebar.settings"),
-									onClick: () => useUiStore.getState().openSettings(),
-								},
-							].map(item => {
-								const Icon = item.icon;
-								return (
-									<button
-										key={item.id}
-										type="button"
-										onClick={item.onClick}
-										className="omp-pressable flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-omp-md text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-									>
-										<Icon aria-hidden="true" className="shrink-0" size={15} />
-										<span className="min-w-0 flex-1 truncate">{item.label}</span>
-									</button>
-								);
-							})}
-						</div>
-					</div>
-					<button
-						type="button"
-						aria-expanded={navigationExpanded}
-						aria-label={t(navigationExpanded ? "sidebar.navigation.collapse" : "sidebar.navigation.expand")}
-						onClick={() => setNavigationExpanded(expanded => !expanded)}
-						className="omp-pressable mt-1 flex h-6 w-full items-center justify-center rounded-lg border border-[var(--omp-border-muted)] text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-muted)]"
-					>
-						{navigationExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+						<Plus size={16} strokeWidth={2.5} />
 					</button>
 				</div>
 
@@ -728,40 +726,42 @@ export function Sidebar() {
 					{isLoading && sessions.length === 0 && (
 						<div className="px-3 py-6 text-center text-omp-lg text-[var(--omp-dim)]">{t("sidebar.loading")}</div>
 					)}
-					{!isLoading && totalCount === 0 && (
+					{!isLoading && remoteCatalogStatus !== "loading" && totalCount === 0 && remoteGroups.length === 0 && (
 						<div className="mx-1 mt-2 flex flex-col items-center rounded-xl border border-dashed border-[var(--omp-border-muted)] px-4 py-6 text-center">
-							{mode === "code" ? (
-								<Code2 size={20} className="mb-2 text-[var(--omp-muted)]" />
-							) : (
-								<BriefcaseBusiness size={20} className="mb-2 text-[var(--omp-muted)]" />
-							)}
+							<MessageSquarePlus size={20} className="mb-2 text-[var(--omp-muted)]" />
 							<div className="text-omp-lg font-medium text-[var(--omp-muted)]">
-								{mode === "code" ? t("sidebar.emptyCode") : t("sidebar.emptyWork")}
+								{query ? t("sidebar.noMatch") : t("sidebar.empty")}
 							</div>
 						</div>
 					)}
-					{mode === "work" && workSessions.length > 0 && (
-						<div className="space-y-px" data-work-section>
-							{workSessions.map(renderSessionRow)}
-						</div>
-					)}
-					{mode === "code" && chatSessions.length > 0 && (
+					{chatSessions.length > 0 && (
 						<div className="mb-1" data-chat-section>
-							<button
-								type="button"
-								onClick={() => setCollapsed(prev => ({ ...prev, __chats__: !chatsCollapsed }))}
-								aria-expanded={!chatsCollapsed}
-								className="flex w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-omp-xs font-medium uppercase tracking-[0.08em] text-[var(--omp-dim)] hover:text-[var(--omp-muted)]"
-							>
-								{chatsCollapsed ? (
-									<ChevronRight size={12} className="shrink-0" />
-								) : (
-									<ChevronDown size={12} className="shrink-0" />
-								)}
-								<MessageCircle size={11} className="shrink-0" />
-								<span className="min-w-0 flex-1 truncate">{t("sidebar.chats")}</span>
-								<span className="shrink-0 tabular-nums font-normal">{chatSessions.length}</span>
-							</button>
+							<div className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-omp-xs font-medium uppercase tracking-[0.08em] text-[var(--omp-dim)]">
+								<button
+									type="button"
+									onClick={() => setCollapsed(prev => ({ ...prev, __chats__: !chatsCollapsed }))}
+									aria-expanded={!chatsCollapsed}
+									className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-[var(--omp-muted)]"
+								>
+									{chatsCollapsed ? (
+										<ChevronRight size={12} className="shrink-0" />
+									) : (
+										<ChevronDown size={12} className="shrink-0" />
+									)}
+									<MessageCircle size={11} className="shrink-0" />
+									<span className="min-w-0 flex-1 truncate">{t("sidebar.chats")}</span>
+									<span className="shrink-0 tabular-nums font-normal">{chatSessions.length}</span>
+								</button>
+								<button
+									type="button"
+									title={t("sidebar.menu.newChat")}
+									aria-label={t("sidebar.menu.newChat")}
+									className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+									onClick={() => void openTab({ kind: "chat" })}
+								>
+									<Plus size={12} strokeWidth={2.5} />
+								</button>
+							</div>
 							<div
 								className="omp-sidebar-group"
 								data-session-group="__chats__"
@@ -775,7 +775,7 @@ export function Sidebar() {
 							</div>
 						</div>
 					)}
-					{visibleGroups.map(group => {
+					{groups.map(group => {
 						const groupCollapsed = isCollapsed(group.cwd);
 						const isCurrent = group.cwd === cwd;
 						const groupActionsOpen = confirmingGroupDeleteCwd === group.cwd || renamingGroupCwd === group.cwd;
@@ -927,6 +927,149 @@ export function Sidebar() {
 							</div>
 						);
 					})}
+					{(remoteGroups.length > 0 || remoteCatalogStatus === "loading" || remoteCatalogStatus === "error") && (
+						<section className="mt-2 border-t border-[var(--omp-border-muted)] pt-2" data-remote-history>
+							<div className="mb-1 flex items-center justify-between px-2">
+								<span className="flex items-center gap-1.5 text-omp-xs font-semibold uppercase tracking-[0.12em] text-[var(--omp-dim)]">
+									<Server size={11} className="text-[var(--omp-accent)]" />
+									{t("remote.history.section")}
+								</span>
+								{remoteSessionCount > 0 && (
+									<span className="rounded-full border border-[var(--omp-border-muted)] px-2 py-0.5 text-omp-xs tabular-nums text-[var(--omp-dim)]">
+										{remoteSessionCount}
+									</span>
+								)}
+							</div>
+							{remoteCatalogStatus === "loading" && remoteGroups.length === 0 && (
+								<div className="flex items-center gap-2 px-3 py-2 text-omp-md text-[var(--omp-muted)]">
+									<RefreshCw size={12} className="animate-spin text-[var(--omp-accent)]" />
+									{t("remote.history.loadingHosts")}
+								</div>
+							)}
+							{remoteCatalogStatus === "error" && remoteGroups.length === 0 && (
+								<div className="mx-1 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-2.5 py-2">
+									<div className="text-omp-md text-[var(--omp-error)]">{t("remote.history.catalogError")}</div>
+									{remoteCatalogError && (
+										<div className="mt-0.5 truncate text-omp-xs text-[var(--omp-muted)]">
+											{sanitizeDisplayText(remoteCatalogError, REMOTE_TITLE_LIMIT)}
+										</div>
+									)}
+									<button
+										type="button"
+										onClick={() => void loadRemoteCatalog()}
+										className="mt-1 text-omp-xs font-medium text-[var(--omp-link)] hover:underline"
+									>
+										{t("remote.history.retry")}
+									</button>
+								</div>
+							)}
+							{remoteGroups.map(({ alias, aliasLabel, hostState, sessions: remoteSessions }) => {
+								const searched = query.trim().length > 0;
+								const expanded = searched || (expandedRemoteHosts[alias] ?? false);
+								return (
+									<div key={alias} data-remote-host={alias} className="mb-0.5">
+										<div className="group flex items-center gap-1 rounded-md px-1.5 py-0.5 text-omp-xs font-medium uppercase tracking-[0.08em] text-[var(--omp-dim)] hover:text-[var(--omp-muted)]">
+											<button
+												type="button"
+												data-remote-host-toggle
+												aria-expanded={expanded}
+												onClick={() => toggleRemoteHost(alias)}
+												className="flex min-w-0 flex-1 items-center gap-1 text-left"
+											>
+												{expanded ? (
+													<ChevronDown size={12} className="shrink-0" />
+												) : (
+													<ChevronRight size={12} className="shrink-0" />
+												)}
+												<Server size={11} className="shrink-0 text-[var(--omp-accent)]" />
+												<span className="min-w-0 flex-1 truncate">{aliasLabel}</span>
+												{hostState.historyStatus === "ready" && (
+													<span className="shrink-0 tabular-nums font-normal">{remoteSessions.length}</span>
+												)}
+											</button>
+											<button
+												type="button"
+												disabled={hostState.historyStatus === "loading"}
+												title={t("remote.history.refresh")}
+												aria-label={t("remote.history.refresh")}
+												onClick={event => {
+													event.stopPropagation();
+													void refreshRemoteHistory(alias);
+												}}
+												className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)] disabled:opacity-40"
+											>
+												<RefreshCw
+													size={10}
+													className={cx(hostState.historyStatus === "loading" && "animate-spin")}
+												/>
+											</button>
+										</div>
+										<div
+											className="omp-sidebar-group"
+											data-remote-history-group={alias}
+											data-state={expanded ? "expanded" : "collapsed"}
+											aria-hidden={!expanded}
+											inert={!expanded}
+										>
+											<div className="omp-sidebar-group-content">
+												<div className="space-y-px">
+													{hostState.historyStatus === "loading" && (
+														<div className="flex items-center gap-2 px-3 py-2 text-omp-md text-[var(--omp-muted)]">
+															<RefreshCw size={12} className="animate-spin text-[var(--omp-accent)]" />
+															{t("remote.history.loading")}
+														</div>
+													)}
+													{hostState.historyStatus === "idle" && (
+														<div className="px-3 py-2 text-omp-md text-[var(--omp-dim)]">
+															{t("remote.history.expandToLoad")}
+														</div>
+													)}
+													{hostState.historyStatus === "unsupported" && (
+														<div className="mx-1 rounded-lg border border-[var(--omp-warning)]/35 bg-[var(--omp-warning-dim)] px-2.5 py-2">
+															<div className="text-omp-md text-[var(--omp-warning)]">
+																{t("remote.history.unsupported")}
+															</div>
+															<div className="mt-0.5 text-omp-xs text-[var(--omp-muted)]">
+																{t("remote.history.unsupportedReason")}
+															</div>
+														</div>
+													)}
+													{hostState.historyStatus === "error" && (
+														<div className="mx-1 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-2.5 py-2">
+															<div className="text-omp-md text-[var(--omp-error)]">
+																{t("remote.history.loadError")}
+															</div>
+															{hostState.historyError && (
+																<div className="mt-0.5 truncate text-omp-xs text-[var(--omp-muted)]">
+																	{sanitizeDisplayText(hostState.historyError, REMOTE_TITLE_LIMIT)}
+																</div>
+															)}
+															<button
+																type="button"
+																data-remote-history-retry
+																onClick={() => void refreshRemoteHistory(alias)}
+																className="mt-1 text-omp-xs font-medium text-[var(--omp-link)] hover:underline"
+															>
+																{t("remote.history.retry")}
+															</button>
+														</div>
+													)}
+													{hostState.historyStatus === "ready" &&
+														(remoteSessions.length > 0 ? (
+															remoteSessions.map(renderRemoteSessionRow)
+														) : (
+															<div className="px-3 py-2 text-omp-md text-[var(--omp-dim)]">
+																{searched ? t("remote.history.noMatch") : t("remote.history.empty")}
+															</div>
+														))}
+												</div>
+											</div>
+										</div>
+									</div>
+								);
+							})}
+						</section>
+					)}
 				</div>
 
 				{/* Bottom utility row: theme + language only — stats/settings live in the
@@ -955,33 +1098,31 @@ export function Sidebar() {
 			</aside>
 			<WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} intent="new-session" />
 
-			{/* Code is project-bound; Work is a full agent in the GUI-owned workspace. */}
-			{modeMenu && (
+			{/* "+" type dropdown: Agent (workspace chooser flow) or Chat (direct tab). */}
+			{plusMenu && (
 				<ContextMenu
-					x={modeMenu.x}
-					y={modeMenu.y}
-					onClose={() => setModeMenu(null)}
+					x={plusMenu.x}
+					y={plusMenu.y}
+					onClose={() => setPlusMenu(null)}
 					items={[
 						{
-							id: "mode-code",
-							label: t("sidebar.mode.code"),
-							description: t("sidebar.mode.codeDescription"),
-							icon: Code2,
-							hint: mode === "code" ? "✓" : undefined,
+							id: "new-agent",
+							label: t("sidebar.menu.newAgent"),
+							icon: SquareTerminal,
+							hint: "⌘T",
 							onSelect: () => {
-								setMode("code");
-								setModeMenu(null);
+								setPlusMenu(null);
+								setWorkspaceOpen(true);
 							},
 						},
 						{
-							id: "mode-work",
-							label: t("sidebar.mode.work"),
-							description: t("sidebar.mode.workDescription"),
-							icon: BriefcaseBusiness,
-							hint: mode === "work" ? "✓" : undefined,
+							id: "new-chat",
+							label: t("sidebar.menu.newChat"),
+							icon: MessageCirclePlus,
+							hint: "⇧⌘T",
 							onSelect: () => {
-								setMode("work");
-								setModeMenu(null);
+								setPlusMenu(null);
+								void openTab({ kind: "chat" });
 							},
 						},
 					]}
@@ -1134,6 +1275,60 @@ export function Sidebar() {
 						/>
 					);
 				})()}
+
+			{remoteSessionMenu && (
+				<ContextMenu
+					x={remoteSessionMenu.anchor.x}
+					y={remoteSessionMenu.anchor.y}
+					onClose={() => setRemoteSessionMenu(null)}
+					items={[
+						{
+							id: "remote-resume",
+							label: t("remote.history.resume"),
+							icon: ChevronRight,
+							onSelect: () => {
+								const { session } = remoteSessionMenu;
+								setRemoteSessionMenu(null);
+								resumeRemoteSession(session);
+							},
+						},
+						{
+							id: "remote-start-another",
+							label: t("remote.history.startAnother"),
+							icon: Plus,
+							onSelect: () => {
+								const { session } = remoteSessionMenu;
+								setRemoteSessionMenu(null);
+								startAnotherRemoteSession(session);
+							},
+						},
+						{
+							id: "remote-rename-unsupported",
+							label: t("remote.history.rename"),
+							icon: Pencil,
+							disabled: true,
+							disabledReason: t("remote.history.renameUnsupportedReason"),
+							onSelect: () => {},
+						},
+						{
+							id: "remote-delete-unsupported",
+							label: t("remote.history.delete"),
+							icon: Trash2,
+							disabled: true,
+							disabledReason: t("remote.history.deleteUnsupportedReason"),
+							onSelect: () => {},
+						},
+						{
+							id: "remote-search-unsupported",
+							label: t("remote.history.searchTranscript"),
+							icon: Search,
+							disabled: true,
+							disabledReason: t("remote.history.searchUnsupportedReason"),
+							onSelect: () => {},
+						},
+					]}
+				/>
+			)}
 		</>
 	);
 }

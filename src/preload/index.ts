@@ -31,6 +31,20 @@ import type {
 	SessionInfo,
 	TrayState,
 	UpdateStatus,
+	RemotePreflightResult,
+	RemoteHistoryResult,
+	SshSessionTarget,
+	IpcRemoteCancelRequestPayload,
+	IpcRemoteValidateDirectoryPayload,
+	RemoteCatalogResult,
+	IpcRemoteNoteWorkspacePayload,
+	IpcRemotePreflightPayload,
+	IpcRemoteCatalogPayload,
+	IpcRemoteListDirectoriesPayload,
+	RemoteDirectoryValidationResult,
+	RemoteDirectoryListResult,
+	IpcRemoteSetExecutableOverridePayload,
+	IpcRemoteListHistoryPayload,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import type {
@@ -422,6 +436,59 @@ const api: OmpApi = {
 		openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 		consumePendingOpen: () => ipcRenderer.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
+	},
+	remote: {
+		catalog: () =>
+			ipcRenderer.invoke(
+				IPC_COMMANDS.REMOTE_CATALOG,
+				{} satisfies IpcRemoteCatalogPayload,
+			) as Promise<RemoteCatalogResult>,
+		setExecutableOverride: (hostAlias: string, value: string | null) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_SET_EXECUTABLE_OVERRIDE, {
+				hostAlias,
+				value,
+			} satisfies IpcRemoteSetExecutableOverridePayload) as Promise<RemoteCatalogResult>,
+		cancel: (requestId: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_CANCEL_REQUEST, {
+				requestId,
+			} satisfies IpcRemoteCancelRequestPayload) as Promise<boolean>,
+		preflight: (target: SshSessionTarget, tabId: string | undefined, requestId: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_PREFLIGHT, {
+				target,
+				requestId,
+				...(tabId ? { tabId } : {}),
+			} satisfies IpcRemotePreflightPayload) as Promise<RemotePreflightResult>,
+		listDirectories: (
+			target: SshSessionTarget,
+			path: string,
+			showHidden: boolean,
+			tabId: string | undefined,
+			requestId: string,
+		) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_LIST_DIRECTORIES, {
+				target,
+				requestId,
+				path,
+				showHidden,
+				...(tabId ? { tabId } : {}),
+			} satisfies IpcRemoteListDirectoriesPayload) as Promise<RemoteDirectoryListResult>,
+		validateDirectory: (target: SshSessionTarget, path: string, tabId: string | undefined, requestId: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_VALIDATE_DIRECTORY, {
+				target,
+				requestId,
+				path,
+				...(tabId ? { tabId } : {}),
+			} satisfies IpcRemoteValidateDirectoryPayload) as Promise<RemoteDirectoryValidationResult>,
+		noteWorkspace: (hostAlias: string, cwd: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_NOTE_WORKSPACE, {
+				hostAlias,
+				cwd,
+			} satisfies IpcRemoteNoteWorkspacePayload) as Promise<RemoteCatalogResult>,
+		listHistory: (hostAlias: string, cursor?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_LIST_HISTORY, {
+				hostAlias,
+				cursor,
+			} satisfies IpcRemoteListHistoryPayload) as Promise<RemoteHistoryResult>,
 	},
 
 	tabs: {

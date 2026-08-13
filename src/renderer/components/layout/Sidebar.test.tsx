@@ -1,6 +1,6 @@
 /**
- * Sidebar integration contracts: Code/Work modes, first-class global chats,
- * workspace group context menu (5 items), session row
+ * Sidebar integration contracts: the "+" type dropdown, workspace group
+ * context menu (5 items), global Chat/workspace separation, session row
  * context menu (6 items), pinned-first ordering, per-task busy gates, and
  * tab-first opening.
  * Same linkedom + react-dom harness as TabBar.test.tsx.
@@ -10,9 +10,18 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { SessionInfo } from "../../../shared/ipc-types";
+import type {
+	RemoteCatalogResult,
+	RemoteHistoryResult,
+	RemoteHistorySession,
+	RemoteHostCatalogEntry,
+	RemoteHostCatalogSnapshot,
+	SessionInfo,
+	SshSessionTarget,
+} from "../../../shared/ipc-types";
 import { useSidebarRecency } from "../../hooks/use-sidebar-recency";
 import { I18nProvider } from "../../lib/i18n";
+import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
@@ -39,15 +48,17 @@ interface TestElement {
 }
 
 interface MockOmp {
-	sidecar: {
-		defaultWorkspace: Mock<() => Promise<string>>;
-	};
 	sessions: {
 		list: Mock<(scope: string) => Promise<SessionInfo[]>>;
 		delete: Mock<(path: string) => Promise<void>>;
 		rename: Mock<(path: string, name: string) => Promise<void>>;
 		search: Mock<(query: string, scope: string) => Promise<string[]>>;
 		openInNewWindow: Mock<(payload: { sessionPath?: string }) => Promise<boolean>>;
+	};
+	remote: {
+		catalog: Mock<() => Promise<RemoteCatalogResult>>;
+		listHistory: Mock<(hostAlias: string) => Promise<RemoteHistoryResult>>;
+		noteWorkspace: Mock<(hostAlias: string, cwd: string) => Promise<RemoteCatalogResult>>;
 	};
 	events: {
 		onSessionsChanged: Mock<() => () => void>;
@@ -56,7 +67,7 @@ interface MockOmp {
 	};
 	tabs: {
 		list: Mock<() => Promise<unknown[]>>;
-		spawn: Mock<(payload: unknown) => Promise<{ tabId: string; cwd?: string } | null>>;
+		spawn: Mock<(payload: unknown) => Promise<{ tabId: string } | null>>;
 		setActive: Mock<(tabId: string) => Promise<boolean>>;
 		close: Mock<(tabId: string) => Promise<boolean>>;
 		getSessionOwner: Mock<(path: string) => Promise<null>>;
@@ -70,15 +81,17 @@ interface MockOmp {
 
 function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 	const omp: MockOmp = {
-		sidecar: {
-			defaultWorkspace: vi.fn(async () => "/default/work"),
-		},
 		sessions: {
 			list: vi.fn(async () => sessionList),
 			delete: vi.fn(async () => {}),
 			rename: vi.fn(async () => {}),
 			search: vi.fn(async () => []),
 			openInNewWindow: vi.fn(async () => true),
+		},
+		remote: {
+			catalog: vi.fn(async () => ({ ok: true, catalog: { hosts: [], updatedAt: null } })),
+			listHistory: vi.fn(async () => ({ ok: true, sessions: [] })),
+			noteWorkspace: vi.fn(async () => ({ ok: true, catalog: { hosts: [], updatedAt: null } })),
 		},
 		events: {
 			onSessionsChanged: vi.fn(() => () => {}),
@@ -87,10 +100,7 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		},
 		tabs: {
 			list: vi.fn(async () => []),
-			spawn: vi.fn(async payload => ({
-				tabId: "t-new",
-				...((payload as { defaultWorkspace?: boolean }).defaultWorkspace ? { cwd: "/default/work" } : {}),
-			})),
+			spawn: vi.fn(async () => ({ tabId: "t-new" })),
 			setActive: vi.fn(async () => true),
 			close: vi.fn(async () => true),
 			getSessionOwner: vi.fn(async () => null),
@@ -130,6 +140,49 @@ function session(path: string, cwd: string, overrides: Partial<SessionInfo> = {}
 		status: "complete",
 		firstMessage: "hello",
 		...overrides,
+	};
+}
+
+function remoteHost(alias: string): RemoteHostCatalogEntry {
+	return {
+		alias,
+		host: {
+			host: `${alias}.example.com`,
+			sourceId: `source-${alias}`,
+			sourceLevel: "user",
+		},
+		recentWorkspaces: [],
+	};
+}
+
+function remoteCatalog(...aliases: string[]): RemoteHostCatalogSnapshot {
+	return { hosts: aliases.map(remoteHost), updatedAt: "2026-08-12T12:00:00.000Z" };
+}
+
+function remoteTarget(alias: string, cwd: string): SshSessionTarget {
+	return {
+		type: "ssh",
+		hostAlias: alias,
+		host: remoteHost(alias).host,
+		originCwd: cwd,
+		cwd,
+	};
+}
+
+function remoteSession(
+	alias: string,
+	sessionId: string,
+	cwd: string,
+	title: string | null,
+	meta?: Record<string, unknown>,
+): RemoteHistorySession {
+	return {
+		target: remoteTarget(alias, cwd),
+		sessionId,
+		cwd,
+		title,
+		updatedAt: "2026-08-12T11:00:00.000Z",
+		...(meta === undefined ? {} : { meta }),
 	};
 }
 
@@ -174,6 +227,18 @@ async function fire(element: Element | TestElement | null, prop: "onClick" | "on
 	await flush();
 }
 
+async function change(element: Element | TestElement | null, value: string): Promise<void> {
+	if (!element) throw new Error("change: element is null");
+	const record = element as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey ? (record[propsKey] as { onChange?: (event: unknown) => void } | undefined) : undefined;
+	if (!props?.onChange) throw new Error("change: onChange not found on element");
+	await act(async () => {
+		props.onChange?.({ target: { value } });
+	});
+	await flush();
+}
+
 function menuItemLabels(): string[] {
 	return [...document.body.querySelectorAll('[role="menu"] button')].map(b => (b.textContent ?? "").trim());
 }
@@ -189,14 +254,9 @@ afterEach(async () => {
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
 	useSidebarPrefs.getState().reset();
-	useUiStore.setState({
-		panelVisible: false,
-		sessionPickerOpen: false,
-		hotkeysOpen: false,
-		usageOpen: false,
-		providersOpen: false,
-		statsDashboardOpen: false,
-	});
+	useUiStore.setState({ panelVisible: false });
+	useRemoteStore.getState().reset();
+	vi.restoreAllMocks();
 });
 
 const LIST = [
@@ -208,7 +268,16 @@ const LIST = [
 function seedStores(): void {
 	useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/alpha", isStreaming: false });
 	useTabsStore.setState({
-		tabs: [{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false }],
+		tabs: [
+			{
+				id: "t0",
+				cwd: "/work/alpha",
+				target: { type: "local" },
+				status: "ready",
+				kind: "agent",
+				unreadDone: false,
+			},
+		],
 		activeTabId: "t0",
 		bundles: new Map(),
 	});
@@ -220,40 +289,6 @@ function SidebarWithRecency() {
 }
 
 describe("Sidebar menus and pinned ordering", () => {
-	it("lists the former titlebar actions below New session and collapses them as one menu", async () => {
-		installMockOmp(LIST);
-		seedStores();
-		await mount(<Sidebar />);
-
-		const navigation = container.querySelector("[data-sidebar-navigation]");
-		for (const label of [
-			"Commands",
-			"Agent Hub",
-			"Providers & login",
-			"Usage & quotas",
-			"Session stats",
-			"PR Center",
-			"Open workspace",
-			"Keyboard shortcuts",
-			"Settings",
-		]) {
-			expect(navigation?.textContent).toContain(label);
-		}
-
-		const hotkeys = [...navigation!.querySelectorAll("button")].find(button =>
-			(button.textContent ?? "").includes("Keyboard shortcuts"),
-		);
-		if (!hotkeys) throw new Error("Keyboard shortcuts navigation item missing");
-		await fire(hotkeys, "onClick");
-		expect(useUiStore.getState().hotkeysOpen).toBe(true);
-
-		const collapse = navigation!.querySelector('[aria-label="Collapse navigation"]');
-		await fire(collapse, "onClick");
-		expect((navigation!.querySelector(".omp-sidebar-group") as unknown as Element).getAttribute("aria-hidden")).toBe(
-			"true",
-		);
-	});
-
 	it("moves the most recently used session and its workspace to the front immediately", async () => {
 		const omp = installMockOmp(LIST);
 		useSessionStore.setState({ sessionId: "", cwd: "/neutral", isStreaming: false });
@@ -308,53 +343,25 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 	});
 
-	it("switches from an active Chat to Work and exposes only the full agent action", async () => {
-		const omp = installMockOmp(LIST);
-		useSessionStore.setState({ sessionId: "chat", cwd: "/work/alpha", isStreaming: false });
-		useTabsStore.setState({
-			tabs: [{ id: "chat", cwd: "/work/alpha", status: "ready", kind: "chat", unreadDone: false }],
-			activeTabId: "chat",
-			bundles: new Map(),
-		});
-		await mount(<Sidebar />);
-
-		const modeButton = container.querySelector('[aria-label="Choose workspace mode"], [aria-label="选择工作模式"]');
-		await fire(modeButton, "onClick");
-
-		const labels = menuItemLabels();
-		expect(labels.some(label => label.includes("Build, debug, and ship in a project"))).toBe(true);
-		expect(labels.some(label => label.includes("Full agent in your default workspace"))).toBe(true);
-		expect(labels).toHaveLength(2);
-
-		const workItem = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
-			(button.textContent ?? "").includes("Full agent in your default workspace"),
-		);
-		await fire(workItem as Element, "onClick");
-		expect(container.querySelector("[data-sidebar-new-chat]")).toBeNull();
-		await fire(container.querySelector("[data-sidebar-new-agent]"), "onClick");
-
-		expect(omp.tabs.spawn).toHaveBeenCalledWith({
-			cwd: undefined,
-			sessionPath: undefined,
-			kind: "agent",
-			defaultWorkspace: true,
-			worktree: undefined,
-		});
-		expect(omp.tabs.setActive).toHaveBeenCalledWith("t-new");
-		expect(useTabsStore.getState()).toMatchObject({
-			activeTabId: "t-new",
-			tabs: expect.arrayContaining([expect.objectContaining({ id: "t-new", kind: "agent", cwd: "/default/work" })]),
-		});
-	});
-
-	it("opens the existing global session picker from the header", async () => {
+	it("+ button opens the type dropdown with agent and chat entries", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
 
-		await fire(container.querySelector('[aria-label="Search sessions"], [aria-label="搜索会话"]'), "onClick");
+		const plus = container.querySelector('[aria-label="New session"], [aria-label="新建会话"]');
+		expect(plus).not.toBeNull();
+		// Dispatch a real bubbling click instead of calling React's onClick prop
+		// directly. The real event must finish bubbling without the newly-mounted
+		// menu mistaking its own trigger click for an outside dismissal.
+		await act(async () => {
+			(plus as unknown as Element).dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		await flush();
 
-		expect(useUiStore.getState().sessionPickerOpen).toBe(true);
+		const labels = menuItemLabels();
+		expect(labels.some(label => label.includes("New agent session"))).toBe(true);
+		expect(labels.some(label => label.includes("New chat session"))).toBe(true);
+		expect(labels).toHaveLength(2);
 	});
 
 	it("uses visible vertical signal lights for session state", async () => {
@@ -481,53 +488,31 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.sessions.openInNewWindow).not.toHaveBeenCalled();
 	});
 
-	it("keeps chats visible in their global section and creates one from the adjacent quick action", async () => {
+	it("renders chats globally outside workspaces and opens them in chat tabs", async () => {
 		const chat = session("/work/alpha/chat.jsonl", "/work/alpha", { kind: "chat" });
 		const agent = session("/work/alpha/agent.jsonl", "/work/alpha");
 		const omp = installMockOmp([chat, agent]);
 		seedStores();
 		await mount(<Sidebar />);
 
+		const chatSection = container.querySelector("[data-chat-section]");
 		const workspace = container.querySelector('[data-session-group="/work/alpha"]');
-		const chats = container.querySelector('[data-session-group="__chats__"]');
+		expect(chatSection?.textContent).toContain("Session /work/alpha/chat");
+		expect(chatSection?.textContent).not.toContain("Session /work/alpha/agent");
 		expect(workspace?.textContent).toContain("Session /work/alpha/agent");
 		expect(workspace?.textContent).not.toContain("Session /work/alpha/chat");
-		expect(chats?.textContent).toContain("Session /work/alpha/chat");
-		const chatRow = [...chats!.querySelectorAll('div[role="button"]')].find(element =>
-			(element.textContent ?? "").includes("Session /work/alpha/chat"),
+
+		const row = [...chatSection!.querySelectorAll('div[role="button"]')].find(el =>
+			(el.textContent ?? "").includes("Session /work/alpha/chat"),
 		);
-		await fire(chatRow as unknown as Element, "onClick");
-		expect(omp.tabs.spawn).toHaveBeenLastCalledWith({
+		await fire(row as unknown as Element, "onClick");
+
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({
 			cwd: "/work/alpha",
 			kind: "chat",
 			sessionPath: "/work/alpha/chat.jsonl",
 			worktree: undefined,
 		});
-
-		await fire(container.querySelector("[data-sidebar-new-chat]"), "onClick");
-		expect(omp.tabs.spawn).toHaveBeenLastCalledWith({
-			cwd: "/work/alpha",
-			kind: "chat",
-			sessionPath: undefined,
-			worktree: undefined,
-		});
-	});
-
-	it("keeps an active chat in Code even when its internal cwd is the Work workspace", async () => {
-		const chat = session("/default/work/chat.jsonl", "/default/work", { kind: "chat" });
-		installMockOmp([chat]);
-		useSessionStore.setState({ sessionId: chat.id, cwd: "/default/work", isStreaming: false });
-		useTabsStore.setState({
-			tabs: [{ id: "chat", cwd: "/default/work", status: "ready", kind: "chat", unreadDone: false }],
-			activeTabId: "chat",
-			bundles: new Map(),
-		});
-		await mount(<Sidebar />);
-
-		expect(container.querySelector("[data-chat-section]")).not.toBeNull();
-		expect(
-			container.querySelector('[aria-label="Choose workspace mode"], [aria-label="选择工作模式"]')?.textContent,
-		).toContain("Code");
 	});
 
 	it("keeps the active task protected while it is compacting", async () => {
@@ -628,5 +613,153 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(actions).not.toBeNull();
 		expect(actions?.className).not.toMatch(/\bw-\d|\bwidth/);
 		expect(row?.querySelector("[data-overflow]")).toBeNull();
+	});
+});
+
+describe("Sidebar remote history", () => {
+	it("loads one host lazily and refreshes only that host", async () => {
+		const omp = installMockOmp([]);
+		useRemoteStore.getState().setCatalog(remoteCatalog("build", "prod"));
+		omp.remote.listHistory.mockImplementation(async alias => ({
+			ok: true,
+			sessions: [remoteSession(alias, `${alias}-1`, alias === "build" ? "/srv/app" : "/opt/prod", null)],
+		}));
+
+		await mount(<Sidebar />);
+		expect(omp.remote.listHistory).not.toHaveBeenCalled();
+
+		await fire(container.querySelector('[data-remote-host="build"] [data-remote-host-toggle]'), "onClick");
+		expect(omp.remote.listHistory).toHaveBeenCalledTimes(1);
+		expect(omp.remote.listHistory).toHaveBeenLastCalledWith("build");
+		expect(container.querySelector('[data-remote-session="build-1"]')).not.toBeNull();
+		expect(useRemoteStore.getState().hosts.prod?.historyStatus).toBe("idle");
+
+		await fire(
+			container.querySelector('[data-remote-host="build"] [aria-label="Refresh remote history"]'),
+			"onClick",
+		);
+		expect(omp.remote.listHistory).toHaveBeenCalledTimes(2);
+		expect(omp.remote.listHistory).toHaveBeenLastCalledWith("build");
+		expect(useRemoteStore.getState().hosts.prod?.historyStatus).toBe("idle");
+	});
+
+	it("filters loaded alias, cwd, and title metadata without searching journals", async () => {
+		const omp = installMockOmp([]);
+		useRemoteStore.getState().setCatalog(remoteCatalog("build"));
+		omp.remote.listHistory.mockResolvedValue({
+			ok: true,
+			sessions: [
+				remoteSession("build", "release", "/srv/app", "Release\ntrain", { journal: "private needle" }),
+				remoteSession("build", "database", "/opt/database", null),
+			],
+		});
+		await useRemoteStore.getState().refreshHistory("build");
+		omp.remote.listHistory.mockClear();
+
+		await mount(<Sidebar />);
+		const search = container.querySelector('input[placeholder="Search sessions…"]');
+
+		await change(search, "private needle");
+		expect(container.querySelector('[data-remote-session="release"]')).toBeNull();
+		expect(container.querySelector('[data-remote-session="database"]')).toBeNull();
+
+		await change(search, "release train");
+		expect(container.querySelector('[data-remote-session="release"]')?.textContent).toContain("Release train");
+		expect(container.querySelector('[data-remote-session="database"]')).toBeNull();
+
+		await change(search, "/opt/database");
+		expect(container.querySelector('[data-remote-session="database"]')).not.toBeNull();
+
+		await change(search, "build");
+		expect(container.querySelectorAll("[data-remote-session]")).toHaveLength(2);
+		expect(omp.sessions.search).not.toHaveBeenCalled();
+		expect(omp.remote.listHistory).not.toHaveBeenCalled();
+	});
+
+	it("resumes and starts another session with only target-aware remote payloads", async () => {
+		const omp = installMockOmp([]);
+		const target = remoteTarget("build", "/srv/app");
+		useRemoteStore.getState().setCatalog(remoteCatalog("build"));
+		omp.remote.listHistory.mockResolvedValue({
+			ok: true,
+			sessions: [{ ...remoteSession("build", "s-1", "/srv/app", "Deploy"), target }],
+		});
+		await useRemoteStore.getState().refreshHistory("build");
+		const openTab = vi.spyOn(useTabsStore.getState(), "openTab").mockResolvedValue("remote-tab");
+
+		await mount(<Sidebar />);
+		await fire(container.querySelector('[data-remote-host="build"] [data-remote-host-toggle]'), "onClick");
+		const row = container.querySelector('[data-remote-session="s-1"]');
+		await fire(row, "onClick");
+		expect(openTab).toHaveBeenLastCalledWith({ target, cwd: "/srv/app", resumeSessionId: "s-1" });
+
+		openTab.mockClear();
+		await fire(row, "onContextMenu");
+		const buttons = [...document.body.querySelectorAll('[role="menu"] button')];
+		const startAnother = buttons.find(button => (button.textContent ?? "").includes("Start another session"));
+		await fire(startAnother as unknown as TestElement, "onClick");
+		expect(openTab).toHaveBeenCalledWith({ target, cwd: "/srv/app" });
+		expect(openTab).toHaveBeenCalledTimes(1);
+		expect(omp.sessions.delete).not.toHaveBeenCalled();
+		expect(omp.sessions.rename).not.toHaveBeenCalled();
+		expect(omp.sessions.search).not.toHaveBeenCalled();
+	});
+
+	it("shows localized disabled explanations for unsupported remote actions", async () => {
+		const omp = installMockOmp([]);
+		useRemoteStore.getState().setCatalog(remoteCatalog("legacy"));
+		omp.remote.listHistory.mockResolvedValue({
+			ok: true,
+			sessions: [remoteSession("legacy", "old-1", "/srv/legacy", "Legacy deploy")],
+		});
+		await useRemoteStore.getState().refreshHistory("legacy");
+
+		await mount(<Sidebar />);
+		await fire(container.querySelector('[data-remote-host="legacy"] [data-remote-host-toggle]'), "onClick");
+		await fire(container.querySelector('[data-remote-session="old-1"]'), "onContextMenu");
+
+		const buttons = [...document.body.querySelectorAll('[role="menu"] button')];
+		const unsupported = buttons.filter(button =>
+			["Rename closed remote session", "Delete remote session", "Search remote transcript"].some(label =>
+				(button.textContent ?? "").includes(label),
+			),
+		);
+		expect(unsupported).toHaveLength(3);
+		expect(unsupported.every(button => button.hasAttribute("disabled"))).toBe(true);
+		expect(unsupported.map(button => button.getAttribute("title"))).toEqual([
+			"Closed remote sessions cannot be renamed because the remote ACP server does not expose that operation.",
+			"Remote sessions cannot be deleted because the remote ACP server does not expose that operation.",
+			"Remote transcript search is unavailable because only session metadata is loaded.",
+		]);
+		expect(omp.sessions.delete).not.toHaveBeenCalled();
+		expect(omp.sessions.rename).not.toHaveBeenCalled();
+		expect(omp.sessions.search).not.toHaveBeenCalled();
+	});
+
+	it("renders unsupported history and retries a failed host without touching peers", async () => {
+		const omp = installMockOmp([]);
+		useRemoteStore.getState().setCatalog(remoteCatalog("legacy", "build", "prod"));
+		omp.remote.listHistory.mockImplementation(async alias => {
+			if (alias === "legacy") return { ok: false, unsupported: true, error: "ACP session/list unavailable" };
+			if (alias === "build" && omp.remote.listHistory.mock.calls.filter(call => call[0] === "build").length === 1) {
+				return { ok: false, error: "build disconnected" };
+			}
+			return { ok: true, sessions: [remoteSession(alias, `${alias}-1`, "/srv/app", null)] };
+		});
+
+		await mount(<Sidebar />);
+		await fire(container.querySelector('[data-remote-host="legacy"] [data-remote-host-toggle]'), "onClick");
+		expect(container.querySelector('[data-remote-host="legacy"]')?.textContent).toContain(
+			"Remote history requires a newer remote OMP",
+		);
+
+		await fire(container.querySelector('[data-remote-host="build"] [data-remote-host-toggle]'), "onClick");
+		expect(container.querySelector('[data-remote-host="build"]')?.textContent).toContain(
+			"Could not load remote history",
+		);
+		await fire(container.querySelector('[data-remote-host="build"] [data-remote-history-retry]'), "onClick");
+		expect(container.querySelector('[data-remote-session="build-1"]')).not.toBeNull();
+		expect(omp.remote.listHistory.mock.calls.map(call => call[0])).toEqual(["legacy", "build", "build"]);
+		expect(useRemoteStore.getState().hosts.prod?.historyStatus).toBe("idle");
 	});
 });

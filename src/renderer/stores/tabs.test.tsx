@@ -18,7 +18,14 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { IpcSpawnTabPayload, IpcSpawnTabResult, IpcTabInfo, IpcTabStatusPayload } from "../../shared/ipc-types";
+import type {
+	IpcSpawnTabPayload,
+	IpcSpawnTabResult,
+	IpcTabInfo,
+	IpcTabStatusPayload,
+	SessionTarget,
+	SshSessionTarget,
+} from "../../shared/ipc-types";
 import type {
 	AgentMessage,
 	ModelInfo,
@@ -85,10 +92,31 @@ function msg(text: string): AgentMessage {
 	return { role: "user", content: [{ type: "text", text }], timestamp: 1 } as AgentMessage;
 }
 
-function tabInfo(tabId: string, cwd: string, status: IpcTabInfo["status"] = "ready"): IpcTabInfo {
-	return { tabId, cwd, status, kind: "agent" };
+function tabInfo(
+	tabId: string,
+	cwd: string,
+	status: IpcTabInfo["status"] = "ready",
+	target: SessionTarget = { type: "local" },
+): IpcTabInfo {
+	return { tabId, cwd, target, status, kind: "agent" };
 }
 
+function sshTarget(cwd = "/srv/app"): SshSessionTarget {
+	return {
+		type: "ssh",
+		hostAlias: "build",
+		host: {
+			host: "build.example.com",
+			username: "deploy",
+			port: 2202,
+			sourceId: "ssh-config",
+			sourceLevel: "user",
+		},
+		originCwd: "/srv/origin",
+		cwd,
+		executableOverride: "/opt/omp",
+	};
+}
 interface MockOmp {
 	tabs: {
 		list: Mock<() => Promise<IpcTabInfo[]>>;
@@ -149,9 +177,9 @@ function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
 function seedTabs(active: "t0" | "t1" | "t2" = "t0"): void {
 	useTabsStore.setState({
 		tabs: [
-			{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-			{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
-			{ kind: "agent", id: "t2", cwd: "/gamma", status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
+			{ kind: "agent", id: "t2", cwd: "/gamma", target: { type: "local" }, status: "ready", unreadDone: false },
 		],
 		activeTabId: active,
 		bundles: new Map(),
@@ -248,13 +276,28 @@ describe("tabs store boot reconciliation", () => {
 		await useTabsStore.getState().reconcileTabs();
 		expect(useTabsStore.getState().tabs).toHaveLength(1);
 
-		useTabsStore
-			.getState()
-			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", title: "Alpha" });
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/alpha",
+			target: { type: "local" },
+			status: "ready",
+			title: "Alpha",
+		});
 		await useTabsStore.getState().reconcileTabs();
 		const tabs = useTabsStore.getState().tabs;
 		expect(tabs).toHaveLength(1);
 		expect(tabs[0]?.title).toBe("Alpha");
+	});
+
+	it("defaults a missing legacy IPC target to local", async () => {
+		omp.tabs.list.mockResolvedValue([
+			{ tabId: "legacy", cwd: "/legacy", status: "ready", kind: "agent" } as IpcTabInfo,
+		]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(useTabsStore.getState().tabs[0]?.target).toEqual({ type: "local" });
 	});
 
 	it("keeps renderer-known tabs the reply misses and re-converges active on reload", async () => {
@@ -300,6 +343,7 @@ describe("tabs store boot reconciliation", () => {
 			kind: "agent",
 			tabId: "t0",
 			cwd: "/alpha",
+			target: { type: "local" },
 			status: "ready",
 			title: "Old",
 			sessionId: "s-old",
@@ -307,7 +351,15 @@ describe("tabs store boot reconciliation", () => {
 		await useTabsStore.getState().switchTab("t1");
 		expect(useTabsStore.getState().bundles.has("t0")).toBe(true);
 		omp.tabs.list.mockResolvedValue([
-			{ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", title: null, sessionId: "s-new" },
+			{
+				kind: "agent",
+				tabId: "t0",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				title: null,
+				sessionId: "s-new",
+			},
 			tabInfo("t1", "/beta"),
 			tabInfo("t2", "/gamma"),
 		]);
@@ -334,23 +386,26 @@ describe("tabs store switch", () => {
 		expect(useTabsStore.getState().activeTabId).toBe("t1");
 	});
 
-	it("opens Work as an agent in the main-owned default workspace", async () => {
+	it("forwards an SSH target and resume id and derives cwd from the target", async () => {
 		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
 		await useTabsStore.getState().reconcileTabs();
-		useSessionStore.setState({ cwd: "/alpha" });
-		omp.tabs.spawn.mockResolvedValue({ tabId: "t-work", cwd: "/Users/test/.omp/work" });
+		const target = sshTarget();
+		omp.tabs.spawn.mockResolvedValue({ tabId: "remote-1" });
 
-		const tabId = await useTabsStore.getState().openTab({ work: true });
+		const tabId = await useTabsStore.getState().openTab({
+			target,
+			resumeSessionId: "acp-session-1",
+		});
 
-		expect(tabId).toBe("t-work");
+		expect(tabId).toBe("remote-1");
 		expect(omp.tabs.spawn).toHaveBeenCalledWith({
-			cwd: undefined,
+			cwd: "/srv/app",
 			sessionPath: undefined,
 			kind: "agent",
-			defaultWorkspace: true,
-			worktree: undefined,
+			target,
+			resumeSessionId: "acp-session-1",
 		});
-		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t-work")?.cwd).toBe("/Users/test/.omp/work");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "remote-1")?.target).toBe(target);
 	});
 
 	it("hydrates a fresh tab when its ready push beats full route wiring", async () => {
@@ -368,7 +423,9 @@ describe("tabs store switch", () => {
 
 		// The light per-tab channel reports ready before main finishes attaching
 		// the full active-tab channel, so no full ready event will replay.
-		useTabsStore.getState().applyTabStatus({ kind: "chat", tabId: "t1", cwd: "/alpha", status: "ready" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "chat", tabId: "t1", cwd: "/alpha", target: { type: "local" }, status: "ready" });
 		route.resolve(true);
 		await opening;
 
@@ -421,6 +478,26 @@ describe("tabs store switch", () => {
 		await useTabsStore.getState().switchTab("t1");
 
 		expect(useSessionStore.getState().cwd).toBe("/beta");
+	});
+
+	it("hydrates only the SSH target cwd while preserving its immutable identity", async () => {
+		seedTabs();
+		const target = sshTarget();
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, cwd: target.cwd, target } : tab)),
+		}));
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ cwd: "/srv/new" })));
+
+		await useTabsStore.getState().switchTab("t1");
+
+		const hydrated = useTabsStore.getState().tabs.find(tab => tab.id === "t1");
+		expect(hydrated?.cwd).toBe("/srv/new");
+		expect(hydrated?.target).toEqual({
+			...target,
+			cwd: "/srv/new",
+		});
+		expect(hydrated?.target.type === "ssh" ? hydrated.target.host : null).toBe(target.host);
+		expect(useSessionStore.getState().cwd).toBe("/srv/new");
 	});
 
 	it("closes outgoing session overlays while keeping global windows open", async () => {
@@ -586,7 +663,9 @@ describe("tabs store switch", () => {
 	it("derives run state from the tab entry when restoring a background-running tab", async () => {
 		seedTabs();
 		// t1's run kept going in the background; the pool reported it.
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "running" });
 
 		// Gate the hydrate so the restored (pre-hydrate) state is observable.
 		const gate = Promise.withResolvers<RpcResponse>();
@@ -709,10 +788,14 @@ describe("tabs store applyTabStatus", () => {
 	it("sets unreadDone when a background run settles, cleared on visit", async () => {
 		seedTabs();
 
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "running" });
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
 
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(true);
 
 		await useTabsStore.getState().switchTab("t1");
@@ -721,8 +804,12 @@ describe("tabs store applyTabStatus", () => {
 
 	it("does not badge the active tab's own run settling", () => {
 		seedTabs();
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "running" });
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "running" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t0")?.unreadDone).toBe(false);
 	});
 
@@ -730,24 +817,38 @@ describe("tabs store applyTabStatus", () => {
 		seedTabs();
 		useSessionStore.setState({ status: "starting", cwd: "" });
 
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
 		expect(useSessionStore.getState().status).toBe("ready");
 		expect(useSessionStore.getState().cwd).toBe("/alpha");
 
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "exited" });
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "exited" });
 		expect(useSessionStore.getState().status).toBe("ready");
 		expect(useSessionStore.getState().cwd).toBe("/alpha");
 	});
 
 	it("upserts unknown tabs and preserves title/sessionId across pushes", () => {
 		seedTabs();
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t9", cwd: "/new", status: "starting" });
-		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toContain("t9");
-
 		useTabsStore
 			.getState()
-			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready", title: "Beta", sessionId: "s9" });
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+			.applyTabStatus({ kind: "agent", tabId: "t9", cwd: "/new", target: { type: "local" }, status: "starting" });
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toContain("t9");
+
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t1",
+			cwd: "/beta",
+			target: { type: "local" },
+			status: "ready",
+			title: "Beta",
+			sessionId: "s9",
+		});
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });
 		const t1 = useTabsStore.getState().tabs.find(tab => tab.id === "t1");
 		expect(t1?.title).toBe("Beta");
 		expect(t1?.sessionId).toBe("s9");
@@ -759,6 +860,7 @@ describe("tabs store applyTabStatus", () => {
 			kind: "agent",
 			tabId: "t0",
 			cwd: "/alpha",
+			target: { type: "local" },
 			status: "ready",
 			sessionPath: "/sessions/old.jsonl",
 		});
@@ -768,10 +870,47 @@ describe("tabs store applyTabStatus", () => {
 			kind: "agent",
 			tabId: "t0",
 			cwd: "/alpha",
+			target: { type: "local" },
 			status: "ready",
 			sessionPath: null,
 		});
 		expect(useTabsStore.getState().tabs[0]?.sessionPath).toBeUndefined();
+	});
+
+	it("retains an established SSH target through status merges", () => {
+		seedTabs();
+		const target = sshTarget();
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, cwd: target.cwd, target } : tab)),
+		}));
+
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t1",
+			cwd: "/srv/status",
+			target: { type: "local" },
+			status: "running",
+			title: "Remote run",
+		});
+
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")).toMatchObject({
+			cwd: "/srv/status",
+			title: "Remote run",
+			target,
+		});
+	});
+
+	it("defaults an unknown status snapshot with no target to local", () => {
+		seedTabs();
+
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "legacy-status",
+			cwd: "/legacy",
+			status: "ready",
+		} as IpcTabStatusPayload);
+
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "legacy-status")?.target).toEqual({ type: "local" });
 	});
 
 	it("drops a parked bundle when the sidecar replaces its session", async () => {
@@ -781,6 +920,7 @@ describe("tabs store applyTabStatus", () => {
 			kind: "agent",
 			tabId: "t0",
 			cwd: "/old",
+			target: { type: "local" },
 			status: "ready",
 			title: "Old title",
 			sessionId: "s-old",
@@ -792,6 +932,7 @@ describe("tabs store applyTabStatus", () => {
 			kind: "agent",
 			tabId: "t0",
 			cwd: "/old",
+			target: { type: "local" },
 			status: "ready",
 			title: null,
 			sessionId: "s-new",
@@ -867,7 +1008,9 @@ describe("useSessionTabs hook", () => {
 
 	it("hydrates an active fresh tab when ready only arrives on the light channel", async () => {
 		useTabsStore.setState({
-			tabs: [{ kind: "chat", id: "t1", cwd: "/beta", status: "starting", unreadDone: false }],
+			tabs: [
+				{ kind: "chat", id: "t1", cwd: "/beta", target: { type: "local" }, status: "starting", unreadDone: false },
+			],
 			activeTabId: "t1",
 			bundles: new Map(),
 		});
@@ -875,7 +1018,7 @@ describe("useSessionTabs hook", () => {
 		await mount();
 
 		await act(async () => {
-			emitTabStatus({ kind: "chat", tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "chat", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });
 		});
 		await act(async () => {
 			const { promise, resolve } = Promise.withResolvers<void>();
@@ -895,6 +1038,7 @@ describe("useSessionTabs hook", () => {
 					kind: "agent",
 					id: "t1",
 					cwd: "/beta",
+					target: { type: "local" },
 					status: "starting",
 					unreadDone: false,
 					pendingSessionPath: "/s.json",
@@ -906,7 +1050,7 @@ describe("useSessionTabs hook", () => {
 		await mount();
 
 		await act(async () => {
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });
 		});
 		// The switch + hydrate run in a trailing microtask chain.
 		await act(async () => {
@@ -921,7 +1065,7 @@ describe("useSessionTabs hook", () => {
 
 		// A duplicate ready push must not re-enter the flow.
 		await act(async () => {
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });
 		});
 		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
 	});
@@ -933,6 +1077,7 @@ describe("useSessionTabs hook", () => {
 					kind: "agent",
 					id: "t1",
 					cwd: "/beta",
+					target: { type: "local" },
 					status: "starting",
 					unreadDone: false,
 					pendingSessionPath: "/s.json",
@@ -947,7 +1092,7 @@ describe("useSessionTabs hook", () => {
 		await mount();
 
 		await act(async () => {
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });
 		});
 		// The gate + hydrate run in a trailing microtask chain.
 		await act(async () => {
@@ -966,11 +1111,12 @@ describe("useSessionTabs hook", () => {
 	it("does not switch the session for a background tab's pending path", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
 				{
 					kind: "agent",
 					id: "t1",
 					cwd: "/beta",
+					target: { type: "local" },
 					status: "starting",
 					unreadDone: false,
 					pendingSessionPath: "/s.json",
@@ -982,7 +1128,7 @@ describe("useSessionTabs hook", () => {
 		await mount();
 
 		await act(async () => {
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });
 		});
 
 		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
@@ -999,12 +1145,12 @@ describe("useSessionTabs hook", () => {
 		// background tab's ready must NOT fire the command (it would land on
 		// the wrong sidecar). hydrateSession re-asserts on switch-in instead.
 		await act(async () => {
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });
 		});
 		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
 
 		await act(async () => {
-			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
 		});
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
 	});
@@ -1012,7 +1158,20 @@ describe("useSessionTabs hook", () => {
 
 describe("tabChipLabel (F-HYDRATE)", () => {
 	function chip(id: string, cwd: string, title?: string): SessionTab {
-		const tab: SessionTab = { id, cwd, status: "ready", kind: "agent", unreadDone: false };
+		const tab: SessionTab = { id, cwd, target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false };
+		if (title !== undefined) tab.title = title;
+		return tab;
+	}
+
+	function remoteChip(
+		id: string,
+		cwd: string,
+		title?: string,
+		os: NonNullable<SshSessionTarget["host"]["os"]> = "linux",
+	): SessionTab {
+		const target = sshTarget(cwd);
+		target.host.os = os;
+		const tab: SessionTab = { id, cwd, target, status: "ready", kind: "agent", unreadDone: false };
 		if (title !== undefined) tab.title = title;
 		return tab;
 	}
@@ -1042,6 +1201,56 @@ describe("tabChipLabel (F-HYDRATE)", () => {
 		const tabs = [chip("t0", "/work/gui"), chip("t1", "/other/gui", "Release plan")];
 		// The titled tab left the collision set, so the untitled one stays bare.
 		expect(tabs.map(tab => tabChipLabel(tab, tabs))).toEqual(["gui", "Release plan"]);
+	});
+
+	it("qualifies untitled SSH tabs by host while a hydrated title wins", () => {
+		const untitled = remoteChip("ssh-0", "/srv/app");
+		expect(tabChipLabel(untitled, [untitled])).toBe("build:app");
+
+		const titled = remoteChip("ssh-1", "/srv/app", "Deploy release");
+		expect(tabChipLabel(titled, [titled])).toBe("Deploy release");
+	});
+
+	it("derives remote basenames across platform separators and suffixes only true collisions", () => {
+		const linux = remoteChip("ssh-0", "/srv/app/");
+		const windows = remoteChip("ssh-1", "C:\\work\\app\\", undefined, "windows");
+		const prodTarget = sshTarget("/srv/app");
+		prodTarget.hostAlias = "prod";
+		const distinctHost: SessionTab = {
+			id: "ssh-2",
+			cwd: "/srv/app",
+			target: prodTarget,
+			status: "ready",
+			kind: "agent",
+			unreadDone: false,
+		};
+		const tabs = [linux, windows, distinctHost];
+
+		expect(tabs.map(tab => tabChipLabel(tab, tabs))).toEqual(["build:app", "build:app #2", "prod:app"]);
+	});
+
+	it("sanitizes control and bidi formatting characters in remote label components", () => {
+		const tab = remoteChip("ssh-safe", "/srv/\u202eap\u0000p");
+		if (tab.target.type !== "ssh") throw new Error("expected SSH test target");
+		tab.target.hostAlias = "bu\u001b\u202eild";
+
+		expect(tabChipLabel(tab, [tab])).toBe("bu ild:ap p");
+		expect(tabChipLabel(tab, [tab])).not.toMatch(/[\u0000-\u001f\u007f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/);
+	});
+
+	it("caps each remote label component before collision suffix calculation", () => {
+		const alias = "a".repeat(100);
+		const directory = "b".repeat(100);
+		const first = remoteChip("ssh-long-1", `/srv/${directory}`);
+		const second = remoteChip("ssh-long-2", `C:\\work\\${directory}`, undefined, "windows");
+		for (const tab of [first, second]) {
+			if (tab.target.type !== "ssh") throw new Error("expected SSH test target");
+			tab.target.hostAlias = alias;
+		}
+
+		const capped = `${"a".repeat(63)}…:${"b".repeat(63)}…`;
+		expect(tabChipLabel(first, [first, second])).toBe(capped);
+		expect(tabChipLabel(second, [first, second])).toBe(`${capped} #2`);
 	});
 });
 

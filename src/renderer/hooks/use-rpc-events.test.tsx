@@ -544,8 +544,8 @@ describe("useRpcEvents non-transcript frames", () => {
 		await mount(<RpcEventsProbe />);
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", target: { type: "local" }, unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", target: { type: "local" }, unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -638,8 +638,8 @@ describe("retryPending reset on tab switch", () => {
 		const { emitBatch } = installMockOmp();
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", target: { type: "local" }, unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", target: { type: "local" }, unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),

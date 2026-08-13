@@ -12,11 +12,13 @@ import type {
 	IpcCloseTabPayload,
 	IpcExtensionUiRespondPayload,
 	IpcFsListPayload,
+	IpcFsListResult,
 	IpcFsReadImagePayload,
 	IpcFsReadImageResult,
 	IpcFsReadPayload,
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
+	IpcFsReadResult,
 	IpcGetSessionOwnerPayload,
 	IpcHostToolResultPayload,
 	IpcHostToolUpdatePayload,
@@ -25,9 +27,9 @@ import type {
 	IpcOpenPathResult,
 	IpcPrefsGetPayload,
 	IpcPrefsSetPayload,
+	IpcRemoteCancelRequestPayload,
 	IpcRpcCommandForTabPayload,
 	IpcRpcCommandPayload,
-	IpcSessionOpenNewWindowPayload,
 	IpcSessionsDeletePayload,
 	IpcSessionsListPayload,
 	IpcSessionsRenamePayload,
@@ -35,7 +37,9 @@ import type {
 	IpcSetActiveTabPayload,
 	IpcSidecarRestartPayload,
 	IpcSpawnTabPayload,
+	IpcSpawnTabResult,
 	IpcStatsFetchPayload,
+	SshSessionTarget,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
 import type { RpcCommand, RpcSessionState } from "../shared/rpc-types";
@@ -45,6 +49,31 @@ import { mainT } from "./i18n";
 import type { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
+import type { RemoteAcpClient } from "./remote-acp";
+import type { RemoteHostCatalog } from "./remote-host-catalog";
+import {
+	authorizeRemoteTargetAtSink,
+	dispatchRemoteCatalog,
+	dispatchRemoteHistory,
+	dispatchRemoteListDirectories,
+	dispatchRemoteNoteWorkspace,
+	dispatchRemoteOverride,
+	dispatchRemotePreflight,
+	dispatchRemoteValidateDirectory,
+	dispatchWorkspaceList,
+	dispatchWorkspaceRead,
+	dispatchWorkspaceReadImage,
+	dispatchWorkspaceReadPlan,
+	observeRemoteCatalogRpcResponse,
+	RemoteRequestRegistry,
+	RemoteResumeGrantRegistry,
+	RemoteWorkspaceTrust,
+	resolveNewWindowRequest,
+	sniffImageMime,
+	type WorkspaceDispatchDeps,
+	type WorkspaceTabIdentity,
+} from "./remote-ipc";
+import type { RemoteSshService } from "./remote-ssh";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
 import { resolveEditorCommand } from "./shell-env";
@@ -63,6 +92,9 @@ export interface IpcDeps {
 	windowManager: WindowManager;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
+	remoteSsh: RemoteSshService;
+	remoteHostCatalog: RemoteHostCatalog;
+	remoteAcp: RemoteAcpClient;
 }
 
 /**
@@ -74,6 +106,19 @@ function sidecarFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): SidecarM
 	const win = BrowserWindow.fromWebContents(event.sender);
 	if (!win) return null;
 	return deps.sidecarPool.sidecarForWindow(win);
+}
+
+interface LocalProjectContext {
+	win: BrowserWindow;
+	sidecar: SidecarManager;
+}
+
+/** Local project mutation is forbidden when the calling window's active tab is SSH-owned. */
+function localProjectContextFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): LocalProjectContext | null {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	if (!win) return null;
+	const entry = deps.sidecarPool.entryForWindow(win);
+	return entry?.target.type === "local" ? { win, sidecar: entry.sidecar } : null;
 }
 
 /**
@@ -88,6 +133,28 @@ function cwdFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): string | nul
 
 interface PrefsSchema {
 	[key: string]: unknown;
+}
+
+const MAIN_OWNED_PREF_KEYS: Record<string, true> = {
+	remoteHosts: true,
+	remoteExecutableOverrides: true,
+	remoteRecentWorkspaces: true,
+};
+
+interface RendererPreferenceStore {
+	readonly store: Record<string, unknown>;
+	get(key: string): unknown;
+	set(key: string, value: unknown): void;
+}
+
+export function readRendererPreference(store: RendererPreferenceStore, key?: string): unknown {
+	if (key !== undefined) return MAIN_OWNED_PREF_KEYS[key] ? undefined : store.get(key);
+	return Object.fromEntries(Object.entries(store.store).filter(([name]) => !MAIN_OWNED_PREF_KEYS[name]));
+}
+
+export function writeRendererPreference(store: RendererPreferenceStore, key: string, value: unknown): void {
+	if (MAIN_OWNED_PREF_KEYS[key]) throw new Error("Preference key is main-owned");
+	store.set(key, value);
 }
 
 // ============================================================================
@@ -309,6 +376,194 @@ async function walkWorkspace(
 	return [...dirs, ...files];
 }
 
+async function localWorkspaceList(
+	deps: IpcDeps,
+	event: Electron.IpcMainInvokeEvent,
+	payload: IpcFsListPayload,
+): Promise<IpcFsListResult> {
+	const rootAbs = cwdFor(deps, event);
+	if (!rootAbs) return { ok: false, entries: [], truncated: false, error: "No workspace" };
+	const prefix = (typeof payload.path === "string" ? payload.path : "")
+		.replace(/\\/g, "/")
+		.replace(/^\.\//, "")
+		.replace(/^\/+|\/+$/g, "");
+	const dirAbs = resolveWithin(rootAbs, prefix);
+	if (!dirAbs) return { ok: false, entries: [], truncated: false, error: "Path escapes the workspace" };
+	const state: WalkState = {
+		rules: await loadIgnoreRules(rootAbs),
+		maxDepth: clampInt(payload.maxDepth, 1, FS_LIST_MAX_DEPTH, FS_LIST_DEFAULT_DEPTH),
+		maxFiles: clampInt(payload.maxEntries, 1, FS_LIST_MAX_FILES_CAP, FS_LIST_DEFAULT_MAX_FILES),
+		fileCount: 0,
+		truncated: false,
+	};
+	try {
+		const stat = await fsp.stat(dirAbs);
+		if (!stat.isDirectory()) return { ok: false, entries: [], truncated: false, error: "Not a directory" };
+		const entries = await walkWorkspace(dirAbs, prefix, 0, state);
+		return { ok: true, entries, truncated: state.truncated };
+	} catch (error) {
+		return {
+			ok: false,
+			entries: [],
+			truncated: state.truncated,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
+async function localWorkspaceRead(
+	deps: IpcDeps,
+	event: Electron.IpcMainInvokeEvent,
+	payload: IpcFsReadPayload,
+): Promise<IpcFsReadResult> {
+	const fail = (error: string): IpcFsReadResult => ({
+		ok: false,
+		content: "",
+		truncated: false,
+		binary: false,
+		size: 0,
+		error,
+	});
+	if (typeof payload.path !== "string" || payload.path.length === 0) return fail("Invalid path");
+	// Rendered responses link local files by absolute or ~-relative path; those
+	// open in the Files drawer, so they read outside the workspace root.
+	const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
+	let abs: string;
+	if (path.isAbsolute(raw)) abs = path.normalize(raw);
+	else {
+		const cwd = cwdFor(deps, event);
+		if (!cwd) return fail("No workspace");
+		const within = resolveWithin(cwd, raw);
+		if (!within) return fail("Path escapes the workspace");
+		abs = within;
+	}
+	const maxBytes = clampInt(payload.maxBytes, 1, FS_READ_MAX_BYTES_CAP, FS_READ_DEFAULT_MAX_BYTES);
+	try {
+		const stat = await fsp.stat(abs);
+		if (!stat.isFile()) return fail("Not a file");
+		const handle = await fsp.open(abs, "r");
+		try {
+			const length = Math.min(stat.size, maxBytes + 1);
+			const buffer = Buffer.alloc(length);
+			const { bytesRead } = await handle.read(buffer, 0, length, 0);
+			const slice = buffer.subarray(0, bytesRead);
+			if (slice.includes(0)) return { ok: true, content: "", truncated: false, binary: true, size: stat.size };
+			return {
+				ok: true,
+				content: slice.subarray(0, Math.min(bytesRead, maxBytes)).toString("utf8"),
+				truncated: stat.size > maxBytes,
+				binary: false,
+				size: stat.size,
+			};
+		} finally {
+			await handle.close();
+		}
+	} catch (error) {
+		return fail(error instanceof Error ? error.message : String(error));
+	}
+}
+
+async function localWorkspaceReadImage(
+	deps: IpcDeps,
+	event: Electron.IpcMainInvokeEvent,
+	payload: IpcFsReadImagePayload,
+): Promise<IpcFsReadImageResult> {
+	const fail = (error: string): IpcFsReadImageResult => ({ ok: false, dataUrl: null, mime: null, size: 0, error });
+	if (typeof payload.path !== "string" || payload.path.length === 0) return fail("Invalid path");
+	const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
+	let abs: string;
+	if (path.isAbsolute(raw)) {
+		abs = path.normalize(raw);
+	} else {
+		const cwd = cwdFor(deps, event);
+		if (!cwd) return fail("No workspace");
+		const within = resolveWithin(cwd, raw);
+		if (!within) return fail("Path escapes the workspace");
+		abs = within;
+	}
+	try {
+		const stat = await fsp.stat(abs);
+		if (!stat.isFile()) return fail("Not a file");
+		if (stat.size > 25_000_000) return fail("Image too large");
+		const handle = await fsp.open(abs, "r");
+		try {
+			const header = Buffer.alloc(512);
+			const { bytesRead } = await handle.read(header, 0, 512, 0);
+			const mime = sniffImageMime(header.subarray(0, bytesRead));
+			if (!mime) return fail("Not a supported image");
+			const body = Buffer.alloc(stat.size);
+			await handle.read(body, 0, stat.size, 0);
+			return { ok: true, dataUrl: `data:${mime};base64,${body.toString("base64")}`, mime, size: stat.size };
+		} finally {
+			await handle.close();
+		}
+	} catch (error) {
+		return fail(error instanceof Error ? error.message : String(error));
+	}
+}
+
+async function localWorkspaceReadPlan(
+	deps: IpcDeps,
+	event: Electron.IpcMainInvokeEvent,
+	payload: IpcFsReadPlanPayload,
+): Promise<IpcFsReadPlanResult> {
+	const fail = (error: string): IpcFsReadPlanResult => ({ ok: false, path: null, content: null, error });
+	if (typeof payload.fsPath !== "string" || payload.fsPath.length === 0) return fail("Invalid path");
+	const cwd = cwdFor(deps, event);
+	if (!cwd) return fail("No workspace");
+	const withinAllowedRoots = (value: string): string | null =>
+		resolveWithin(cwd, value) ?? resolveWithin(deps.sessionIndex.sessionsDir, value);
+	const target = withinAllowedRoots(payload.fsPath);
+	if (!target) return fail("Path escapes allowed roots");
+	let localRoot: string | null = null;
+	if (typeof payload.localRoot === "string" && payload.localRoot.length > 0) {
+		localRoot = withinAllowedRoots(payload.localRoot);
+		if (!localRoot) return fail("Path escapes allowed roots");
+	}
+	try {
+		const picked = (await statFile(target)) ?? (localRoot ? await newestPlanFile(localRoot) : null);
+		if (!picked) return { ok: true, path: null, content: null };
+		return { ok: true, path: picked, content: await fsp.readFile(picked, "utf8") };
+	} catch (error) {
+		return fail(error instanceof Error ? error.message : String(error));
+	}
+}
+
+interface WorkspaceDispatchContext {
+	tab: WorkspaceTabIdentity;
+	dispatch: WorkspaceDispatchDeps;
+}
+
+function workspaceDispatchContext(
+	deps: IpcDeps,
+	event: Electron.IpcMainInvokeEvent,
+	trust: RemoteWorkspaceTrust,
+): WorkspaceDispatchContext | null {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	if (!win) return null;
+	const activeTabId = deps.sidecarPool.activeTabForWindow(win);
+	if (!activeTabId) return null;
+	const tabInfo = deps.sidecarPool.tabsForWindow(win).find(tab => tab.tabId === activeTabId);
+	if (!tabInfo) return null;
+	const tab: WorkspaceTabIdentity = { tabId: tabInfo.tabId, target: tabInfo.target };
+	const dispatch: WorkspaceDispatchDeps = {
+		catalog: deps.remoteHostCatalog,
+		lookupTab: tabId => {
+			const current = deps.sidecarPool.tabsForWindow(win).find(candidate => candidate.tabId === tabId);
+			return current ? { tabId: current.tabId, target: current.target } : null;
+		},
+		trust,
+		local: {
+			list: payload => localWorkspaceList(deps, event, payload),
+			read: payload => localWorkspaceRead(deps, event, payload),
+			readImage: payload => localWorkspaceReadImage(deps, event, payload),
+			readPlan: payload => localWorkspaceReadPlan(deps, event, payload),
+		},
+		remote: deps.remoteSsh,
+	};
+	return { tab, dispatch };
+}
+
 // Dedupe state for SYSTEM_NOTIFY across multiple windows (see the handler).
 let lastNotifyKey = "";
 let lastNotifyAt = 0;
@@ -335,10 +590,66 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 export function registerIpcHandlers(deps: IpcDeps): void {
 	const { sidecarPool, sessionIndex, statsClient, logWatcher, windowManager } = deps;
 	const prefsStore = new Store<PrefsSchema>({ name: "prefs" });
+	const remoteWorkspaceTrust = new RemoteWorkspaceTrust();
+	const remoteRequests = new RemoteRequestRegistry();
+	const remoteResumeGrants = new RemoteResumeGrantRegistry();
+	const remoteDispatchDeps = {
+		catalog: deps.remoteHostCatalog,
+		lookupTab: (_tabId: string) => null,
+		ssh: deps.remoteSsh,
+		acp: deps.remoteAcp,
+	};
+	const refreshCatalogForWindow = async (event: Electron.IpcMainInvokeEvent): Promise<void> => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win) return;
+		const localTab = sidecarPool
+			.tabsForWindow(win)
+			.find(tab => tab.target.type === "local" && tab.status === "ready");
+		if (!localTab) return;
+		const localSidecar = sidecarPool.sidecarForTab(win, localTab.tabId);
+		const client = localSidecar?.rpcClient;
+		if (!client || localSidecar.status !== "ready") return;
+		const command: RpcCommand = { type: "get_ssh_hosts" };
+		const response = await client.command(command);
+		observeRemoteCatalogRpcResponse(deps.remoteHostCatalog, localTab.target, command, response);
+	};
+	const remoteDispatchDepsFor = (event: Electron.IpcMainInvokeEvent) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		return {
+			...remoteDispatchDeps,
+			lookupTab: (tabId: string): WorkspaceTabIdentity | null => {
+				if (!win) return null;
+				const owned = sidecarPool.tabsForWindow(win).find(tab => tab.tabId === tabId);
+				return owned ? { tabId: owned.tabId, target: owned.target } : null;
+			},
+		};
+	};
+	const runRemoteRequest = async <Result>(
+		event: Electron.IpcMainInvokeEvent,
+		payload: unknown,
+		failure: Result,
+		operation: (signal: AbortSignal) => Promise<Result>,
+	): Promise<Result> => {
+		const requestId =
+			typeof payload === "object" && payload !== null && !Array.isArray(payload)
+				? Reflect.get(payload, "requestId")
+				: undefined;
+		if (typeof requestId !== "string") return failure;
+		const controller = remoteRequests.start(event.sender.id, requestId);
+		if (!controller) return failure;
+		try {
+			return await operation(controller.signal);
+		} finally {
+			remoteRequests.finish(event.sender.id, requestId, controller);
+		}
+	};
 
 	// Drop a closed window's tray/progress snapshot so the aggregate reflects
 	// only live windows (and re-render the tray with the new aggregate).
 	windowManager.onWindowClosed = record => {
+		for (const tab of sidecarPool.tabsForWindow(record.win)) remoteWorkspaceTrust.release(tab.tabId);
+		remoteRequests.cancelOwner(record.id);
+		remoteResumeGrants.clearOwner(record.id);
 		trayStates.delete(record.id);
 		progressStates.delete(record.id);
 	};
@@ -382,6 +693,50 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	ipcMain.handle(IPC_COMMANDS.RUNTIME_LOG_PATH, () => runtimeLogPath());
+
+	ipcMain.handle(IPC_COMMANDS.REMOTE_CATALOG, (event, payload: unknown) =>
+		dispatchRemoteCatalog({ ...remoteDispatchDeps, refreshCatalog: () => refreshCatalogForWindow(event) }, payload),
+	);
+	ipcMain.handle(IPC_COMMANDS.REMOTE_SET_EXECUTABLE_OVERRIDE, (_event, payload: unknown) =>
+		dispatchRemoteOverride(remoteDispatchDeps, payload),
+	);
+	ipcMain.handle(IPC_COMMANDS.REMOTE_CANCEL_REQUEST, (event, payload: unknown) => {
+		if (
+			typeof payload !== "object" ||
+			payload === null ||
+			Array.isArray(payload) ||
+			Object.keys(payload).length !== 1
+		) {
+			return false;
+		}
+		const { requestId } = payload as Partial<IpcRemoteCancelRequestPayload>;
+		return remoteRequests.cancel(event.sender.id, requestId);
+	});
+	ipcMain.handle(IPC_COMMANDS.REMOTE_PREFLIGHT, (event, payload: unknown) =>
+		runRemoteRequest(event, payload, { ok: false, error: "Invalid or duplicate remote request" }, signal =>
+			dispatchRemotePreflight(remoteDispatchDepsFor(event), payload, signal),
+		),
+	);
+	ipcMain.handle(IPC_COMMANDS.REMOTE_LIST_DIRECTORIES, (event, payload: unknown) =>
+		runRemoteRequest(event, payload, { ok: false, error: "Invalid or duplicate remote request" }, signal =>
+			dispatchRemoteListDirectories(remoteDispatchDepsFor(event), payload, signal),
+		),
+	);
+	ipcMain.handle(IPC_COMMANDS.REMOTE_VALIDATE_DIRECTORY, (event, payload: unknown) =>
+		runRemoteRequest(event, payload, { ok: false, error: "Invalid or duplicate remote request" }, signal =>
+			dispatchRemoteValidateDirectory(remoteDispatchDepsFor(event), payload, signal),
+		),
+	);
+	ipcMain.handle(IPC_COMMANDS.REMOTE_NOTE_WORKSPACE, (_event, payload: unknown) =>
+		dispatchRemoteNoteWorkspace(remoteDispatchDeps, payload),
+	);
+	ipcMain.handle(IPC_COMMANDS.REMOTE_LIST_HISTORY, (event, payload: unknown) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win) return { ok: false, error: "Unknown window" };
+		return dispatchRemoteHistory(remoteDispatchDeps, payload, (target, cwd, sessionId) => {
+			remoteResumeGrants.record(win.webContents.id, target, cwd, sessionId);
+		});
+	});
 
 	// RPC command passthrough — always returns a response, never throws.
 	// Throwing here causes "Error occurred in handler" console spam AND
@@ -428,6 +783,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// against the tab that sent the command even if the user switches tabs
 		// while it is in flight.
 		const issuerTabId = win ? sidecarPool.activeTabForWindow(win) : null;
+		const issuerTabInfo =
+			win && issuerTabId ? sidecarPool.tabsForWindow(win).find(tab => tab.tabId === issuerTabId) : undefined;
+		const issuerTab: WorkspaceTabIdentity | null = issuerTabInfo
+			? { tabId: issuerTabInfo.tabId, target: issuerTabInfo.target }
+			: null;
 		// F-OWN refuse-or-focus backstop: a switch_session onto a file a
 		// DIFFERENT tab owns would double-attach it (the owner itself re-attaches
 		// freely). Refuse BEFORE dispatch — the sidecar would attach for real
@@ -449,6 +809,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		try {
 			const response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
+			observeRemoteCatalogRpcResponse(deps.remoteHostCatalog, issuerTab?.target ?? null, cmd, response);
+			if (response.success && issuerTab) remoteWorkspaceTrust.observeRpcSuccess(issuerTab, cmd, response.data);
 			// F-OWN registration points carried by this passthrough: a successful
 			// switch_session attaches the issuer to that file; get_state is how
 			// the renderer's attach/hydrate reports the file (session_info_update
@@ -505,38 +867,52 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 	});
 
-	// Extension UI respond — F-UI-ORIGIN: route to the sidecar that RAISED the
-	// request (tracked by request id), not the window's active tab; the user
-	// may have switched tabs while the dialog was open. Unknown ids (raised
-	// before tracking, or after a restart) fall back to the active sidecar.
+	const routeRendererSideChannel = (
+		event: Electron.IpcMainInvokeEvent,
+		frame: unknown,
+		expectedType: string,
+		final: boolean,
+	): void => {
+		if (
+			typeof frame !== "object" ||
+			frame === null ||
+			Array.isArray(frame) ||
+			Reflect.get(frame, "type") !== expectedType
+		) {
+			return;
+		}
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win) return;
+		const route = sidecarPool.routeSideChannel(win, Reflect.get(frame, "id"), frame, final);
+		if (route !== "unknown") return;
+		// Compatibility for responses to requests raised before ownership
+		// tracking existed: only a structurally valid frame with a bounded,
+		// genuinely unknown id from this window may use its active sidecar.
+		sidecarPool.sidecarForWindow(win)?.sendSideChannel(frame);
+	};
+
+	// Renderer side-channel responses are authorized by exact caller window +
+	// live request id. Foreign/invalid authority is rejected, never confused
+	// with the narrow same-window fallback for genuinely unknown ids.
 	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, (event, payload: IpcExtensionUiRespondPayload) => {
-		const { response } = payload;
-		if (typeof response?.id === "string" && sidecarPool.routeSideChannel(response.id, response, true)) return;
-		sidecarFor(deps, event)?.sendSideChannel(response);
+		const response = payload?.response;
+		routeRendererSideChannel(event, response, "extension_ui_response", true);
 	});
 
-	// Host tool result — same origin routing as extension UI (verified: the
-	// raise path is per-sidecar, but a naive sidecarFor response route would
-	// misroute to the active tab after a switch).
 	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_RESULT, (event, payload: IpcHostToolResultPayload) => {
-		const { result } = payload;
-		if (typeof result?.id === "string" && sidecarPool.routeSideChannel(result.id, result, true)) return;
-		sidecarFor(deps, event)?.sendSideChannel(result);
+		const result = payload?.result;
+		routeRendererSideChannel(event, result, "host_tool_result", true);
 	});
 
-	// Host tool update — origin routing without unregistering: the result
-	// frame follows and still needs the route.
+	// Updates retain ownership so the final host-tool result can follow.
 	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_UPDATE, (event, payload: IpcHostToolUpdatePayload) => {
-		const { update } = payload;
-		if (typeof update?.id === "string" && sidecarPool.routeSideChannel(update.id, update, false)) return;
-		sidecarFor(deps, event)?.sendSideChannel(update);
+		const update = payload?.update;
+		routeRendererSideChannel(event, update, "host_tool_update", false);
 	});
 
-	// Host URI result — same origin routing as extension UI.
 	ipcMain.handle(IPC_COMMANDS.HOST_URI_RESULT, (event, payload: IpcHostUriResultPayload) => {
-		const { result } = payload;
-		if (typeof result?.id === "string" && sidecarPool.routeSideChannel(result.id, result, true)) return;
-		sidecarFor(deps, event)?.sendSideChannel(result);
+		const result = payload?.result;
+		routeRendererSideChannel(event, result, "host_uri_result", true);
 	});
 
 	// Sessions
@@ -588,20 +964,42 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// The session switch is done by the NEW window's renderer on boot (it pulls
 	// pendingSessionPath and runs switch_session + hydrate itself), which avoids
 	// racing the renderer's boot hydration and surfaces failures in that window.
-	ipcMain.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (event, payload: IpcSessionOpenNewWindowPayload) => {
-		const sessionPath = typeof payload?.sessionPath === "string" ? payload.sessionPath : undefined;
-		if (sessionPath) {
-			const owner = deps.sidecarPool.sessionOwner(sessionPath);
+	ipcMain.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (event, payload: unknown) => {
+		const caller = BrowserWindow.fromWebContents(event.sender);
+		const callerCwd = cwdFor(deps, event) ?? process.cwd();
+		const request = resolveNewWindowRequest(
+			deps.remoteHostCatalog,
+			payload,
+			callerCwd,
+			(target, cwd, sessionId) =>
+				caller !== null && remoteResumeGrants.allows(caller.webContents.id, target, cwd, sessionId),
+		);
+		if (!request.ok) return false;
+		if (request.target.type === "ssh") {
+			if (deps.sidecarPool.atCap) return false;
+			const authorized = await authorizeRemoteTargetAtSink(
+				remoteDispatchDeps,
+				{ target: request.target, cwd: request.cwd },
+				(target: SshSessionTarget) => {
+					if (
+						request.resumeSessionId !== undefined &&
+						(!caller ||
+							!remoteResumeGrants.allows(caller.webContents.id, target, target.cwd, request.resumeSessionId))
+					) {
+						return false;
+					}
+					return deps.spawnWindow(request.cwd, undefined, undefined, target, request.resumeSessionId) !== null;
+				},
+			);
+			return authorized.ok ? authorized.value : false;
+		}
+		if (request.sessionPath) {
+			const owner = deps.sidecarPool.sessionOwner(request.sessionPath);
 			if (owner && deps.windowManager.focusWindowById(owner.winId)) return true;
 		}
 		if (deps.sidecarPool.atCap) return false;
-		const callerCwd = cwdFor(deps, event) ?? process.cwd();
-		const cwd = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : callerCwd;
-		// The new window's sidecar must spawn with the target file's kind, or the
-		// boot-time switch_session hits the agent-side kind guard and the pool
-		// entry would lie about its kind (I1).
-		const kind = sessionPath ? await sessionIndex.kindFor(sessionPath) : undefined;
-		return deps.spawnWindow(cwd, sessionPath, kind) !== null;
+		const kind = request.sessionPath ? await sessionIndex.kindFor(request.sessionPath) : undefined;
+		return deps.spawnWindow(request.cwd, request.sessionPath, kind, request.target, request.resumeSessionId) !== null;
 	});
 
 	// Fresh window pulls the session it was opened to display (one-shot). The
@@ -628,7 +1026,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// kind returns { tabId: null, refusal: "kind-mismatch" } (I3); an omitted
 	// payload kind defers to the file. Decision logic lives in tab-spawn.ts so
 	// both refusal contracts are unit-testable without an Electron runtime.
-	ipcMain.handle(IPC_COMMANDS.SPAWN_TAB, (event, payload: IpcSpawnTabPayload) => {
+	ipcMain.handle(IPC_COMMANDS.SPAWN_TAB, async (event, payload: IpcSpawnTabPayload) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return null;
 		return spawnTabForWindow(
@@ -637,6 +1035,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				sessionIndex,
 				fallbackCwd: () => cwdFor(deps, event) ?? process.cwd(),
 				defaultWorkspace: ensureDefaultWorkspace,
+				authorizeRemoteTarget: async (
+					target: SshSessionTarget,
+					cwd: unknown,
+					sink: (target: SshSessionTarget) => IpcSpawnTabResult | null,
+				) => {
+					const result = await authorizeRemoteTargetAtSink(remoteDispatchDeps, { target, cwd }, sink);
+					return result.ok ? result.value : null;
+				},
+				authorizeRemoteResume: (target, cwd, sessionId) =>
+					remoteResumeGrants.allows(win.webContents.id, target, cwd, sessionId),
 			},
 			win,
 			payload,
@@ -649,7 +1057,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win || typeof payload?.tabId !== "string") return false;
 		if (!deps.sidecarPool.sidecarForTab(win, payload.tabId)) return false;
-		return deps.sidecarPool.releaseTab(payload.tabId);
+		const released = deps.sidecarPool.releaseTab(payload.tabId);
+		if (released) remoteWorkspaceTrust.release(payload.tabId);
+		return released;
 	});
 
 	// Move full event forwarding to the window's active tab (listeners move,
@@ -778,18 +1188,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// Preferences
-	ipcMain.handle(IPC_COMMANDS.PREFS_GET, (_event, payload: IpcPrefsGetPayload) => {
-		if (payload.key) {
-			return prefsStore.get(payload.key);
-		}
-		return prefsStore.store;
-	});
+	ipcMain.handle(IPC_COMMANDS.PREFS_GET, (_event, payload: IpcPrefsGetPayload) =>
+		readRendererPreference(prefsStore, payload.key),
+	);
 
 	ipcMain.handle(IPC_COMMANDS.PREFS_SET, (_event, payload: IpcPrefsSetPayload) => {
 		if (typeof payload.key !== "string") {
 			throw new Error("Invalid preference key");
 		}
-		prefsStore.set(payload.key, payload.value);
+		writeRendererPreference(prefsStore, payload.key, payload.value);
 		if (payload.key === "language" && (payload.value === "en" || payload.value === "zh")) {
 			createMenu(windowManager, deps.spawnWindow);
 		}
@@ -810,10 +1217,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_SELECT_PROJECT, async event => {
-		const win = BrowserWindow.fromWebContents(event.sender);
-		if (!win) return null;
-		const sidecar = sidecarFor(deps, event);
-		if (!sidecar) return null;
+		const context = localProjectContextFor(deps, event);
+		if (!context) return null;
+		const { sidecar, win } = context;
 		const result = await dialog.showOpenDialog(win, {
 			title: mainT("dialog.openProject"),
 			defaultPath: sidecar.cwd,
@@ -836,16 +1242,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_SET_PROJECT, async (event, payload: { cwd?: string }) => {
 		const cwd = payload?.cwd;
 		if (typeof cwd !== "string" || cwd.length === 0) return false;
-		const sidecar = sidecarFor(deps, event);
-		if (!sidecar) return false;
+		const context = localProjectContextFor(deps, event);
+		if (!context) return false;
+		const { sidecar, win } = context;
 		try {
 			if (!(await fsp.stat(cwd)).isDirectory()) return false;
 		} catch {
 			return false;
 		}
 		prefsStore.set("lastProject", cwd);
-		const win = BrowserWindow.fromWebContents(event.sender);
-		if (win) windowManager.setRecordCwd(win, cwd);
+		windowManager.setRecordCwd(win, cwd);
 		sidecar.restart(cwd);
 		return true;
 	});
@@ -879,192 +1285,33 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return { path: file, opened: !openError };
 	});
 
-	// Workspace filesystem — node:fs against the calling window's cwd; works
-	// without a live sidecar session and never throws (renderer reads ok/error).
-	ipcMain.handle(IPC_COMMANDS.FS_LIST, async (event, payload: IpcFsListPayload) => {
-		const rootAbs = cwdFor(deps, event);
-		if (!rootAbs) return { ok: false, entries: [], truncated: false, error: "No workspace" };
-		const prefix = (typeof payload.path === "string" ? payload.path : "")
-			.replace(/\\/g, "/")
-			.replace(/^\.\//, "")
-			.replace(/^\/+|\/+$/g, "");
-		const dirAbs = resolveWithin(rootAbs, prefix);
-		if (!dirAbs) {
-			return { ok: false, entries: [], truncated: false, error: "Path escapes the workspace" };
-		}
-		const state: WalkState = {
-			rules: await loadIgnoreRules(rootAbs),
-			maxDepth: clampInt(payload.maxDepth, 1, FS_LIST_MAX_DEPTH, FS_LIST_DEFAULT_DEPTH),
-			maxFiles: clampInt(payload.maxEntries, 1, FS_LIST_MAX_FILES_CAP, FS_LIST_DEFAULT_MAX_FILES),
-			fileCount: 0,
-			truncated: false,
-		};
-		try {
-			const stat = await fsp.stat(dirAbs);
-			if (!stat.isDirectory()) {
-				return { ok: false, entries: [], truncated: false, error: "Not a directory" };
-			}
-			const entries = await walkWorkspace(dirAbs, prefix, 0, state);
-			return { ok: true, entries, truncated: state.truncated };
-		} catch (err) {
-			return {
-				ok: false,
-				entries: [],
-				truncated: state.truncated,
-				error: err instanceof Error ? err.message : String(err),
-			};
-		}
+	// Workspace filesystem dispatches from the calling window's active immutable
+	// tab target. Local tabs keep node:fs behavior; SSH failures stay remote.
+	ipcMain.handle(IPC_COMMANDS.FS_LIST, async (event, payload: unknown): Promise<IpcFsListResult> => {
+		const context = workspaceDispatchContext(deps, event, remoteWorkspaceTrust);
+		if (!context) return { ok: false, entries: [], truncated: false, error: "No workspace" };
+		return dispatchWorkspaceList(context.dispatch, context.tab, payload);
 	});
 
-	ipcMain.handle(IPC_COMMANDS.FS_READ, async (event, payload: IpcFsReadPayload) => {
-		const fail = (error: string) => ({ ok: false, content: "", truncated: false, binary: false, size: 0, error });
-		if (typeof payload.path !== "string" || payload.path.length === 0) {
-			return fail("Invalid path");
+	ipcMain.handle(IPC_COMMANDS.FS_READ, async (event, payload: unknown): Promise<IpcFsReadResult> => {
+		const context = workspaceDispatchContext(deps, event, remoteWorkspaceTrust);
+		if (!context) {
+			return { ok: false, content: "", truncated: false, binary: false, size: 0, error: "No workspace" };
 		}
-		const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
-		let abs: string;
-		if (path.isAbsolute(raw)) abs = path.normalize(raw);
-		else {
-			const cwd = cwdFor(deps, event);
-			if (!cwd) return fail("No workspace");
-			const within = resolveWithin(cwd, raw);
-			if (!within) return fail("Path escapes the workspace");
-			abs = within;
-		}
-		const maxBytes = clampInt(payload.maxBytes, 1, FS_READ_MAX_BYTES_CAP, FS_READ_DEFAULT_MAX_BYTES);
-		try {
-			const stat = await fsp.stat(abs);
-			if (!stat.isFile()) {
-				return fail("Not a file");
-			}
-			const handle = await fsp.open(abs, "r");
-			try {
-				const length = Math.min(stat.size, maxBytes + 1);
-				const buffer = Buffer.alloc(length);
-				const { bytesRead } = await handle.read(buffer, 0, length, 0);
-				const slice = buffer.subarray(0, bytesRead);
-				if (slice.includes(0)) {
-					return { ok: true, content: "", truncated: false, binary: true, size: stat.size };
-				}
-				return {
-					ok: true,
-					content: slice.subarray(0, Math.min(bytesRead, maxBytes)).toString("utf8"),
-					truncated: stat.size > maxBytes,
-					binary: false,
-					size: stat.size,
-				};
-			} finally {
-				await handle.close();
-			}
-		} catch (err) {
-			return fail(err instanceof Error ? err.message : String(err));
-		}
+		return dispatchWorkspaceRead(context.dispatch, context.tab, payload);
 	});
 
-	// Markdown-image read: model output references images by path (`![alt](…)`)
-	// and the renderer turns them into data URLs for <img>. Relative paths stay
-	// workspace-confined; absolute paths and `~` are readable because the bytes
-	// never leave the local <img> (no exfil channel), but the file must sniff
-	// as a real image type and fit under a size cap.
-	const FS_IMAGE_MAX_BYTES = 25_000_000;
-
-	function sniffImageMime(header: Buffer): string | null {
-		if (header.length >= 8 && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) {
-			return "image/png";
-		}
-		if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return "image/jpeg";
-		if (header.length >= 6 && header.subarray(0, 6).toString("ascii") === "GIF89a") return "image/gif";
-		if (header.length >= 6 && header.subarray(0, 6).toString("ascii") === "GIF87a") return "image/gif";
-		if (
-			header.length >= 12 &&
-			header.subarray(0, 4).toString("ascii") === "RIFF" &&
-			header.subarray(8, 12).toString("ascii") === "WEBP"
-		) {
-			return "image/webp";
-		}
-		if (header.length >= 12 && header.subarray(4, 8).toString("ascii") === "ftyp") {
-			const brand = header.subarray(8, 12).toString("ascii");
-			if (brand === "avif" || brand === "avis") return "image/avif";
-		}
-		if (header.length >= 2 && header[0] === 0x42 && header[1] === 0x4d) return "image/bmp";
-		if (header.length >= 4 && header[0] === 0x00 && header[1] === 0x00 && header[2] === 0x01 && header[3] === 0x00) {
-			return "image/x-icon";
-		}
-		// SVG is text: only when it actually starts with an XML/SVG prolog. Loaded
-		// through <img> it renders in secure static mode (no script execution).
-		const text = header.toString("utf8").trimStart().slice(0, 512).toLowerCase();
-		if (text.startsWith("<svg") || (text.startsWith("<?xml") && text.includes("<svg"))) return "image/svg+xml";
-		return null;
-	}
-
-	ipcMain.handle(IPC_COMMANDS.FS_READ_IMAGE, async (event, payload: IpcFsReadImagePayload) => {
-		const fail = (error: string): IpcFsReadImageResult => ({ ok: false, dataUrl: null, mime: null, size: 0, error });
-		if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path");
-		let abs: string;
-		const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
-		if (path.isAbsolute(raw)) {
-			abs = path.normalize(raw);
-		} else {
-			const cwd = cwdFor(deps, event);
-			if (!cwd) return fail("No workspace");
-			const within = resolveWithin(cwd, raw);
-			if (!within) return fail("Path escapes the workspace");
-			abs = within;
-		}
-		try {
-			const stat = await fsp.stat(abs);
-			if (!stat.isFile()) return fail("Not a file");
-			if (stat.size > FS_IMAGE_MAX_BYTES) return fail("Image too large");
-			const handle = await fsp.open(abs, "r");
-			try {
-				const header = Buffer.alloc(512);
-				const { bytesRead } = await handle.read(header, 0, 512, 0);
-				const mime = sniffImageMime(header.subarray(0, bytesRead));
-				if (!mime) return fail("Not a supported image");
-				const body = Buffer.alloc(stat.size);
-				await handle.read(body, 0, stat.size, 0);
-				return { ok: true, dataUrl: `data:${mime};base64,${body.toString("base64")}`, mime, size: stat.size };
-			} finally {
-				await handle.close();
-			}
-		} catch (err) {
-			return fail(err instanceof Error ? err.message : String(err));
-		}
+	ipcMain.handle(IPC_COMMANDS.FS_READ_IMAGE, async (event, payload: unknown): Promise<IpcFsReadImageResult> => {
+		const context = workspaceDispatchContext(deps, event, remoteWorkspaceTrust);
+		if (!context) return { ok: false, dataUrl: null, mime: null, size: 0, error: "No workspace" };
+		return dispatchWorkspaceReadImage(context.dispatch, context.tab, payload);
 	});
 
-	// Plan-mode document read — deliberately OFF the RPC bus: reading via the
-	// bash RPC injected the plan into the model context and appended
-	// bashExecution entries to the transcript on every poll. Reads the
-	// configured path, else the newest `*plan.md` in the session-local root.
-	// Confined to the workspace and the sessions dir (plan artifacts live there).
-	ipcMain.handle(
-		IPC_COMMANDS.FS_READ_PLAN,
-		async (event, payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult> => {
-			const fail = (error: string): IpcFsReadPlanResult => ({ ok: false, path: null, content: null, error });
-			if (typeof payload?.fsPath !== "string" || payload.fsPath.length === 0) {
-				return fail("Invalid path");
-			}
-			const cwd = cwdFor(deps, event);
-			if (!cwd) return fail("No workspace");
-			const withinAllowedRoots = (value: string): string | null =>
-				resolveWithin(cwd, value) ?? resolveWithin(sessionIndex.sessionsDir, value);
-			const target = withinAllowedRoots(payload.fsPath);
-			if (!target) return fail("Path escapes allowed roots");
-			let localRoot: string | null = null;
-			if (typeof payload.localRoot === "string" && payload.localRoot.length > 0) {
-				localRoot = withinAllowedRoots(payload.localRoot);
-				if (!localRoot) return fail("Path escapes allowed roots");
-			}
-			try {
-				const picked = (await statFile(target)) ?? (localRoot ? await newestPlanFile(localRoot) : null);
-				if (!picked) return { ok: true, path: null, content: null };
-				return { ok: true, path: picked, content: await fsp.readFile(picked, "utf8") };
-			} catch (err) {
-				return fail(err instanceof Error ? err.message : String(err));
-			}
-		},
-	);
-
+	ipcMain.handle(IPC_COMMANDS.FS_READ_PLAN, async (event, payload: unknown): Promise<IpcFsReadPlanResult> => {
+		const context = workspaceDispatchContext(deps, event, remoteWorkspaceTrust);
+		if (!context) return { ok: false, path: null, content: null, error: "No workspace" };
+		return dispatchWorkspaceReadPlan(context.dispatch, context.tab, payload);
+	});
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_STATUS_GET, event => {
 		const sidecar = sidecarFor(deps, event);
 		return { status: sidecar?.status ?? "starting", cwd: cwdFor(deps, event) ?? "" };

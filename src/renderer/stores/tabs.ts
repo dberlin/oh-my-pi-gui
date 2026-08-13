@@ -26,6 +26,8 @@ import type {
 	IpcTabWorktree,
 	SessionKind,
 	TabStatus,
+	SessionTarget,
+	IpcSpawnTabPayload,
 } from "../../shared/ipc-types";
 import type {
 	ContextUsage,
@@ -39,7 +41,6 @@ import type {
 	TodoTask,
 } from "../../shared/rpc-types";
 import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
-import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import {
 	acceptsActiveTabEvents,
@@ -67,9 +68,30 @@ import { type TodoSnapshot, type UiTodoPhase, useTodoStore } from "./todo";
 import { useToolsStore } from "./tools";
 import { useUiStore } from "./ui";
 
+import { isSshSessionTarget, normalizeSessionTarget } from "../../shared/session-target";
+
+/**
+ * Session tabs: in-window multi-session parallelism. Each tab owns a sidecar
+ * in the main-process pool; every tab keeps running in the background while
+ * exactly one is attached to this window's stores.
+ *
+ * Renderer-side pieces:
+ * - The tab list (title/cwd/status/unreadDone) fed by GET_TABS boot
+ *   unlike the full event channels which only forward the active tab's).
+ * - switchTab: snapshot the current tab's session-scoped store slices into a
+ *   SET_ACTIVE_TAB so main re-wires event routing, then hydrateSession for
+ *   the authoritative pull. The bundle is what makes the switch instant and
+ *   preserves the composer draft.
+ *
+ * Wire shapes (IpcTabInfo / IpcTabStatusPayload / IpcSpawnTabPayload) and the
+ * main-process pool live in the main slice — this store only consumes
+ * window.omp.tabs.* and window.omp.events.onTabStatus.
+ */
+
 export interface SessionTab {
 	id: string;
 	cwd: string;
+	target: SessionTarget;
 	status: TabStatus;
 	/** Automatic transcript compaction is in flight in this tab's sidecar. */
 	compacting?: boolean;
@@ -303,37 +325,58 @@ function restoreBundle(bundle: SessionTabBundle | null, tab: SessionTab | undefi
 	// messages so the switch paints this tab's tools, not the previous tab's.
 	useToolsStore.getState().hydrateMessages(useMessagesStore.getState().messages);
 }
+const REMOTE_TAB_LABEL_COMPONENT_LIMIT = 64;
 
+function remoteBasename(cwd: string, platform: "windows" | "linux" | "macos" | "unknown" | undefined): string {
+	const windows =
+		platform === "windows" || (platform !== "linux" && platform !== "macos" && /^[A-Za-z]:[\\/]/.test(cwd));
+	const trimmed = windows ? cwd.replace(/[\\/]+$/, "") : cwd.replace(/\/+$/, "");
+	if (!trimmed) return cwd.startsWith("/") ? "/" : "";
+	const separator = windows ? Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\")) : trimmed.lastIndexOf("/");
+	return trimmed.slice(separator + 1) || trimmed;
+}
+
+function untitledTabLabel(tab: SessionTab): string {
+	if (tab.kind === "chat") return translate("sidebar.newSession");
+	if (tab.worktree?.name) return tab.worktree.name;
+	if (isSshSessionTarget(tab.target)) {
+		const cwd = tab.cwd || tab.target.cwd;
+		const hostAlias = sanitizeDisplayText(tab.target.hostAlias, REMOTE_TAB_LABEL_COMPONENT_LIMIT);
+		const directory = sanitizeDisplayText(remoteBasename(cwd, tab.target.host.os), REMOTE_TAB_LABEL_COMPONENT_LIMIT);
+		const safeHost = hostAlias || translate("remote.title.ssh");
+		const safeDirectory = directory || translate("sidebar.newSession");
+		return `${safeHost}:${safeDirectory}`;
+	}
+	return basename(tab.cwd) || translate("sidebar.newSession");
+}
 /**
  * Chip label for the tab strip (F-HYDRATE): session title when known, else
- * the cwd basename (both empty → the localized "New session"). Identical
- * UNTITLED labels disambiguate with a short index suffix ("gui #2") — the
- * common same-cwd parallel-tabs case. Titled tabs are never suffixed: an
- * explicit title is itself the disambiguator, and the suffix disappears as
- * soon as a title arrives.
+ * the localized New Session label for global chat tabs, the worktree name or
+ * cwd basename for local tabs, or a host-qualified basename for SSH tabs.
+ * Identical UNTITLED labels disambiguate with a short index suffix ("gui #2").
+ * Titled tabs are never suffixed: an explicit title is itself the
+ * disambiguator, and the suffix disappears as soon as a title arrives.
  */
 export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): string {
-	// `||` everywhere: empty-string titles (never-generated auto-title slot)
-	// fall through like null. Worktree tabs label by their worktree NAME — the
-	// cwd basename is the hash-suffixed dir (gui-<name>-<hash7>), unreadable.
-	// Untitled chats are global: their internal process cwd must never masquerade
-	// as a selected workspace in the tab strip.
-	const untitledBase = (entry: SessionTab) =>
-		entry.kind === "chat"
-			? translate("sidebar.newSession")
-			: entry.worktree?.name || basename(entry.cwd) || translate("sidebar.newSession");
-	const base = tab.title || untitledBase(tab);
+	// Empty-string titles (the never-generated auto-title slot) fall through.
+	// Worktree tabs label by their worktree NAME — the cwd basename is the
+	// hash-suffixed directory and is not useful to a person. Untitled chats are
+	// global, so their internal process cwd must not appear as a workspace.
+	const base = tab.title || untitledTabLabel(tab);
 	if (tab.title) return base;
 	let occurrence = 0;
 	for (const entry of tabs) {
 		if (entry.title) continue;
-		if (untitledBase(entry) !== base) continue;
+		if (untitledTabLabel(entry) !== base) continue;
 		occurrence += 1;
 		if (entry.id === tab.id) break;
 	}
 	return occurrence > 1 ? `${base} #${occurrence}` : base;
 }
 
+function reconcileSessionTarget(snapshot: unknown, existing?: SessionTarget): SessionTarget {
+	return existing ?? normalizeSessionTarget(snapshot);
+}
 /**
  * Kind of the window's active tab ("agent" default). THE single read point
  * for every chat-mode UI gate — components must never re-derive kind from
@@ -364,6 +407,8 @@ interface TabsStore {
 		/** Full agent in the GUI-owned default Work workspace. */
 		work?: boolean;
 		worktree?: IpcTabWorktree;
+		target?: SessionTarget;
+		resumeSessionId?: string;
 	}) => Promise<string | null>;
 	/** Park the current tab's session state, restore the target's, re-point
 	 * main's event routing (SET_ACTIVE_TAB), then hydrate from its sidecar. */
@@ -373,6 +418,10 @@ interface TabsStore {
 	/** Merge a TAB_STATUS push: upsert the entry, stamp unreadDone when a
 	 * background run settles (running → ready while not active). */
 	applyTabStatus: (payload: IpcTabStatusPayload) => void;
+	/** Apply authoritative get_state cwd to the active tab without replacing
+	 * its immutable target identity. SSH keeps the same target snapshot except
+	 * for its current cwd; local targets remain unchanged. */
+	applyHydratedCwd: (cwd: string | undefined) => void;
 	reset: () => void;
 }
 
@@ -407,6 +456,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				return {
 					id: info.tabId,
 					cwd: info.cwd || existing?.cwd || "",
+					target: reconcileSessionTarget(info.target, existing?.target),
 					status: info.status,
 					compacting: info.compacting ?? existing?.compacting ?? false,
 					kind: info.kind ?? existing?.kind ?? "agent",
@@ -452,17 +502,19 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	},
 
 	openTab: async args => {
-		const cwd = args?.cwd ?? useSessionStore.getState().cwd;
+		const cwd = args?.cwd ?? (isSshSessionTarget(args?.target) ? args.target.cwd : useSessionStore.getState().cwd);
 		const kind = args?.kind ?? "agent";
 		let result: IpcSpawnTabResult | null;
+		const payload: IpcSpawnTabPayload = {
+			cwd: cwd || undefined,
+			sessionPath: args?.sessionPath,
+			kind,
+			worktree: args?.worktree,
+		};
+		if (args?.target) payload.target = args.target;
+		if (args?.resumeSessionId) payload.resumeSessionId = args.resumeSessionId;
 		try {
-			result = await window.omp.tabs.spawn({
-				cwd: args?.work ? undefined : cwd || undefined,
-				sessionPath: args?.sessionPath,
-				kind,
-				...(args?.work ? { defaultWorkspace: true } : {}),
-				worktree: args?.worktree,
-			});
+			result = await window.omp.tabs.spawn(payload);
 		} catch (error) {
 			toast({ variant: "error", title: translate("tabs.newFailed"), message: String(error) });
 			return null;
@@ -513,7 +565,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			}
 			const tab: SessionTab = {
 				id: tabId,
-				cwd: resolvedCwd,
+				cwd,
+				target: reconcileSessionTarget(args?.target),
 				status: "starting",
 				kind,
 				placeholder: false,
@@ -641,6 +694,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			const next: SessionTab = {
 				id: payload.tabId,
 				cwd: payload.cwd || previous?.cwd || "",
+				target: reconcileSessionTarget(payload.target, previous?.target),
 				status: payload.status,
 				compacting: payload.compacting ?? previous?.compacting ?? false,
 				kind: payload.kind ?? previous?.kind ?? "agent",
@@ -674,6 +728,21 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (active) {
 			useSessionStore.getState().setStatus(payload.status === "running" ? "ready" : payload.status, payload.cwd);
 		}
+	},
+
+	applyHydratedCwd: cwd => {
+		if (cwd === undefined) return;
+		set(state => {
+			if (!state.activeTabId) return state;
+			const index = state.tabs.findIndex(tab => tab.id === state.activeTabId);
+			if (index === -1) return state;
+			const current = state.tabs[index];
+			if (!current) return state;
+			const target = isSshSessionTarget(current.target) ? { ...current.target, cwd } : current.target;
+			const tabs = [...state.tabs];
+			tabs[index] = { ...current, cwd, target };
+			return { tabs };
+		});
 	},
 
 	reset: () => {

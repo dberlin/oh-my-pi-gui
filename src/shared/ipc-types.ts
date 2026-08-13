@@ -159,6 +159,22 @@ export const IPC_COMMANDS = {
 	FS_READ_PLAN: "fs:read-plan",
 	/** Read an image file as a data URL for markdown <img> rendering (sniffed mime, size cap) */
 	FS_READ_IMAGE: "fs:read-image",
+	/** Read the cached remote-host catalog */
+	REMOTE_CATALOG: "remote:catalog",
+	/** Set or clear the executable override for one remote host */
+	REMOTE_SET_EXECUTABLE_OVERRIDE: "remote:set-executable-override",
+	/** Validate a remote target and discover its runtime */
+	REMOTE_PREFLIGHT: "remote:preflight",
+	/** List child directories on a remote target */
+	REMOTE_LIST_DIRECTORIES: "remote:list-directories",
+	/** Validate a remote working directory */
+	REMOTE_VALIDATE_DIRECTORY: "remote:validate-directory",
+	/** Cancel one caller-owned remote preflight or directory request */
+	REMOTE_CANCEL_REQUEST: "remote:cancel-request",
+	/** Record a recently used remote workspace */
+	REMOTE_NOTE_WORKSPACE: "remote:note-workspace",
+	/** List resumable sessions from a remote host */
+	REMOTE_LIST_HISTORY: "remote:list-history",
 	/** Open a session (or a fresh window) in a new parallel window with its own sidecar */
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
@@ -595,6 +611,123 @@ export interface IpcFsReadPlanResult {
 }
 
 // ============================================================================
+// Remote Session Types
+// ============================================================================
+
+export interface SshConnectionSnapshot {
+	host: string;
+	username?: string;
+	port?: number;
+	keyPath?: string;
+	compat?: boolean;
+	os?: "windows" | "linux" | "macos" | "unknown";
+	shell?: "cmd" | "powershell" | "bash" | "zsh" | "sh" | "unknown";
+	transferShell?: "sh" | "bash" | "zsh";
+	sourceId: string;
+	sourceLevel: "user" | "project" | "native";
+}
+
+export type SessionTarget =
+	| { type: "local" }
+	| {
+			type: "ssh";
+			hostAlias: string;
+			host: SshConnectionSnapshot;
+			originCwd: string;
+			cwd: string;
+			executableOverride?: string;
+	  };
+
+export type SshSessionTarget = Extract<SessionTarget, { type: "ssh" }>;
+
+export interface RemoteDirectoryEntry {
+	name: string;
+	path: string;
+	kind: "directory" | "symlink-directory";
+	hidden: boolean;
+}
+
+export interface RemoteHistorySession {
+	target: SshSessionTarget;
+	sessionId: string;
+	cwd: string;
+	title: string | null;
+	updatedAt: string | null;
+	meta?: Record<string, unknown>;
+}
+
+export interface RemoteHostCatalogEntry {
+	alias: string;
+	host: SshConnectionSnapshot;
+	executableOverride?: string;
+	recentWorkspaces: string[];
+}
+
+export interface RemoteHostCatalogSnapshot {
+	hosts: RemoteHostCatalogEntry[];
+	updatedAt: string | null;
+}
+
+export type RemoteCatalogResult = { ok: true; catalog: RemoteHostCatalogSnapshot } | { ok: false; error: string };
+
+export type RemotePreflightResult =
+	| { ok: true; target: SshSessionTarget; home: string; platform: "windows" | "linux" | "macos"; executable: string }
+	| { ok: false; error: string };
+
+export type RemoteDirectoryListResult =
+	| { ok: true; path: string; parent: string | null; entries: RemoteDirectoryEntry[] }
+	| { ok: false; error: string };
+
+export type RemoteDirectoryValidationResult = { ok: true; path: string } | { ok: false; error: string };
+
+export type RemoteHistoryResult =
+	| { ok: true; sessions: RemoteHistorySession[]; nextCursor?: string }
+	| { ok: false; unsupported?: false; error: string }
+	| { ok: false; unsupported: true; error: string };
+
+export type IpcRemoteCatalogPayload = Record<string, never>;
+
+export interface IpcRemoteSetExecutableOverridePayload {
+	hostAlias: string;
+	value: string | null;
+}
+
+export interface IpcRemoteCancelRequestPayload {
+	requestId: string;
+}
+
+export interface IpcRemotePreflightPayload {
+	target: SshSessionTarget;
+	requestId: string;
+	tabId?: string;
+}
+
+export interface IpcRemoteListDirectoriesPayload {
+	target: SshSessionTarget;
+	requestId: string;
+	path: string;
+	showHidden: boolean;
+	tabId?: string;
+}
+
+export interface IpcRemoteValidateDirectoryPayload {
+	target: SshSessionTarget;
+	requestId: string;
+	path: string;
+	tabId?: string;
+}
+
+export interface IpcRemoteNoteWorkspacePayload {
+	hostAlias: string;
+	cwd: string;
+}
+
+export interface IpcRemoteListHistoryPayload {
+	hostAlias: string;
+	cursor?: string;
+}
+
+// ============================================================================
 // Session Index Types
 // ============================================================================
 
@@ -606,6 +739,8 @@ export interface IpcFsReadPlanResult {
 export interface IpcSessionOpenNewWindowPayload {
 	sessionPath?: string;
 	cwd?: string;
+	target?: SessionTarget;
+	resumeSessionId?: string;
 }
 
 // ============================================================================
@@ -638,6 +773,7 @@ export interface IpcTabInfo {
 	/** Opaque snowflake id minted by main at acquire. */
 	tabId: string;
 	cwd: string;
+	target: SessionTarget;
 	status: TabStatus;
 	/** Present on GET_TABS for the tab main currently routes as active. */
 	active?: boolean;
@@ -671,6 +807,8 @@ export interface IpcActiveTabEnvelope<T> {
 export interface IpcSpawnTabPayload {
 	cwd?: string;
 	sessionPath?: string;
+	target?: SessionTarget;
+	resumeSessionId?: string;
 	/** Session kind for the new tab; omitted = "agent". Immutable once spawned. */
 	kind?: SessionKind;
 	/** Spawn a full agent in the GUI-owned default Work workspace. */
@@ -1010,6 +1148,27 @@ export interface OmpApi {
 		openInNewWindow(payload: IpcSessionOpenNewWindowPayload): Promise<boolean>;
 		/** One-shot: the session this window was opened to display, if any. */
 		consumePendingOpen(): Promise<string | null>;
+	};
+	remote: {
+		catalog(): Promise<RemoteCatalogResult>;
+		setExecutableOverride(hostAlias: string, value: string | null): Promise<RemoteCatalogResult>;
+		cancel(requestId: string): Promise<boolean>;
+		preflight(target: SshSessionTarget, tabId: string | undefined, requestId: string): Promise<RemotePreflightResult>;
+		listDirectories(
+			target: SshSessionTarget,
+			path: string,
+			showHidden: boolean,
+			tabId: string | undefined,
+			requestId: string,
+		): Promise<RemoteDirectoryListResult>;
+		validateDirectory(
+			target: SshSessionTarget,
+			path: string,
+			tabId: string | undefined,
+			requestId: string,
+		): Promise<RemoteDirectoryValidationResult>;
+		noteWorkspace(hostAlias: string, cwd: string): Promise<RemoteCatalogResult>;
+		listHistory(hostAlias: string, cursor?: string): Promise<RemoteHistoryResult>;
 	};
 	tabs: {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */

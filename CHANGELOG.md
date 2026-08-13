@@ -2,12 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added remote SSH sessions with host-scoped history, remote directory browsing, and existing RPC UI parity.
+
 ## [0.9.0] - 2026-08-22
 
 ### Changed
 
 - **Bundled agent upgraded**: packaged sidecars now carry omp 17.4.0 plus the marketplace RPC features from monorepo commit `a7b2784898` — plugin metadata/themes on the catalog, and post-mutation activation verdicts computed from the installed-plugin runtime snapshot.
 - **Assisted updates for unsigned macOS builds**: ad-hoc-signed apps now download the architecture-matched DMG, show progress, verify its release-metadata SHA-512, open it in Finder, and explain the safe manual replacement flow. Certificate-signed builds retain Squirrel's restart-and-install path ([#3](https://github.com/nornzach/oh-my-pi-gui/issues/3)).
+- **Sidebar keeps the inline rail**: the 0.8.3 Code/Work lane switcher and picker-only search are not carried here; the sidebar keeps its one-row inline search, workspace groups, and the remote SSH host section.
 
 ### Added
 
@@ -77,7 +82,6 @@
 - **Sidebar interactions**: the dragged sidebar width persists across sessions; clicking elsewhere or pressing Escape cancels a pending inline delete confirm; Escape clears the search box; session status dots carry translated tooltips (previously raw English status strings).
 
 ## [0.8.1] - 2026-08-16
-
 ### Changed
 
 - **Bundled agent upgraded to omp 17.3.5**: the packaged sidecars now use the native PDF backend, updated provider/model catalog, one-shot retry hardening, stale Agent Hub activity signals, and extension-handler timeout settings from monorepo commit `0107a9eb22`.

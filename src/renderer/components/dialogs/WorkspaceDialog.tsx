@@ -5,16 +5,22 @@
  * a new directory (native picker). Far richer than the bare breadcrumb picker.
  */
 
-import { Check, Folder, FolderPlus } from "lucide-react";
-import { useMemo } from "react";
+import { Check, Folder, FolderPlus, Server } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { SshSessionTarget } from "../../../shared/ipc-types";
 import { useSessionList } from "../../hooks/use-session-list";
 import { newSessionNow } from "../../hooks/use-session-switch";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { moveSessionTo } from "../../lib/workspace-dirs";
+import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
+import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
-import { Modal } from "../common";
+import { useUiStore } from "../../stores/ui";
+import { Button, Modal, Spinner } from "../common";
+import { RemoteWorkspaceDialog } from "./RemoteWorkspaceDialog";
 
 interface WorkspaceRow {
 	cwd: string;
@@ -38,6 +44,25 @@ export function WorkspaceDialog({
 	const { sessions } = useSessionList("global");
 	const cwd = useSessionStore(s => s.cwd);
 	const workspaceLastUsed = useSidebarPrefs(s => s.workspaceLastUsed);
+	const remoteHosts = useRemoteStore(state => state.hosts);
+	const catalogStatus = useRemoteStore(state => state.catalogStatus);
+	const loadCatalog = useRemoteStore(state => state.loadCatalog);
+	const openSettings = useUiStore(state => state.openSettings);
+	const activeTab = useTabsStore(state => state.tabs.find(tab => tab.id === state.activeTabId));
+	const activeRemoteTarget = intent === "switch" && activeTab?.target.type === "ssh" ? activeTab.target : undefined;
+	const [remoteHostAlias, setRemoteHostAlias] = useState<string>();
+	const remoteStartGeneration = useRef(0);
+	const openRef = useRef(open);
+	openRef.current = open;
+
+	useEffect(() => {
+		if (!open) {
+			remoteStartGeneration.current += 1;
+			setRemoteHostAlias(undefined);
+			return;
+		}
+		if (intent === "new-session") void loadCatalog();
+	}, [intent, loadCatalog, open]);
 
 	const workspaces = useMemo<WorkspaceRow[]>(() => {
 		const byCwd = new Map<string, WorkspaceRow>();
@@ -65,6 +90,11 @@ export function WorkspaceDialog({
 		}
 		return [...byCwd.values()].sort((a, b) => b.lastModified - a.lastModified);
 	}, [sessions, cwd, workspaceLastUsed]);
+
+	const sortedRemoteHosts = useMemo(
+		() => Object.values(remoteHosts).sort((a, b) => a.host.alias.localeCompare(b.host.alias)),
+		[remoteHosts],
+	);
 
 	/**
 	 * Session-replacing actions (new session here, workspace jump, open
@@ -120,13 +150,53 @@ export function WorkspaceDialog({
 		}
 	};
 
+	const closeDialog = (): void => {
+		remoteStartGeneration.current += 1;
+		setRemoteHostAlias(undefined);
+		onClose();
+	};
+
+	const startRemoteSession = async (target: SshSessionTarget): Promise<void> => {
+		const generation = ++remoteStartGeneration.current;
+		setRemoteHostAlias(undefined);
+		const tabId = await useTabsStore.getState().openTab({ cwd: target.cwd, target });
+		if (!tabId) return;
+		await useRemoteStore.getState().noteWorkspace(target.hostAlias, target.cwd);
+		if (generation === remoteStartGeneration.current && openRef.current) closeDialog();
+	};
+
+	const moveRemoteSession = async (target: SshSessionTarget): Promise<void> => {
+		if (!activeRemoteTarget || guardBusy()) return;
+		try {
+			if (!(await moveSessionTo(target.cwd))) return;
+			await useRemoteStore.getState().noteWorkspace(activeRemoteTarget.hostAlias, target.cwd);
+			closeDialog();
+		} catch (error) {
+			toast({ variant: "error", title: t("workspaceDirs.move"), message: String(error) });
+		}
+	};
+
+	if (activeRemoteTarget && activeTab) {
+		return open ? (
+			<RemoteWorkspaceDialog
+				hostAlias={activeRemoteTarget.hostAlias}
+				initialPath={activeRemoteTarget.cwd}
+				onClose={closeDialog}
+				onConfirm={target => void moveRemoteSession(target)}
+				tabId={activeTab.id}
+				target={activeRemoteTarget}
+			/>
+		) : null;
+	}
+
 	return (
-		<Modal
-			open={open}
-			title={intent === "new-session" ? t("workspaces.newSessionTitle") : t("workspaces.title")}
-			onClose={onClose}
-			size="md"
-		>
+		<>
+			<Modal
+				open={open}
+				title={intent === "new-session" ? t("workspaces.newSessionTitle") : t("workspaces.title")}
+				onClose={closeDialog}
+				size="md"
+			>
 			<div className="flex flex-col gap-2">
 				<button
 					type="button"
@@ -191,7 +261,71 @@ export function WorkspaceDialog({
 						})
 					)}
 				</div>
-			</div>
-		</Modal>
+
+				{intent === "new-session" ? (
+					<section
+						className="border-t border-(--omp-border-muted) pt-3"
+						aria-labelledby="remote-workspaces-title"
+					>
+						<h3
+							className="mb-2 text-omp-xs font-semibold uppercase tracking-wider text-(--omp-dim)"
+							id="remote-workspaces-title"
+						>
+							{t("workspaces.remoteHosts")}
+						</h3>
+						{catalogStatus === "loading" || catalogStatus === "idle" ? (
+							<div className="flex items-center gap-2 px-2 py-4 text-omp-md text-(--omp-muted)" role="status">
+								<Spinner size="sm" />
+								{t("remote.history.loadingHosts")}
+							</div>
+						) : catalogStatus === "error" ? (
+							<div className="flex items-center justify-between gap-3 px-2 py-3">
+								<span className="text-omp-md text-(--omp-error)">{t("remote.history.catalogError")}</span>
+								<Button onClick={() => void loadCatalog()} size="sm">
+									{t("remote.history.retry")}
+								</Button>
+							</div>
+						) : sortedRemoteHosts.length === 0 ? (
+							<div className="px-2 py-3">
+								<div className="text-omp-md font-medium text-(--omp-text)">{t("ssh.empty.title")}</div>
+								<div className="mt-1 text-omp-sm text-(--omp-dim)">{t("ssh.empty.description")}</div>
+								<Button className="mt-2" onClick={() => openSettings("ssh")} size="sm" variant="ghost">
+									{t("remote.connection.openSettings")}
+								</Button>
+							</div>
+						) : (
+							<div className="flex flex-col">
+								{sortedRemoteHosts.map(({ host }) => (
+									<button
+										className="omp-pressable flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[var(--omp-selected-bg)]"
+										key={host.alias}
+										onClick={() => setRemoteHostAlias(host.alias)}
+										type="button"
+									>
+										<Server className="shrink-0 text-(--omp-accent)" size={16} />
+										<span className="min-w-0 flex-1">
+											<span className="block truncate text-omp-lg font-medium text-(--omp-text)">
+												{host.alias}
+											</span>
+											<span className="block truncate font-mono text-omp-sm text-(--omp-dim)">
+												{host.recentWorkspaces[0] ?? host.host.host}
+											</span>
+										</span>
+									</button>
+								))}
+							</div>
+						)}
+					</section>
+				) : null}
+				</div>
+			</Modal>
+			{remoteHostAlias ? (
+				<RemoteWorkspaceDialog
+					hostAlias={remoteHostAlias}
+					onClose={() => setRemoteHostAlias(undefined)}
+					onConfirm={target => void startRemoteSession(target)}
+				/>
+			) : null}
+		</>
 	);
 }

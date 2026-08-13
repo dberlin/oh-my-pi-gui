@@ -5,10 +5,26 @@
  * createPortal children as empty in this repo's test environment.)
  */
 
+import { parseHTML } from "linkedom";
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
-import type { SettingEntry } from "../../../shared/rpc-types";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import type {
+	IpcSpawnTabPayload,
+	IpcSpawnTabResult,
+	RemoteCatalogResult,
+	RemoteDirectoryListResult,
+	RemoteDirectoryValidationResult,
+	RemoteHostCatalogSnapshot,
+	RemotePreflightResult,
+	SshSessionTarget,
+} from "../../../shared/ipc-types";
+import type { RpcResponse, RpcSshHostInput, RpcSshHostsResult, SettingEntry } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { useRemoteStore } from "../../stores/remote";
+import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { Toggle } from "./editors/Toggle";
 import { CapabilitiesHome } from "./pages/CapabilitiesHome";
@@ -19,13 +35,230 @@ import {
 	SchemaTabContent,
 	SettingsWindow,
 } from "./SettingsWindow";
+import { SshSettingsPage } from "./SshSettingsPage";
 
 function entry(partial: Partial<SettingEntry> & { path: string }): SettingEntry {
 	return { type: "boolean", value: false, default: false, ...partial };
 }
 
+const {
+	document,
+	window: testWindow,
+	Event,
+	CustomEvent,
+	HTMLElement,
+	Element,
+	Node,
+} = parseHTML("<html><body></body></html>");
+const globals = globalThis as Record<string, unknown>;
+Object.assign(globals, {
+	document,
+	window: testWindow,
+	Event,
+	CustomEvent,
+	HTMLElement,
+	Element,
+	Node,
+	IS_REACT_ACT_ENVIRONMENT: true,
+});
+globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+
+const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
+if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
+if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
+
+interface TestElement {
+	textContent: string | null;
+	disabled: boolean;
+	value: string;
+	remove(): void;
+	dispatchEvent(event: object): boolean;
+	getAttribute(name: string): string | null;
+}
+
+const SSH_HOSTS: RpcSshHostsResult = {
+	openSshAvailable: true,
+	hosts: [
+		{
+			name: "build",
+			host: "build.example.com",
+			username: "deploy",
+			port: 2202,
+			scope: "user",
+			editable: true,
+			source: "ssh-config",
+			os: "linux",
+			shell: "bash",
+		},
+	],
+	warnings: [],
+};
+
+const REMOTE_CATALOG: RemoteHostCatalogSnapshot = {
+	hosts: [
+		{
+			alias: "build",
+			host: {
+				host: "build.example.com",
+				username: "deploy",
+				port: 2202,
+				sourceId: "ssh-config",
+				sourceLevel: "user",
+				os: "linux",
+				shell: "bash",
+			},
+			recentWorkspaces: ["/srv/app"],
+		},
+	],
+	updatedAt: "2026-08-13T00:00:00.000Z",
+};
+
+function rpcSuccess(data: unknown): RpcResponse {
+	return { type: "response", command: "test", success: true, data };
+}
+
+interface SettingsMockOmp {
+	rpc: {
+		getSshHosts: Mock<() => Promise<RpcResponse>>;
+		sshTest: Mock<(host: RpcSshHostInput & { name: string }) => Promise<RpcResponse>>;
+		sshManage: Mock<(request: unknown) => Promise<RpcResponse>>;
+	};
+	remote: {
+		catalog: Mock<() => Promise<RemoteCatalogResult>>;
+		preflight: Mock<(target: SshSessionTarget) => Promise<RemotePreflightResult>>;
+		listDirectories: Mock<
+			(target: SshSessionTarget, path: string, showHidden: boolean) => Promise<RemoteDirectoryListResult>
+		>;
+		validateDirectory: Mock<(target: SshSessionTarget, path: string) => Promise<RemoteDirectoryValidationResult>>;
+		noteWorkspace: Mock<
+			(hostAlias: string, cwd: string) => Promise<{ ok: true; catalog: RemoteHostCatalogSnapshot }>
+		>;
+	};
+	tabs: {
+		spawn: Mock<(payload: IpcSpawnTabPayload) => Promise<IpcSpawnTabResult | null>>;
+		setActive: Mock<(tabId: string) => Promise<boolean>>;
+	};
+}
+
+function installSettingsMock(): SettingsMockOmp {
+	const omp: SettingsMockOmp = {
+		rpc: {
+			getSshHosts: vi.fn(async () => rpcSuccess(SSH_HOSTS)),
+			sshTest: vi.fn(async host =>
+				rpcSuccess({
+					name: host.name,
+					ok: true,
+					checkedAt: "2026-08-13T00:00:00.000Z",
+					os: "linux",
+					shell: "bash",
+				}),
+			),
+			sshManage: vi.fn(async () => rpcSuccess({})),
+		},
+		remote: {
+			catalog: vi.fn(async () => ({ ok: true, catalog: REMOTE_CATALOG })),
+			preflight: vi.fn(async target => ({
+				ok: true,
+				target,
+				home: "/home/deploy",
+				platform: "linux",
+				executable: "/usr/local/bin/omp",
+			})),
+			listDirectories: vi.fn(async (_target, path) => ({ ok: true, path, parent: "/srv", entries: [] })),
+			validateDirectory: vi.fn(async (_target, path) => ({ ok: true, path })),
+			noteWorkspace: vi.fn(async () => ({ ok: true, catalog: REMOTE_CATALOG })),
+		},
+		tabs: {
+			spawn: vi.fn(async () => ({ tabId: "remote-1" })),
+			setActive: vi.fn(async () => true),
+		},
+	};
+	const ompWindow = testWindow as unknown as { omp: SettingsMockOmp };
+	ompWindow.omp = omp;
+	return omp;
+}
+
+let container: TestElement | undefined;
+let root: Root | undefined;
+
+async function flush(): Promise<void> {
+	await act(async () => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, 0);
+		await promise;
+	});
+}
+
+async function mount(element: ReactElement): Promise<void> {
+	container = document.createElement("div") as unknown as TestElement;
+	document.body.appendChild(container as never);
+	root = createRoot(container as unknown as Element);
+	await act(async () => {
+		root?.render(<I18nProvider>{element}</I18nProvider>);
+	});
+	await flush();
+}
+
+function buttons(): TestElement[] {
+	return Array.from(document.querySelectorAll("button")) as unknown as TestElement[];
+}
+
+function findButton(text: string): TestElement {
+	const button = buttons().find(candidate => candidate.textContent?.includes(text));
+	if (!button) throw new Error(`button not found: ${text}`);
+	return button;
+}
+
+function findButtonByAttribute(name: string, value: string): TestElement {
+	const button = buttons().find(candidate => candidate.getAttribute(name) === value);
+	if (!button) throw new Error(`button not found: ${name}=${value}`);
+	return button;
+}
+
+async function click(element: TestElement): Promise<void> {
+	const event = new Event("click", { bubbles: true, cancelable: true });
+	Object.defineProperty(event, "eventPhase", { value: 0, writable: true, configurable: true });
+	await act(async () => {
+		element.dispatchEvent(event);
+	});
+}
+
+async function typeInto(element: TestElement, value: string): Promise<void> {
+	const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value");
+	if (descriptor?.set) descriptor.set.call(element, value);
+	else element.value = value;
+	const record = element as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey ? record[propsKey] : undefined;
+	if (props && typeof props === "object" && "onChange" in props && typeof props.onChange === "function") {
+		const onChange = props.onChange;
+		await act(async () => onChange({ target: element, currentTarget: element }));
+		return;
+	}
+	const event = new Event("input", { bubbles: true, cancelable: true });
+	Object.defineProperty(event, "eventPhase", { value: 0, writable: true, configurable: true });
+	await act(async () => {
+		element.dispatchEvent(event);
+	});
+}
+
 afterEach(() => {
 	useUiStore.setState({ settingsOpen: false, settingsTab: "capabilities" });
+});
+
+afterEach(async () => {
+	if (root) {
+		await act(async () => {
+			root?.unmount();
+		});
+		root = undefined;
+	}
+	container?.remove();
+	container = undefined;
+	useRemoteStore.getState().reset();
+	useTabsStore.getState().reset();
+	useSessionStore.getState().reset();
+	vi.restoreAllMocks();
 });
 
 describe("Toggle", () => {
@@ -250,6 +483,119 @@ describe("SchemaTabContent zh translations", () => {
 		expect(html).toContain(">Theme</h3>");
 		expect(html).toContain("Dark Theme");
 		expect(html).toContain("Theme palette used for dark appearance in both the TUI and GUI");
+	});
+});
+
+describe("SshSettingsPage", () => {
+	it("reloads the read-only app catalog after get_ssh_hosts succeeds", async () => {
+		const omp = installSettingsMock();
+		await mount(<SshSettingsPage />);
+
+		expect(omp.rpc.getSshHosts).toHaveBeenCalledTimes(1);
+		expect(omp.remote.catalog).toHaveBeenCalledTimes(1);
+		expect(useRemoteStore.getState().hosts.build?.host.alias).toBe("build");
+	});
+
+	it("starts the canonical catalog refresh without waiting for active-sidecar settings data", async () => {
+		const omp = installSettingsMock();
+		const activeSidecar = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getSshHosts.mockReturnValueOnce(activeSidecar.promise);
+
+		await mount(<SshSettingsPage />);
+
+		expect(omp.remote.catalog).toHaveBeenCalledOnce();
+		activeSidecar.resolve(rpcSuccess(SSH_HOSTS));
+		await flush();
+	});
+
+	it("refreshes canonical server truth after a successful draft connection test without cataloging the draft", async () => {
+		const omp = installSettingsMock();
+		await mount(<SshSettingsPage />);
+		const aliasInput = document.querySelector("input") as unknown as TestElement | null;
+		if (!aliasInput) throw new Error("alias input not found");
+		await typeInto(aliasInput, "draft-build");
+
+		await click(findButton("Test connection"));
+		await flush();
+
+		expect(omp.rpc.sshTest).toHaveBeenCalledWith(expect.objectContaining({ name: "draft-build" }));
+		expect(omp.rpc.getSshHosts).toHaveBeenCalledTimes(1);
+		expect(omp.remote.catalog).toHaveBeenCalledTimes(2);
+		expect(useRemoteStore.getState().hosts.build?.host.alias).toBe("build");
+		expect(useRemoteStore.getState().hosts["draft-build"]).toBeUndefined();
+		expect(aliasInput.value).toBe("draft-build");
+	});
+
+	it("disables Start and retains the catalog error when a test refresh fails", async () => {
+		const omp = installSettingsMock();
+		await mount(<SshSettingsPage />);
+		omp.remote.catalog.mockResolvedValue({ ok: false, error: "catalog unavailable" });
+
+		await click(findButton("Test connection"));
+		await flush();
+
+		const start = findButton("Start session");
+		expect(start.disabled).toBe(true);
+		expect(start.getAttribute("title")).toContain("catalog unavailable");
+		expect(document.body.textContent ?? "").toContain("catalog unavailable");
+		expect(useRemoteStore.getState().hosts.build).toBeDefined();
+	});
+
+	it("disables Start and retains the catalog error when an update refresh fails", async () => {
+		const omp = installSettingsMock();
+		await mount(<SshSettingsPage />);
+		omp.remote.catalog.mockResolvedValue({ ok: false, error: "update refresh failed" });
+
+		await click(findButton("Save changes"));
+		await flush();
+
+		expect(omp.rpc.sshManage).toHaveBeenCalledWith(expect.objectContaining({ action: "update", name: "build" }));
+		expect(findButton("Start session").disabled).toBe(true);
+		expect(document.body.textContent ?? "").toContain("update refresh failed");
+		expect(useRemoteStore.getState().hosts.build).toBeDefined();
+	});
+
+	it("retains the prior catalog and error when a delete refresh fails", async () => {
+		const omp = installSettingsMock();
+		await mount(<SshSettingsPage />);
+		omp.remote.catalog.mockResolvedValue({ ok: false, error: "delete refresh failed" });
+
+		await click(findButtonByAttribute("aria-label", "Delete host"));
+		await flush();
+
+		expect(omp.rpc.sshManage).toHaveBeenCalledWith(expect.objectContaining({ action: "delete", name: "build" }));
+		expect(document.body.textContent ?? "").toContain("delete refresh failed");
+		expect(useRemoteStore.getState().hosts.build).toBeDefined();
+		expect(findButton("Start session").disabled).toBe(true);
+	});
+
+	it("starts a configured host through the controlled picker and canonical tab store", async () => {
+		const omp = installSettingsMock();
+		await mount(<SshSettingsPage />);
+
+		await click(findButton("Start session"));
+		await flush();
+		expect(document.body.textContent ?? "").toContain("Choose remote workspace");
+
+		await click(findButton("Open workspace"));
+		await flush();
+
+		const target: SshSessionTarget = {
+			type: "ssh",
+			hostAlias: "build",
+			host: { ...REMOTE_CATALOG.hosts[0].host },
+			originCwd: "/srv/app",
+			cwd: "/srv/app",
+		};
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({
+			cwd: "/srv/app",
+			sessionPath: undefined,
+			kind: "agent",
+			target,
+		});
+		expect(omp.tabs.setActive).toHaveBeenCalledWith("remote-1");
+		expect(useTabsStore.getState()).toMatchObject({ activeTabId: "remote-1" });
+		expect(omp.remote.noteWorkspace).toHaveBeenCalledWith("build", "/srv/app");
 	});
 });
 

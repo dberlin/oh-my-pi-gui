@@ -4,10 +4,89 @@
  * the fs:read-image IPC (SSR shows the path placeholder — resolution is an
  * effect), and hostile protocols stay stripped.
  */
+import { parseHTML } from "linkedom";
+import { act, type ReactElement } from "react";
+import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { SshSessionTarget } from "../../shared/ipc-types";
+import { useTabsStore } from "../stores/tabs";
 import { I18nProvider } from "./i18n";
 import { classifyImageSrc, MarkdownRenderer } from "./markdown";
+import { resetTabRoute } from "./tab-routing";
+
+const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+Object.assign(globalThis, {
+	document,
+	window,
+	Event,
+	HTMLElement,
+	Element,
+	Node,
+	IS_REACT_ACT_ENVIRONMENT: true,
+	requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
+});
+
+// React DOM computes DOM support at evaluation time, so the test harness must install linkedom first.
+const { createRoot } = await import("react-dom/client");
+
+interface TestElement {
+	remove(): void;
+	textContent: string | null;
+}
+
+const REMOTE_TARGET: SshSessionTarget = {
+	type: "ssh",
+	hostAlias: "build",
+	host: {
+		host: "build.example.test",
+		username: "deploy",
+		sourceId: "test",
+		sourceLevel: "project",
+		os: "linux",
+	},
+	originCwd: "/srv/app",
+	cwd: "/srv/app",
+};
+
+const readImage: Mock = vi.fn();
+const ompWindow = window as unknown as { omp: { fs: { readImage: Mock } } };
+ompWindow.omp = { fs: { readImage } };
+
+let container: TestElement | undefined;
+let root: Root | undefined;
+
+async function flush(): Promise<void> {
+	await act(async () => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, 0);
+		await promise;
+	});
+}
+
+async function mount(element: ReactElement): Promise<void> {
+	container = document.createElement("div") as unknown as TestElement;
+	document.body.appendChild(container as never);
+	root = createRoot(container as unknown as Element);
+	await act(async () => {
+		root?.render(element);
+	});
+	await flush();
+}
+
+afterEach(async () => {
+	if (root) {
+		await act(async () => {
+			root?.unmount();
+		});
+	}
+	container?.remove();
+	container = undefined;
+	root = undefined;
+	readImage.mockReset();
+	useTabsStore.getState().reset();
+	resetTabRoute();
+});
 
 function render(content: string): string {
 	return renderToStaticMarkup(
@@ -87,5 +166,37 @@ describe("markdown images", () => {
 	it("keeps file: URLs for local resolution instead of dropping the src", () => {
 		const html = render("![snap](file:///tmp/snap.png)");
 		expect(html).toContain("/tmp/snap.png");
+	});
+
+	it("keeps an SSH markdown image payload target-free and renders the data returned by main", async () => {
+		readImage.mockResolvedValue({
+			ok: true,
+			dataUrl: TINY_PNG,
+			mime: "image/png",
+			size: 68,
+		});
+		useTabsStore.setState({
+			tabs: [
+				{
+					id: "remote-1",
+					cwd: REMOTE_TARGET.cwd,
+					target: REMOTE_TARGET,
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "remote-1",
+		});
+
+		await mount(
+			<I18nProvider>
+				<MarkdownRenderer content="![remote only](same-name.png)" />
+			</I18nProvider>,
+		);
+
+		expect(readImage).toHaveBeenCalledWith("same-name.png");
+		const image = document.querySelector('img[alt="remote only"]');
+		expect(image?.getAttribute("src")).toBe(TINY_PNG);
 	});
 });

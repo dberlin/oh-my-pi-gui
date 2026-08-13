@@ -183,6 +183,27 @@ export function basename(path: string | null | undefined): string {
 	return parts[parts.length - 1] ?? path;
 }
 
+/**
+ * Normalize untrusted one-line UI metadata. ASCII/C1 controls become spaces so
+ * words cannot merge, bidi formatting controls are removed so labels cannot
+ * reorder surrounding UI, and the result is capped without splitting a UTF-16
+ * surrogate pair.
+ */
+export function sanitizeDisplayText(value: string | null | undefined, maxLength: number): string {
+	if (!value || maxLength <= 0) return "";
+	const clean = value
+		.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+		.replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (clean.length <= maxLength) return clean;
+	if (maxLength === 1) return "…";
+	let end = maxLength - 1;
+	const lastCodeUnit = clean.charCodeAt(end - 1);
+	if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) end -= 1;
+	return `${clean.slice(0, end)}…`;
+}
+
 export function dirname(path: string | null | undefined): string {
 	if (!path) return "";
 	const parts = path.split(/[\\/]/);

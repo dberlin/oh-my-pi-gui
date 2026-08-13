@@ -10,7 +10,7 @@
  *   the file's kind wins instead of refusing.
  */
 import type { BrowserWindow } from "electron";
-import type { IpcSpawnTabPayload, IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
+import type { IpcSpawnTabPayload, IpcSpawnTabResult, SessionKind, SshSessionTarget } from "../shared/ipc-types";
 import type { SessionIndex } from "./session-index";
 import type { SidecarPool } from "./sidecar-pool";
 import { nextSnowflake } from "./snowflake";
@@ -22,6 +22,12 @@ export type SpawnTabDeps = {
 	fallbackCwd: () => string;
 	/** GUI-owned Work workspace, created on demand. */
 	defaultWorkspace: () => string;
+	authorizeRemoteTarget(
+		target: SshSessionTarget,
+		cwd: unknown,
+		sink: (target: SshSessionTarget) => IpcSpawnTabResult | null,
+	): Promise<IpcSpawnTabResult | null>;
+	authorizeRemoteResume(target: SshSessionTarget, cwd: string, sessionId: string): boolean;
 };
 
 export async function spawnTabForWindow(
@@ -29,8 +35,12 @@ export async function spawnTabForWindow(
 	win: BrowserWindow,
 	payload: IpcSpawnTabPayload,
 ): Promise<IpcSpawnTabResult | null> {
+	const remote = payload?.target?.type === "ssh";
+	const resumeSessionId =
+		typeof payload?.resumeSessionId === "string" && payload.resumeSessionId ? payload.resumeSessionId : undefined;
+	if (resumeSessionId !== undefined && !remote) return null;
 	const sessionPath =
-		typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
+		!remote && typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
 	let kind: SessionKind = payload?.kind === "chat" ? "chat" : "agent";
 	if (sessionPath) {
 		// F-OWN first: a live owner wins over every other consideration.
@@ -49,11 +59,41 @@ export async function spawnTabForWindow(
 		? deps.defaultWorkspace()
 		: typeof payload?.cwd === "string" && payload.cwd.length > 0
 			? payload.cwd
-			: deps.fallbackCwd();
+			: payload.target?.type === "ssh"
+				? payload.target.cwd
+				: deps.fallbackCwd();
 	const tabId = nextSnowflake();
-	// A no-path tab is an explicit New Tab action. It must start empty even
-	// when the CLI's persistent autoResume setting is enabled for the project.
-	return deps.sidecarPool.acquire(cwd, win, tabId, sessionPath, kind, payload?.worktree, !sessionPath)
+	if (remote) {
+		return deps.authorizeRemoteTarget(payload.target as SshSessionTarget, cwd, target => {
+			if (resumeSessionId !== undefined && !deps.authorizeRemoteResume(target, target.cwd, resumeSessionId)) {
+				return null;
+			}
+			return deps.sidecarPool.acquire({
+				cwd: target.cwd,
+				win,
+				tabId,
+				sessionPath: undefined,
+				resumeSessionId,
+				kind,
+				worktree: payload.worktree,
+				fresh: resumeSessionId === undefined,
+				target,
+			})
+				? { tabId }
+				: null;
+		});
+	}
+	return deps.sidecarPool.acquire({
+		cwd,
+		win,
+		tabId,
+		sessionPath,
+		resumeSessionId: undefined,
+		kind,
+		worktree: payload?.worktree,
+		fresh: sessionPath === undefined,
+		target: payload?.target,
+	})
 		? payload.defaultWorkspace
 			? { tabId, cwd }
 			: { tabId }

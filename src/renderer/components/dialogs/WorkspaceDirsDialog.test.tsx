@@ -10,9 +10,17 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import type {
+	RemoteDirectoryListResult,
+	RemoteDirectoryValidationResult,
+	RemotePreflightResult,
+	SshSessionTarget,
+} from "../../../shared/ipc-types";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { WorkspaceDirsDialog } from "./WorkspaceDirsDialog";
@@ -66,13 +74,43 @@ interface MockRpc {
 	setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 }
 
+interface MockRemote {
+	preflight: Mock<(target: SshSessionTarget, tabId?: string) => Promise<RemotePreflightResult>>;
+	listDirectories: Mock<
+		(
+			target: SshSessionTarget,
+			path: string,
+			showHidden: boolean,
+			tabId?: string,
+		) => Promise<RemoteDirectoryListResult>
+	>;
+	validateDirectory: Mock<
+		(target: SshSessionTarget, path: string, tabId?: string) => Promise<RemoteDirectoryValidationResult>
+	>;
+}
+
 interface MockOmp {
 	rpc: MockRpc;
+	remote: MockRemote;
 	system: { showOpenDialog: Mock<() => Promise<string[] | null>> };
 }
 
 const CWD = "/work/project";
 const EXTRA = "/work/extra";
+const REMOTE_CWD = "/srv/app";
+const REMOTE_TARGET: SshSessionTarget = {
+	type: "ssh",
+	hostAlias: "build",
+	host: {
+		host: "build.example.com",
+		username: "deploy",
+		port: 2202,
+		sourceId: "ssh-config",
+		sourceLevel: "user",
+	},
+	originCwd: REMOTE_CWD,
+	cwd: REMOTE_CWD,
+};
 
 function directories(...paths: string[]): { directories: { path: string; primary: boolean }[] } {
 	return { directories: paths.map(path => ({ path, primary: path === CWD })) };
@@ -91,8 +129,20 @@ function installMockOmp(overrides: { rpc?: Partial<MockRpc>; pickedPath?: string
 		setSubagentSubscription: vi.fn(async () => success({})),
 		...overrides.rpc,
 	};
+	const remote: MockRemote = {
+		preflight: vi.fn(async target => ({
+			ok: true,
+			target,
+			home: "/home/deploy",
+			platform: "linux",
+			executable: "/usr/local/bin/omp",
+		})),
+		listDirectories: vi.fn(async (_target, path) => ({ ok: true, path, parent: "/srv", entries: [] })),
+		validateDirectory: vi.fn(async (_target, path) => ({ ok: true, path })),
+	};
 	const omp: MockOmp = {
 		rpc,
+		remote,
 		system: {
 			showOpenDialog: vi.fn(async () => (overrides.pickedPath === null ? null : [overrides.pickedPath ?? EXTRA])),
 		},
@@ -100,6 +150,27 @@ function installMockOmp(overrides: { rpc?: Partial<MockRpc>; pickedPath?: string
 	// linkedom's window lacks the preload bridge; install the mock OmpApi on it.
 	(window as unknown as { omp: MockOmp }).omp = omp;
 	return omp;
+}
+
+function seedRemoteTab(): void {
+	useRemoteStore.getState().setCatalog({
+		hosts: [{ alias: "build", host: { ...REMOTE_TARGET.host }, recentWorkspaces: [REMOTE_CWD] }],
+		updatedAt: "2026-08-13T00:00:00.000Z",
+	});
+	useTabsStore.setState({
+		tabs: [
+			{
+				id: "remote-1",
+				cwd: REMOTE_CWD,
+				target: REMOTE_TARGET,
+				status: "ready",
+				kind: "agent",
+				unreadDone: false,
+			},
+		],
+		activeTabId: "remote-1",
+		bundles: new Map(),
+	});
 }
 
 let container: TestElement;
@@ -158,6 +229,8 @@ afterEach(async () => {
 	container?.remove();
 	useUiStore.getState().closeWorkspaceDirs();
 	useSessionStore.getState().reset();
+	useTabsStore.getState().reset();
+	useRemoteStore.getState().reset();
 	useToastStore.setState({ toasts: [] });
 });
 
@@ -199,6 +272,97 @@ describe("WorkspaceDirsDialog", () => {
 		await click(findButton("Add directory"));
 		await flush();
 		expect(omp.rpc.addDirectory).not.toHaveBeenCalled();
+	});
+
+	it("adds an SSH directory through the remote picker without opening the native dialog", async () => {
+		const omp = installMockOmp({
+			rpc: {
+				getDirectories: vi.fn(async () => success({ directories: [{ path: REMOTE_CWD, primary: true }] })),
+				addDirectory: vi.fn(async () => success({ directories: [{ path: REMOTE_CWD, primary: true }] })),
+			},
+		});
+		seedRemoteTab();
+		useUiStore.getState().openWorkspaceDirs();
+		await mount(<WorkspaceDirsDialog />);
+
+		await click(findButton("Add directory"));
+		expect(omp.remote.preflight).toHaveBeenCalledWith(REMOTE_TARGET, "remote-1", expect.any(String));
+		expect(omp.remote.listDirectories).toHaveBeenCalledWith(
+			REMOTE_TARGET,
+			REMOTE_CWD,
+			false,
+			"remote-1",
+			expect.any(String),
+		);
+		expect(omp.remote.validateDirectory).toHaveBeenCalledWith(
+			REMOTE_TARGET,
+			REMOTE_CWD,
+			"remote-1",
+			expect.any(String),
+		);
+		await act(async () => {
+			useRemoteStore.getState().setCatalog({ hosts: [], updatedAt: "2026-08-13T00:01:00.000Z" });
+		});
+		await flush();
+		expect(omp.system.showOpenDialog).not.toHaveBeenCalled();
+		expect(document.body.textContent ?? "").toContain("Choose remote workspace");
+
+		await click(findButton("Open workspace"));
+		await flush();
+		expect(omp.rpc.addDirectory).toHaveBeenCalledWith(REMOTE_CWD);
+		expect(document.body.textContent ?? "").toContain(REMOTE_CWD);
+	});
+
+	it("keeps the SSH directory dialog open when the remote picker is cancelled", async () => {
+		const omp = installMockOmp({
+			rpc: {
+				getDirectories: vi.fn(async () => success({ directories: [{ path: REMOTE_CWD, primary: true }] })),
+			},
+		});
+		seedRemoteTab();
+		useUiStore.getState().openWorkspaceDirs();
+		await mount(<WorkspaceDirsDialog />);
+
+		await click(findButton("Add directory"));
+		await flush();
+		await click(findButton("Cancel"));
+		await flush();
+
+		expect(omp.rpc.addDirectory).not.toHaveBeenCalled();
+		expect(omp.system.showOpenDialog).not.toHaveBeenCalled();
+		expect(document.body.textContent ?? "").toContain("Workspace Directories");
+		expect(document.body.textContent ?? "").toContain(REMOTE_CWD);
+	});
+
+	it("cancels the remote picker when the owning tab target changes without mutating either sidecar", async () => {
+		const omp = installMockOmp({
+			rpc: {
+				getDirectories: vi.fn(async () => success({ directories: [{ path: REMOTE_CWD, primary: true }] })),
+			},
+		});
+		seedRemoteTab();
+		useUiStore.getState().openWorkspaceDirs();
+		await mount(<WorkspaceDirsDialog />);
+		await click(findButton("Add directory"));
+		await flush();
+
+		await act(async () => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab =>
+					tab.id === "remote-1"
+						? {
+								...tab,
+								target: { ...REMOTE_TARGET, cwd: "/srv/changed", originCwd: "/srv/changed" },
+							}
+						: tab,
+				),
+			}));
+		});
+		await flush();
+
+		expect(document.body.textContent ?? "").not.toContain("Choose remote workspace");
+		expect(omp.rpc.addDirectory).not.toHaveBeenCalled();
+		expect(omp.system.showOpenDialog).not.toHaveBeenCalled();
 	});
 
 	it("keeps removal behind the inline confirm until confirmed", async () => {
@@ -247,6 +411,27 @@ describe("WorkspaceDirsDialog", () => {
 		expect(omp.rpc.getDirectories.mock.calls.length).toBeGreaterThanOrEqual(2);
 		const toasts = useToastStore.getState().toasts;
 		expect(toasts.some(toast => toast.variant === "success")).toBe(true);
+	});
+
+	it("moves an SSH session through the remote picker without opening the native dialog", async () => {
+		const omp = installMockOmp({
+			rpc: {
+				getDirectories: vi.fn(async () => success({ directories: [{ path: REMOTE_CWD, primary: true }] })),
+				moveSession: vi.fn(async path => success({ cwd: path })),
+			},
+		});
+		seedRemoteTab();
+		useUiStore.getState().openWorkspaceDirs();
+		await mount(<WorkspaceDirsDialog />);
+
+		await click(findButton("Move session"));
+		await flush();
+		expect(omp.system.showOpenDialog).not.toHaveBeenCalled();
+		await click(findButton("Open workspace"));
+		await flush();
+
+		expect(omp.rpc.moveSession).toHaveBeenCalledWith(REMOTE_CWD);
+		expect(omp.rpc.getDirectories.mock.calls.length).toBeGreaterThanOrEqual(2);
 	});
 
 	it("surfaces a primary-removal refusal as an error toast and keeps the list", async () => {

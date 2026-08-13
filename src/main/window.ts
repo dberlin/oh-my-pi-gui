@@ -7,7 +7,7 @@ import * as fs from "node:original-fs";
 import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import Store from "electron-store";
-import type { RunProgressState, SessionKind } from "../shared/ipc-types";
+import type { RunProgressState, SessionKind, SessionTarget } from "../shared/ipc-types";
 import {
 	type ApplicationResourceIdentity,
 	applicationResourcesChanged,
@@ -45,6 +45,8 @@ export interface WindowRecord {
 	 * main process switches before/after the renderer's boot hydration.
 	 */
 	pendingSessionPath?: string;
+	target?: SessionTarget;
+	resumeSessionId?: string;
 }
 
 /**
@@ -54,7 +56,13 @@ export interface WindowRecord {
  * target session file's stamped kind (OPEN_NEW_WINDOW resolves it from the
  * session index); omitted = agent.
  */
-export type SpawnWindow = (cwd?: string, pendingSessionPath?: string, kind?: SessionKind) => BrowserWindow | null;
+export type SpawnWindow = (
+	cwd?: string,
+	pendingSessionPath?: string,
+	kind?: SessionKind,
+	target?: SessionTarget,
+	resumeSessionId?: string,
+) => BrowserWindow | null;
 
 export class WindowManager {
 	#records = new Map<number, WindowRecord>();
@@ -69,7 +77,9 @@ export class WindowManager {
 		this.#store = new Store<StoreSchema>({ name: "window-state" });
 	}
 
-	createWindow(opts: { cwd?: string; pendingSessionPath?: string } = {}): BrowserWindow {
+	createWindow(
+		opts: { cwd?: string; pendingSessionPath?: string; target?: SessionTarget; resumeSessionId?: string } = {},
+	): BrowserWindow {
 		const cwd = opts.cwd ?? process.cwd();
 		const saved = this.#store.get("windowState", {
 			width: DEFAULT_WIDTH,
@@ -102,7 +112,14 @@ export class WindowManager {
 			win.maximize();
 		}
 
-		const record: WindowRecord = { win, id: win.webContents.id, cwd, pendingSessionPath: opts.pendingSessionPath };
+		const record: WindowRecord = {
+			win,
+			id: win.webContents.id,
+			cwd,
+			pendingSessionPath: opts.pendingSessionPath,
+			target: opts.target,
+			resumeSessionId: opts.resumeSessionId,
+		};
 		this.#records.set(record.id, record);
 		this.#observeRuntimeFailures(record);
 
