@@ -65,7 +65,6 @@ interface MockRpc {
 	>;
 	resumeAfterAskReanswer: Mock<() => Promise<RpcResponse>>;
 	getMessages: Mock<() => Promise<RpcResponse>>;
-	getTranscript: Mock<() => Promise<RpcResponse>>;
 	getSubagents: Mock<() => Promise<RpcResponse>>;
 	setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	getSessionTree?: Mock<() => Promise<RpcResponse>>;
@@ -79,7 +78,6 @@ function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
 		switchLeaf: vi.fn(async () => success({ cancelled: false, activeLeafId: "m1" })),
 		resumeAfterAskReanswer: vi.fn(async () => success(undefined)),
 		getMessages: vi.fn(async () => success({ messages: [] })),
-		getTranscript: vi.fn(async () => success({ messages: [] })),
 		getSubagents: vi.fn(async () => success({ subagents: [] })),
 		setSubagentSubscription: vi.fn(async () => success({})),
 		...overrides,

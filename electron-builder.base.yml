@@ -33,6 +33,7 @@ mac:
     NSAppTransportSecurity:
       NSAllowsArbitraryLoads: false
       NSAllowsLocalNetworking: true
+    NSLocalNetworkUsageDescription: omp connects to configured SSH hosts and services on your local network.
   notarize: false
 
 dmg:

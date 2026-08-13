@@ -15,11 +15,10 @@ import type {
 	RemoteHostCatalogSnapshot,
 	RemotePreflightResult,
 	SessionTarget,
-	SshConnectionSnapshot,
 	SshSessionTarget,
 } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, RpcSshHostInfo, RpcSshHostsResult } from "../shared/rpc-types";
-import { isSshSessionTarget } from "../shared/session-target";
+import { isSshSessionTarget, sameSessionTarget } from "../shared/session-target";
 import type { RemoteAcpClient } from "./remote-acp";
 import {
 	type FinalRemoteTargetAuthorization,
@@ -47,20 +46,6 @@ const FS_IMAGE_MAX_BYTES = 25_000_000;
 const MAX_ERROR_LENGTH = 512;
 const REMOTE_IMPLICIT_ROOTS_MAX_COUNT = 2;
 const REMOTE_DIRECTORY_ROOTS_MAX_COUNT = REMOTE_ROOTS_MAX_COUNT - REMOTE_IMPLICIT_ROOTS_MAX_COUNT;
-
-const HOST_KEYS = [
-	"host",
-	"username",
-	"port",
-	"keyPath",
-	"compat",
-	"os",
-	"shell",
-	"transferShell",
-	"sourceId",
-	"sourceLevel",
-] as const;
-const TARGET_KEYS = ["type", "hostAlias", "host", "originCwd", "cwd", "executableOverride"] as const;
 
 interface CatalogDependency {
 	snapshot(): RemoteHostCatalogSnapshot;
@@ -209,7 +194,9 @@ export class RemoteResumeGrantRegistry {
 			this.#byOwner.set(ownerId, grants);
 		}
 		if (
-			grants.some(grant => grant.cwd === cwd && grant.sessionId === sessionId && sameTarget(grant.target, target))
+			grants.some(
+				grant => grant.cwd === cwd && grant.sessionId === sessionId && sameSessionTarget(grant.target, target),
+			)
 		) {
 			return;
 		}
@@ -220,7 +207,7 @@ export class RemoteResumeGrantRegistry {
 		const grants = this.#byOwner.get(ownerId);
 		return (
 			grants?.some(
-				grant => grant.cwd === cwd && grant.sessionId === sessionId && sameTarget(grant.target, target),
+				grant => grant.cwd === cwd && grant.sessionId === sessionId && sameSessionTarget(grant.target, target),
 			) ?? false
 		);
 	}
@@ -248,44 +235,12 @@ function knownAlias(catalog: CatalogDependency, alias: unknown): alias is string
 	return nonEmptyString(alias) && catalog.snapshot().hosts.some(entry => entry.alias === alias);
 }
 
-function sameRecordKeys(value: object, keys: readonly string[]): boolean {
-	const actual = Object.keys(value).sort();
-	const expected = keys.filter(key => Object.hasOwn(value, key)).sort();
-	return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
-}
-
-function sameHost(left: SshConnectionSnapshot, right: SshConnectionSnapshot): boolean {
-	if (!sameRecordKeys(left, HOST_KEYS) || !sameRecordKeys(right, HOST_KEYS)) return false;
-
-	return HOST_KEYS.every(key => left[key] === right[key]);
-}
-
-function sameTarget(left: SessionTarget, right: SessionTarget): boolean {
-	if (left.type !== right.type) return false;
-	if (left.type === "local" || right.type === "local") {
-		return (
-			left.type === "local" &&
-			right.type === "local" &&
-			Object.keys(left).length === 1 &&
-			Object.keys(right).length === 1
-		);
-	}
-	if (!sameRecordKeys(left, TARGET_KEYS) || !sameRecordKeys(right, TARGET_KEYS)) return false;
-	return (
-		left.hostAlias === right.hostAlias &&
-		left.originCwd === right.originCwd &&
-		left.cwd === right.cwd &&
-		left.executableOverride === right.executableOverride &&
-		sameHost(left.host, right.host)
-	);
-}
-
 function canonicalTarget(catalog: CatalogDependency, value: unknown): SshSessionTarget | null {
 	if (!isBoundedRemoteTargetInput(value) || !nonEmptyString(value.hostAlias) || !nonEmptyString(value.cwd)) {
 		return null;
 	}
 	const canonical = catalog.target(value.hostAlias, value.cwd);
-	return canonical && sameTarget(value, canonical) ? canonical : null;
+	return canonical && sameSessionTarget(value, canonical) ? canonical : null;
 }
 function finalRemoteDirectoryAuthorization(
 	deps: Pick<RemoteIpcDispatchDeps, "catalog">,
@@ -304,7 +259,7 @@ function remoteDirectoryTarget(
 	if (tabId === undefined) return canonicalTarget(deps.catalog, target);
 	if (!nonEmptyString(tabId) || !isBoundedRemoteTargetInput(target)) return null;
 	const owned = deps.lookupTab(tabId);
-	if (!owned || !isBoundedRemoteTargetInput(owned.target) || !sameTarget(target, owned.target)) return null;
+	if (!owned || !isBoundedRemoteTargetInput(owned.target) || !sameSessionTarget(target, owned.target)) return null;
 	return copyTarget(owned.target);
 }
 
@@ -413,6 +368,28 @@ export function observeRemoteCatalogRpcResponse(
 }
 
 export type RemoteTargetSinkResult<Value> = { ok: true; value: Value } | { ok: false; error: string };
+
+/**
+ * Authorize a remote sidecar spawn against the current main-owned catalog.
+ * SidecarManager performs the SSH/runtime probe after acquisition, so spawning
+ * must not repeat the same network round trip before the tab can paint.
+ */
+export function authorizeRemoteSpawnTargetAtSink<Value>(
+	deps: Pick<RemoteIpcDispatchDeps, "catalog">,
+	payload: unknown,
+	sink: (target: SshSessionTarget) => Value,
+): RemoteTargetSinkResult<Value> {
+	if (!isPlainRecord(payload) || !hasExactKeys(payload, ["target", "cwd"])) {
+		return { ok: false, error: "Invalid remote target request" };
+	}
+	if (!nonEmptyString(payload.cwd) || !remoteInputWithinBytes(payload.cwd, REMOTE_PATH_MAX_BYTES)) {
+		return { ok: false, error: "Remote cwd does not match target" };
+	}
+	const target = canonicalTarget(deps.catalog, payload.target);
+	if (!target) return { ok: false, error: "Stale or altered SSH target" };
+	if (payload.cwd !== target.cwd) return { ok: false, error: "Remote cwd does not match target" };
+	return { ok: true, value: sink(copyTarget(target)) };
+}
 
 export async function authorizeRemoteTargetAtSink<Value>(
 	deps: Pick<RemoteIpcDispatchDeps, "catalog" | "ssh">,
@@ -790,7 +767,7 @@ export class RemoteWorkspaceTrust {
 		}
 
 		let state = this.#states.get(tab.tabId);
-		if (!state || !sameTarget(state.target, target)) {
+		if (!state || !sameSessionTarget(state.target, target)) {
 			state = { target: copyTarget(target), directories: [], sessionParent: null };
 			this.#states.set(tab.tabId, state);
 		}
@@ -813,7 +790,7 @@ export class RemoteWorkspaceTrust {
 		if (!isSshSessionTarget(tab.target)) return [];
 		if (!isBoundedRemoteTargetInput(tab.target)) return null;
 		let state = this.#states.get(tab.tabId);
-		if (state && !sameTarget(state.target, tab.target)) {
+		if (state && !sameSessionTarget(state.target, tab.target)) {
 			this.#states.delete(tab.tabId);
 			state = undefined;
 		}
@@ -838,7 +815,7 @@ function validateTab(
 	if (!validTarget) return { error: "Invalid tab identity" };
 	const current = deps.lookupTab(requested.tabId);
 	if (!current) return { error: "Unknown tab" };
-	if (!sameTarget(requested.target, current.target)) return { error: "Stale or altered tab target" };
+	if (!sameSessionTarget(requested.target, current.target)) return { error: "Stale or altered tab target" };
 	return { tab: current };
 }
 

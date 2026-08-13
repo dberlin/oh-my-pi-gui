@@ -5,13 +5,11 @@ import {
 	Bug,
 	ChevronRight,
 	Code2,
-	FileDiff,
 	Languages,
 	Lightbulb,
 	ListTodo,
 	Loader2,
 	PenLine,
-	RotateCw,
 	SearchCode,
 	Sparkles,
 	X,
@@ -21,22 +19,20 @@ import type { RpcQueuedMessage } from "../../../shared/rpc-types";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { abortActiveTurn, isRenderableMessageText } from "../../lib/messages";
+import { isRenderableMessageText } from "../../lib/messages";
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { type QueueLane, useQueuedMessages, useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
+import { useSettingsStore } from "../../stores/settings";
+import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
-import { TRANSCRIPT_FOCUS_TTL_MS, useTranscriptFocusStore } from "../../stores/transcript-focus";
 import { useUiStore } from "../../stores/ui";
 import { PiLogo } from "../common";
-import { buildEditCandidates } from "../panels/DiffPanel";
-import { DiffStat } from "../panels/workspace-ui";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
 import { ConversationNavigator } from "./ConversationNavigator";
@@ -51,15 +47,11 @@ import {
 	type HistoryRow,
 	isTranscriptAtLiveEdge,
 	isVisibleTranscriptMessage,
-	locateEntryRow,
 	type MountedTranscriptRow,
 	mergeTodoSnapshots,
 	messageTimestampMs,
 	type Row,
 	shouldRePinTranscript,
-	summarizeTurnChanges,
-	type TurnChangeSummary,
-	tabAwaitsTranscript,
 } from "./chat-stream-utils";
 import { ExecutionGroup } from "./ExecutionGroup";
 import { MessageBubble } from "./MessageBubble";
@@ -68,9 +60,10 @@ import { ThinkingBlock } from "./ThinkingBlock";
 
 // TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
 // User intent is enforced separately by switching away from end anchoring.
+
+// TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
+// User intent is enforced separately by switching away from end anchoring.
 const LIVE_EDGE_THRESHOLD_PX = 1;
-/** How long a message opened from search stays marked. */
-const FOUND_MARK_MS = 1800;
 
 /**
  * Virtual-scroll message list. Stays pinned to the bottom while streaming
@@ -112,6 +105,9 @@ function SessionTranscript() {
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const status = useSessionStore(s => s.status);
+	const activeTab = useTabsStore(state => state.tabs.find(tab => tab.id === state.activeTabId));
+	const remoteStartingTarget =
+		status === "starting" && activeTab?.target.type === "ssh" ? activeTab.target : undefined;
 	const sessionId = useSessionStore(s => s.sessionId);
 	// Shared agent compaction preference and GUI-local transcript detail.
 	const collapseCompacted = useDisplayPreference("collapseCompacted");
@@ -154,23 +150,6 @@ function SessionTranscript() {
 		return mergeTodoSnapshots(grouped, todoHistory);
 	}, [displayMessages, hiddenCount, transcriptDetail, todoHistory, expandedProcessKeys]);
 
-	// What the latest run changed on disk, once it has settled: closes the turn
-	// with one line leading to the review drawer. Tool events stream in at a high
-	// rate mid-run, so the map is only subscribed while idle.
-	const toolsTab = useActiveTabKind() !== "chat";
-	const lastPromptAt = useMemo(() => {
-		const prompt = displayMessages.findLast(message => message.role === "user");
-		return prompt ? messageTimestampMs(prompt) : null;
-	}, [displayMessages]);
-	const settledTools = useToolsStore(s => (isStreaming ? null : s.activeTools));
-	const turnChanges = useMemo(
-		() =>
-			toolsTab && settledTools && lastPromptAt !== null
-				? summarizeTurnChanges(buildEditCandidates(settledTools), lastPromptAt)
-				: null,
-		[toolsTab, settledTools, lastPromptAt],
-	);
-
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the
 	// streaming rows, so the shell window never reads as dead air.
@@ -203,9 +182,6 @@ function SessionTranscript() {
 			nextRows.push({ kind: "expander", count: hiddenCount });
 		}
 		nextRows.push(...historyRows);
-		if (turnChanges && lastPromptAt !== null && !isStreaming && !showStatusRow) {
-			nextRows.push({ kind: "turnChanges", since: lastPromptAt, summary: turnChanges });
-		}
 		if (hasStreamedContent && streamingMessage) {
 			nextRows.push({ kind: "streaming", message: streamingMessage });
 		}
@@ -225,9 +201,6 @@ function SessionTranscript() {
 	}, [
 		hiddenCount,
 		historyRows,
-		turnChanges,
-		lastPromptAt,
-		isStreaming,
 		hasStreamedContent,
 		showStatusRow,
 		queued.steering,
@@ -264,13 +237,6 @@ function SessionTranscript() {
 	/** Chat tabs get a conversation-oriented empty state (agent starters imply tools). */
 	const isChat = useActiveTabKind() === "chat";
 	const starters = isChat ? CHAT_STARTERS : STARTERS;
-	// A fresh tab has no transcript to wait for: its start screen can show while
-	// the sidecar boots instead of a spinner on a blank page. A tab resuming a
-	// session keeps the spinner, so the start screen never flashes before history.
-	const tabHasHistory = useTabsStore(state =>
-		tabAwaitsTranscript(state.tabs.find(candidate => candidate.id === tabId)),
-	);
-	const awaitingTranscript = status === "starting" && tabHasHistory;
 
 	const virtualizer = useVirtualizer({
 		count: rows.length,
@@ -296,7 +262,7 @@ function SessionTranscript() {
 		estimateSize: i => {
 			const kind = rows[i]?.kind;
 			if (kind === "streaming") return 80;
-			if (kind === "pending" || kind === "queued" || kind === "turnChanges") return 56;
+			if (kind === "pending" || kind === "queued") return 56;
 			if (kind === "expander" || kind === "process" || kind === "todoSnapshot") return 48;
 			if (kind === "message") return 72;
 			return 160;
@@ -363,10 +329,8 @@ function SessionTranscript() {
 	}, [virtualizer, followsTail, rows.length, tailRowKey, sessionId, totalSize]);
 
 	// Row measurements, fonts and images move the live edge after React has
-	// committed the new rows: observe the canvas sizer. The viewport moves it
-	// too — a composer growing with a long draft, a dock card opening, the window
-	// resizing — so a pinned transcript follows the scroll container's own box
-	// as well, instead of letting the latest turn slide under the composer.
+	// committed the new rows. Observe the canvas sizer — the scroll container's
+	// own box is `h-full` and never changes when content is appended.
 	useEffect(() => {
 		const el = parentRef.current;
 		const canvas = canvasRef.current;
@@ -376,7 +340,6 @@ function SessionTranscript() {
 			if (followsTail(el)) virtualizer.scrollToEnd();
 		});
 		observer.observe(canvas);
-		observer.observe(el);
 		return () => observer.disconnect();
 	}, [virtualizer, followsTail]);
 
@@ -550,63 +513,6 @@ function SessionTranscript() {
 		});
 	}, []);
 
-	// Open at a message (conversation search): once this tab shows the requested
-	// session file with its history loaded, scroll the message into the middle of
-	// the view and mark it. Earlier-than-compaction history opens first; a folded
-	// process group opens to show it. A message on another branch says so.
-	const sessionFile = useSessionStore(s => s.sessionFile);
-	const focusTarget = useTranscriptFocusStore(s => s.target);
-	const settleFocus = useTranscriptFocusStore(s => s.settle);
-	const [foundKey, setFoundKey] = useState<string | null>(null);
-	useEffect(() => {
-		const target = focusTarget;
-		if (!target || target.sessionPath !== sessionFile) return;
-		if (Date.now() - target.requestedAt > TRANSCRIPT_FOCUS_TTL_MS) {
-			settleFocus(target.nonce);
-			return;
-		}
-		if (status !== "ready" || switchPending || messages.length === 0) return;
-		if (hiddenCount > 0 && displayMessages.slice(0, hiddenCount).some(m => m.entryId === target.entryId)) {
-			setPreCompactionOpen(true);
-			return;
-		}
-		settleFocus(target.nonce);
-		const found = locateEntryRow(rows, target.entryId);
-		if (!found) {
-			toast({ variant: "info", message: t("search.notOnBranch") });
-			return;
-		}
-		const key = rowKeys[found.index] ?? null;
-		if (found.kind === "process" && key) updateProcessExpanded(key, true);
-		// Hold the view on the message: no tail following until the reader heads back down.
-		userScrollIntentRef.current = false;
-		gestureAnchorRef.current = null;
-		gestureTowardTailRef.current = false;
-		viewRef.current.pinned = false;
-		setPinned(false);
-		virtualizer.scrollToIndex(found.index, { align: "center" });
-		setFoundKey(key);
-	}, [
-		focusTarget,
-		sessionFile,
-		status,
-		switchPending,
-		messages.length,
-		hiddenCount,
-		displayMessages,
-		rows,
-		rowKeys,
-		settleFocus,
-		t,
-		updateProcessExpanded,
-		virtualizer,
-	]);
-	useEffect(() => {
-		if (foundKey === null) return;
-		const timer = window.setTimeout(() => setFoundKey(null), FOUND_MARK_MS);
-		return () => clearTimeout(timer);
-	}, [foundKey]);
-
 	// Messages hydrate via hydrateSession (use-rpc-events) on sidecar ready —
 	// no separate fetch here (that would double-download the transcript).
 
@@ -632,46 +538,65 @@ function SessionTranscript() {
 							<div className="omp-indeterminate-progress h-full bg-[var(--omp-accent)]" />
 						</div>
 					)}
-					{awaitingTranscript && rows.length === 0 && !switchPending && (
+					{status === "starting" && rows.length === 0 && !switchPending && !remoteStartingTarget && (
 						<div className="flex justify-center py-3">
 							<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
 						</div>
 					)}
-					{!awaitingTranscript && rows.length === 0 && !isStreaming && !switchPending && (
+					{(remoteStartingTarget || status !== "starting") &&
+						rows.length === 0 &&
+						!isStreaming &&
+						!switchPending && (
 						<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
-							<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--omp-border-muted)] bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
-								<PiLogo size={22} />
-							</div>
-							<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
-								{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
-							</h1>
-							<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
-								{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
-							</p>
-							<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-								{starters.map(({ icon: Icon, title, prompt }) => (
-									<button
-										key={title}
-										type="button"
-										onClick={() =>
-											window.dispatchEvent(
-												new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
-											)
-										}
-										className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
-									>
-										<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
-											<Icon size={17} />
-										</span>
-										<span>
-											<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">{title}</span>
-											<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
-												{prompt}
-											</span>
-										</span>
-									</button>
-								))}
-							</div>
+							{remoteStartingTarget ? (
+								<div aria-live="polite">
+									<Loader2 size={28} className="mb-5 animate-spin text-[var(--omp-accent)]" />
+									<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
+										{t("remote.connection.connecting", { host: remoteStartingTarget.hostAlias })}
+									</h1>
+									<p className="mt-2 max-w-2xl font-mono text-omp-lg leading-relaxed text-[var(--omp-muted)]">
+										{remoteStartingTarget.cwd}
+									</p>
+								</div>
+							) : (
+								<>
+									<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)]">
+										<PiLogo size={22} />
+									</div>
+									<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
+										{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
+									</h1>
+									<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
+										{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
+									</p>
+									<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+										{starters.map(({ icon: Icon, title, prompt }) => (
+											<button
+												key={title}
+												type="button"
+												onClick={() =>
+													window.dispatchEvent(
+														new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
+													)
+												}
+												className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
+											>
+												<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
+													<Icon size={17} />
+												</span>
+												<span>
+													<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">
+														{title}
+													</span>
+													<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
+														{prompt}
+													</span>
+												</span>
+											</button>
+										))}
+									</div>
+								</>
+							)}
 						</div>
 					)}
 					<div
@@ -689,7 +614,6 @@ function SessionTranscript() {
 									data-index={item.index}
 									data-row-key={rowKey}
 									data-transcript-kind={row.kind}
-									className={rowKey === foundKey ? "omp-row-found" : undefined}
 									ref={virtualizer.measureElement}
 									style={{
 										position: "absolute",
@@ -701,12 +625,7 @@ function SessionTranscript() {
 								>
 									<div className="omp-transcript-row w-full">
 										{row.kind === "message" ? (
-											<MessageBubble
-												message={row.message}
-												reaction={row.reaction}
-												repeats={row.repeats}
-												runningIndicator="dot"
-											/>
+											<MessageBubble message={row.message} reaction={row.reaction} runningIndicator="dot" />
 										) : row.kind === "readGroup" ? (
 											<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
 										) : row.kind === "process" ? (
@@ -724,8 +643,6 @@ function SessionTranscript() {
 											<QueuedMessageBubble item={row.item} lane={row.lane} />
 										) : row.kind === "todoSnapshot" ? (
 											<TodoSnapshotCard entry={row.entry} />
-										) : row.kind === "turnChanges" ? (
-											<TurnChangesRow summary={row.summary} />
 										) : row.kind === "expander" ? (
 											<button
 												type="button"
@@ -961,42 +878,37 @@ export function StreamingRows({
 	);
 }
 
-/** Elapsed time stays hidden for answers that arrive promptly — a counter on every turn is noise. */
-const ELAPSED_VISIBLE_SECONDS = 5;
 /** Seconds past which the waiting row escalates to the slow-response hint. */
 const SLOW_RESPONSE_HINT_SECONDS = 30;
 /**
  * Seconds past which the row escalates again to the stalled-connection hint.
  * The provider first-event watchdog fires at ~300s (and auto-retry may
  * follow); telling the user that up front turns a silent 5-minute wait into
- * an informed one — they know it's still alive, why, and that Stop aborts now.
+ * an informed one — they know it's still alive, why, and that Esc aborts now.
  */
 const STALLED_RESPONSE_HINT_SECONDS = 90;
 
 /**
  * Live status row for the windows where the agent is busy but the transcript
- * has nothing to show yet:
+ * has nothing to show yet — the GUI counterpart of the TUI's loader line:
  *
- * - retry: a provider failure the agent is retrying — countdown, attempt,
- *   the failure (unless the failed reply above already shows it), and Stop.
- * - compaction: `{reason}{action}…` for auto-maintenance, same reason/action
- *   vocabulary as the TUI loader.
- * - waiting: between turn_start and the first streamed event. Elapsed time
- *   appears only once the wait is noticeable; past 30s a slow-response hint,
- *   past 90s a stalled hint with Stop.
+ * - retry: `Retrying (a/b) in Ns…` warning spinner for the auto-retry
+ *   delay/attempt window, plus the failure detail. Enhancement over the TUI:
+ *   N counts down live instead of freezing at the initial delay.
+ * - compaction: `{reason}{action}…` accent spinner for auto-maintenance,
+ *   same reason/action vocabulary as the TUI loader.
+ * - waiting: between turn_start and the first streamed event, with live
+ *   elapsed seconds; past 30s a slow-response hint appears so a stalled
+ *   provider reads as "slow but alive" rather than dead air.
+ *
+ * All variants carry the Esc interrupt hint (App routes Esc → rpc.abort),
+ * matching the TUI's `[esc]` / `(esc to cancel)` suffixes.
  */
 export function TurnStatusRow() {
 	const t = useT();
-	const rpc = useTabRpc();
-	const tabId = useRuntimeTabId();
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
-	// The failed reply already in the transcript, so the retry row never prints its error twice.
-	const shownError = useMessagesStore(s => {
-		const last = s.liveMessages.at(-1) ?? s.messages.at(-1);
-		return last?.role === "assistant" && typeof last.errorMessage === "string" ? last.errorMessage : null;
-	});
 	const now = Date.now();
 	// 1s ticking clock shared by the countdown/elapsed variants.
 	const [, setNowTick] = useState(0);
@@ -1004,54 +916,34 @@ export function TurnStatusRow() {
 		const interval = setInterval(() => setNowTick(tick => tick + 1), 1000);
 		return () => clearInterval(interval);
 	}, []);
-	const stop = () => void abortActiveTurn(rpc, tabId);
+
+	let iconClass = "";
+	let text: string;
+	let detail: string | null = null;
+	let announcement: string;
+	let slow = false;
+	let stalled = false;
 
 	if (retryInfo) {
 		const remainingSeconds = Math.max(0, Math.ceil((retryInfo.startedAt + retryInfo.delayMs - now) / 1000));
-		const when =
+		iconClass = "text-[var(--omp-warning)]";
+		text =
 			remainingSeconds >= 60
-				? t("chat.retry.scheduled", { time: formatClock(retryInfo.startedAt + retryInfo.delayMs) })
+				? t("chat.retry.scheduled", {
+						attempt: retryInfo.attempt,
+						maxAttempts: retryInfo.maxAttempts,
+						time: formatClock(retryInfo.startedAt + retryInfo.delayMs),
+					})
 				: remainingSeconds > 0
-					? t("chat.retry.pending", { seconds: remainingSeconds })
-					: t("chat.retry.inflight");
-		const detail = retryInfo.errorMessage && retryInfo.errorMessage !== shownError ? retryInfo.errorMessage : null;
-		return (
-			<div className="omp-status-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge)">
-				<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
-					{t("chat.retry.announcement", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })}
-				</span>
-				<div className="omp-retry-card flex min-w-0 items-start gap-3 rounded-xl border px-3.5 py-2.5">
-					<RotateCw aria-hidden size={14} className="mt-0.5 shrink-0 animate-spin text-[var(--omp-warning)]" />
-					<div className="min-w-0 flex-1">
-						<p className="text-omp-md text-[var(--omp-text)]">
-							{when}
-							<span className="ms-2 text-omp-sm tabular-nums text-[var(--omp-dim)]">
-								{t("chat.retry.attempt", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })}
-							</span>
-						</p>
-						{detail && (
-							<p className="mt-0.5 line-clamp-2 break-words text-omp-sm text-[var(--omp-muted)]" title={detail}>
-								{detail}
-							</p>
-						)}
-					</div>
-					<button
-						type="button"
-						onClick={stop}
-						className="omp-pressable -my-0.5 h-7 shrink-0 rounded-full px-2.5 text-omp-sm font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-					>
-						{t("chat.retry.stop")}
-					</button>
-				</div>
-			</div>
-		);
-	}
-
-	let label: string;
-	let announcement: string;
-	let elapsed: string | null = null;
-	let hint: { text: string; tone: "dim" | "warning"; stop: boolean } | null = null;
-	if (compactionInfo) {
+					? t("chat.retry.pending", {
+							attempt: retryInfo.attempt,
+							maxAttempts: retryInfo.maxAttempts,
+							seconds: remainingSeconds,
+						})
+					: t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
+		detail = retryInfo.errorMessage || null;
+		announcement = t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
+	} else if (compactionInfo) {
 		const reason = compactionInfo.reason === "threshold" ? "" : t(`chat.compaction.reason.${compactionInfo.reason}`);
 		const actionKey =
 			compactionInfo.action === "handoff"
@@ -1061,77 +953,43 @@ export function TurnStatusRow() {
 					: compactionInfo.action === "snapcompact"
 						? "chat.compaction.action.snapcompact"
 						: "chat.compaction.action.default";
-		label = `${reason}${t(actionKey)}…`;
-		announcement = label;
+		iconClass = "text-[var(--omp-accent)]";
+		text = `${reason}${t(actionKey)}…`;
+		announcement = text;
 	} else if (awaitingModelSince != null) {
 		const elapsedSeconds = Math.max(0, Math.floor((now - awaitingModelSince) / 1000));
-		label = t("chat.awaitingModel");
+		slow = elapsedSeconds >= SLOW_RESPONSE_HINT_SECONDS;
+		stalled = elapsedSeconds >= STALLED_RESPONSE_HINT_SECONDS;
+		text = t("chat.awaitingModel", { seconds: elapsedSeconds });
 		announcement = t("chat.awaitingModel.announcement");
-		if (elapsedSeconds >= ELAPSED_VISIBLE_SECONDS) elapsed = t("time.secondsShort", { count: elapsedSeconds });
-		if (elapsedSeconds >= STALLED_RESPONSE_HINT_SECONDS) {
-			hint = { text: t("chat.awaitingModel.stalled"), tone: "warning", stop: true };
-		} else if (elapsedSeconds >= SLOW_RESPONSE_HINT_SECONDS) {
-			hint = { text: t("chat.awaitingModel.slow"), tone: "dim", stop: false };
-		}
 	} else {
 		return null;
 	}
 
 	return (
-		<div className="omp-status-turn flex flex-col gap-1 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge)">
+		<div className="omp-status-turn omp-fade-in flex flex-col gap-1 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-omp-lg text-[var(--omp-muted)]">
 			<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
 				{announcement}
 			</span>
-			<div className="flex items-center gap-2.5 text-omp-md">
-				<span aria-hidden className="omp-working-dot" />
-				<span className="omp-shimmer-text">{label}</span>
-				{elapsed && <span className="tabular-nums text-[var(--omp-dim)]">{elapsed}</span>}
+			<div className="flex items-center gap-2.5">
+				<Loader2 size={14} className={cx("animate-spin shrink-0", iconClass)} />
+				<span>{text}</span>
+				{stalled ? (
+					// The stalled hint already names Esc — drop the generic interrupt
+					// hint so the line stays readable.
+					<span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.stalled")}</span>
+				) : (
+					<>
+						<span className="text-[var(--omp-dim)]">{t("chat.interruptHint")}</span>
+						{slow ? <span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.slow")}</span> : null}
+					</>
+				)}
 			</div>
-			{hint && (
-				<div className="flex items-center gap-2 ps-[18px] text-omp-sm">
-					<span className={hint.tone === "warning" ? "text-[var(--omp-warning)]" : "text-[var(--omp-dim)]"}>
-						{hint.text}
-					</span>
-					{hint.stop && (
-						<button
-							type="button"
-							onClick={stop}
-							className="omp-pressable h-6 shrink-0 rounded-full px-2 font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-						>
-							{t("chat.retry.stop")}
-						</button>
-					)}
+			{detail ? (
+				<div className="max-w-full truncate pl-[26px] text-omp-sm text-[var(--omp-dim)]" title={detail}>
+					{detail}
 				</div>
-			)}
-		</div>
-	);
-}
-
-/**
- * Closes a settled run that changed files: how many, by how much, and the way
- * to review them — the session's edits in the review drawer, the same edits
- * this line counted.
- */
-function TurnChangesRow({ summary }: { summary: TurnChangeSummary }) {
-	const t = useT();
-	const openChanges = useUiStore(s => s.openChanges);
-	return (
-		<div className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) pt-1 pb-4">
-			<button
-				type="button"
-				onClick={() => openChanges("current")}
-				className="omp-turn-changes omp-pressable group/changes flex h-9 max-w-full items-center gap-2.5 rounded-xl px-3 text-omp-sm"
-			>
-				<FileDiff aria-hidden size={14} className="shrink-0 text-[var(--omp-dim)]" />
-				<span className="truncate font-medium text-[var(--omp-text)]">
-					{t("chat.turnChanges.files", { count: summary.files, plural: summary.files === 1 ? "" : "s" })}
-				</span>
-				{summary.adds + summary.removes > 0 && <DiffStat adds={summary.adds} removes={summary.removes} />}
-				<span className="ms-1 flex shrink-0 items-center gap-0.5 text-[var(--omp-muted)] group-hover/changes:text-[var(--omp-text)]">
-					{t("chat.turnChanges.review")}
-					<ChevronRight aria-hidden size={13} />
-				</span>
-			</button>
+			) : null}
 		</div>
 	);
 }
@@ -1169,7 +1027,7 @@ function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: Que
 		<div className="omp-queued-turn group flex justify-end ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1.5">
 			<div className="omp-transcript-content omp-queued-bubble flex items-start gap-2 rounded-xl border border-dashed border-[var(--omp-border)] px-3.5 py-2.5">
 				<div className="min-w-0 flex-1">
-					<div className="mb-0.5 text-omp-xs font-semibold text-[var(--omp-dim)]">
+					<div className="mb-0.5 text-omp-xs font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
 						{t(lane === "steering" ? "pendingBubble.steering" : "pendingBubble.followUp")}
 					</div>
 					<div className="whitespace-pre-wrap break-words text-omp-lg leading-snug text-[var(--omp-muted)]">
@@ -1231,7 +1089,9 @@ function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
 					{entry.phases.map((phase, phaseIndex) => (
 						<div key={`${phase.name}-${phaseIndex}`}>
 							{entry.phases.length > 1 && (
-								<div className="py-0.5 text-omp-xs font-semibold text-[var(--omp-dim)]">{phase.name}</div>
+								<div className="py-0.5 text-omp-xs font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
+									{phase.name}
+								</div>
 							)}
 							{phase.tasks.map((task, taskIndex) => (
 								<div
@@ -1288,10 +1148,7 @@ export {
 	hasStreamingTranscriptContent,
 	isTranscriptAtLiveEdge,
 	LIVE_EDGE_SLACK_PX,
-	locateEntryRow,
 	mergeTodoSnapshots,
 	ROW_ENTRANCE_TAIL_ROWS,
 	shouldRePinTranscript,
-	summarizeTurnChanges,
-	tabAwaitsTranscript,
 } from "./chat-stream-utils";

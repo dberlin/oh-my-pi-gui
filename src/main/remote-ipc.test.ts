@@ -14,6 +14,7 @@ import type {
 import type { RpcResponse, RpcSshHostInfo } from "../shared/rpc-types";
 import { RemoteHostCatalog, type RemoteHostCatalogPrefs, type RemoteHostCatalogStore } from "./remote-host-catalog";
 import {
+	authorizeRemoteSpawnTargetAtSink,
 	authorizeRemoteTargetAtSink,
 	dispatchRemoteCatalog,
 	dispatchRemoteHistory,
@@ -349,6 +350,21 @@ describe("remote IPC dispatch", () => {
 		const sinkTarget = sink.mock.calls[0]?.[0];
 		expect(sinkTarget).not.toBe(target);
 		expect(sinkTarget?.host).not.toBe(target.host);
+	});
+
+	it("authorizes a remote tab spawn synchronously without a duplicate directory probe", () => {
+		const catalog = catalogWith();
+		const deps = remoteDeps(catalog);
+		const target = sshTarget(catalog);
+		const sink = vi.fn((canonical: SshSessionTarget) => canonical);
+
+		expect(authorizeRemoteSpawnTargetAtSink(deps, { target, cwd: target.cwd }, sink)).toEqual({
+			ok: true,
+			value: target,
+		});
+		expect(deps.ssh.validateDirectory).not.toHaveBeenCalled();
+		expect(sink).toHaveBeenCalledOnce();
+		expect(sink.mock.calls[0]?.[0]).not.toBe(target);
 	});
 
 	it("runs a remote new-window sink synchronously with the final catalog snapshot", async () => {

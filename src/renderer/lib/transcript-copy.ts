@@ -160,7 +160,7 @@ function currentTodoPhases(): TodoPhase[] {
 
 /** /dump: full transcript as markdown → clipboard → toast. */
 export async function dumpTranscriptToClipboard(): Promise<void> {
-	const response = await window.omp.rpc.getTranscript();
+	const response = await window.omp.rpc.getMessages();
 	if (!response.success) throw new Error(response.error);
 	const messages = (response.data as { messages?: AgentMessage[] } | undefined)?.messages ?? [];
 	if (messages.length === 0) {
