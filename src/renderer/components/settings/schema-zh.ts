@@ -152,7 +152,12 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"先以当前模型开始，在计划提示的待办列表生成后、首次编辑/写入时切换到快速/便宜的模型（默认 'smol' 角色）——强模型负责规划、提交待办并开始实现，然后交接。可用 --prewalk / --no-prewalk 按会话覆盖。",
 	},
-	"advisor.subagents": { label: "子代理顾问", description: "同时在派生的 task/eval 子代理上启用顾问。" },
+	// 17.3.0 移除了全局 advisor.subagents（迁移至 task.agentAdvisor）。
+	"task.agentAdvisor": {
+		label: "子代理顾问（按 agent）",
+		description:
+			"按 agent 名称配置顾问模型（取代已移除的 advisor.subagents），例如 { task: \"on\" } 表示对 task 子代理启用默认顾问。",
+	},
 	"advisor.syncBacklog": {
 		label: "顾问同步积压",
 		description: "当顾问落后此轮数时，暂停主 Agent 最多 30 秒。Off 表示禁用追赶延迟。",
