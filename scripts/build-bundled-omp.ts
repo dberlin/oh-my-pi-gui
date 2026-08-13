@@ -42,6 +42,7 @@ import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import * as path from "node:path";
+import { copyNativeCompanions } from "./native-companion";
 
 const guiRoot = path.join(import.meta.dir, "..");
 const repoRoot = path.join(guiRoot, "..", "..");
@@ -325,6 +326,12 @@ try {
 			skipBuiltinCodesign: shouldAdhocSign,
 		});
 		if (shouldAdhocSign) await signMacBinary(out);
+		const companions = await copyNativeCompanions({
+			nativeDir: nativesNativeDir,
+			output: out,
+			filenames: target.addonFilenames,
+		});
+		console.log(`[build:omp] staged native companion${companions.length === 1 ? "" : "s"}: ${companions.join(", ")}`);
 	} finally {
 		// Compiled assets are temporary source substitutions. Reset every family
 		// even when generation or compilation fails; Promise.all starts both

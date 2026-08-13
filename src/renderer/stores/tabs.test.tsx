@@ -74,7 +74,6 @@ function serverState(overrides: Partial<RpcSessionState> = {}): RpcSessionState 
 		sessionId: "srv",
 		sessionName: null,
 		sessionFile: null,
-		cwd: "/srv",
 		isStreaming: false,
 		isCompacting: false,
 		contextUsage: null,
@@ -445,6 +444,14 @@ describe("tabs store switch", () => {
 		expect(setActiveOrder).toBeDefined();
 		expect(getStateOrder).toBeDefined();
 		expect(setActiveOrder!).toBeLessThan(getStateOrder!);
+	});
+
+	it("keeps the target cwd when get_state omits it", async () => {
+		seedTabs();
+
+		await useTabsStore.getState().switchTab("t1");
+
+		expect(useSessionStore.getState().cwd).toBe("/beta");
 	});
 
 	it("closes outgoing session overlays while keeping global windows open", async () => {

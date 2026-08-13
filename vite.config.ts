@@ -39,6 +39,8 @@ const VENDOR_CHUNK_RULES: ReadonlyArray<readonly [RegExp, string]> = [
 	[/[\\/]node_modules[\\/]@dnd-kit[\\/]/, "dnd-kit"],
 ];
 
+const electronArgv = process.env.NO_SANDBOX === "1" ? [".", "--no-sandbox"] : ["."];
+
 function manualChunks(id: string): string | undefined {
 	if (!id.includes("node_modules")) return undefined;
 	for (const [pattern, chunk] of VENDOR_CHUNK_RULES) {
@@ -56,7 +58,7 @@ export default defineConfig({
 			main: {
 				entry: path.resolve(import.meta.dirname, "src/main/index.ts"),
 				onstart: async ({ startup }) => {
-					await startup(undefined, { cwd: import.meta.dirname });
+					await startup(electronArgv, { cwd: import.meta.dirname });
 				},
 				vite: {
 					plugins: [esmShim()],
@@ -69,7 +71,7 @@ export default defineConfig({
 			preload: {
 				input: { index: path.resolve(import.meta.dirname, "src/preload/index.ts") },
 				onstart: async ({ startup }) => {
-					await startup(undefined, { cwd: import.meta.dirname });
+					await startup(electronArgv, { cwd: import.meta.dirname });
 				},
 				vite: {
 					build: {

@@ -113,7 +113,7 @@ export const createSessionStore = () =>
 		saveTranscriptView: transcriptView => set({ transcriptView }),
 		pinTranscriptToBottom: () => set(state => ({ transcriptPinNonce: state.transcriptPinNonce + 1 })),
 		setFromState: state =>
-			set({
+			set(current => ({
 				sessionId: state.sessionId,
 				collab: state.collab ?? null,
 				// Sessions whose auto-title never ran carry an empty title slot on
@@ -121,7 +121,7 @@ export const createSessionStore = () =>
 				// session-list title/first message instead of rendering blank.
 				sessionName: state.sessionName || null,
 				sessionFile: state.sessionFile ?? null,
-				cwd: state.cwd,
+				cwd: state.cwd ?? current.cwd,
 				isStreaming: state.isStreaming,
 				isCompacting: state.isCompacting,
 				contextUsage: state.contextUsage ?? null,
@@ -131,7 +131,7 @@ export const createSessionStore = () =>
 				prewalkArmed: state.prewalkArmed ?? false,
 				agentsPaused: state.agentsPaused ?? false,
 				agentsPausedAt: state.agentsPausedAt ?? null,
-			}),
+			})),
 		setStatus: (status, cwd) => set({ status, cwd }),
 		reset: () => set(initialState),
 	}));
