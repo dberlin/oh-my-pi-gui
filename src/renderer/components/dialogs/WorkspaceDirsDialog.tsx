@@ -1,14 +1,16 @@
 /**
  * Workspace-directories dialog (TUI /dirs /add-dir /remove-dir /move parity):
- * lists the session's roots with the primary (cwd) badge, adds roots via the
- * native directory picker, removes non-primary roots behind an inline
+ * lists roots with the primary (cwd) badge, adds roots via the native or
+ * SSH-aware directory picker, removes non-primary roots behind an inline
  * confirm, and moves the session file's cwd association to a picked directory
  * (move_session → toast + session rehydrate). Mutations are blocked while
  * streaming — the server also refuses with the "busy" code.
  */
 import { FolderGit2, FolderPlus, PackageOpen, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import type { SshSessionTarget } from "../../../shared/ipc-types";
 import type { RpcWorkspaceDirectoriesResult } from "../../../shared/rpc-types";
+import { isSshSessionTarget } from "../../../shared/session-target";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import {
@@ -19,14 +21,25 @@ import {
 	removeWorkspaceDirectory,
 } from "../../lib/workspace-dirs";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { AsyncSection, Badge, Button, Modal } from "../common";
+import { RemoteWorkspaceDialog } from "./RemoteWorkspaceDialog";
+
+interface RemoteDirectoryAction {
+	kind: "add" | "move";
+	tabId: string;
+	hostAlias: string;
+	initialPath: string;
+	target: SshSessionTarget;
+}
 
 export function WorkspaceDirsDialog() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const open = useUiStore(state => state.workspaceDirsOpen);
 	const close = useUiStore(state => state.closeWorkspaceDirs);
+	const activeTab = useTabsStore(state => state.tabs.find(tab => tab.id === state.activeTabId));
 	const busy = useSessionStore(state => state.isStreaming || state.isCompacting);
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 	const [directories, setDirectories] = useState<RpcWorkspaceDirectory[]>([]);
@@ -34,6 +47,7 @@ export function WorkspaceDirsDialog() {
 	const [error, setError] = useState<string | null>(null);
 	const [mutating, setMutating] = useState(false);
 	const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+	const [remoteAction, setRemoteAction] = useState<RemoteDirectoryAction | null>(null);
 
 	const reload = useCallback(async () => {
 		setLoading(true);
@@ -58,13 +72,37 @@ export function WorkspaceDirsDialog() {
 	}, [sidecarReady, t, tabRpc.getDirectories]);
 
 	useEffect(() => {
-		if (!open) return;
-		setConfirmRemove(null);
+		if (!open) {
+			setConfirmRemove(null);
+			setRemoteAction(null);
+			return;
+		}
 		void reload();
 	}, [open, reload]);
 
+	useEffect(() => {
+		if (!remoteAction) return;
+		if (
+			activeTab?.id !== remoteAction.tabId ||
+			!isSshSessionTarget(activeTab.target) ||
+			activeTab.target !== remoteAction.target
+		) {
+			setRemoteAction(null);
+		}
+	}, [activeTab, remoteAction]);
+
 	const onAdd = async (): Promise<void> => {
 		if (!sidecarReady) return;
+		if (activeTab && isSshSessionTarget(activeTab.target)) {
+			setRemoteAction({
+				kind: "add",
+				tabId: activeTab.id,
+				hostAlias: activeTab.target.hostAlias,
+				target: activeTab.target,
+				initialPath: activeTab.target.cwd,
+			});
+			return;
+		}
 		const path = await pickWorkspaceDirectory();
 		if (!path) return;
 		setMutating(true);
@@ -90,6 +128,16 @@ export function WorkspaceDirsDialog() {
 
 	const onMove = async (): Promise<void> => {
 		if (!sidecarReady) return;
+		if (activeTab && isSshSessionTarget(activeTab.target)) {
+			setRemoteAction({
+				kind: "move",
+				tabId: activeTab.id,
+				hostAlias: activeTab.target.hostAlias,
+				initialPath: activeTab.target.cwd,
+				target: activeTab.target,
+			});
+			return;
+		}
 		const path = await pickWorkspaceDirectory();
 		if (!path) return;
 		setMutating(true);
@@ -102,99 +150,131 @@ export function WorkspaceDirsDialog() {
 		}
 	};
 
+	const onRemoteConfirm = async (target: SshSessionTarget): Promise<void> => {
+		const request = remoteAction;
+		const tabs = useTabsStore.getState();
+		const active = tabs.tabs.find(tab => tab.id === tabs.activeTabId);
+		setRemoteAction(null);
+		if (!request || active?.id !== request.tabId || active.target !== request.target) return;
+		setMutating(true);
+		try {
+			if (request.kind === "add") {
+				const result = await addWorkspaceDirectory(target.cwd);
+				if (result && useTabsStore.getState().activeTabId === request.tabId) setDirectories(result);
+				return;
+			}
+			const moved = await moveSessionTo(target.cwd);
+			if (moved && useTabsStore.getState().activeTabId === request.tabId) await reload();
+		} finally {
+			setMutating(false);
+		}
+	};
+
 	return (
-		<Modal onClose={close} open={open} size="md" title={t("workspaceDirs.title")}>
-			<div className="flex flex-col gap-3">
-				<div className="text-xs text-(--omp-dim)">{t("workspaceDirs.subtitle")}</div>
-				<div className="max-h-[38vh] min-h-16 overflow-y-auto rounded-md border border-(--omp-border-muted)">
-					<AsyncSection
-						className="min-h-24"
-						empty={directories.length === 0}
-						emptyLabel={t("workspaceDirs.empty")}
-						error={error}
-						hasData={directories.length > 0}
-						loading={loading}
-						loadingLabel={t("workspaceDirs.loading")}
-						onRetry={() => void reload()}
-					>
-						{directories.map(directory => (
-							<div
-								className="flex items-center gap-2 border-b border-(--omp-border-muted) px-3 py-2 last:border-b-0"
-								key={directory.path}
-							>
-								<FolderGit2 className="shrink-0 text-(--omp-dim)" size={14} />
-								<span
-									className="min-w-0 flex-1 truncate font-mono text-xs text-(--omp-text)"
-									title={directory.path}
+		<>
+			<Modal onClose={close} open={open} size="md" title={t("workspaceDirs.title")}>
+				<div className="flex flex-col gap-3">
+					<div className="text-xs text-(--omp-dim)">{t("workspaceDirs.subtitle")}</div>
+					<div className="max-h-[38vh] min-h-16 overflow-y-auto rounded-md border border-(--omp-border-muted)">
+						<AsyncSection
+							className="min-h-24"
+							empty={directories.length === 0}
+							emptyLabel={t("workspaceDirs.empty")}
+							error={error}
+							hasData={directories.length > 0}
+							loading={loading}
+							loadingLabel={t("workspaceDirs.loading")}
+							onRetry={() => void reload()}
+						>
+							{directories.map(directory => (
+								<div
+									className="flex items-center gap-2 border-b border-(--omp-border-muted) px-3 py-2 last:border-b-0"
+									key={directory.path}
 								>
-									{directory.path}
-								</span>
-								{directory.primary ? (
-									<Badge variant="info">{t("workspaceDirs.primary")}</Badge>
-								) : confirmRemove === directory.path ? (
-									<span className="flex shrink-0 items-center gap-1">
-										<Button
-											disabled={mutating || !sidecarReady}
-											onClick={() => void onRemove(directory.path)}
-											size="sm"
-											variant="danger"
-										>
-											{t("common.confirm")}
-										</Button>
-										<Button
-											disabled={mutating}
-											onClick={() => setConfirmRemove(null)}
-											size="sm"
-											variant="ghost"
-										>
-											{t("common.cancel")}
-										</Button>
+									<FolderGit2 className="shrink-0 text-(--omp-dim)" size={14} />
+									<span
+										className="min-w-0 flex-1 truncate font-mono text-xs text-(--omp-text)"
+										title={directory.path}
+									>
+										{directory.path}
 									</span>
-								) : (
-									<Button
-										disabled={mutating || busy || !sidecarReady}
-										icon={<Trash2 size={13} />}
-										onClick={() => setConfirmRemove(directory.path)}
-										size="sm"
-										title={
-											!sidecarReady
-												? t("sidecar.notResponding")
-												: busy
-													? t("workspaceDirs.busy")
-													: t("workspaceDirs.remove")
-										}
-										variant="ghost"
-									/>
-								)}
-							</div>
-						))}
-					</AsyncSection>
+									{directory.primary ? (
+										<Badge variant="info">{t("workspaceDirs.primary")}</Badge>
+									) : confirmRemove === directory.path ? (
+										<span className="flex shrink-0 items-center gap-1">
+											<Button
+												disabled={mutating || !sidecarReady}
+												onClick={() => void onRemove(directory.path)}
+												size="sm"
+												variant="danger"
+											>
+												{t("common.confirm")}
+											</Button>
+											<Button
+												disabled={mutating}
+												onClick={() => setConfirmRemove(null)}
+												size="sm"
+												variant="ghost"
+											>
+												{t("common.cancel")}
+											</Button>
+										</span>
+									) : (
+										<Button
+											disabled={mutating || busy || !sidecarReady}
+											icon={<Trash2 size={13} />}
+											onClick={() => setConfirmRemove(directory.path)}
+											size="sm"
+											title={
+												!sidecarReady
+													? t("sidecar.notResponding")
+													: busy
+														? t("workspaceDirs.busy")
+														: t("workspaceDirs.remove")
+											}
+											variant="ghost"
+										/>
+									)}
+								</div>
+							))}
+						</AsyncSection>
+					</div>
+					<div className="flex items-center justify-between gap-2">
+						<Button
+							disabled={mutating || busy || loading || !sidecarReady}
+							icon={<FolderPlus size={14} />}
+							onClick={() => void onAdd()}
+							size="sm"
+							title={!sidecarReady ? t("sidecar.notResponding") : busy ? t("workspaceDirs.busy") : undefined}
+						>
+							{t("workspaceDirs.add")}
+						</Button>
+					</div>
+					<div className="rounded-md border border-(--omp-border-muted) p-3">
+						<div className="mb-1 text-xs font-medium text-(--omp-text)">{t("workspaceDirs.moveTitle")}</div>
+						<div className="mb-2 text-xs text-(--omp-dim)">{t("workspaceDirs.moveDesc")}</div>
+						<Button
+							disabled={mutating || busy || loading || !sidecarReady}
+							icon={<PackageOpen size={14} />}
+							onClick={() => void onMove()}
+							size="sm"
+							title={!sidecarReady ? t("sidecar.notResponding") : busy ? t("workspaceDirs.busy") : undefined}
+						>
+							{t("workspaceDirs.move")}
+						</Button>
+					</div>
 				</div>
-				<div className="flex items-center justify-between gap-2">
-					<Button
-						disabled={mutating || busy || loading || !sidecarReady}
-						icon={<FolderPlus size={14} />}
-						onClick={() => void onAdd()}
-						size="sm"
-						title={!sidecarReady ? t("sidecar.notResponding") : busy ? t("workspaceDirs.busy") : undefined}
-					>
-						{t("workspaceDirs.add")}
-					</Button>
-				</div>
-				<div className="rounded-md border border-(--omp-border-muted) p-3">
-					<div className="mb-1 text-xs font-medium text-(--omp-text)">{t("workspaceDirs.moveTitle")}</div>
-					<div className="mb-2 text-xs text-(--omp-dim)">{t("workspaceDirs.moveDesc")}</div>
-					<Button
-						disabled={mutating || busy || loading || !sidecarReady}
-						icon={<PackageOpen size={14} />}
-						onClick={() => void onMove()}
-						size="sm"
-						title={!sidecarReady ? t("sidecar.notResponding") : busy ? t("workspaceDirs.busy") : undefined}
-					>
-						{t("workspaceDirs.move")}
-					</Button>
-				</div>
-			</div>
-		</Modal>
+			</Modal>
+			{remoteAction ? (
+				<RemoteWorkspaceDialog
+					hostAlias={remoteAction.hostAlias}
+					initialPath={remoteAction.initialPath}
+					tabId={remoteAction.tabId}
+					target={remoteAction.target}
+					onClose={() => setRemoteAction(null)}
+					onConfirm={target => void onRemoteConfirm(target)}
+				/>
+			) : null}
+		</>
 	);
 }

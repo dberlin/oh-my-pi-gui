@@ -1,10 +1,11 @@
 /**
- * Pool of per-tab sidecar processes.
+ * Pool of per-tab sidecar processes, bounded at a hard cap.
  *
- * Each TAB owns one SidecarManager; a window holds N tabs. There is no tab
- * cap — a tab's process is spawned only once the tab is shown (deferStart),
- * so idle tabs cost nothing. The pool wires each sidecar's events to its
- * owning window, and releases the sidecar (listeners first, then dispose) when its
+ * Each TAB owns one SidecarManager; a window holds N tabs. The pool enforces
+ * the concurrency cap atomically (a slot is reserved synchronously before the
+ * async spawn, so N concurrent acquires cannot overshoot — and the cap now
+ * counts tabs across all windows), wires each sidecar's events to its owning
+ * window, and releases the sidecar (listeners first, then dispose) when its
  * tab closes or its window closes.
  *
  * Event routing: the full event channels (events batch, status, subagent,
@@ -33,12 +34,12 @@ import {
 	type IpcSessionOwner,
 	type IpcSetTabViewPayload,
 	type IpcTabInfo,
-	type IpcTabRetry,
 	type IpcTabStatusPayload,
 	type IpcTabWorktree,
+	type SessionTarget,
+	type SessionKind,
 } from "../shared/ipc-types";
 import {
-	type AgentMessage,
 	type AgentSessionEvent,
 	type AvailableCommand,
 	BLOCKING_UI_METHODS,
@@ -50,12 +51,9 @@ import {
 	type HostUriRequest,
 	type ModelCatalogUpdateFrame,
 	type PromptResultFrame,
-	type RpcBtwFrame,
 	type RpcCommand,
-	type RpcDictationFrame,
-	type RpcLiveFrame,
+	type RpcLiveUpdateFrame,
 	type RpcResponse,
-	type RpcTerminalFrame,
 	type SessionInfoUpdateFrame,
 	type SessionSettledFrame,
 	type SidecarStatus,
@@ -67,8 +65,21 @@ import type { SidecarManager } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
 
-export type SidecarFactory = (cwd: string, kind: "agent" | "chat", fresh: boolean) => SidecarManager;
+import { normalizeSessionTarget } from "../shared/session-target";
 
+export type SidecarFactory = (options: {
+	cwd: string;
+	kind: SessionKind;
+	fresh: boolean;
+	target: SessionTarget;
+	resumeSessionId?: string;
+}) => SidecarManager;
+
+function immutableTarget(target: SessionTarget): SessionTarget {
+	if (target.type === "local") return Object.freeze({ type: "local" });
+	const host = Object.freeze({ ...target.host });
+	return Object.freeze({ ...target, host });
+}
 function forwardToWindow(win: BrowserWindow, channel: string, data: unknown): void {
 	if (!win.isDestroyed()) win.webContents.send(channel, data);
 }
@@ -97,18 +108,6 @@ interface PoolEntry {
 	awaitingSessionSettled: boolean;
 	/** Automatic transcript compaction state once observed — true blocks session mutation. */
 	compacting?: boolean;
-	/**
-	 * Outcome a background tab's chip must show without full events: an
-	 * auto-retry in flight, or a last run that ended in a provider error.
-	 * Cleared when the next run starts.
-	 */
-	attention?: "retrying" | "failed";
-	/** The error behind `attention: "failed"`, for the background-failure notice. */
-	attentionDetail?: string;
-	/** An outcome was sent at least once, so its clearing must be sent too. */
-	attentionShown?: boolean;
-	/** The auto-retry in flight, so a tab shown mid-saga renders its retry row. */
-	retry?: IpcTabRetry;
 	/** Session meta cached from session_info_update (TAB_STATUS / GET_TABS). */
 	sessionId?: string;
 	/**
@@ -129,13 +128,17 @@ interface PoolEntry {
 	 * listeners without duplicating them.
 	 */
 	detachFull: (() => void) | null;
+	/** Immutable target snapshot; SSH cwd is replaced atomically when the live session moves. */
+	target: SessionTarget;
 }
 
 type WindowSplitView = NonNullable<IpcSetTabViewPayload["split"]>;
 
 export class SidecarPool {
 	#entries = new Set<PoolEntry>();
+
 	#byTabId = new Map<string, PoolEntry>();
+
 	/** Window (webContents.id) → active tab. The first acquired tab defaults active. */
 	#activeByWindow = new Map<number, string>();
 	/** Window → the one or two tabs whose full event streams are rendered. */
@@ -144,17 +147,30 @@ export class SidecarPool {
 	#splitByWindow = new Map<number, WindowSplitView>();
 	/** Session file → owning tab/window (F-OWN double-attach guard). */
 	#sessionOwners = new Map<string, IpcSessionOwner>();
+
 	/**
 	 * Pending renderer-facing request id → entry that raised it (F-UI-ORIGIN).
-	 * Registered when a tab forwards an extension_ui / host_tool / host_uri
-	 * request to its window; a response routes back to that exact sidecar even
-	 * after the window's active tab moved on. Entries drop on the (final)
-	 * response or when the owning entry is released.
+	 * Registration is first-writer-wins while an id is live: a duplicate can
+	 * neither replace its owner nor gain response authority. Entries drop on a
+	 * final response or when the owning entry/window is released.
 	 */
 	#requestOwners = new Map<string, PoolEntry>();
+
+	/**
+	 * Synchronously-reserved spawn slots. An acquire claims one before the
+	 * (synchronous-but-fragile) SidecarManager.start(), and releases it if the
+	 * start throws. This is what makes the cap atomic: a concurrent acquire
+	 * sees the reservation and is refused even before the child exists.
+	 */
+	#reserved = 0;
+
+	readonly #max: number;
+
 	readonly #factory: SidecarFactory;
+
 	/** Suppress partial snapshots while a saved layout is being reconstructed. */
 	#restoringWindows = new Set<number>();
+
 	/**
 	 * Host-tool dispatch needs the main-process executor (ipc.ts), which the
 	 * pool cannot import without a cycle. Set once at startup; the pool routes
@@ -164,32 +180,27 @@ export class SidecarPool {
 	 */
 	hostToolExecutor: ((sidecar: SidecarManager, request: HostToolCallRequest, win: BrowserWindow) => boolean) | null =
 		null;
+
 	/** Main-process persistence hook. The primary window installs this at startup. */
 	onWindowTabsChanged: ((win: BrowserWindow, layout: PersistedTabLayout | null) => void) | null = null;
-	/**
-	 * Main-process services bound to a tab's sidecar process (the browser panel
-	 * host): `ready` on every boot or restart, `down` whenever it stops serving,
-	 * `released` once the tab is gone for good.
-	 */
-	sidecarLifecycle: {
-		ready(tab: { tabId: string; kind: "agent" | "chat"; sidecar: SidecarManager; win: BrowserWindow }): void;
-		down(tabId: string): void;
-		released(tabId: string): void;
-	} | null = null;
 
-	constructor(factory: SidecarFactory) {
+	constructor(factory: SidecarFactory, max = 10) {
 		this.#factory = factory;
+		this.#max = max;
 	}
 
 	get size(): number {
-		return this.#entries.size;
+		return this.#entries.size + this.#reserved;
+	}
+
+	/** True when the pool is full — single source of truth for the cap. */
+	get atCap(): boolean {
+		return this.size >= this.#max;
 	}
 
 	/**
-	 * Spawn + bind a sidecar for `cwd` to `win` as a tab. Returns null when the
-	 * sidecar could not be created. There is no tab cap: restored and
-	 * background tabs are deferred, so only tabs someone has shown hold a
-	 * process. `tabId` defaults to a fresh snowflake (the window's initial sidecar
+	 * Spawn + bind a sidecar for `cwd` to `win` as a tab. Returns null at the
+	 * cap. `tabId` defaults to a fresh snowflake (the window's initial sidecar
 	 * is minted here too); `sessionPath` resumes that session on first start.
 	 * `kind` defaults to "agent"; "chat" spawns a tool-free conversation.
 	 * The first tab of a window becomes its active tab; later tabs start in
@@ -203,20 +214,26 @@ export class SidecarPool {
 	 * rendered — `#syncFullWiring` is the single point that knows a tab became
 	 * visible.
 	 */
-	acquire(
-		cwd: string,
-		win: BrowserWindow,
-		tabId: string = nextSnowflake(),
-		sessionPath?: string,
-		kind: "agent" | "chat" = "agent",
-		worktree?: IpcTabWorktree,
-		fresh = false,
-		placeholder = false,
-		deferStart = false,
-		title?: string,
-	): SidecarManager | null {
+	acquire(options: SidecarAcquireOptions): SidecarManager | null {
+		if (this.atCap) return null;
+		this.#reserved++;
 		try {
-			const sidecar = this.#factory(cwd, kind, fresh);
+			const {
+				cwd,
+				win,
+				tabId = nextSnowflake(),
+				sessionPath,
+				resumeSessionId,
+				kind = "agent",
+				worktree,
+				fresh = false,
+				placeholder = false,
+				deferStart = false,
+				title,
+			} = options;
+			const target = immutableTarget(normalizeSessionTarget(options.target));
+			const remoteResumeSessionId = target.type === "ssh" ? resumeSessionId : undefined;
+			const sidecar = this.#factory({ cwd, kind, fresh, target, resumeSessionId: remoteResumeSessionId });
 			const entry: PoolEntry = {
 				sidecar,
 				tabId,
@@ -224,6 +241,7 @@ export class SidecarPool {
 				winId: win.webContents.id,
 				kind,
 				placeholder,
+				target,
 				worktree,
 				status: sidecar.status,
 				running: false,
@@ -234,11 +252,10 @@ export class SidecarPool {
 			this.#wireLight(entry);
 			this.#entries.add(entry);
 			this.#byTabId.set(tabId, entry);
-			// F-OWN: a spawn-with-sessionPath attaches immediately — register the
-			// owner before any duplicate attach can slip past the IPC guard. A
-			// deferred tab registers too: it owns that file the moment it exists,
-			// which is what makes "open this session elsewhere" refuse-or-focus.
-			if (sessionPath) this.#registerSessionFile(entry, sessionPath);
+			// F-OWN: a local spawn-with-sessionPath owns that file immediately,
+			// including a deferred restore. Remote identity is a host/session id
+			// and must never enter the local path-owner map.
+			if (target.type === "local" && sessionPath) this.#registerSessionFile(entry, sessionPath);
 			if (!deferStart && !this.#activeByWindow.has(entry.winId)) {
 				this.#activeByWindow.set(entry.winId, entry.tabId);
 				this.#visibleByWindow.set(entry.winId, new Set([entry.tabId]));
@@ -254,6 +271,10 @@ export class SidecarPool {
 			return sidecar;
 		} catch {
 			return null;
+		} finally {
+			// Release the synchronous reservation exactly once: on success the
+			// slot is now the live entry; on failure the pool never held it.
+			this.#reserved--;
 		}
 	}
 
@@ -276,27 +297,14 @@ export class SidecarPool {
 	#wireLight(entry: PoolEntry): void {
 		const { sidecar, win } = entry;
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
-			const wasReady = entry.status === "ready";
 			entry.status = payload.status;
-			if (payload.status === "ready") {
-				this.sidecarLifecycle?.ready({ tabId: entry.tabId, kind: entry.kind, sidecar, win });
-			} else if (wasReady) {
-				this.sidecarLifecycle?.down(entry.tabId);
-			}
 			// A restart/exit kills any in-flight run along with the process.
 			if (payload.status !== "ready") {
 				entry.running = false;
 				entry.awaitingSessionSettled = false;
 				entry.compacting = undefined;
-				entry.retry = undefined;
-				if (entry.attention === "retrying") entry.attention = undefined;
 			}
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
-		});
-		// Terminal output must reach the renderer for background tabs too: a
-		// panel shown later continues from the frames, not a gap.
-		sidecar.on("terminalFrame", (frame: RpcTerminalFrame) => {
-			forwardToWindow(win, IPC_EVENTS.TERMINAL_FRAME, { tabId: entry.tabId, frame });
 		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
 			if (frame.title !== undefined) entry.title = frame.title;
@@ -334,44 +342,17 @@ export class SidecarPool {
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
 			const wasBusy = entry.running || entry.compacting === true;
 			const wasPlaceholder = entry.placeholder;
-			const wasAttention = entry.attention;
-			const wasRetry = entry.retry;
 			for (const event of events) {
 				if (event.type === "agent_start") {
 					entry.running = true;
 					entry.placeholder = false;
-					// An auto-retry re-enters through agent_start; only a run outside a
-					// retry saga starts with a clean slate. The saga ends on auto_retry_end.
-					if (!entry.retry) {
-						entry.attention = undefined;
-						entry.attentionDetail = undefined;
-					}
 				} else if (event.type === "agent_end") {
 					if (!entry.awaitingSessionSettled) entry.running = false;
-					if (event.isTerminal !== false && !entry.retry) settleAttention(entry, event.messages);
-				} else if (event.type === "auto_retry_start") {
-					entry.attention = "retrying";
-					entry.retry = {
-						attempt: event.attempt,
-						maxAttempts: event.maxAttempts,
-						delayMs: event.delayMs,
-						errorMessage: event.errorMessage,
-						startedAt: Date.now(),
-					};
-				} else if (event.type === "auto_retry_end") {
-					entry.attention = event.success ? undefined : "failed";
-					entry.attentionDetail = event.success ? undefined : event.finalError;
-					entry.retry = undefined;
 				} else if (event.type === "auto_compaction_start") entry.compacting = true;
 				else if (event.type === "auto_compaction_end") entry.compacting = false;
 			}
 			const busy = entry.running || entry.compacting === true;
-			if (
-				busy !== wasBusy ||
-				entry.placeholder !== wasPlaceholder ||
-				entry.attention !== wasAttention ||
-				entry.retry !== wasRetry
-			) {
+			if (busy !== wasBusy || entry.placeholder !== wasPlaceholder) {
 				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
 			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
@@ -407,32 +388,32 @@ export class SidecarPool {
 			forwardActive(IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
 		});
 		wire("extensionUi", (request: ExtensionUIRequest) => {
-			// Only response-bearing requests need an origin route. Fire-and-forget
-			// UI updates never reply, so retaining them here leaks the owning tab.
-			if (BLOCKING_UI_METHODS[request.method]) this.#requestOwners.set(request.id, entry);
+			// F-UI-ORIGIN: a response must reach THIS sidecar even if the user
+			// switches tabs while the dialog is open, so blocking requests take an
+			// origin route and invalid or duplicate ids are not forwarded because
+			// they cannot acquire response ownership. Fire-and-forget UI updates
+			// never reply, so retaining them here would leak the owning tab.
+			if (BLOCKING_UI_METHODS[request.method] && !this.#registerRequestOwner(request.id, entry)) return;
 			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
 		});
 		wire("hostToolCall", (request: HostToolCallRequest) => {
-			// Answered-inline tools never reach the renderer, so only forwarded
-			// calls need id → origin tracking for the result/update route.
+			if (sidecar.denyRemoteHostTool(request)) return;
+			// Answered-inline tools never reach the renderer. Reserve eligibility
+			// before dispatch so a live duplicate cannot execute or be forwarded,
+			// then register only calls the executor actually forwarded.
+			if (!this.#requestIdAvailable(request.id)) return;
 			const answeredInline = this.hostToolExecutor ? this.hostToolExecutor(sidecar, request, win) : true;
-			if (!answeredInline) this.#requestOwners.set(request.id, entry);
+			if (!answeredInline) this.#registerRequestOwner(request.id, entry);
 		});
 		wire("hostUriRequest", (request: HostUriRequest) => {
-			this.#requestOwners.set(request.id, entry);
+			if (!this.#registerRequestOwner(request.id, entry)) return;
 			forwardToWindow(win, IPC_EVENTS.HOST_URI_REQUEST, { request });
 		});
 		wire("subagentFrame", (frame: SubagentFrame) => {
 			forwardActive(IPC_EVENTS.SUBAGENT_FRAME, frame);
 		});
-		wire("liveFrame", (frame: RpcLiveFrame) => {
-			forwardActive(IPC_EVENTS.LIVE_FRAME, frame);
-		});
-		wire("dictationFrame", (frame: RpcDictationFrame) => {
-			forwardActive(IPC_EVENTS.DICTATION_FRAME, frame);
-		});
-		wire("btwFrame", (frame: RpcBtwFrame) => {
-			forwardActive(IPC_EVENTS.BTW_FRAME, frame);
+		wire("liveUpdate", (frame: RpcLiveUpdateFrame) => {
+			forwardActive(IPC_EVENTS.LIVE_UPDATE, frame);
 		});
 		wire("modelCatalogUpdate", (frame: ModelCatalogUpdateFrame) => {
 			forwardActive(IPC_EVENTS.MODEL_CATALOG_UPDATE, frame);
@@ -481,14 +462,13 @@ export class SidecarPool {
 		if (!this.#entries.delete(entry)) return;
 		this.#byTabId.delete(entry.tabId);
 		this.#unregisterSessionFile(entry);
-		// Drop pending request-id routes pointing at the released entry — a
-		// late renderer response must fall back, never write to a dead sidecar.
+		// Drop pending routes pointing at the released entry. A late response is
+		// genuinely unknown; a still-live route owned by another entry is kept.
 		for (const [id, owner] of this.#requestOwners) {
 			if (owner === entry) this.#requestOwners.delete(id);
 		}
 		entry.sidecar.removeAllListeners();
-		entry.sidecar.dispose();
-		this.sidecarLifecycle?.released(entry.tabId);
+		this.#trackDisposal(entry.sidecar.dispose());
 		const visible = this.#visibleByWindow.get(entry.winId);
 		visible?.delete(entry.tabId);
 		const split = this.#splitByWindow.get(entry.winId);
@@ -635,14 +615,14 @@ export class SidecarPool {
 	}
 
 	/**
-	 * Record the session file a tab's sidecar is attached to. ipc.ts reports
-	 * this from the RPC passthrough (switch_session success, get_state — the
-	 * only main-observable carriers of the file path; session_info_update
-	 * itself carries just the id). Null unregisters (fresh unsaved session).
+	 * Record the local session file a local tab's sidecar is attached to.
+	 * ipc.ts reports this from the RPC passthrough (switch_session success,
+	 * get_state). Remote identity is hostAlias + sessionId and must never enter
+	 * the local file-owner map. Null unregisters a fresh unsaved local session.
 	 */
 	noteSessionFile(tabId: string, sessionFile: string | null): void {
 		const entry = this.#byTabId.get(tabId);
-		if (!entry) return;
+		if (entry?.target.type !== "local") return;
 		const previous = entry.sessionFile;
 		if (sessionFile) this.#registerSessionFile(entry, sessionFile);
 		else this.#unregisterSessionFile(entry);
@@ -663,26 +643,29 @@ export class SidecarPool {
 	adoptSessionCwd(tabId: string, cwd: string): boolean {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry || !cwd) return false;
-		if (!entry.sidecar.adoptCwd(cwd)) return false;
+		const target = entry.sidecar.adoptTargetCwd(cwd);
+		if (!target) return false;
+		entry.target = immutableTarget(target);
 		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 		this.#notifyWindowTabsChanged(entry.win);
 		return true;
 	}
 
 	/**
-	 * Route a renderer side-channel response to the sidecar that RAISED the
-	 * request (F-UI-ORIGIN), tracked by request id at forward time — not the
-	 * window's active tab, which may have changed while the dialog was open.
-	 * `final` unregisters the id (extension_ui/host_tool/host_uri RESULTS are
-	 * single-shot; a host_tool UPDATE is not, the result follows). False when
-	 * the id is unknown — the caller falls back to the active tab's sidecar.
+	 * Route a renderer response only when both its bounded request id and exact
+	 * caller window match the live owner. A foreign/invalid caller is rejected
+	 * without consuming the route; only genuinely absent ids are `unknown` and
+	 * therefore eligible for the IPC compatibility fallback.
 	 */
-	routeSideChannel(id: string, frame: object, final: boolean): boolean {
+	routeSideChannel(win: BrowserWindow, id: unknown, frame: object, final: boolean): SideChannelRoute {
+		if (!validSideChannelRequestId(id)) return "foreign";
 		const entry = this.#requestOwners.get(id);
-		if (!entry) return false;
+		if (!entry) return "unknown";
+		if (win.isDestroyed()) return "foreign";
+		if (entry.win !== win || entry.winId !== win.webContents.id) return "foreign";
 		if (final) this.#requestOwners.delete(id);
 		entry.sidecar.sendSideChannel(frame);
-		return true;
+		return "routed";
 	}
 
 	/** Register sessionFile → owner, moving the entry off any previous file. */
@@ -782,18 +765,18 @@ export class SidecarPool {
 		try {
 			for (const [index, tab] of layout.tabs.entries()) {
 				const tabId = nextSnowflake();
-				const sidecar = this.acquire(
-					tab.cwd,
+				const sidecar = this.acquire({
+					cwd: tab.cwd,
 					win,
 					tabId,
-					tab.sessionPath,
-					tab.kind,
-					tab.worktree,
-					!tab.sessionPath,
-					tab.placeholder === true,
-					true,
-					tab.title,
-				);
+					sessionPath: tab.sessionPath,
+					kind: tab.kind,
+					worktree: tab.worktree,
+					fresh: !tab.sessionPath,
+					placeholder: tab.placeholder === true,
+					deferStart: true,
+					title: tab.title,
+				});
 				if (!sidecar) continue;
 				restoredCount++;
 				restoredTabIds[index] = tabId;
@@ -827,11 +810,10 @@ export class SidecarPool {
 		this.onWindowTabsChanged(win, this.tabLayoutForWindow(win));
 	}
 
-	disposeAll(): void {
+	async disposeAll(): Promise<void> {
 		for (const entry of this.#entries) {
 			entry.sidecar.removeAllListeners();
-			entry.sidecar.dispose();
-			this.sidecarLifecycle?.released(entry.tabId);
+			this.#trackDisposal(entry.sidecar.dispose());
 		}
 		this.#entries.clear();
 		this.#byTabId.clear();
@@ -841,27 +823,51 @@ export class SidecarPool {
 		this.#sessionOwners.clear();
 		this.#requestOwners.clear();
 		this.#restoringWindows.clear();
+		await Promise.all([...this.#pendingDisposals]);
+		if (this.#disposalFailures.length > 0) {
+			const errors = this.#disposalFailures.splice(0);
+			throw new AggregateError(errors, "One or more sidecars could not be disposed");
+		}
+	}
+
+	/** In-flight async sidecar disposals plus retained failures for shutdown aggregation. */
+	#pendingDisposals = new Set<Promise<void>>();
+
+	#disposalFailures: unknown[] = [];
+
+	#trackDisposal(disposal: Promise<void>): void {
+		let tracked: Promise<void>;
+		tracked = disposal
+			.catch(error => {
+				this.#disposalFailures.push(error);
+			})
+			.finally(() => {
+				this.#pendingDisposals.delete(tracked);
+			});
+		this.#pendingDisposals.add(tracked);
+	}
+
+	/**
+	 * Register a renderer-facing request without replacing a live owner.
+	 * Malformed ids are never admitted as routing authority.
+	 */
+	#registerRequestOwner(id: unknown, entry: PoolEntry): boolean {
+		if (!this.#requestIdAvailable(id)) return false;
+		this.#requestOwners.set(id, entry);
+		return true;
+	}
+
+	#requestIdAvailable(id: unknown): id is string {
+		return validSideChannelRequestId(id) && !this.#requestOwners.has(id);
 	}
 }
 
 /** TAB_STATUS push / GET_TABS item: full tab snapshot incl. cached session meta. */
-/** A terminal agent_end decides the run's outcome from its final assistant reply. */
-function settleAttention(entry: PoolEntry, messages: AgentMessage[] | undefined): void {
-	const last = messages?.findLast(message => message.role === "assistant");
-	if (last?.stopReason === "error") {
-		entry.attention = "failed";
-		entry.attentionDetail = typeof last.errorMessage === "string" ? last.errorMessage : entry.attentionDetail;
-	} else if (entry.attention === "retrying" || last) {
-		// A settled run that did not fail: any retry saga ended in its favor.
-		entry.attention = undefined;
-		entry.attentionDetail = undefined;
-	}
-}
-
 function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	const payload: IpcTabStatusPayload = {
 		tabId: entry.tabId,
 		cwd: entry.sidecar.cwd,
+		target: entry.target,
 		kind: entry.kind,
 		placeholder: entry.placeholder,
 		sessionPath: entry.sessionFile ?? null,
@@ -873,13 +879,26 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
-	// Once a tab has had an outcome to show, keep sending it (null = cleared)
-	// so the chip drops a stale retry/failure mark.
-	if (entry.attention !== undefined || entry.attentionDetail !== undefined || entry.attentionShown) {
-		entry.attentionShown = true;
-		payload.attention = entry.attention ?? null;
-		payload.retry = entry.retry ?? null;
-	}
-	if (entry.attentionDetail !== undefined) payload.attentionDetail = entry.attentionDetail;
 	return payload;
+}
+const MAX_SIDE_CHANNEL_REQUEST_ID_LENGTH = 128;
+export type SideChannelRoute = "routed" | "foreign" | "unknown";
+
+function validSideChannelRequestId(id: unknown): id is string {
+	return typeof id === "string" && id.length > 0 && id.length <= MAX_SIDE_CHANNEL_REQUEST_ID_LENGTH;
+}
+
+export interface SidecarAcquireOptions {
+	cwd: string;
+	win: BrowserWindow;
+	tabId?: string;
+	sessionPath?: string;
+	resumeSessionId?: string;
+	kind?: SessionKind;
+	worktree?: IpcTabWorktree;
+	fresh?: boolean;
+	placeholder?: boolean;
+	target?: SessionTarget;
+	deferStart?: boolean;
+	title?: string;
 }

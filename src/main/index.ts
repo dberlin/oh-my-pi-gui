@@ -2,26 +2,25 @@
  * Main process entry point for the omp GUI.
  * App lifecycle: ready → window, sidecar, session index, IPC, tray, menu, deep links, updater.
  */
-
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
 import Store from "electron-store";
 import { nativeAccelerator } from "../shared/hotkeys";
-import type { SessionKind } from "../shared/ipc-types";
+import type { SessionKind, SessionTarget } from "../shared/ipc-types";
 import { installQuitGuard, requestQuit } from "./app-quit";
-import { BrowserHost } from "./browser-host";
 import { bundledOmpFilename, resolveOmpCandidate } from "./bundled-omp-path";
-import { type ConversationIndex, openConversationIndex } from "./conversation-index";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
 import { LogWatcher } from "./log-watcher";
-import { MemoryWatcher } from "./memory-watcher";
 import { createMenu } from "./menu";
+import { RemoteAcpClient } from "./remote-acp";
+import { RemoteHostCatalog, type RemoteHostCatalogPrefs } from "./remote-host-catalog";
+import { nodeRemoteProcessRunner, RemoteSshService } from "./remote-ssh";
 import { writeRuntimeLog } from "./runtime-log";
 import { SessionIndex } from "./session-index";
 import { shellSpawnEnv } from "./shell-env";
@@ -120,7 +119,7 @@ function resolveSourceCli(): string | null {
 	return null;
 }
 
-interface MainPrefs {
+interface MainPrefs extends RemoteHostCatalogPrefs {
 	lastProject?: string;
 	proxyUrl?: string;
 	/** One layout per live window, in window order. */
@@ -215,14 +214,13 @@ async function resolveProxyEnvForSpawn(): Promise<Record<string, string>> {
 // Module-level instances (alive for app lifetime)
 let windowManager: WindowManager;
 let sidecarPool: SidecarPool;
-let browserHost: BrowserHost | null = null;
 let statsServer: StatsServerManager | null = null;
 let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
-let memoryWatcher: MemoryWatcher | undefined;
-let conversationIndex: ConversationIndex | null = null;
-
+let remoteServices: { ssh: RemoteSshService; catalog: RemoteHostCatalog; acp: RemoteAcpClient } | null = null;
+let shutdownStarted = false;
+let shutdownComplete = false;
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
 	if (typeof value === "string") return { message: value };
@@ -296,11 +294,22 @@ function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null
 	return null;
 }
 
-/** Spawn a window with its own sidecar (the pool's 1:1 owner). Null on spawn failure.
- *  With no target, create a fresh global chat; explicit workspace/session
- *  requests retain their selected/fallback cwd and requested session kind. */
-function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKind): BrowserWindow | null {
-	const restoreSavedLayout = cwd === undefined && pendingSessionPath === undefined && kind === undefined;
+/** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
+ *  With no target, create a fresh global chat; explicit workspace/session or
+ *  remote target requests retain their selected/fallback cwd and requested session kind. */
+function spawnWindow(
+	cwd?: string,
+	pendingSessionPath?: string,
+	kind?: SessionKind,
+	target?: SessionTarget,
+	resumeSessionId?: string,
+): BrowserWindow | null {
+	const restoreSavedLayout =
+		cwd === undefined &&
+		pendingSessionPath === undefined &&
+		kind === undefined &&
+		target === undefined &&
+		resumeSessionId === undefined;
 	if (restoreSavedLayout) {
 		const [saved] = readSavedTabLayouts();
 		if (saved) {
@@ -308,24 +317,24 @@ function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKi
 			if (restored) return restored;
 		}
 	}
-	const target = resolveWindowSpawnTarget(
-		cwd,
-		pendingSessionPath,
-		kind,
-		resolveInitialCwd(),
-		ensureDefaultWorkspace(),
-	);
-	const win = windowManager.createWindow({ cwd: target.cwd, pendingSessionPath });
-	const sidecar = sidecarPool.acquire(
-		target.cwd,
+	const resolved = target
+		? {
+				cwd: cwd && cwd.length > 0 ? cwd : target.type === "ssh" ? target.cwd : resolveInitialCwd(),
+				kind: kind ?? "agent",
+				fresh: false,
+				placeholder: false,
+			}
+		: resolveWindowSpawnTarget(cwd, pendingSessionPath, kind, resolveInitialCwd(), ensureDefaultWorkspace());
+	const win = windowManager.createWindow({ cwd: resolved.cwd, pendingSessionPath, target, resumeSessionId });
+	const sidecar = sidecarPool.acquire({
+		cwd: resolved.cwd,
 		win,
-		undefined,
-		undefined,
-		target.kind,
-		undefined,
-		target.fresh,
-		target.placeholder,
-	);
+		kind: resolved.kind,
+		target,
+		resumeSessionId,
+		fresh: resolved.fresh,
+		placeholder: resolved.placeholder,
+	});
 	if (!sidecar) {
 		win.close();
 		return null;
@@ -336,19 +345,25 @@ function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKi
 app.whenReady().then(() => {
 	installMainRuntimeLogging();
 	windowManager = new WindowManager();
+	const remoteSsh = new RemoteSshService(nodeRemoteProcessRunner);
+	const remoteHostCatalog = new RemoteHostCatalog(prefsStore());
+	const remoteAcp = new RemoteAcpClient(remoteSsh);
+	remoteServices = { ssh: remoteSsh, catalog: remoteHostCatalog, acp: remoteAcp };
 
 	const initialCwd = resolveInitialCwd();
 	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bundledOmp = resolveBundledOmp();
 	const sourceCli = resolveSourceCli();
-	sidecarPool = new SidecarPool((cwd, kind, fresh) => {
+	sidecarPool = new SidecarPool(options => {
 		const sc = new SidecarManager({
 			binaryPath: bundledOmp ?? "",
 			packaged: app.isPackaged,
 			sourceCli: sourceCli ?? undefined,
-			cwd,
-			kind,
-			fresh,
+			cwd: options.cwd,
+			kind: options.kind,
+			fresh: options.fresh,
+			target: options.target,
+			resumeSessionId: options.resumeSessionId,
 			proxyEnv: resolveProxyEnvForSpawn,
 			shellEnv: shellSpawnEnv,
 			// Finder-launched omp has no terminal, and a sidecar that dies before
@@ -364,6 +379,8 @@ app.whenReady().then(() => {
 					{ cwd: report.cwd },
 				);
 			},
+			remoteSsh,
+			remoteHostCatalog,
 		});
 		// Ready-health-check applies to every pooled sidecar, not just the first.
 		sc.on("status", ({ status }) => {
@@ -380,19 +397,8 @@ app.whenReady().then(() => {
 				});
 		});
 		return sc;
-	});
+	}, 10);
 	sidecarPool.onWindowTabsChanged = () => persistTabLayouts();
-	// Agent tabs browse in their own side panel: each sidecar that comes up
-	// serves a relay for it, and its pages outlive sidecar restarts.
-	const host = new BrowserHost();
-	browserHost = host;
-	sidecarPool.sidecarLifecycle = {
-		ready: tab => {
-			if (tab.kind === "agent") void host.link(tab);
-		},
-		down: tabId => host.unlink(tabId),
-		released: tabId => host.release(tabId),
-	};
 	// A closed window's tabs have to leave the saved session with it, or the next
 	// launch resurrects a window the user deliberately shut.
 	windowManager.subscribeWindowClosed(() => persistTabLayouts());
@@ -411,28 +417,22 @@ app.whenReady().then(() => {
 		statsServer.start();
 	}
 	logWatcher = new LogWatcher();
-	memoryWatcher = new MemoryWatcher();
-	conversationIndex = openConversationIndex(
-		join(app.getPath("userData"), "conversation-index.db"),
-		sessionIndex.sessionsDir,
-		error => writeRuntimeLog({ source: "conversation-index", ...errorMessage(error) }),
-	);
 
 	// Register all handlers and sidecar listeners before loading the renderer.
 	registerIpcHandlers({
 		sidecarPool,
-		browserHost: host,
 		sessionIndex,
 		statsClient,
 		statsRestart: () => statsServer?.ensureRunning() ?? "exhausted",
 		logWatcher,
-		memoryWatcher,
-		conversationIndex,
 		windowManager,
 		benchmarkBinaryPath: bundledOmp,
 		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
+		remoteSsh,
+		remoteHostCatalog,
+		remoteAcp,
 	});
 
 	// Global shortcut: Cmd+Shift+O — toggle focused window, else show the most
@@ -457,11 +457,6 @@ app.whenReady().then(() => {
 	});
 	sessionIndex.start();
 	logWatcher.start();
-	memoryWatcher.start();
-	// Read sessions into the search index in the background; searches top it up.
-	conversationIndex
-		?.refresh()
-		.catch(error => writeRuntimeLog({ source: "conversation-index", ...errorMessage(error) }));
 	// Read before the first window restores: every tab change rewrites the store,
 	// so a later read would only see the just-restored primary window.
 	const savedLayouts = readSavedTabLayouts();
@@ -475,7 +470,7 @@ app.whenReady().then(() => {
 
 	// Tray, menu, deep links, updater
 	createTray(windowManager, spawnWindow);
-	createMenu(windowManager, spawnWindow, host);
+	createMenu(windowManager, spawnWindow);
 	setupDeepLinks(windowManager, spawnWindow);
 	setupUpdater();
 
@@ -497,18 +492,36 @@ app.on("window-all-closed", () => {
 	}
 });
 
-// Cleanup on quit, behind the "sessions are still working" confirmation: ⌘Q
-// used to SIGTERM every live agent run without a word.
+function beginShutdown(): void {
+	if (shutdownStarted) return;
+	shutdownStarted = true;
+	statsServer?.kill();
+	sessionIndex?.stop();
+	logWatcher?.stop();
+	destroyTray();
+	const sidecars = sidecarPool?.disposeAll() ?? Promise.resolve();
+	const ssh = remoteServices?.ssh;
+	remoteServices = null;
+	void sidecars
+		.catch(error => {
+			writeRuntimeLog({ source: "sidecar-shutdown", ...errorMessage(error) });
+		})
+		.then(() => ssh?.dispose())
+		.catch(error => {
+			writeRuntimeLog({ source: "remote-ssh-shutdown", ...errorMessage(error) });
+		})
+		.finally(() => {
+			shutdownComplete = true;
+			app.quit();
+		});
+}
+
+// Gate every quit path on active-session confirmation, then keep Electron
+// alive until local and remote children have both finished terminating.
 installQuitGuard(
 	() => (sidecarPool ? sidecarPool.tabInventory() : []),
-	() => {
-		statsServer?.kill();
-		sidecarPool?.disposeAll();
-		browserHost?.disposeAll();
-		sessionIndex?.stop();
-		logWatcher?.stop();
-		memoryWatcher?.stop();
-		conversationIndex?.close();
-		destroyTray();
-	},
+	beginShutdown,
 );
+app.on("before-quit", event => {
+	if (shutdownStarted && !shutdownComplete) event.preventDefault();
+});

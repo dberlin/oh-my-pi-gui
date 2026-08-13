@@ -4,14 +4,20 @@
  * the single-tab floor, "+" spawns a new tab in the current cwd. Same
  * linkedom + react-dom harness as the InputArea tests.
  */
-
-import { parseHTML } from "linkedom";
-import { act, type ReactElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { IpcSpawnTabPayload, IpcTabInfo, IpcTabStatusPayload, SessionInfo } from "../../../shared/ipc-types";
+import type {
+	IpcSpawnTabPayload,
+	IpcTabInfo,
+	IpcTabStatusPayload,
+	SessionInfo,
+	SshSessionTarget,
+} from "../../../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { TabBar } from "./TabBar";
+import { act, type ReactElement } from "react";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import { createRoot, type Root } from "react-dom/client";
+import { parseHTML } from "linkedom";
 import { closeActiveTab } from "../../lib/tab-close";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
@@ -24,7 +30,6 @@ import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { TabBar } from "./TabBar";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -274,6 +279,7 @@ describe("TabBar", () => {
 					// but session_info_update has not supplied sessionId/title yet.
 					sessionPath: "/sessions/s-infron.jsonl",
 					cwd: "/work/infron",
+					target: { type: "local" },
 					status: "ready",
 					unreadDone: false,
 				},
@@ -301,6 +307,7 @@ describe("TabBar", () => {
 					id: "t-empty",
 					sessionId: "s-empty",
 					cwd: "/neutral",
+					target: { type: "local" },
 					status: "ready",
 					placeholder: true,
 					unreadDone: false,
@@ -310,6 +317,7 @@ describe("TabBar", () => {
 					id: "t-real",
 					sessionId: "s-real",
 					cwd: "/work/infron",
+					target: { type: "local" },
 					status: "ready",
 					placeholder: false,
 					unreadDone: false,
@@ -338,6 +346,7 @@ describe("TabBar", () => {
 					id: "t-empty",
 					sessionId: "s-empty",
 					cwd: "/neutral",
+					target: { type: "local" },
 					status: "ready",
 					placeholder: true,
 					unreadDone: false,
@@ -347,6 +356,7 @@ describe("TabBar", () => {
 					id: "t-real",
 					sessionId: "s-real",
 					cwd: "/work/infron",
+					target: { type: "local" },
 					status: "ready",
 					placeholder: false,
 					unreadDone: false,
@@ -367,8 +377,16 @@ describe("TabBar", () => {
 	it("renders one chip per tab with title or cwd basename and marks the active tab", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/work/alpha", status: "ready", title: "Alpha plan", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/work/beta", status: "ready", unreadDone: false },
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/work/alpha",
+					target: { type: "local" },
+					status: "ready",
+					title: "Alpha plan",
+					unreadDone: false,
+				},
+				{ kind: "agent", id: "t1", cwd: "/work/beta", target: { type: "local" }, status: "ready", unreadDone: false },
 			],
 			activeTabId: "t1",
 			bundles: new Map(),
@@ -418,7 +436,9 @@ describe("TabBar", () => {
 
 	it("hides the close button at the single-tab floor and shows it with two tabs", async () => {
 		useTabsStore.setState({
-			tabs: [{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false }],
+			tabs: [
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+			],
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
@@ -427,8 +447,8 @@ describe("TabBar", () => {
 
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
 			],
 		});
 		await flush();
@@ -438,8 +458,8 @@ describe("TabBar", () => {
 	it("renders status dots for running and completed tabs", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "running", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: true },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "running", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: true },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -490,10 +510,10 @@ describe("TabBar", () => {
 	it("right-click closes tabs to either side or replaces all original tabs", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t2", cwd: "/gamma", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t3", cwd: "/delta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t2", cwd: "/gamma", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t3", cwd: "/delta", target: { type: "local" }, status: "ready", unreadDone: false },
 			],
 			activeTabId: "t2",
 			bundles: new Map(),
@@ -522,8 +542,8 @@ describe("TabBar", () => {
 	it("clicking a chip switches tabs; the + button spawns a new tab in the current cwd", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -560,7 +580,9 @@ describe("TabBar", () => {
 
 	it("the chat button spawns a chat tab in one click", async () => {
 		useTabsStore.setState({
-			tabs: [{ kind: "agent", id: "t0", cwd: "/beta", status: "ready", unreadDone: false }],
+			tabs: [
+				{ kind: "agent", id: "t0", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
+			],
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
@@ -575,7 +597,9 @@ describe("TabBar", () => {
 
 	it("agent and chat creation buttons are visible with labeled affordances", async () => {
 		useTabsStore.setState({
-			tabs: [{ kind: "agent", id: "t0", cwd: "/beta", status: "ready", unreadDone: false }],
+			tabs: [
+				{ kind: "agent", id: "t0", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
+			],
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
@@ -591,8 +615,8 @@ describe("TabBar", () => {
 	it("clicking a background chip's close releases it without switching", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -620,8 +644,8 @@ describe("TabBar close confirm", () => {
 	function seedRunning(): void {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "running", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "running", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -679,8 +703,8 @@ describe("TabBar close confirm", () => {
 	it("a starting tab arms, and so does the active tab's live stream", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "starting", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "starting", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -704,8 +728,8 @@ describe("TabBar close confirm", () => {
 	it("closing an idle tab is immediate, active tab included", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -746,11 +770,12 @@ describe("TabBar close confirm", () => {
 	it("an idle worktree tab's × routes to the cleanup prompt, never straight to close (plan/20)", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
 				{
 					kind: "agent",
 					id: "t1",
 					cwd: "/wt/gui-fix-deadbeef",
+					target: { type: "local" },
 					status: "ready",
 					unreadDone: false,
 					worktree: { name: "fix", branch: "omp/gui/fix", baseCwd: "/alpha" },
@@ -777,9 +802,23 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 	it("disambiguates identical untitled labels with an index suffix in tab order", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/other/gui", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t2", cwd: "/tmp/gui", status: "ready", unreadDone: false },
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/work/gui",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+				{
+					kind: "agent",
+					id: "t1",
+					cwd: "/other/gui",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+				{ kind: "agent", id: "t2", cwd: "/tmp/gui", target: { type: "local" }, status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -796,8 +835,23 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 	it("prefers the session title and never suffixes titled tabs", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/other/gui", status: "ready", title: "Release plan", unreadDone: false },
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/work/gui",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+				{
+					kind: "agent",
+					id: "t1",
+					cwd: "/other/gui",
+					target: { type: "local" },
+					status: "ready",
+					title: "Release plan",
+					unreadDone: false,
+				},
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -811,8 +865,22 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 	it("drops the suffix once a colliding tab gains a title", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/other/gui", status: "ready", unreadDone: false },
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/work/gui",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+				{
+					kind: "agent",
+					id: "t1",
+					cwd: "/other/gui",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -821,9 +889,14 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 		expect(tabTitles()).toEqual(["gui", "gui #2"]);
 
 		// The auto-title arrives via TAB_STATUS: labels recompute immediately.
-		useTabsStore
-			.getState()
-			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/other/gui", status: "ready", title: "Fix races" });
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t1",
+			cwd: "/other/gui",
+			target: { type: "local" },
+			status: "ready",
+			title: "Fix races",
+		});
 		await flush();
 		expect(tabTitles()).toEqual(["gui", "Fix races"]);
 	});
@@ -831,7 +904,7 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 	it("uses the sidebar workspace alias as the visible tab subtitle", async () => {
 		useSidebarPrefs.setState({ groupAliases: { "/work/infron": "Production API" } });
 		useTabsStore.setState({
-			tabs: [{ kind: "agent", id: "t0", cwd: "/work/infron", status: "ready", unreadDone: false }],
+			tabs: [{ kind: "agent", id: "t0", cwd: "/work/infron", target: { type: "local" }, status: "ready", unreadDone: false }],
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
@@ -849,5 +922,93 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 		await mount(<TabBar />);
 
 		expect(container.querySelector('[aria-label="Tab actions"]')).not.toBeNull();
+	});
+
+	it("marks SSH identity separately and replaces its host-qualified fallback when a title hydrates", async () => {
+		const target: SshSessionTarget = {
+			type: "ssh",
+			hostAlias: "build",
+			host: {
+				host: "build.example.com",
+				os: "linux",
+				sourceId: "ssh-config",
+				sourceLevel: "user",
+			},
+			originCwd: "/srv/app",
+			cwd: "/srv/app",
+		};
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "ssh-0",
+					cwd: "/srv/app",
+					target,
+					status: "running",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "ssh-0",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+
+		expect(chips()[0]?.textContent).toBe("build:app");
+		expect(chips()[0]?.querySelector('[aria-label="Remote SSH"]')).not.toBeNull();
+		expect(
+			chips()[0]
+				?.querySelectorAll("span")
+				.some(span => (span as unknown as Element).getAttribute("class")?.includes("bg-[var(--omp-accent)]")),
+		).toBe(true);
+
+		await act(async () => {
+			useTabsStore.getState().applyTabStatus({
+				kind: "agent",
+				tabId: "ssh-0",
+				cwd: "/srv/app",
+				target,
+				status: "ready",
+				title: "Deploy release",
+			});
+		});
+		await flush();
+
+		expect(chips()[0]?.textContent).toBe("Deploy release");
+		expect(useTabsStore.getState().tabs[0]?.target).toBe(target);
+	});
+
+	it("renders bounded remote labels without ASCII or bidi formatting controls", async () => {
+		const target: SshSessionTarget = {
+			type: "ssh",
+			hostAlias: `${"a".repeat(80)}\u202e`,
+			host: {
+				host: "build.example.com",
+				os: "linux",
+				sourceId: "ssh-config",
+				sourceLevel: "user",
+			},
+			originCwd: "/srv/app",
+			cwd: `/srv/${"b".repeat(80)}\u0000`,
+		};
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "ssh-safe",
+					cwd: target.cwd,
+					target,
+					status: "ready",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "ssh-safe",
+			bundles: new Map(),
+		});
+
+		await mount(<TabBar />);
+
+		const label = chips()[0]?.textContent ?? "";
+		expect(label).toBe(`${"a".repeat(63)}…:${"b".repeat(63)}…`);
+		expect(label).not.toMatch(/[\u0000-\u001f\u007f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/);
 	});
 });

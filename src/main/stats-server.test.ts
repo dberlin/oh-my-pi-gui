@@ -3,9 +3,9 @@ import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, it, test, vi } from "vitest";
 import { StatsClient } from "./stats-client";
-import { StatsServerManager } from "./stats-server";
+import { StatsServerManager, statsServerArgs, statsServerPort } from "./stats-server";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -92,4 +92,23 @@ test("fetch sends POST for /api/sync, which 405s a plain GET", async () => {
 	} finally {
 		server.close();
 	}
+});
+
+describe("statsServerArgs", () => {
+	it("binds the bundled dashboard to loopback without opening an external browser", () => {
+		expect(statsServerArgs(3847)).toEqual([
+			"stats",
+			"--host",
+			"127.0.0.1",
+			"--port",
+			"3847",
+			"--no-open",
+		]);
+	});
+});
+
+describe("statsServerPort", () => {
+	it("accepts the IPv4 loopback URL emitted by the bundled stats command", () => {
+		expect(statsServerPort("Dashboard available at: http://127.0.0.1:3847")).toBe(3847);
+	});
 });
