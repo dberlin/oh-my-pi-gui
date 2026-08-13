@@ -21,6 +21,7 @@ mac:
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
     NSMicrophoneUsageDescription: omp uses the microphone for voice dictation in the composer.
+    NSLocalNetworkUsageDescription: omp connects to configured SSH hosts and services on your local network.
   notarize: false
 
 dmg:

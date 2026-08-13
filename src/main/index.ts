@@ -286,7 +286,7 @@ function spawnWindow(
 app.whenReady().then(() => {
 	installMainRuntimeLogging();
 	windowManager = new WindowManager();
-	const remoteSsh = new RemoteSshService(nodeRemoteProcessRunner);
+	const remoteSsh = new RemoteSshService(nodeRemoteProcessRunner, { controlPathRoot: app.getPath("temp") });
 	const remoteHostCatalog = new RemoteHostCatalog(prefsStore());
 	const remoteAcp = new RemoteAcpClient(remoteSsh);
 	remoteServices = { ssh: remoteSsh, catalog: remoteHostCatalog, acp: remoteAcp };

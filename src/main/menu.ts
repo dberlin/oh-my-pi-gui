@@ -97,7 +97,11 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 							},
 						]),
 				{ type: "separator" },
-				{ role: "close" },
+				{
+					label: mainT("menu.closeTab", language),
+					accelerator: "CmdOrCtrl+W",
+					click: () => sendMenuAction(windowManager, spawnWindow, "close-tab"),
+				},
 			],
 		},
 		{

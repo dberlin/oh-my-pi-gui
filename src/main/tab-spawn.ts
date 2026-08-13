@@ -26,7 +26,7 @@ export type SpawnTabDeps = {
 		target: SshSessionTarget,
 		cwd: unknown,
 		sink: (target: SshSessionTarget) => IpcSpawnTabResult | null,
-	): Promise<IpcSpawnTabResult | null>;
+	): IpcSpawnTabResult | null;
 	authorizeRemoteResume(target: SshSessionTarget, cwd: string, sessionId: string): boolean;
 };
 

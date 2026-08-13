@@ -68,7 +68,7 @@ interface MockRpc {
 	removeDirectory: Mock<(path: string) => Promise<RpcResponse>>;
 	moveSession: Mock<(path: string) => Promise<RpcResponse>>;
 	getState: Mock<() => Promise<RpcResponse>>;
-	getTranscript: Mock<() => Promise<RpcResponse>>;
+	getMessages: Mock<() => Promise<RpcResponse>>;
 	getSubagents: Mock<() => Promise<RpcResponse>>;
 	getGoal: Mock<() => Promise<RpcResponse>>;
 	setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
@@ -123,7 +123,7 @@ function installMockOmp(overrides: { rpc?: Partial<MockRpc>; pickedPath?: string
 		removeDirectory: vi.fn(async () => success(directories(CWD))),
 		moveSession: vi.fn(async () => success({ cwd: EXTRA })),
 		getState: vi.fn(async () => success({ sessionId: "s1", messageCount: 0, todoPhases: [] })),
-		getTranscript: vi.fn(async () => success({ messages: [] })),
+		getMessages: vi.fn(async () => success({ messages: [] })),
 		getSubagents: vi.fn(async () => success({ subagents: [] })),
 		getGoal: vi.fn(async () => success({})),
 		setSubagentSubscription: vi.fn(async () => success({})),

@@ -21,7 +21,6 @@ import {
 	X,
 } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { RemoteHistorySession, SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow } from "../../hooks/use-session-switch";
@@ -39,6 +38,8 @@ import { PiLogo } from "../common";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { LangSwitcher } from "../common/LangSwitcher";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
+
+import { RemoteWorkspaceDialog } from "../dialogs/RemoteWorkspaceDialog";
 
 const STATUS_COLOR: Record<SessionInfo["status"], string> = {
 	complete: "var(--omp-success)",
@@ -170,13 +171,14 @@ export function Sidebar() {
 	const [confirmingDeletePath, setConfirmingDeletePath] = useState<string | null>(null);
 	const [confirmingGroupDeleteCwd, setConfirmingGroupDeleteCwd] = useState<string | null>(null);
 	const [renamingSessionPath, setRenamingSessionPath] = useState<string | null>(null);
-	const [workspaceOpen, setWorkspaceOpen] = useState(false);
+	const [workspaceLocation, setWorkspaceLocation] = useState<"local" | "remote" | null>(null);
 	const [renameDraft, setRenameDraft] = useState("");
 	// "+" type dropdown, workspace group context menu, session row context menu.
 	const [plusMenu, setPlusMenu] = useState<ContextMenuAnchor | null>(null);
 	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
 	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SessionInfo } | null>(null);
 	const [expandedRemoteHosts, setExpandedRemoteHosts] = useState<Record<string, boolean>>({});
+	const [remotePickerAlias, setRemotePickerAlias] = useState<string | null>(null);
 	const [remoteSessionMenu, setRemoteSessionMenu] = useState<{
 		anchor: ContextMenuAnchor;
 		session: RemoteHistorySession;
@@ -383,6 +385,13 @@ export function Sidebar() {
 
 	const startAnotherRemoteSession = (session: RemoteHistorySession) => {
 		void openTab({ target: session.target, cwd: session.cwd });
+	};
+
+	const startRemoteSession = async (target: SshSessionTarget): Promise<void> => {
+		const tabId = await openTab({ target, cwd: target.cwd });
+		if (!tabId) return;
+		setRemotePickerAlias(null);
+		await useRemoteStore.getState().noteWorkspace(target.hostAlias, target.cwd);
 	};
 
 	const startRename = (session: SessionInfo) => {
@@ -989,6 +998,19 @@ export function Sidebar() {
 											</button>
 											<button
 												type="button"
+												data-remote-host-add
+												title={t("remote.history.startNewOnHost", { host: aliasLabel })}
+												aria-label={t("remote.history.startNewOnHost", { host: aliasLabel })}
+												onClick={event => {
+													event.stopPropagation();
+													setRemotePickerAlias(alias);
+												}}
+												className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+											>
+												<Plus size={11} strokeWidth={2.5} />
+											</button>
+											<button
+												type="button"
 												disabled={hostState.historyStatus === "loading"}
 												title={t("remote.history.refresh")}
 												aria-label={t("remote.history.refresh")}
@@ -1096,9 +1118,22 @@ export function Sidebar() {
 					className="absolute inset-y-0 right-0 z-10 w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-[var(--omp-accent)]/40 active:bg-[var(--omp-accent)] max-[1000px]:hidden"
 				/>
 			</aside>
-			<WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} intent="new-session" />
+			<WorkspaceDialog
+				open={workspaceLocation !== null}
+				onClose={() => setWorkspaceLocation(null)}
+				intent="new-session"
+				location={workspaceLocation ?? "local"}
+			/>
+			{remotePickerAlias ? (
+				<RemoteWorkspaceDialog
+					hostAlias={remotePickerAlias}
+					initialPath={remoteHosts[remotePickerAlias]?.host.recentWorkspaces[0]}
+					onClose={() => setRemotePickerAlias(null)}
+					onConfirm={target => void startRemoteSession(target)}
+				/>
+			) : null}
 
-			{/* "+" type dropdown: Agent (workspace chooser flow) or Chat (direct tab). */}
+			{/* "+" dropdown: explicit local agent, remote agent, or local chat creation. */}
 			{plusMenu && (
 				<ContextMenu
 					x={plusMenu.x}
@@ -1106,13 +1141,22 @@ export function Sidebar() {
 					onClose={() => setPlusMenu(null)}
 					items={[
 						{
-							id: "new-agent",
-							label: t("sidebar.menu.newAgent"),
+							id: "new-local-agent",
+							label: t("sidebar.menu.newLocalAgent"),
 							icon: SquareTerminal,
 							hint: "⌘T",
 							onSelect: () => {
 								setPlusMenu(null);
-								setWorkspaceOpen(true);
+								setWorkspaceLocation("local");
+							},
+						},
+						{
+							id: "new-remote-agent",
+							label: t("sidebar.menu.newRemoteAgent"),
+							icon: Server,
+							onSelect: () => {
+								setPlusMenu(null);
+								setWorkspaceLocation("remote");
 							},
 						},
 						{

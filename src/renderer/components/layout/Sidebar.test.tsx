@@ -18,6 +18,9 @@ import type {
 	RemoteHostCatalogSnapshot,
 	SessionInfo,
 	SshSessionTarget,
+	RemoteDirectoryValidationResult,
+	RemoteDirectoryListResult,
+	RemotePreflightResult,
 } from "../../../shared/ipc-types";
 import { useSidebarRecency } from "../../hooks/use-sidebar-recency";
 import { I18nProvider } from "../../lib/i18n";
@@ -57,8 +60,27 @@ interface MockOmp {
 	};
 	remote: {
 		catalog: Mock<() => Promise<RemoteCatalogResult>>;
+		cancel: Mock<(requestId: string) => Promise<boolean>>;
+		listDirectories: Mock<
+			(
+				target: SshSessionTarget,
+				path: string,
+				showHidden: boolean,
+				tabId?: string,
+				requestId?: string,
+			) => Promise<RemoteDirectoryListResult>
+		>;
 		listHistory: Mock<(hostAlias: string) => Promise<RemoteHistoryResult>>;
 		noteWorkspace: Mock<(hostAlias: string, cwd: string) => Promise<RemoteCatalogResult>>;
+		preflight: Mock<(target: SshSessionTarget, tabId?: string, requestId?: string) => Promise<RemotePreflightResult>>;
+		validateDirectory: Mock<
+			(
+				target: SshSessionTarget,
+				path: string,
+				tabId?: string,
+				requestId?: string,
+			) => Promise<RemoteDirectoryValidationResult>
+		>;
 	};
 	events: {
 		onSessionsChanged: Mock<() => () => void>;
@@ -90,8 +112,18 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		},
 		remote: {
 			catalog: vi.fn(async () => ({ ok: true, catalog: { hosts: [], updatedAt: null } })),
+			cancel: vi.fn(async () => true),
+			listDirectories: vi.fn(async (_target, path) => ({ ok: true, path, parent: "/", entries: [] })),
 			listHistory: vi.fn(async () => ({ ok: true, sessions: [] })),
 			noteWorkspace: vi.fn(async () => ({ ok: true, catalog: { hosts: [], updatedAt: null } })),
+			preflight: vi.fn(async target => ({
+				ok: true,
+				target,
+				home: "/home/danny",
+				platform: "linux",
+				executable: "/usr/bin/omp",
+			})),
+			validateDirectory: vi.fn(async (_target, path) => ({ ok: true, path })),
 		},
 		events: {
 			onSessionsChanged: vi.fn(() => () => {}),
@@ -343,7 +375,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 	});
 
-	it("+ button opens the type dropdown with agent and chat entries", async () => {
+	it("+ button offers explicit local, remote, and chat creation paths", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
@@ -359,9 +391,34 @@ describe("Sidebar menus and pinned ordering", () => {
 		await flush();
 
 		const labels = menuItemLabels();
-		expect(labels.some(label => label.includes("New agent session"))).toBe(true);
+		expect(labels.some(label => label.includes("New local session"))).toBe(true);
+		expect(labels.some(label => label.includes("New remote session"))).toBe(true);
 		expect(labels.some(label => label.includes("New chat session"))).toBe(true);
-		expect(labels).toHaveLength(2);
+		expect(labels).toHaveLength(3);
+	});
+
+	it("global remote creation opens a host-only chooser", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		omp.remote.catalog.mockResolvedValue({ ok: true, catalog: remoteCatalog("build") });
+		useRemoteStore.getState().setCatalog(remoteCatalog("build"));
+		await mount(<Sidebar />);
+
+		const plus = container.querySelector('[aria-label="New session"], [aria-label="新建会话"]');
+		await act(async () => {
+			(plus as unknown as Element).dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		await flush();
+		const remote = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
+			(button.textContent ?? "").includes("New remote session"),
+		);
+		expect(remote).not.toBeUndefined();
+		await fire(remote as unknown as TestElement, "onClick");
+
+		const dialog = document.body.querySelector('[role="dialog"]');
+		expect(dialog?.textContent).toContain("Remote hosts");
+		expect(dialog?.textContent).toContain("build");
+		expect(dialog?.textContent).not.toContain("/work/alpha");
 	});
 
 	it("uses visible vertical signal lights for session state", async () => {
@@ -641,6 +698,36 @@ describe("Sidebar remote history", () => {
 		expect(omp.remote.listHistory).toHaveBeenCalledTimes(2);
 		expect(omp.remote.listHistory).toHaveBeenLastCalledWith("build");
 		expect(useRemoteStore.getState().hosts.prod?.historyStatus).toBe("idle");
+	});
+
+	it("remote host headers open a scoped directory picker at the most recent workspace", async () => {
+		const omp = installMockOmp([]);
+		const host = remoteHost("build");
+		host.recentWorkspaces = ["/srv/recent"];
+		useRemoteStore.getState().setCatalog({ hosts: [host], updatedAt: "2026-08-12T12:00:00.000Z" });
+
+		await mount(<Sidebar />);
+		const add = container.querySelector('[data-remote-host="build"] [data-remote-host-add]');
+		expect(add).not.toBeNull();
+		await fire(add, "onClick");
+
+		expect(document.body.textContent).toContain("Choose remote workspace");
+		expect(omp.remote.preflight).toHaveBeenCalledWith(
+			expect.objectContaining({ hostAlias: "build", cwd: "/srv/recent" }),
+			undefined,
+			expect.any(String),
+		);
+		const confirm = [...document.body.querySelectorAll("button")].find(button =>
+			(button.textContent ?? "").includes("Open workspace"),
+		);
+		await fire(confirm as unknown as TestElement, "onClick");
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({
+			cwd: "/srv/recent",
+			kind: "agent",
+			sessionPath: undefined,
+			target: remoteTarget("build", "/srv/recent"),
+		});
+		expect(omp.remote.noteWorkspace).toHaveBeenCalledWith("build", "/srv/recent");
 	});
 
 	it("filters loaded alias, cwd, and title metadata without searching journals", async () => {

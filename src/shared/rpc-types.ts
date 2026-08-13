@@ -113,7 +113,6 @@ export type RpcCommand =
 	| { id?: string; type: "get_session_tree" }
 	| { id?: string; type: "get_themes" }
 	| { id?: string; type: "get_theme_colors"; name: string }
-	| { id?: string; type: "get_transcript" }
 	| { id?: string; type: "get_copy_targets" }
 
 	// Plan approval (structured)

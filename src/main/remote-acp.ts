@@ -9,7 +9,7 @@ import type {
 } from "./remote-ssh";
 
 const ACP_PROTOCOL_VERSION = 1;
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_FRAME_BYTES = 1024 * 1024;
 const MAX_FRAMES = 256;
 const MAX_PAGES = 100;

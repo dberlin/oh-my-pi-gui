@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useComposerStore } from "../renderer/stores/composer";
 import type { SshSessionTarget } from "../shared/ipc-types";
 import type { CommandOutputFrame, PromptResultFrame, SidecarStatus } from "../shared/rpc-types";
+import type { RemoteHostCatalog } from "./remote-host-catalog";
 import { type RemoteProcessRunner, RemoteSshService } from "./remote-ssh";
 import {
 	createRemoteStdoutGuard,
@@ -216,6 +217,15 @@ function streamingChild(stdout: PassThrough, stderr: PassThrough): ChildProcess 
 	return child;
 }
 
+function catalogForTarget(target: SshSessionTarget): RemoteHostCatalog {
+	return {
+		target(hostAlias: string, originCwd: string) {
+			if (hostAlias !== target.hostAlias || originCwd !== target.originCwd) return null;
+			return { ...target, host: { ...target.host }, cwd: originCwd };
+		},
+	} as unknown as RemoteHostCatalog;
+}
+
 function createStreamingRemoteSidecar(
 	stdout: PassThrough,
 	stderr: PassThrough,
@@ -247,6 +257,7 @@ function createStreamingRemoteSidecar(
 			cwd: REMOTE_TARGET.cwd,
 			target: REMOTE_TARGET,
 			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
 		}),
 		spawned: spawned.promise,
 	};
@@ -476,6 +487,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			fresh: true,
 			target: REMOTE_TARGET,
 			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
 		});
 		sidecar.on("status", event => statuses.push(event as StatusEvent));
 		try {
@@ -524,6 +536,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			target: REMOTE_TARGET,
 			resumeSessionId: "remote-session-7",
 			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
 		});
 		try {
 			const ready = waitForStatus(sidecar, "ready");
@@ -559,6 +572,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			fresh: true,
 			target: originalTarget,
 			remoteSsh,
+			remoteHostCatalog: catalogForTarget(originalTarget),
 		});
 		try {
 			const initialReady = waitForStatus(sidecar, "ready");
@@ -610,6 +624,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			fresh: true,
 			target: REMOTE_TARGET,
 			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
 		});
 		useComposerStore.getState().setDraft("unsent composer draft");
 		try {
@@ -662,6 +677,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			cwd: REMOTE_TARGET.cwd,
 			target: REMOTE_TARGET,
 			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
 		});
 		const statuses: StatusEvent[] = [];
 		sidecar.on("status", event => statuses.push(event as StatusEvent));
@@ -691,6 +707,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			cwd: REMOTE_TARGET.cwd,
 			target: REMOTE_TARGET,
 			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
 		});
 		try {
 			const errored = waitForStatus(sidecar, "error");
@@ -736,6 +753,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			cwd: REMOTE_TARGET.cwd,
 			target: REMOTE_TARGET,
 			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
 		});
 		let routed = false;
 		sidecar.on("frame", () => {
@@ -880,6 +898,52 @@ describe("SidecarManager remote SSH lifecycle", () => {
 		}
 	});
 
+	it("reauthorizes the exact SSH target after runtime discovery before spawning RPC", async () => {
+		const spawnRpc = vi.fn(() => ({
+			child: inMemoryChild(),
+			terminate: async () => {},
+		}));
+		const remoteSsh = {
+			async resolveRuntime(target: SshSessionTarget) {
+				return {
+					ok: true as const,
+					target,
+					runtime: {
+						home: "/home/danny",
+						platform: "linux" as const,
+						shell: "/bin/bash",
+						executable: "/remote/bin/omp",
+						runtimePath: ["/remote/bin", "/usr/bin"],
+					},
+				};
+			},
+			spawnRpc,
+		} as unknown as RemoteSshService;
+		const remoteHostCatalog = {
+			target: vi.fn(() => ({
+				...REMOTE_TARGET,
+				host: { ...REMOTE_TARGET.host, keyPath: "/keys/replaced" },
+			})),
+		};
+		const sidecar = new SidecarManager({
+			binaryPath: "",
+			cwd: REMOTE_TARGET.cwd,
+			target: REMOTE_TARGET,
+			remoteSsh,
+			remoteHostCatalog: remoteHostCatalog as unknown as RemoteHostCatalog,
+		});
+
+		try {
+			sidecar.start();
+			await vi.waitFor(() => expect(sidecar.status).toBe("error"));
+
+			expect(remoteHostCatalog.target).toHaveBeenCalledWith(REMOTE_TARGET.hostAlias, REMOTE_TARGET.originCwd);
+			expect(spawnRpc).not.toHaveBeenCalled();
+		} finally {
+			await sidecar.dispose();
+		}
+	});
+
 	it("coalesces concurrent remote restarts before spawning one replacement", async () => {
 		const firstTerminated = Promise.withResolvers<void>();
 		const firstSpawned = Promise.withResolvers<void>();
@@ -914,6 +978,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			cwd: REMOTE_TARGET.cwd,
 			target: REMOTE_TARGET,
 			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
 		});
 		try {
 			sidecar.start();

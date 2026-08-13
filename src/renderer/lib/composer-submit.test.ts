@@ -32,7 +32,7 @@ interface MockOmp {
 		omfg: Mock<(complaint: string) => Promise<RpcResponse>>;
 		collabStart: Mock<(relay?: string, view?: boolean) => Promise<RpcResponse>>;
 		getState: Mock<() => Promise<RpcResponse>>;
-		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getMessages: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	};
@@ -67,7 +67,7 @@ function installMockOmp(): MockOmp {
 					todoPhases: [],
 				}),
 			),
-			getTranscript: vi.fn(async () => success({ messages: [] })),
+			getMessages: vi.fn(async () => success({ messages: [] })),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
 			setSubagentSubscription: vi.fn(async () => success({})),
 		},
@@ -386,7 +386,7 @@ describe("settleComposerResponse", () => {
 		const omp = installMockOmp();
 		await settleComposerResponse(success({ agentInvoked: false }));
 		expect(omp.rpc.getState).toHaveBeenCalled();
-		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+		expect(omp.rpc.getMessages).toHaveBeenCalled();
 	});
 
 	it("rehydrates after dedicated compaction completes", async () => {

@@ -83,7 +83,7 @@ interface WorkspaceMockOmp {
 	rpc: {
 		moveSession: Mock<(path: string) => Promise<RpcResponse>>;
 		getState: Mock<() => Promise<RpcResponse>>;
-		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getMessages: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	};
@@ -155,7 +155,7 @@ function installOmp(): WorkspaceMockOmp {
 					agentsPaused: false,
 				}),
 			),
-			getTranscript: vi.fn(async () => success({ messages: [] })),
+			getMessages: vi.fn(async () => success({ messages: [] })),
 			setSubagentSubscription: vi.fn(async () => success({})),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
 		},
@@ -197,14 +197,18 @@ async function flush(): Promise<void> {
 	});
 }
 
-async function mount(onClose = vi.fn(), intent: "switch" | "new-session" = "new-session"): Promise<Mock<() => void>> {
+async function mount(
+	onClose = vi.fn(),
+	intent: "switch" | "new-session" = "new-session",
+	location: "all" | "local" | "remote" = "all",
+): Promise<Mock<() => void>> {
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
 		root?.render(
 			<I18nProvider>
-				<WorkspaceDialog intent={intent} onClose={onClose} open />
+				<WorkspaceDialog intent={intent} location={location} onClose={onClose} open />
 			</I18nProvider>,
 		);
 	});
@@ -246,18 +250,42 @@ afterEach(async () => {
 });
 
 describe("WorkspaceDialog New Session", () => {
-	it("keeps local workspaces first and preserves the local setProject flow", async () => {
+	it("opens an explicitly local session on a local target while an SSH tab is active", async () => {
 		const omp = installOmp();
-		useSessionStore.setState({ cwd: "/local/current" });
-		await mount();
+		useSessionStore.setState({ cwd: REMOTE_CWD });
+		useTabsStore.setState({
+			activeTabId: "remote-active",
+			tabs: [
+				{
+					id: "remote-active",
+					cwd: REMOTE_CWD,
+					target: {
+						type: "ssh",
+						hostAlias: "build",
+						host: { ...CATALOG.hosts[0].host },
+						originCwd: REMOTE_CWD,
+						cwd: REMOTE_CWD,
+					},
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
+			],
+		});
+		await mount(vi.fn(), "new-session", "local");
+		expect(document.body.textContent ?? "").not.toContain(REMOTE_CWD);
 
-		const text = document.body.textContent ?? "";
-		expect(text.indexOf(LOCAL_CWD)).toBeLessThan(text.indexOf("Remote hosts"));
 		await click(findButton(LOCAL_CWD));
 		await flush();
 
-		expect(omp.sidecar.setProject).toHaveBeenCalledWith(LOCAL_CWD);
-		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({
+			cwd: LOCAL_CWD,
+			sessionPath: undefined,
+			kind: "agent",
+			target: { type: "local" },
+		});
+		expect(omp.sidecar.setProject).not.toHaveBeenCalled();
+		expect(omp.sidecar.selectProject).not.toHaveBeenCalled();
 		expect(omp.remote.noteWorkspace).not.toHaveBeenCalled();
 	});
 

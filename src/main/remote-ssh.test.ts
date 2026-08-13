@@ -1,10 +1,11 @@
-import { type ChildProcess, type SpawnOptionsWithoutStdio, spawn } from "node:child_process";
+import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { PassThrough } from "node:stream";
+import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
 import type { SshSessionTarget } from "../shared/ipc-types";
 import { type RemoteProcessRunner, type RemoteRuntimeInfo, RemoteSshService } from "./remote-ssh";
@@ -12,7 +13,7 @@ import { type RemoteProcessRunner, type RemoteRuntimeInfo, RemoteSshService } fr
 interface SpawnCall {
 	command: string;
 	args: string[];
-	options: SpawnOptionsWithoutStdio;
+	options: SpawnOptions;
 	child: FakeChild;
 }
 
@@ -72,7 +73,7 @@ class FakeRunner implements RemoteProcessRunner {
 		this.queue(call => queueMicrotask(() => call.child.finish(stdout, stderr, code)));
 	}
 
-	spawn(command: string, args: string[], options: SpawnOptionsWithoutStdio): ChildProcess {
+	spawn(command: string, args: string[], options: SpawnOptions): ChildProcess {
 		const child = new FakeChild(this.#nextPid++);
 		const call = { command, args: [...args], options: { ...options }, child };
 		this.calls.push(call);
@@ -194,6 +195,55 @@ describe("RemoteSshService SSH process ownership", () => {
 			"--",
 			"danny@build.example",
 		]);
+	});
+
+	it("reuses one control socket for an exact SSH identity and isolates changed credentials", () => {
+		const ssh = service(new FakeRunner(), { controlPathRoot: "/tmp/omp-gui" } as ConstructorParameters<
+			typeof RemoteSshService
+		>[1]);
+		const option = (args: string[], prefix: string): string | undefined =>
+			args.find(value => value.startsWith(prefix));
+
+		const first = ssh.connectionArgs(sshTarget().host);
+		const repeated = ssh.connectionArgs({ ...sshTarget().host });
+		const changedKey = ssh.connectionArgs({ ...sshTarget().host, keyPath: "/Users/danny/.ssh/other" });
+
+		expect(option(first, "ControlMaster=")).toBe("ControlMaster=no");
+		expect(option(first, "ControlPersist=")).toBe("ControlPersist=no");
+		expect(option(first, "ControlPath=")).toBe(option(repeated, "ControlPath="));
+		expect(option(changedKey, "ControlPath=")).not.toBe(option(first, "ControlPath="));
+	});
+
+	it("owns one dedicated control master while repeated probes use client channels", async () => {
+		const runner = new FakeRunner();
+		const readiness = Promise.withResolvers<boolean>();
+		let readinessChecks = 0;
+		runner.queue(call => {
+			if (!call.args.includes("-N")) queueMicrotask(() => call.child.finish(probeOutput()));
+		});
+		runner.respond(probeOutput());
+		const ssh = service(runner, {
+			controlPathRoot: "/tmp/omp-gui",
+			controlPathReady: async () => (++readinessChecks === 1 ? false : readiness.promise),
+		});
+
+		const firstResolution = ssh.resolveRuntime(sshTarget());
+		await sleep(0);
+		expect(runner.calls.map(call => (call.args.includes("-N") ? "master" : "channel"))).toEqual(["master"]);
+		readiness.resolve(true);
+		expect(await firstResolution).toMatchObject({ ok: true });
+		runner.respond(probeOutput());
+		expect(await ssh.resolveRuntime(sshTarget())).toMatchObject({ ok: true });
+
+		const masters = runner.calls.filter(call => call.args.includes("-N"));
+		const channels = runner.calls.filter(call => !call.args.includes("-N"));
+		expect(masters).toHaveLength(1);
+		expect(masters[0]?.args).toContain("ControlMaster=yes");
+		expect(channels).toHaveLength(2);
+		expect(channels.every(call => call.args.includes("ControlPersist=no"))).toBe(true);
+		expect(masters[0]?.options.stdio).toEqual(["ignore", "ignore", "ignore"]);
+		await ssh.dispose();
+		expect(masters[0]?.child.killed).toBe(true);
 	});
 
 	it.each([
@@ -582,6 +632,36 @@ describe("RemoteSshService bounded helpers", () => {
 		const helper = runner.calls[1]?.args.at(-1) ?? "";
 		expect(helper).not.toContain("/work/repo");
 		expect(helper).toContain(b64("/work/repo"));
+	});
+
+	it("executes the POSIX directory helper and returns visible directories", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-directory-"));
+		await fs.mkdir(path.join(root, "visible"));
+		await fs.mkdir(path.join(root, ".hidden"));
+		const canonicalRoot = await fs.realpath(root);
+		const runner = new FakeRunner();
+		runner.respond(probeOutput());
+		runner.queue(executeRemoteCommandLocally);
+
+		try {
+			const result = await service(runner).listDirectories(sshTarget(), root, false, undefined, () => sshTarget());
+
+			expect(result).toEqual({
+				ok: true,
+				path: canonicalRoot,
+				parent: path.dirname(canonicalRoot),
+				entries: [
+					{
+						name: "visible",
+						path: path.join(canonicalRoot, "visible"),
+						kind: "directory",
+						hidden: false,
+					},
+				],
+			});
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
 	});
 
 	it("parses compact Windows JSON directory records", async () => {
@@ -1021,6 +1101,32 @@ describe("RemoteSshService bounded helpers", () => {
 		expect(await pending).toEqual({ ok: false, error: "Remote operation aborted" });
 		expect(signals).toEqual(["SIGTERM"]);
 		expect(launched[0]?.signalCode).toBe("SIGTERM");
+	});
+
+	it("cancels while establishing the shared connection without waiting for master readiness", async () => {
+		const runner = new FakeRunner();
+		const readiness = Promise.withResolvers<boolean>();
+		let readinessChecks = 0;
+		runner.queue(() => {});
+		runner.respond(probeOutput());
+		const controller = new AbortController();
+		const ssh = service(runner, {
+			controlPathRoot: "/tmp/omp-gui",
+			controlPathReady: async () => (++readinessChecks === 1 ? false : readiness.promise),
+		});
+
+		const pending = ssh.resolveRuntime(sshTarget(), controller.signal);
+		await sleep(0);
+		controller.abort();
+		try {
+			expect(await Promise.race([pending, sleep(20).then(() => null)])).toEqual({
+				ok: false,
+				error: "Remote operation aborted",
+			});
+		} finally {
+			readiness.resolve(true);
+			await ssh.dispose();
+		}
 	});
 
 	it("does not lose an abort fired synchronously while spawning", async () => {

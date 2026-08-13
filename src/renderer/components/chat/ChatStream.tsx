@@ -26,7 +26,6 @@ import { useMessagesStore } from "../../stores/messages";
 import { type QueueLane, useQueuedMessages, useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
-import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
@@ -53,6 +52,9 @@ import { ExecutionGroup } from "./ExecutionGroup";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
+
+// TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
+// User intent is enforced separately by switching away from end anchoring.
 
 // TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
 // User intent is enforced separately by switching away from end anchoring.
@@ -89,6 +91,9 @@ export function ChatStream() {
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const status = useSessionStore(s => s.status);
+	const activeTab = useTabsStore(state => state.tabs.find(tab => tab.id === state.activeTabId));
+	const remoteStartingTarget =
+		status === "starting" && activeTab?.target.type === "ssh" ? activeTab.target : undefined;
 	const sessionId = useSessionStore(s => s.sessionId);
 	// Shared agent compaction preference and GUI-local transcript detail.
 	const collapseCompacted = useSettingsStore(s => s.collapseCompacted);
@@ -377,44 +382,62 @@ export function ChatStream() {
 						<div className="omp-indeterminate-progress h-full bg-[var(--omp-accent)]" />
 					</div>
 				)}
-				{status === "starting" && rows.length === 0 && !switchPending && (
+				{status === "starting" && rows.length === 0 && !switchPending && !remoteStartingTarget && (
 					<div className="flex justify-center py-3">
 						<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
 					</div>
 				)}
 				{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && (
 					<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
-						<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)]">
-							<PiLogo size={22} />
-						</div>
-						<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
-							{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
-						</h1>
-						<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
-							{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
-						</p>
-						<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-							{starters.map(({ icon: Icon, title, prompt }) => (
-								<button
-									key={title}
-									type="button"
-									onClick={() =>
-										window.dispatchEvent(new CustomEvent("omp:fill-composer", { detail: { text: prompt } }))
-									}
-									className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
-								>
-									<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
-										<Icon size={17} />
-									</span>
-									<span>
-										<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">{title}</span>
-										<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
-											{prompt}
-										</span>
-									</span>
-								</button>
-							))}
-						</div>
+						{remoteStartingTarget ? (
+							<div aria-live="polite">
+								<Loader2 size={28} className="mb-5 animate-spin text-[var(--omp-accent)]" />
+								<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
+									{t("remote.connection.connecting", { host: remoteStartingTarget.hostAlias })}
+								</h1>
+								<p className="mt-2 max-w-2xl font-mono text-omp-lg leading-relaxed text-[var(--omp-muted)]">
+									{remoteStartingTarget.cwd}
+								</p>
+							</div>
+						) : (
+							<>
+								<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)]">
+									<PiLogo size={22} />
+								</div>
+								<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
+									{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
+								</h1>
+								<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
+									{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
+								</p>
+								<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+									{starters.map(({ icon: Icon, title, prompt }) => (
+										<button
+											key={title}
+											type="button"
+											onClick={() =>
+												window.dispatchEvent(
+													new CustomEvent("omp:fill-composer", { detail: { text: prompt } }),
+												)
+											}
+											className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
+										>
+											<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
+												<Icon size={17} />
+											</span>
+											<span>
+												<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">
+													{title}
+												</span>
+												<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
+													{prompt}
+												</span>
+											</span>
+										</button>
+									))}
+								</div>
+							</>
+						)}
 					</div>
 				)}
 				<div

@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import type { SshSessionTarget } from "../shared/ipc-types";
 import type { HostToolCallRequest, SidecarStatus } from "../shared/rpc-types";
+import type { RemoteHostCatalog } from "./remote-host-catalog";
 import type { RemoteSshService } from "./remote-ssh";
 import { SidecarManager } from "./sidecar";
 
@@ -103,6 +104,9 @@ async function createRemoteHarness(): Promise<RemoteHarness> {
 		cwd: REMOTE_TARGET.cwd,
 		target: REMOTE_TARGET,
 		remoteSsh,
+		remoteHostCatalog: {
+			target: () => ({ ...REMOTE_TARGET, host: { ...REMOTE_TARGET.host } }),
+		} as unknown as RemoteHostCatalog,
 	});
 	sidecar.start();
 	await spawned.promise;

@@ -258,6 +258,7 @@ export type MenuAction =
 	| "new-session"
 	| "new-tab"
 	| "new-chat-tab"
+	| "close-tab"
 	| "open-project"
 	| "toggle-sidebar"
 	| "toggle-panel"
@@ -1053,7 +1054,6 @@ export interface OmpApi {
 		getSessionTree(): Promise<RpcResponse>;
 		getThemes(): Promise<RpcResponse>;
 		getThemeColors(name: string): Promise<RpcResponse>;
-		getTranscript(): Promise<RpcResponse>;
 		planApproval(
 			approved: boolean,
 			option?: "execute" | "compact" | "keep_context",

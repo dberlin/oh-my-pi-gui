@@ -87,7 +87,7 @@ interface MockOmp {
 	};
 	rpc: {
 		getState: Mock<() => Promise<RpcResponse>>;
-		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getMessages: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		getGoal: Mock<() => Promise<RpcResponse>>;
 		getLoopMode: Mock<() => Promise<RpcResponse>>;
@@ -126,7 +126,7 @@ function installMockOmp(): MockOmp {
 					todoPhases: [],
 				}),
 			),
-			getTranscript: vi.fn(async () => ok({ messages: [] })),
+			getMessages: vi.fn(async () => ok({ messages: [] })),
 			getSubagents: vi.fn(async () => ok({ subagents: [] })),
 			getGoal: vi.fn(async () => ok({ enabled: false })),
 			getLoopMode: vi.fn(async () => ok({ enabled: false, state: "off" })),

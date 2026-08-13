@@ -394,6 +394,11 @@ export function App() {
 				case "tab.newChat":
 					void useTabsStore.getState().openTab({ kind: "chat" });
 					return;
+				case "tab.close": {
+					const tabs = useTabsStore.getState();
+					if (tabs.activeTabId) void tabs.closeTab(tabs.activeTabId);
+					return;
+				}
 				case "tab.newWorktree":
 					// ⌥T — new worktree tab (create dialog, plan/20).
 					useUiStore.getState().openWorktreeDialog();
@@ -519,6 +524,11 @@ export function App() {
 			// streaming busy-guard below (unlike new-session/open-project).
 			if (action === "new-tab") {
 				void useTabsStore.getState().openTab();
+				return;
+			}
+			if (action === "close-tab") {
+				const tabs = useTabsStore.getState();
+				if (tabs.activeTabId) void tabs.closeTab(tabs.activeTabId);
 				return;
 			}
 			if (action === "new-chat-tab") {

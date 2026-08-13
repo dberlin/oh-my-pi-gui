@@ -9,6 +9,7 @@ type MainTextKey =
 	| "menu.documentation"
 	| "menu.edit"
 	| "menu.exportHtml"
+	| "menu.closeTab"
 	| "menu.file"
 	| "menu.handoff"
 	| "menu.help"
@@ -34,6 +35,7 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"menu.about": { en: "About omp", zh: "关于 omp" },
 	"menu.documentation": { en: "Documentation", zh: "文档" },
 	"menu.edit": { en: "Edit", zh: "编辑" },
+	"menu.closeTab": { en: "Close Tab", zh: "关闭标签页" },
 	"menu.exportHtml": { en: "Export HTML", zh: "导出 HTML" },
 	"menu.file": { en: "File", zh: "文件" },
 	"menu.handoff": { en: "Handoff", zh: "交接（Handoff）" },

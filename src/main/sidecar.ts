@@ -35,6 +35,13 @@ import type { SessionTarget, SshSessionTarget } from "../shared/ipc-types";
 import type { RemoteHostCatalog } from "./remote-host-catalog";
 import type { RemoteChildHandle, RemoteSshService } from "./remote-ssh";
 
+import { sameSessionTarget } from "../shared/session-target";
+import { attachNdjsonParser, RPC_MAX_FRAME_BYTES, supportsRpcProtocolV2 } from "./rpc-bridge";
+
+/**
+ * routes frames to RpcClient and EventBatcher.
+ */
+
 /**
  * routes frames to RpcClient and EventBatcher.
  */
@@ -386,8 +393,9 @@ export class SidecarManager extends EventEmitter {
 
 	async #startRemote(target: SshSessionTarget): Promise<void> {
 		const remoteSsh = this.#options.remoteSsh;
-		if (!remoteSsh) {
-			this.#setStatus("error", this.#remoteError("SSH service is unavailable"));
+		const remoteHostCatalog = this.#options.remoteHostCatalog;
+		if (!remoteSsh || !remoteHostCatalog) {
+			this.#setStatus("error", this.#remoteError("SSH services are unavailable"));
 			return;
 		}
 		const controller = new AbortController();
@@ -402,6 +410,14 @@ export class SidecarManager extends EventEmitter {
 			if (!resolution.ok) {
 				this.#remoteAbortController = null;
 				this.#attemptRestart(this.#remoteError(resolution.error));
+				return;
+			}
+
+			const canonicalOrigin = remoteHostCatalog.target(resolution.target.hostAlias, resolution.target.originCwd);
+			const canonicalTarget = canonicalOrigin ? { ...canonicalOrigin, cwd: resolution.target.cwd } : null;
+			if (!canonicalTarget || !sameSessionTarget(resolution.target, canonicalTarget)) {
+				this.#remoteAbortController = null;
+				this.#setStatus("error", this.#remoteError("Stale or altered SSH target"));
 				return;
 			}
 

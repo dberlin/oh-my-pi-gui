@@ -308,7 +308,7 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 	// transcript RPC is in flight must survive the merge below.
 	const beforeMessages = useMessagesStore.getState().messages;
 
-	const coreResult = Promise.allSettled([window.omp.rpc.getState(), window.omp.rpc.getTranscript()]);
+	const coreResult = Promise.allSettled([window.omp.rpc.getState(), window.omp.rpc.getMessages()]);
 	const subagentsResult = Promise.allSettled([window.omp.rpc.getSubagents()]);
 	const secondaryResult = Promise.allSettled([
 		// Goal state isn't on the get_state wire — fetch alongside so the

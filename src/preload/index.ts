@@ -100,7 +100,6 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	plan_approval: 660_000,
 	switch_leaf: 660_000,
 	login: 660_000,
-	get_transcript: 30_000,
 	get_messages: 30_000,
 	get_messages_page: 30_000,
 };
@@ -311,7 +310,6 @@ const api: OmpApi = {
 		getSessionTree: () => rpcCommand({ type: "get_session_tree" }),
 		getThemes: () => rpcCommand({ type: "get_themes" }),
 		getThemeColors: (name: string) => rpcCommand({ type: "get_theme_colors", name }),
-		getTranscript: () => rpcCommand({ type: "get_transcript" }),
 		planApproval: (approved: boolean, option?: "execute" | "compact" | "keep_context", feedback?: string) =>
 			rpcCommand({ type: "plan_approval", approved, option, feedback }),
 		getVibeMode: () => rpcCommand({ type: "get_vibe_mode" }),

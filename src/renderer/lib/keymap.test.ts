@@ -106,6 +106,9 @@ describe("compileKeymap", () => {
 		expect(map.get("⌥↑")).toBe("dequeue");
 		expect(map.get("⌘K")).toBe("palette");
 		expect(map.get("⌃K")).toBe("palette");
+		expect(map.get("⌥W")).toBe("tab.close");
+		expect(map.get("⌘W")).toBe("tab.close");
+		expect(map.get("⌃W")).toBe("tab.close");
 	});
 
 	it("replaces an action's defaults with its override — never a union", () => {
