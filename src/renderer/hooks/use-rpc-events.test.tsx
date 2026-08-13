@@ -76,7 +76,7 @@ interface MockOmp {
 	};
 	rpc: {
 		getState: Mock<() => Promise<RpcResponse>>;
-		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getMessages: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		getGoal: Mock<() => Promise<RpcResponse>>;
 		getLoopMode: Mock<() => Promise<RpcResponse>>;
@@ -139,7 +139,7 @@ function installMockOmp(): {
 					todoPhases: [],
 				}),
 			),
-			getTranscript: vi.fn(async () => success({ messages: [] })),
+			getMessages: vi.fn(async () => success({ messages: [] })),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
 			getGoal: vi.fn(async () => success({ enabled: false })),
 			getLoopMode: vi.fn(async () => success({ enabled: false, state: "off" })),
@@ -854,7 +854,7 @@ describe("useRpcEvents non-transcript frames", () => {
 		const { omp, emitPromptResult } = installMockOmp();
 		await mount(<RpcEventsProbe />);
 		const stateCallsBefore = omp.rpc.getState.mock.calls.length;
-		const transcriptCallsBefore = omp.rpc.getTranscript.mock.calls.length;
+		const transcriptCallsBefore = omp.rpc.getMessages.mock.calls.length;
 
 		await act(async () => {
 			emitPromptResult({ type: "prompt_result", id: "extension-command", agentInvoked: false });
@@ -863,7 +863,7 @@ describe("useRpcEvents non-transcript frames", () => {
 		await flush();
 
 		expect(omp.rpc.getState.mock.calls.length).toBeGreaterThan(stateCallsBefore);
-		expect(omp.rpc.getTranscript.mock.calls.length).toBeGreaterThan(transcriptCallsBefore);
+		expect(omp.rpc.getMessages.mock.calls.length).toBeGreaterThan(transcriptCallsBefore);
 	});
 
 	it("applies a model catalog completion frame without reopening the picker", async () => {
@@ -1161,7 +1161,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 				todoPhases: [],
 			}),
 		);
-		omp.rpc.getTranscript
+		omp.rpc.getMessages
 			.mockReturnValueOnce(oldTranscript.promise)
 			.mockResolvedValue(success({ messages: [newMessage] }));
 		omp.rpc.getGoal.mockReturnValueOnce(oldGoal.promise).mockResolvedValue(success({ enabled: false }));
@@ -1201,7 +1201,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 			content: [{ type: "text", text: "new session transcript" }],
 			timestamp: 2,
 		};
-		omp.rpc.getTranscript.mockResolvedValue(success({ messages: [hydrated] }));
+		omp.rpc.getMessages.mockResolvedValue(success({ messages: [hydrated] }));
 		omp.rpc.getSubagents.mockReturnValue(subagents.promise);
 		omp.rpc.getGoal.mockReturnValue(goal.promise);
 		const transcriptPainted = Promise.withResolvers<void>();
@@ -1272,7 +1272,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 			streamingText: "partial reply",
 			streamingThinking: "partial thinking",
 		});
-		omp.rpc.getTranscript.mockResolvedValue(success({ messages: [finalized] }));
+		omp.rpc.getMessages.mockResolvedValue(success({ messages: [finalized] }));
 
 		await hydrateSession();
 

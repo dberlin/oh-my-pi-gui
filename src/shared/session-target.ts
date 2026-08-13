@@ -1,4 +1,49 @@
-import type { SessionTarget, SshSessionTarget } from "./ipc-types";
+import type { SessionTarget, SshConnectionSnapshot, SshSessionTarget } from "./ipc-types";
+
+const HOST_KEYS = [
+	"host",
+	"username",
+	"port",
+	"keyPath",
+	"compat",
+	"os",
+	"shell",
+	"transferShell",
+	"sourceId",
+	"sourceLevel",
+] as const;
+const TARGET_KEYS = ["type", "hostAlias", "host", "originCwd", "cwd", "executableOverride"] as const;
+
+function sameRecordKeys(value: object, keys: readonly string[]): boolean {
+	const actual = Object.keys(value).sort();
+	const expected = keys.filter(key => Object.hasOwn(value, key)).sort();
+	return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function sameSshConnection(left: SshConnectionSnapshot, right: SshConnectionSnapshot): boolean {
+	if (!sameRecordKeys(left, HOST_KEYS) || !sameRecordKeys(right, HOST_KEYS)) return false;
+	return HOST_KEYS.every(key => left[key] === right[key]);
+}
+
+export function sameSessionTarget(left: SessionTarget, right: SessionTarget): boolean {
+	if (left.type !== right.type) return false;
+	if (left.type === "local" || right.type === "local") {
+		return (
+			left.type === "local" &&
+			right.type === "local" &&
+			Object.keys(left).length === 1 &&
+			Object.keys(right).length === 1
+		);
+	}
+	if (!sameRecordKeys(left, TARGET_KEYS) || !sameRecordKeys(right, TARGET_KEYS)) return false;
+	return (
+		left.hostAlias === right.hostAlias &&
+		left.originCwd === right.originCwd &&
+		left.cwd === right.cwd &&
+		left.executableOverride === right.executableOverride &&
+		sameSshConnection(left.host, right.host)
+	);
+}
 
 function isOptionalString(value: unknown): boolean {
 	return value === undefined || typeof value === "string";

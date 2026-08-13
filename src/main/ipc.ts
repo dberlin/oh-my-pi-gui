@@ -59,6 +59,7 @@ import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProv
 import type { RemoteAcpClient } from "./remote-acp";
 import type { RemoteHostCatalog } from "./remote-host-catalog";
 import {
+	authorizeRemoteSpawnTargetAtSink,
 	authorizeRemoteTargetAtSink,
 	dispatchRemoteCatalog,
 	dispatchRemoteHistory,
@@ -1070,12 +1071,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				sessionIndex,
 				fallbackCwd: () => cwdFor(deps, event) ?? deps.initialCwd(),
 				defaultWorkspace: ensureDefaultWorkspace,
-				authorizeRemoteTarget: async (
+				authorizeRemoteTarget: (
 					target: SshSessionTarget,
 					cwd: unknown,
 					sink: (target: SshSessionTarget) => IpcSpawnTabResult | null,
 				) => {
-					const result = await authorizeRemoteTargetAtSink(remoteDispatchDeps, { target, cwd }, sink);
+					const result = authorizeRemoteSpawnTargetAtSink(remoteDispatchDeps, { target, cwd }, sink);
 					return result.ok ? result.value : null;
 				},
 				authorizeRemoteResume: (target, cwd, sessionId) =>

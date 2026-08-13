@@ -357,7 +357,7 @@ export const KEYMAP_ACTIONS = [
 		// ⌘W closes the active TAB (⇧⌘W closes the window — shared/hotkeys.ts).
 		id: "tab.close",
 		labelKey: "hotkeys.row.tabClose",
-		defaults: ["⌘W"],
+		defaults: ["⌥W", "⌘W", "⌃W"],
 		overlaySafe: false,
 		hotkeyGroup: "session",
 	},

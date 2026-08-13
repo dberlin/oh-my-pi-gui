@@ -1,5 +1,8 @@
-import { type ChildProcess, type SpawnOptionsWithoutStdio, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import type {
 	FsTreeEntry,
 	RemoteDirectoryEntry,
@@ -12,7 +15,7 @@ import type {
 import { isSshSessionTarget } from "../shared/session-target";
 
 export interface RemoteProcessRunner {
-	spawn(command: string, args: string[], options: SpawnOptionsWithoutStdio): ChildProcess;
+	spawn(command: string, args: string[], options: SpawnOptions): ChildProcess;
 }
 
 export const nodeRemoteProcessRunner: RemoteProcessRunner = {
@@ -49,6 +52,8 @@ export type RemoteWorkspaceListResult =
 
 export interface RemoteSshServiceOptions {
 	connectTimeoutSeconds?: number;
+	controlPathRoot?: string;
+	controlPathReady?: (controlPath: string) => Promise<boolean>;
 	operationTimeoutMs?: number;
 	stdoutCapBytes?: number;
 	stderrCapBytes?: number;
@@ -274,6 +279,8 @@ export class RemoteSshService {
 	readonly #runner: RemoteProcessRunner;
 	readonly #connectTimeoutSeconds: number;
 	readonly #operationTimeoutMs: number;
+	readonly #controlPathRoot: string | undefined;
+	readonly #controlPathReady: (controlPath: string) => Promise<boolean>;
 	readonly #stdoutCapBytes: number;
 	readonly #stderrCapBytes: number;
 	readonly #maxDirectoryEntries: number;
@@ -284,6 +291,8 @@ export class RemoteSshService {
 	readonly #activeHandles = new Set<RemoteChildHandle>();
 	readonly #closedChildren = new WeakSet<ChildProcess>();
 	readonly #fileHelpers = new WeakMap<RemoteRuntimeInfo, RemoteFileHelper>();
+	readonly #controlMasters = new Map<string, RemoteChildHandle>();
+	readonly #controlMasterStarts = new Map<string, Promise<boolean>>();
 	#disposePromise: Promise<void> | null = null;
 
 	constructor(runner: RemoteProcessRunner, options: RemoteSshServiceOptions = {}) {
@@ -292,6 +301,16 @@ export class RemoteSshService {
 			1,
 			Math.floor(options.connectTimeoutSeconds ?? DEFAULT_CONNECT_TIMEOUT_SECONDS),
 		);
+		this.#controlPathRoot = options.controlPathRoot;
+		this.#controlPathReady =
+			options.controlPathReady ??
+			(async controlPath => {
+				try {
+					return (await fs.stat(controlPath)).isSocket();
+				} catch {
+					return false;
+				}
+			});
 		this.#operationTimeoutMs = Math.max(1, Math.floor(options.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS));
 		this.#stdoutCapBytes = Math.max(1, Math.floor(options.stdoutCapBytes ?? DEFAULT_STDOUT_CAP_BYTES));
 		this.#stderrCapBytes = Math.max(1, Math.floor(options.stderrCapBytes ?? DEFAULT_STDERR_CAP_BYTES));
@@ -303,6 +322,42 @@ export class RemoteSshService {
 	}
 
 	connectionArgs(host: SshConnectionSnapshot): string[] {
+		return this.#connectionArgs(host, false);
+	}
+
+	#connectionArgs(host: SshConnectionSnapshot, controlMaster: boolean): string[] {
+		const controlPath = this.#controlPath(host);
+		const args = [
+			"-o",
+			"BatchMode=yes",
+			"-o",
+			"StrictHostKeyChecking=accept-new",
+			"-o",
+			`ConnectTimeout=${this.#connectTimeoutSeconds}`,
+			"-o",
+			"ServerAliveInterval=15",
+			"-o",
+			"ServerAliveCountMax=2",
+		];
+		if (controlPath) {
+			args.push(
+				"-o",
+				`ControlMaster=${controlMaster ? "yes" : "no"}`,
+				"-o",
+				"ControlPersist=no",
+				"-o",
+				`ControlPath=${controlPath}`,
+			);
+		}
+		args.push("-T");
+		if (controlMaster) args.push("-N");
+		if (host.port !== undefined) args.push("-p", String(host.port));
+		if (host.keyPath) args.push("-i", host.keyPath);
+		args.push("--", host.username ? `${host.username}@${host.host}` : host.host);
+		return args;
+	}
+
+	#controlPath(host: SshConnectionSnapshot): string | undefined {
 		if (
 			typeof host.host !== "string" ||
 			host.host.length === 0 ||
@@ -316,23 +371,27 @@ export class RemoteSshService {
 		) {
 			throw new TypeError("Invalid SSH connection destination");
 		}
-		const args = [
-			"-o",
-			"BatchMode=yes",
-			"-o",
-			"StrictHostKeyChecking=accept-new",
-			"-o",
-			`ConnectTimeout=${this.#connectTimeoutSeconds}`,
-			"-o",
-			"ServerAliveInterval=15",
-			"-o",
-			"ServerAliveCountMax=2",
-			"-T",
-		];
-		if (host.port !== undefined) args.push("-p", String(host.port));
-		if (host.keyPath) args.push("-i", host.keyPath);
-		args.push("--", host.username ? `${host.username}@${host.host}` : host.host);
-		return args;
+		if (this.#platform === "win32" || this.#controlPathRoot === undefined) return undefined;
+		return path.join(
+			this.#controlPathRoot,
+			`omp-gui-ssh-${createHash("sha256")
+				.update(
+					JSON.stringify([
+						host.host,
+						host.username ?? null,
+						host.port ?? null,
+						host.keyPath ?? null,
+						host.compat ?? null,
+						host.os ?? null,
+						host.shell ?? null,
+						host.transferShell ?? null,
+						host.sourceId,
+						host.sourceLevel,
+					]),
+				)
+				.digest("hex")
+				.slice(0, 24)}`,
+		);
 	}
 
 	async resolveRuntime(target: SshSessionTarget, signal?: AbortSignal): Promise<RemoteRuntimeResolution> {
@@ -591,6 +650,52 @@ export class RemoteSshService {
 		});
 	}
 
+	async #ensureControlMaster(host: SshConnectionSnapshot, signal?: AbortSignal): Promise<boolean> {
+		const controlPath = this.#controlPath(host);
+		if (!controlPath || (await this.#controlPathReady(controlPath))) return true;
+		let pending = this.#controlMasterStarts.get(controlPath);
+		if (!pending) {
+			pending = this.#startControlMaster(host, controlPath).catch(() => false);
+			this.#controlMasterStarts.set(controlPath, pending);
+			void pending.then(() => {
+				if (this.#controlMasterStarts.get(controlPath) === pending) this.#controlMasterStarts.delete(controlPath);
+			});
+		}
+		if (!signal) return pending;
+		if (signal.aborted) return false;
+		const aborted = Promise.withResolvers<boolean>();
+		const onAbort = (): void => aborted.resolve(false);
+		signal.addEventListener("abort", onAbort, { once: true });
+		try {
+			return await Promise.race([pending, aborted.promise]);
+		} finally {
+			signal.removeEventListener("abort", onAbort);
+		}
+	}
+
+	async #startControlMaster(host: SshConnectionSnapshot, controlPath: string): Promise<boolean> {
+		const child = this.#runner.spawn("ssh", this.#connectionArgs(host, true), {
+			stdio: ["ignore", "ignore", "ignore"],
+			windowsHide: true,
+			detached: true,
+		});
+		child.once("error", () => {});
+		const handle = this.#ownChild(child);
+		this.#controlMasters.set(controlPath, handle);
+		child.once("close", () => {
+			if (this.#controlMasters.get(controlPath) === handle) this.#controlMasters.delete(controlPath);
+		});
+		const deadline = Date.now() + this.#operationTimeoutMs;
+		while (!this.#closedChildren.has(child) && Date.now() < deadline) {
+			if (await this.#controlPathReady(controlPath)) return true;
+			await sleep(25);
+		}
+		try {
+			await handle.terminate();
+		} catch {}
+		return false;
+	}
+
 	#ownChild(child: ChildProcess): RemoteChildHandle {
 		let handle: RemoteChildHandle;
 		handle = new ServiceChildHandle(child, () => this.#terminateChild(child));
@@ -680,6 +785,25 @@ export class RemoteSshService {
 		stdoutCapBytes = this.#stdoutCapBytes,
 	): Promise<BoundedResult> {
 		if (signal?.aborted) return { ok: false, stdout: new Uint8Array(), error: "Remote operation aborted" };
+		if (this.#platform !== "win32" && this.#controlPathRoot !== undefined) {
+			try {
+				const ready = await this.#ensureControlMaster(target.host, signal);
+				if (!ready) {
+					return {
+						ok: false,
+						stdout: new Uint8Array(),
+						error: signal?.aborted ? "Remote operation aborted" : "Unable to establish shared SSH connection",
+					};
+				}
+			} catch (error) {
+				return {
+					ok: false,
+					stdout: new Uint8Array(),
+					error: error instanceof Error ? error.message : String(error),
+				};
+			}
+			if (signal?.aborted) return { ok: false, stdout: new Uint8Array(), error: "Remote operation aborted" };
+		}
 		let child: ChildProcess;
 		try {
 			child = this.#spawnSsh(target, remoteCommand);
@@ -905,7 +1029,7 @@ export class RemoteSshService {
 			'  kind=directory; [ -L "$entry" ] && kind=symlink-directory',
 			'  printf "E\\t%s\\t%s\\t%s\\t%s\\0" "$kind" "$hidden" "$(encode_b64 "$name")" "$(encode_b64 "$entry")"',
 			"done",
-		].join("; ");
+		].join("\n");
 		return `sh -c ${shellQuote(script)}`;
 	}
 

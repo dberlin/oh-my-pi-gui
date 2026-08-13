@@ -124,6 +124,7 @@ function harness(
 	options: {
 		timeoutMs?: number;
 		resolveRuntime?: ResolveRuntime;
+		useDefaultTimeout?: boolean;
 	} = {},
 ): TestHarness {
 	const child = new FakeAcpChild(handler);
@@ -140,7 +141,7 @@ function harness(
 	const spawnAcp = vi.fn(() => handle);
 	const ssh = { resolveRuntime, spawnAcp } as unknown as Pick<RemoteSshService, "resolveRuntime" | "spawnAcp">;
 	return {
-		client: new RemoteAcpClient(ssh, { timeoutMs: options.timeoutMs ?? 1_000 }),
+		client: new RemoteAcpClient(ssh, options.useDefaultTimeout ? {} : { timeoutMs: options.timeoutMs ?? 1_000 }),
 		child,
 		spawnAcp,
 		terminate,
@@ -471,6 +472,34 @@ describe("RemoteAcpClient", () => {
 
 		expect(result).toEqual({ ok: false, error: "ACP process disconnected" });
 		expect(test.terminate).toHaveBeenCalledOnce();
+	});
+
+	it("allows two SSH connection phases to each approach the connection timeout", async () => {
+		vi.useFakeTimers();
+		const test = harness(
+			(request, child) => {
+				setTimeout(() => {
+					child.respond(request.method === "initialize" ? initializeResult(request) : pageResult(request, []));
+				}, 6_000);
+			},
+			{
+				useDefaultTimeout: true,
+				resolveRuntime: () => {
+					const pending = Promise.withResolvers<{
+						ok: true;
+						target: SshSessionTarget;
+						runtime: RemoteRuntimeInfo;
+					}>();
+					setTimeout(() => pending.resolve({ ok: true, target, runtime }), 6_000);
+					return pending.promise;
+				},
+			},
+		);
+
+		const pending = test.client.listSessions(target, finalAuthorization);
+		await vi.advanceTimersByTimeAsync(18_001);
+
+		expect(await pending).toEqual({ ok: true, sessions: [] });
 	});
 
 	it("uses one timeout across runtime resolution and every ACP page", async () => {

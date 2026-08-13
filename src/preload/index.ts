@@ -82,6 +82,30 @@ function rpcCommand(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
 	});
 }
 
+/**
+ * Commands below resolve only after long-running model, OAuth, transcript, or
+ * human-interaction work finishes. The 8s default would report a false
+ * timeout while the sidecar keeps mutating state, so these get windows at
+ * least as large as their server-side budgets. Fast commands keep the default.
+ */
+const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
+	bash: 660_000,
+	eval: 660_000,
+	compact: 660_000,
+	export_html: 120_000,
+	handoff: 660_000,
+	reload_plugins: 120_000,
+	plan_approval: 660_000,
+	switch_leaf: 660_000,
+	login: 660_000,
+	get_messages: 30_000,
+	get_messages_page: 30_000,
+};
+
+function timeoutForCommand(cmd: RpcCommand): number | undefined {
+	return RPC_COMMAND_TIMEOUTS[cmd.type];
+}
+
 function subscribe<T>(channel: string, callback: (data: T) => void): () => void {
 	const listener = (_event: Electron.IpcRendererEvent, data: T) => {
 		// Node aborts the remaining listeners of an emit once one throws, so a

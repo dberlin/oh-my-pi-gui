@@ -21,7 +21,7 @@ type RemoteSpawnAuthorizer = (
 	target: SshSessionTarget,
 	cwd: unknown,
 	sink: RemoteSpawnSink,
-) => Promise<IpcSpawnTabResult | null>;
+) => IpcSpawnTabResult | null;
 type RemoteResumeAuthorizer = (target: SshSessionTarget, cwd: string, sessionId: string) => boolean;
 
 interface Harness {
@@ -38,7 +38,7 @@ function harness(options: { atCap?: boolean } = {}): Harness {
 	const kindFor = vi.fn(async (_path: string): Promise<SessionKind> => "agent");
 	const sessionOwner = vi.fn(() => null);
 	const authorizeRemoteTarget = vi.fn(
-		async (target: SshSessionTarget, _cwd: unknown, sink: RemoteSpawnSink): Promise<IpcSpawnTabResult | null> =>
+		(target: SshSessionTarget, _cwd: unknown, sink: RemoteSpawnSink): IpcSpawnTabResult | null =>
 			sink({ ...target, host: { ...target.host } }),
 	);
 	const authorizeRemoteResume = vi.fn((_target: SshSessionTarget, _cwd: string, _sessionId: string) => true);
@@ -212,7 +212,7 @@ describe("spawnTabForWindow remote targets", () => {
 			originCwd: "/srv/project",
 			cwd: "/srv/project",
 		};
-		authorizeRemoteTarget.mockResolvedValue(null);
+		authorizeRemoteTarget.mockReturnValue(null);
 
 		expect(
 			await spawnTabForWindow(deps, fakeWindow(), {
@@ -350,11 +350,7 @@ describe("spawnTabForWindow remote targets", () => {
 		};
 		let catalogReplaced = false;
 		authorizeRemoteTarget.mockImplementation(
-			async (
-				canonical: SshSessionTarget,
-				_cwd: unknown,
-				sink: RemoteSpawnSink,
-			): Promise<IpcSpawnTabResult | null> => {
+			(canonical: SshSessionTarget, _cwd: unknown, sink: RemoteSpawnSink): IpcSpawnTabResult | null => {
 				queueMicrotask(() => {
 					catalogReplaced = true;
 				});
