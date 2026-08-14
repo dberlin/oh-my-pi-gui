@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
+import type { AgentMessage, AgentSessionEvent, ToolCallContent } from "../../shared/rpc-types";
 
 export interface ToolEntry {
 	toolName: string;
@@ -57,10 +57,14 @@ function resetEntryKeyTracking(): void {
 	runningEntryKeyByCallId = new Map();
 }
 
+function allocateProjectionEntryKey(callId: string, occurrences: Map<string, number>): string {
+	const occurrence = occurrences.get(callId) ?? 0;
+	occurrences.set(callId, occurrence + 1);
+	return occurrence === 0 ? callId : `\u0000omp-tool:${JSON.stringify([callId, occurrence])}`;
+}
+
 function allocateEntryKey(callId: string): string {
-	const occurrence = nextOccurrenceByCallId.get(callId) ?? 0;
-	nextOccurrenceByCallId.set(callId, occurrence + 1);
-	const key = occurrence === 0 ? callId : `\u0000omp-tool:${JSON.stringify([callId, occurrence])}`;
+	const key = allocateProjectionEntryKey(callId, nextOccurrenceByCallId);
 	latestEntryKeyByCallId.set(callId, key);
 	return key;
 }
@@ -93,50 +97,64 @@ function takeExecutionKey(callId: string, tools: Map<string, ToolEntry>): string
 	return allocateEntryKey(callId);
 }
 
+interface TranscriptToolProjection {
+	tools: Map<string, ToolEntry>;
+	entriesByCall: WeakMap<ToolCallContent, ToolEntry>;
+}
+
+function projectTranscriptTools(messages: AgentMessage[], bindGlobalKeys: boolean): TranscriptToolProjection {
+	const now = Date.now();
+	const localOccurrences = new Map<string, number>();
+	const results = new Map<string, AgentMessage[]>();
+	for (const message of messages) {
+		if (message.role !== "toolResult" || !message.toolCallId) continue;
+		const list = results.get(message.toolCallId);
+		if (list) list.push(message);
+		else results.set(message.toolCallId, [message]);
+	}
+	const resultIndexes = new Map<string, number>();
+
+	const tools = new Map<string, ToolEntry>();
+	const entriesByCall = new WeakMap<ToolCallContent, ToolEntry>();
+	for (const message of messages) {
+		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (block.type !== "toolCall") continue;
+			const key = bindGlobalKeys
+				? allocateEntryKey(block.id)
+				: allocateProjectionEntryKey(block.id, localOccurrences);
+			if (bindGlobalKeys) bindCallEntryKey(block, block.id, key);
+			const resultIndex = resultIndexes.get(block.id) ?? 0;
+			const result = results.get(block.id)?.[resultIndex];
+			resultIndexes.set(block.id, resultIndex + 1);
+			const startTime = timestampMs(message.timestamp, now);
+			const entry: ToolEntry = {
+				toolName: block.name,
+				args: block.arguments,
+				status: result ? (result.isError ? "error" : "done") : "running",
+				partialResult: null,
+				streamingArgs: "",
+				result: result ? { content: result.content ?? null, details: result.details ?? null } : null,
+				isError: result?.isError ?? false,
+				startTime,
+				endTime: result ? timestampMs(result.timestamp, startTime) : null,
+			};
+			tools.set(key, entry);
+			entriesByCall.set(block, entry);
+		}
+	}
+	return { tools, entriesByCall };
+}
+
+/** Build read-only tool results for a secondary transcript without mutating the active session store. */
+export function buildTranscriptToolEntries(messages: AgentMessage[]): WeakMap<ToolCallContent, ToolEntry> {
+	return projectTranscriptTools(messages, false).entriesByCall;
+}
 export const useToolsStore = create<ToolsStore>()((set, get) => ({
 	activeTools: new Map(),
 	hydrateMessages: messages => {
-		const now = Date.now();
 		resetEntryKeyTracking();
-
-		// Pair repeated raw ids by occurrence, not with a last-write-wins map.
-		const results = new Map<string, AgentMessage[]>();
-		for (const message of messages) {
-			if (message.role !== "toolResult" || !message.toolCallId) continue;
-			const list = results.get(message.toolCallId);
-			if (list) list.push(message);
-			else results.set(message.toolCallId, [message]);
-		}
-		const resultIndexes = new Map<string, number>();
-
-		const tools = new Map<string, ToolEntry>();
-		for (const message of messages) {
-			if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
-			for (const block of message.content) {
-				if (block.type !== "toolCall") continue;
-				const key = allocateEntryKey(block.id);
-				bindCallEntryKey(block, block.id, key);
-				const resultIndex = resultIndexes.get(block.id) ?? 0;
-				const result = results.get(block.id)?.[resultIndex];
-				resultIndexes.set(block.id, resultIndex + 1);
-				const startTime = timestampMs(message.timestamp, now);
-				tools.set(key, {
-					toolName: block.name,
-					args: block.arguments,
-					status: result ? (result.isError ? "error" : "done") : "running",
-					partialResult: null,
-					streamingArgs: "",
-					// Keep the same `{content, details}` envelope as the live path so
-					// renderers read history identically (details: diffs, exit codes,
-					// todo phases, counts — previously dropped here).
-					result: result ? { content: result.content ?? null, details: result.details ?? null } : null,
-					isError: result?.isError ?? false,
-					startTime,
-					endTime: result ? timestampMs(result.timestamp, startTime) : null,
-				});
-			}
-		}
-		set({ activeTools: tools });
+		set({ activeTools: projectTranscriptTools(messages, true).tools });
 	},
 	applyEvents: events => {
 		// Copy-on-first-write: batches without tool events (the common case —

@@ -5,22 +5,14 @@
  */
 
 import { RefreshCw } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentMessage, SubagentSnapshot, ToolCallContent } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
+import { buildTranscriptToolEntries } from "../../stores/tools";
+import { MessageBubble } from "../chat/MessageBubble";
 import { Spinner } from "../common";
 import { registerTranscriptToolCalls } from "./subagent-graph";
-
-function messageText(message: AgentMessage): string {
-	if (typeof message.content === "string") return message.content.trim();
-	if (!Array.isArray(message.content)) return "";
-	return message.content
-		.filter(part => part.type === "text")
-		.map(part => (part.type === "text" ? part.text : ""))
-		.join("\n")
-		.trim();
-}
 
 interface TranscriptState {
 	loading: boolean;
@@ -45,6 +37,8 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 	useEffect(() => {
 		statusRef.current = agent.status;
 	}, [agent.status]);
+	const toolEntries = useMemo(() => buildTranscriptToolEntries(state.messages), [state.messages]);
+	const resolveToolEntry = useCallback((call: ToolCallContent) => toolEntries.get(call), [toolEntries]);
 
 	const load = useCallback(
 		async (fromByte: number) => {
@@ -94,34 +88,35 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 	}
 
 	return (
-		<div className="space-y-1.5 px-2 py-2">
-			{state.messages.length === 0 && (
-				<div className="text-omp-sm text-(--omp-dim) italic">{t("subagent.noEntries")}</div>
-			)}
-			{state.messages.map((message, index) => {
-				const text = messageText(message);
-				if (!text) return null;
-				return (
-					<div className="rounded-sm border-l-2 border-(--omp-border-muted) px-2 py-1" key={index}>
-						<div className="mb-0.5 text-omp-xxs font-semibold tracking-wider text-(--omp-dim) uppercase">
-							{message.role}
-						</div>
-						<div className="text-omp-sm leading-snug break-words whitespace-pre-wrap text-(--omp-muted)">
-							{text.length > 1200 ? `${text.slice(0, 1200)}…` : text}
-						</div>
+		<div className="omp-transcript-editorial bg-transparent py-2">
+			<div className="omp-transcript-canvas">
+				{state.messages.length === 0 && (
+					<div className="px-6 py-2 text-omp-sm text-(--omp-dim) italic">{t("subagent.noEntries")}</div>
+				)}
+				{state.messages.map((message, index) => (
+					<div
+						className="omp-transcript-row"
+						data-transcript-kind="message"
+						key={
+							typeof message.id === "string" ? message.id : `${String(message.timestamp ?? "subagent")}-${index}`
+						}
+					>
+						<MessageBubble message={message} readOnly resolveToolEntry={resolveToolEntry} />
 					</div>
-				);
-			})}
+				))}
+			</div>
 			{state.hasMore && (
-				<button
-					className="flex items-center gap-1.5 text-omp-sm text-(--omp-link) transition-colors hover:brightness-125 disabled:opacity-50"
-					disabled={state.loading}
-					onClick={() => void load(state.nextByte)}
-					type="button"
-				>
-					{state.loading ? <Spinner size="sm" /> : <RefreshCw size={10} />}
-					{t("subagent.loadMore")}
-				</button>
+				<div className="px-6 py-2">
+					<button
+						className="flex items-center gap-1.5 text-omp-sm text-(--omp-link) transition-colors hover:brightness-125 disabled:opacity-50"
+						disabled={state.loading}
+						onClick={() => void load(state.nextByte)}
+						type="button"
+					>
+						{state.loading ? <Spinner size="sm" /> : <RefreshCw size={10} />}
+						{t("subagent.loadMore")}
+					</button>
+				</div>
 			)}
 		</div>
 	);

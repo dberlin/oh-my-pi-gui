@@ -9,7 +9,7 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { branchSessionFromEntry, isRenderableMessageText } from "../../lib/messages";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { toast } from "../../stores/toast";
-import { toolEntryKey } from "../../stores/tools";
+import { type ToolEntry, toolEntryKey } from "../../stores/tools";
 import { editArgumentSummary } from "../tools/edit-args";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
@@ -22,6 +22,10 @@ export interface MessageBubbleProps {
 	compact?: boolean;
 	/** The timeline or process group can own the one animated running state. */
 	runningIndicator?: RunningIndicator;
+	/** Secondary transcripts keep copy/expand interactions but cannot mutate the active session. */
+	readOnly?: boolean;
+	/** Resolves tool results from a transcript-local projection instead of the active session store. */
+	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
 }
 
 function messageEntryId(message: AgentMessage): string | undefined {
@@ -89,14 +93,24 @@ function InlineImage({ image }: { image: ImageContent }) {
 	);
 }
 
-/** ToolCard subscribes to the tools store itself, so the tool result lands inline. */
-function ToolCardWithResult({ call, runningIndicator }: { call: ToolCallContent; runningIndicator: RunningIndicator }) {
+/** ToolCard defaults to the active session store; secondary transcripts inject an isolated result. */
+function ToolCardWithResult({
+	call,
+	runningIndicator,
+	resolveToolEntry,
+}: {
+	call: ToolCallContent;
+	runningIndicator: RunningIndicator;
+	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
+}) {
+	const isolated = resolveToolEntry !== undefined;
 	return (
 		<ToolCard
-			toolCallId={toolEntryKey(call)}
-			toolName={call.name}
 			args={call.arguments}
+			entry={isolated ? (resolveToolEntry(call) ?? null) : undefined}
 			summary={toolSummary(call.name, call.arguments)}
+			toolCallId={isolated ? call.id : toolEntryKey(call)}
+			toolName={call.name}
 			runningIndicator={runningIndicator}
 		/>
 	);
@@ -104,7 +118,7 @@ function ToolCardWithResult({ call, runningIndicator }: { call: ToolCallContent;
 
 const FILE_PREVIEW_CHARS = 12_000;
 
-function ExecutionBubble({ message }: { message: AgentMessage }) {
+function ExecutionBubble({ message, readOnly }: { message: AgentMessage; readOnly: boolean }) {
 	const t = useT();
 	// Local placeholder appended by the composer while an `$` eval is in flight
 	// (InputArea): offers abortEval; the hydrated transcript record replaces it
@@ -143,7 +157,7 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 					>
 						{status}
 					</span>
-					{running && (
+					{running && !readOnly && (
 						<button
 							type="button"
 							disabled={abortSent}
@@ -256,12 +270,14 @@ export const MessageBubble = memo(function MessageBubble({
 	message,
 	compact = false,
 	runningIndicator = "spinner",
+	readOnly = false,
+	resolveToolEntry,
 }: MessageBubbleProps) {
 	const t = useT();
 	const [copied, setCopied] = useState(false);
 	const [branching, setBranching] = useState(false);
 	if (message.role === "bashExecution" || message.role === "pythonExecution") {
-		return <ExecutionBubble message={message} />;
+		return <ExecutionBubble message={message} readOnly={readOnly} />;
 	}
 	if (message.role === "branchSummary" || message.role === "compactionSummary" || message.role === "fileMention") {
 		return <ContextBubble message={message} />;
@@ -358,7 +374,7 @@ export const MessageBubble = memo(function MessageBubble({
 						>
 							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
 						</button>
-						{entryId && (
+						{entryId && !readOnly && (
 							<button
 								type="button"
 								onClick={() => void handleBranch()}
@@ -396,7 +412,12 @@ export const MessageBubble = memo(function MessageBubble({
 			}
 			case "toolCall": {
 				blocks.push(
-					<ToolCardWithResult key={toolEntryKey(block)} call={block} runningIndicator={runningIndicator} />,
+					<ToolCardWithResult
+						call={block}
+						key={resolveToolEntry ? blocks.length : toolEntryKey(block)}
+						resolveToolEntry={resolveToolEntry}
+						runningIndicator={runningIndicator}
+					/>,
 				);
 				break;
 			}

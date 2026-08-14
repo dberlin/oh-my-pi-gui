@@ -1,9 +1,9 @@
 import { Check, ChevronRight, Loader2, X } from "lucide-react";
-import { useEffect, useState } from "react";
 import { cx, durationBetween } from "../../lib/format";
-import { useToolsStore } from "../../stores/tools";
-import { useUiStore } from "../../stores/ui";
 import { getToolRenderer } from "./index";
+import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { useEffect, useState } from "react";
+import { useUiStore } from "../../stores/ui";
 
 export interface ToolRendererProps {
 	args: Record<string, unknown>;
@@ -21,6 +21,8 @@ export interface ToolCardProps {
 	summary?: string;
 	/** A parent activity indicator can own animation for a live tool group. */
 	runningIndicator?: RunningIndicator;
+	/** Explicit transcript-local entry. `null` prevents fallback to the active session store. */
+	entry?: ToolEntry | null;
 }
 
 export type RunningIndicator = "spinner" | "dot";
@@ -30,8 +32,16 @@ export type RunningIndicator = "spinner" | "dot";
  * expand/collapse. The body comes from the tool registry; the tool_result
  * arrives via the tools store keyed by toolCallId.
  */
-export function ToolCard({ toolCallId, toolName, args, summary, runningIndicator = "spinner" }: ToolCardProps) {
-	const entry = useToolsStore(s => s.activeTools.get(toolCallId));
+export function ToolCard({
+	toolCallId,
+	toolName,
+	args,
+	summary,
+	runningIndicator = "spinner",
+	entry: providedEntry,
+}: ToolCardProps) {
+	const storeEntry = useToolsStore(s => s.activeTools.get(toolCallId));
+	const entry = providedEntry === undefined ? storeEntry : (providedEntry ?? undefined);
 	const expandAll = useUiStore(s => s.toolsExpandAll);
 	const [expanded, setExpanded] = useState(expandAll.expanded);
 
