@@ -42,10 +42,11 @@ import type {
 	SshSessionTarget,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
-import type { RpcCommand, RpcSessionState } from "../shared/rpc-types";
+import type { RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { mainT } from "./i18n";
+import { isLocalSshSettingsCommand, isLocalSshSettingsCommandType } from "./local-ssh-settings";
 import type { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
@@ -85,6 +86,12 @@ import { spawnTabForWindow } from "./tab-spawn";
 import { setTrayState } from "./tray";
 import type { SpawnWindow, WindowManager } from "./window";
 
+export type LocalSshSettingsCommand = Extract<RpcCommand, { type: "get_ssh_hosts" | "ssh_manage" | "ssh_test" }>;
+
+export interface LocalSshSettingsDependency {
+	execute(cwd: string, command: unknown): Promise<RpcResponse>;
+}
+
 export interface IpcDeps {
 	sidecarPool: SidecarPool;
 	sessionIndex: SessionIndex;
@@ -96,6 +103,7 @@ export interface IpcDeps {
 	remoteSsh: RemoteSshService;
 	remoteHostCatalog: RemoteHostCatalog;
 	remoteAcp: RemoteAcpClient;
+	localSshSettings: LocalSshSettingsDependency;
 }
 
 /**
@@ -107,6 +115,12 @@ function sidecarFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): SidecarM
 	const win = BrowserWindow.fromWebContents(event.sender);
 	if (!win) return null;
 	return deps.sidecarPool.sidecarForWindow(win);
+}
+
+function localProjectCwdForWindow(deps: IpcDeps, win: BrowserWindow): string | null {
+	const active = deps.sidecarPool.entryForWindow(win);
+	if (active?.target.type === "local") return active.sidecar.cwd;
+	return deps.windowManager.recordFor(win)?.cwd ?? null;
 }
 
 interface LocalProjectContext {
@@ -603,16 +617,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const refreshCatalogForWindow = async (event: Electron.IpcMainInvokeEvent): Promise<void> => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return;
-		const localTab = sidecarPool
-			.tabsForWindow(win)
-			.find(tab => tab.target.type === "local" && tab.status === "ready");
-		if (!localTab) return;
-		const localSidecar = sidecarPool.sidecarForTab(win, localTab.tabId);
-		const client = localSidecar?.rpcClient;
-		if (!client || localSidecar.status !== "ready") return;
-		const command: RpcCommand = { type: "get_ssh_hosts" };
-		const response = await client.command(command);
-		observeRemoteCatalogRpcResponse(deps.remoteHostCatalog, localTab.target, command, response);
+		const cwd = localProjectCwdForWindow(deps, win);
+		if (!cwd) return;
+		const command: LocalSshSettingsCommand = { type: "get_ssh_hosts" };
+		const response = await deps.localSshSettings.execute(cwd, command);
+		observeRemoteCatalogRpcResponse(deps.remoteHostCatalog, { type: "local" }, command, response);
 	};
 	const remoteDispatchDepsFor = (event: Electron.IpcMainInvokeEvent) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
@@ -765,6 +774,43 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND, async (event, payload: IpcRpcCommandPayload) => {
+		const incomingCommand: unknown = payload.command;
+		if (isLocalSshSettingsCommandType(incomingCommand)) {
+			if (!isLocalSshSettingsCommand(incomingCommand)) {
+				return {
+					id: "id" in incomingCommand && typeof incomingCommand.id === "string" ? incomingCommand.id : undefined,
+					type: "response",
+					command: incomingCommand.type,
+					success: false,
+					error: "Invalid local SSH settings command",
+				};
+			}
+			const command = incomingCommand;
+			const win = BrowserWindow.fromWebContents(event.sender);
+			const cwd = win ? localProjectCwdForWindow(deps, win) : null;
+			if (!cwd) {
+				return {
+					id: command.id,
+					type: "response",
+					command: command.type,
+					success: false,
+					error: "Local project is unavailable",
+				};
+			}
+			try {
+				const response = await deps.localSshSettings.execute(cwd, command);
+				observeRemoteCatalogRpcResponse(deps.remoteHostCatalog, { type: "local" }, command, response);
+				return response;
+			} catch (err) {
+				return {
+					id: command.id,
+					type: "response",
+					command: command.type,
+					success: false,
+					error: err instanceof Error ? err.message : String(err),
+				};
+			}
+		}
 		const win = BrowserWindow.fromWebContents(event.sender);
 		const sidecar = win ? sidecarPool.sidecarForWindow(win) : null;
 		const client = sidecar?.rpcClient;
