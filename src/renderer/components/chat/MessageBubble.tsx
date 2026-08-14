@@ -1,4 +1,4 @@
-import { Archive, Bot, Check, CircleAlert, Copy, FileText, GitBranch, RotateCw, Terminal } from "lucide-react";
+import { Archive, Bot, Check, Copy, FileText, GitBranch, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
@@ -10,11 +10,11 @@ import { forkSessionFromMessageInNewTab, isRenderableMessageText } from "../../l
 import { extractModelMentions, type ModelMentionChip } from "../../lib/model-mentions";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
-import { toolEntryKey } from "../../stores/tools";
+import { type ToolEntry, toolEntryKey } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -28,8 +28,10 @@ export interface MessageBubbleProps {
 	runningIndicator?: RunningIndicator;
 	/** Opening assistant emoji projected onto this user turn. */
 	reaction?: string;
-	/** Identical failed replies collapsed into this one (auto-retry attempts). */
-	repeats?: number;
+	/** Secondary transcripts keep copy/expand interactions but cannot mutate the active session. */
+	readOnly?: boolean;
+	/** Resolves tool results from a transcript-local projection instead of the active session store. */
+	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
 }
 
 const COMPACTION_METHOD_KEYS: Record<string, string> = {
@@ -52,75 +54,23 @@ function InlineImage({ image }: { image: ImageContent }) {
 	);
 }
 
-/**
- * A reply the provider failed. The latest one, once the agent has settled,
- * offers Retry (the agent's own /retry, which knows what the failed turn was);
- * older ones are history and only say what went wrong.
- */
-function MessageError({ message, repeats = 1 }: { message: AgentMessage; repeats?: number }) {
-	const t = useT();
-	const rpc = useTabRpc();
-	const [retrying, setRetrying] = useState(false);
-	const isLatest = useMessagesStore(s => (s.liveMessages.at(-1) ?? s.messages.at(-1)) === message);
-	const idle = useSessionStore(s => !s.isStreaming && s.retryInfo === null && s.status === "ready");
-	const retry = async () => {
-		setRetrying(true);
-		try {
-			const response = await rpc.retry();
-			if (!response.success) throw new Error(response.error);
-			if (!(response.data as { retried?: boolean } | undefined)?.retried) {
-				toast({ variant: "warning", title: t("palette.retryNothing"), message: t("palette.retryNothingDesc") });
-			}
-		} catch (cause) {
-			toast({ variant: "error", title: t("chat.error.retryFailed"), message: String(cause) });
-		} finally {
-			setRetrying(false);
-		}
-	};
-	return (
-		<div
-			role="alert"
-			className="omp-message-error mt-2 flex min-w-0 items-start gap-3 rounded-xl border px-3.5 py-2.5"
-		>
-			<CircleAlert aria-hidden size={15} className="mt-0.5 shrink-0 text-[var(--omp-error)]" />
-			<div className="min-w-0 flex-1">
-				<p className="text-omp-md font-medium text-[var(--omp-text)]">
-					{t("chat.error.title")}
-					{repeats > 1 && (
-						<span className="ml-2 text-omp-sm font-normal tabular-nums text-[var(--omp-dim)]">
-							{t("chat.error.repeats", { count: repeats })}
-						</span>
-					)}
-				</p>
-				<p
-					className="mt-0.5 line-clamp-4 break-words text-omp-sm text-[var(--omp-muted)]"
-					title={message.errorMessage}
-				>
-					{message.errorMessage}
-				</p>
-			</div>
-			{isLatest && idle && (
-				<button
-					type="button"
-					disabled={retrying}
-					onClick={() => void retry()}
-					className="omp-pressable -my-0.5 flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-[var(--omp-border)] px-2.5 text-omp-sm font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)] disabled:opacity-50"
-				>
-					<RotateCw aria-hidden size={12} className={cx(retrying && "animate-spin")} />
-					{t("common.retry")}
-				</button>
-			)}
-		</div>
-	);
-}
-
-/** ToolCard subscribes to the tools store itself, so the tool result lands inline. */
-function ToolCardWithResult({ call, runningIndicator }: { call: ToolCallContent; runningIndicator: RunningIndicator }) {
+/** ToolCard defaults to the active session store; secondary transcripts inject an isolated result. */
+function ToolCardWithResult({
+	call,
+	runningIndicator,
+	resolveToolEntry,
+}: {
+	call: ToolCallContent;
+	runningIndicator: RunningIndicator;
+	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
+}) {
+	const isolated = resolveToolEntry !== undefined;
 	return (
 		<ToolCard
-			toolCallId={toolEntryKey(call)}
-			toolName={call.name}
 			args={call.arguments}
+			entry={isolated ? (resolveToolEntry(call) ?? null) : undefined}
+			toolCallId={isolated ? call.id : toolEntryKey(call)}
+			toolName={call.name}
 			runningIndicator={runningIndicator}
 		/>
 	);
@@ -128,7 +78,7 @@ function ToolCardWithResult({ call, runningIndicator }: { call: ToolCallContent;
 
 const FILE_PREVIEW_CHARS = 12_000;
 
-function ExecutionBubble({ message }: { message: AgentMessage }) {
+function ExecutionBubble({ message, readOnly }: { message: AgentMessage; readOnly: boolean }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	// Local placeholder appended by the composer while an `$` eval is in flight
@@ -148,7 +98,7 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 	const failed = !running && (message.cancelled || (message.exitCode != null && message.exitCode !== 0));
 
 	return (
-		<div className="omp-execution-turn px-6 py-4">
+		<div className="omp-execution-turn omp-fade-up px-6 py-4">
 			<div className="omp-transcript-content overflow-hidden rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] shadow-[var(--omp-shadow-sm)]">
 				<div className="flex items-center gap-2 border-b border-[var(--omp-border-muted)] px-3.5 py-2">
 					<Terminal className="text-[var(--omp-status-path)]" size={13} />
@@ -168,7 +118,7 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 					>
 						{status}
 					</span>
-					{running && (
+					{running && !readOnly && (
 						<button
 							type="button"
 							disabled={abortSent}
@@ -236,9 +186,9 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 				: t("chat.context.referencedFiles");
 
 	return (
-		<div className="omp-context-turn px-6 py-3">
+		<div className="omp-context-turn omp-fade-up px-6 py-3">
 			<div className="omp-transcript-content rounded-[10px] border border-[var(--omp-border-muted)] px-3.5 py-3">
-				<div className="mb-2 flex items-center gap-1.5 text-omp-xs font-bold text-[var(--omp-status-context)]">
+				<div className="mb-2 flex items-center gap-1.5 text-omp-xs font-bold tracking-[0.12em] text-[var(--omp-status-context)] uppercase">
 					{isFiles ? <FileText size={12} /> : <Archive size={12} />}
 					{label}
 				</div>
@@ -299,8 +249,9 @@ export const MessageBubble = memo(function MessageBubble({
 	message,
 	compact = false,
 	reaction,
-	repeats,
 	runningIndicator = "spinner",
+	readOnly = false,
+	resolveToolEntry,
 }: MessageBubbleProps) {
 	const t = useT();
 	const rpc = useTabRpc();
@@ -309,7 +260,7 @@ export const MessageBubble = memo(function MessageBubble({
 	const [branching, setBranching] = useState(false);
 	const switchPending = useSessionStore(state => state.switchPending !== null);
 	if (message.role === "bashExecution" || message.role === "pythonExecution") {
-		return <ExecutionBubble message={message} />;
+		return <ExecutionBubble message={message} readOnly={readOnly} />;
 	}
 	if (message.role === "branchSummary" || message.role === "compactionSummary" || message.role === "fileMention") {
 		return <ContextBubble message={message} />;
@@ -381,7 +332,7 @@ export const MessageBubble = memo(function MessageBubble({
 		return (
 			<div className="omp-user-turn group flex justify-end px-6 py-2.5">
 				<div
-					className="omp-transcript-content omp-user-bubble relative rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3"
+					className="omp-transcript-content omp-user-bubble omp-fade-up relative rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3"
 					style={{ boxShadow: "var(--omp-shadow-sm)" }}
 				>
 					{reaction ? (
@@ -397,7 +348,7 @@ export const MessageBubble = memo(function MessageBubble({
 						<span className="omp-user-bubble-author">{t("live.you")}</span>
 						<div className="omp-user-bubble-content">
 							{isSteering && (
-								<div className="mb-1.5 flex items-center gap-1.5 text-omp-xs font-bold text-[var(--omp-custom-msg-label)]">
+								<div className="mb-1.5 flex items-center gap-1.5 text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
 									<span className="h-1 w-1 rounded-full bg-current" />
 									{t("chat.steering")}
 								</div>
@@ -443,16 +394,18 @@ export const MessageBubble = memo(function MessageBubble({
 						>
 							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
 						</button>
-						<button
-							type="button"
-							onClick={() => void handleBranch()}
-							disabled={branching || switchPending}
-							aria-label={t("chat.branchFromHere")}
-							title={t("chat.branchFromHere")}
-							className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-wait disabled:opacity-50"
-						>
-							<GitBranch size={13} />
-						</button>
+						{!readOnly && (
+							<button
+								type="button"
+								onClick={() => void handleBranch()}
+								disabled={branching || switchPending}
+								aria-label={t("chat.branchFromHere")}
+								title={t("chat.branchFromHere")}
+								className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-wait disabled:opacity-50"
+							>
+								<GitBranch size={13} />
+							</button>
+						)}
 					</div>
 				</div>
 			</div>
@@ -480,7 +433,12 @@ export const MessageBubble = memo(function MessageBubble({
 			}
 			case "toolCall": {
 				blocks.push(
-					<ToolCardWithResult key={toolEntryKey(block)} call={block} runningIndicator={runningIndicator} />,
+					<ToolCardWithResult
+						call={block}
+						key={resolveToolEntry ? blocks.length : toolEntryKey(block)}
+						resolveToolEntry={resolveToolEntry}
+						runningIndicator={runningIndicator}
+					/>,
 				);
 				break;
 			}
@@ -503,6 +461,7 @@ export const MessageBubble = memo(function MessageBubble({
 		<div
 			className={cx(
 				"group flex px-6",
+				!compact && "omp-fade-up",
 				!compactChrome && "omp-assistant-turn",
 				compactChrome && "omp-assistant-turn--compact",
 				compactChrome ? "py-1.5" : "py-3",
@@ -510,25 +469,31 @@ export const MessageBubble = memo(function MessageBubble({
 		>
 			<div className="omp-transcript-content min-w-0">
 				{customLabel && (
-					<div className="mb-2 text-omp-sm font-bold text-[var(--omp-status-context)]">{customLabel}</div>
+					<div className="mb-2 text-omp-sm font-bold tracking-[0.1em] text-[var(--omp-status-context)] uppercase">
+						{customLabel}
+					</div>
 				)}
 				{isSteering && (
-					<div className="mb-2 flex items-center gap-1.5 text-omp-sm font-bold text-[var(--omp-custom-msg-label)]">
+					<div className="mb-2 flex items-center gap-1.5 text-omp-sm font-bold uppercase tracking-[0.1em] text-[var(--omp-custom-msg-label)]">
 						<span className="h-1.5 w-1.5 rounded-full bg-current" />
 						{t("chat.steeringResponse")}
 					</div>
 				)}
 				{blocks}
-				{message.errorMessage && <MessageError message={message} repeats={repeats} />}
+				{message.errorMessage && (
+					<div className="omp-message-error mt-2 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5 text-omp-lg leading-relaxed break-words text-[var(--omp-error)]">
+						{message.errorMessage}
+					</div>
+				)}
 				<UsageRow message={message} />
 				{!compactChrome && (
-					<div className="omp-message-actions mt-1 flex h-6 items-center gap-1 text-omp-xs tabular-nums text-[var(--omp-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-						{timestamp && <span className="me-1 font-mono">{timestamp}</span>}
+					<div className="mt-2 flex items-center gap-1.5 text-omp-xs tabular-nums text-[var(--omp-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+						{timestamp && <span className="font-mono">{timestamp}</span>}
 						<button
 							type="button"
 							onClick={handleCopy}
 							title={t("chat.copyMessage")}
-							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 						>
 							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
 						</button>
@@ -539,7 +504,7 @@ export const MessageBubble = memo(function MessageBubble({
 								disabled={branching || switchPending}
 								aria-label={t("chat.branchFromHere")}
 								title={t("chat.branchFromHere")}
-								className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-wait disabled:opacity-50"
+								className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-wait disabled:opacity-50"
 							>
 								<GitBranch size={13} />
 							</button>
