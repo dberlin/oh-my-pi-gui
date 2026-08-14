@@ -29,3 +29,4 @@ dev-app-update.yml
 # Desktop functional audit artifacts
 playwright-report/
 test-results/
+.gitattributes
