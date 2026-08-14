@@ -59,7 +59,7 @@ function cloneHost(host: SshConnectionSnapshot): SshConnectionSnapshot {
 	return { ...host };
 }
 
-function isSafeSshDestination(host: string, username?: string): boolean {
+export function isSafeSshDestination(host: string, username?: string): boolean {
 	return (
 		host.length > 0 &&
 		!host.startsWith("-") &&
