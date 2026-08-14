@@ -35,7 +35,7 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 	const cwd = useSessionStore(s => s.cwd);
 	const status = useSessionStore(s => s.status);
 	const isStreaming = useSessionStore(s => s.isStreaming);
-	const contextUsage = useSessionStore(s => s.contextUsage);
+
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const panelVisible = useUiStore(s => s.panelVisible);
@@ -172,15 +172,6 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 					{t("titlebar.plan")}
 				</span>
 			)}
-			{contextUsage && (
-				<span
-					className="no-drag shrink-0 rounded-full border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-2 py-1 font-mono text-omp-xs text-[var(--omp-muted)]" // surface-ok: context usage count pill
-					title={t("titlebar.contextTooltip")}
-				>
-					{Math.round(contextUsage.percent)}%
-				</span>
-			)}
-
 			<button
 				type="button"
 				onClick={openPrCenter}

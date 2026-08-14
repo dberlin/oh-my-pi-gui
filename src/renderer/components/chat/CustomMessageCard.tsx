@@ -88,7 +88,7 @@ const HEADER_META_CLASS = "font-medium normal-case tracking-normal text-[var(--o
 function CardFrame({ children }: { children: ReactNode }) {
 	return (
 		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
-			<div className="rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-custom-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
+			<div className="omp-transcript-content rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-custom-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
 				{children}
 			</div>
 		</div>
@@ -575,9 +575,9 @@ function CollabCard({ message }: { message: AgentMessage }) {
 	const text = resultText(message.content).trim();
 	return (
 		<div className="omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
-			<div className="max-w-[75%] rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
+			<div className="omp-transcript-content rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
 				<div className="mb-1.5 text-omp-md font-bold text-[var(--omp-accent)]">«{from}» ›</div>
-				{text && <MarkdownRenderer content={text} />}
+				{text && <MarkdownRenderer content={text} singleDollarTextMath={false} />}
 			</div>
 		</div>
 	);

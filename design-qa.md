@@ -45,3 +45,165 @@ The summary capture shows the intended compression: all actionable todos, the ne
 - P3: consider replacing always-stable scrollbar gutter with overlay scrollbars on macOS if the extra right inset feels visually heavy at narrower widths.
 
 final result: passed
+
+---
+
+# Compact execution and goal surfaces QA
+
+- source visual truth: `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-97a03058-9bfa-430f-88ab-bf28a3d3da7c.png`
+- implementation screenshot: `tmp/compact-renderer-expanded.jpeg`
+- focused source/implementation comparison: `tmp/compact-renderer-comparison.png`
+- viewport: Electron development window, 1224 x 768, device scale factor 1
+- state: hydrated session with three completed tasks; the same card was exercised in expanded and collapsed states
+
+## Source truths carried into omp
+
+- One rounded disclosure owns the task hierarchy; the header combines the section title, exact live counts and a far-right chevron.
+- Task state is communicated with compact semantic icons rather than a row of badges, nested cards or repeated phase chrome.
+- Completed historical execution phases collapse to one summary line; live work and failures stay open so progress and actionable errors are not hidden.
+- The current goal is a separate single-line control strip. Its objective truncates instead of increasing the dock height, while pause/resume, edit and drop remain directly available.
+
+## Findings
+
+- No actionable P0/P1/P2 visual or interaction mismatch remains in the compact task surface.
+- The focused comparison confirms the same hierarchy, radius, quiet border, right-aligned disclosure and flat status-row treatment as the source while retaining omp typography and semantic color tokens.
+- The dock now owns at most `min(30vh, 240px)` for task/plan/agent detail and scrolls internally, so the composer remains stable. When no task, plan, agent, queue or goal exists, the dock collapses to zero height.
+- Single-phase task lists omit the redundant phase heading and vertical rail. Multi-phase lists retain collapsible phase labels because removing them would destroy task grouping.
+- No new black, green or gray decorative panel was introduced; surfaces use the existing secondary background as a restrained neutral layer, and state colors are limited to icons and error/warning semantics.
+- The active-goal strip was not injected into the user's hydrated session for the screenshot. Its objective/edit control and native pause state transition are covered by component tests without mutating session history.
+
+## Primary interactions tested
+
+- Clicking the task header collapsed the live Electron card to one row; clicking it again restored all three tasks.
+- Completed historical execution groups stay closed until requested.
+- A failed execution group opens automatically and preserves its details.
+- Task counts distinguish running, pending and completed work.
+- Goal edit opens the existing goal settings surface; pause calls the native `set_goal` RPC and updates the visible status in place.
+
+## Verification
+
+- Type check passed.
+- Biome check of all touched renderer files passed.
+- Full suite passed: 779 tests across 90 files.
+- Production Electron build passed.
+- `git diff --check` passed.
+
+final result: passed
+
+---
+
+# Conversation navigator QA
+
+- source visual truths: `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-9eff0948-648d-4e05-a4ea-11936be6e318.png` (preview interaction) and `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-4432d560-3f5b-4fd6-b800-9c602fb59552.png` (compact centered marks)
+- implementation screenshots: `tmp/conversation-navigator-centered.png`, `tmp/conversation-navigator-centered-preview.png`
+- source pixels: 416 x 1144 for the compact-mark crop; implementation pixels: 1224 x 768 at Electron device scale factor 1
+- viewport: Electron development window, 1224 x 768 CSS px
+- state: hydrated `Sanitize .env.example credentials` transcript with seven user-authored turns; first anchor focused and clicked
+
+## Full-view comparison evidence
+
+The implementation now matches the reference composition: the turn marks form one compact group centered vertically in the left rail. Short marks share a fixed rhythm, the current-location mark is longer and darker, and the group no longer stretches across the transcript height. It remains integrated into the existing omp transcript/editorial rail rather than copying the reference application's surrounding chrome.
+
+## Focused interaction evidence
+
+- The accessibility tree exposes `对话快速导航` plus seven named anchor buttons for the seven user turns.
+- Clicking the first anchor moved the virtualized transcript from its latest position to the first `继续` prompt; the target prompt and following assistant work were visible after the jump.
+- The preview showed `第 1/7 轮对话`, `14:49`, the bounded prompt summary and `点击定位`.
+- Edge anchors open their preview inward so the card remains inside the transcript viewport even when the mark stack becomes dense.
+
+## Findings
+
+- No actionable P0/P1/P2 visual or interaction mismatch remains.
+- Typography: existing omp UI and mono type tokens are reused; the preview preserves the reference hierarchy with a quiet kicker, strong prompt and muted action hint.
+- Spacing and layout: the rail occupies 34 px along the transcript edge; marks use a compact fixed rhythm and the stack is centered vertically without reducing the shared full-width message surface.
+- Colors and tokens: existing text, muted, border, elevated-surface, focus-ring and shadow tokens are reused in both themes.
+- Image quality: this feature contains no raster or illustrative assets; marks are native controls and remain sharp at the captured density.
+- Copy and content: user-message summaries collapse whitespace and cap at 180 characters; image-only prompts receive a localized fallback.
+- Accessibility: the rail is a named navigation landmark, each marker names its turn and preview, the current turn uses `aria-current=location`, and arrow/Home/End navigation uses roving tab focus.
+- Responsiveness: the rail hides below 720 px, where a narrow viewport would make the hover surface obstruct the conversation.
+
+## Comparison history
+
+- Pass 1 matched the rail and preview interaction, but a first-anchor preview could approach the top edge and long SQL labels were too verbose.
+- Pass 2 clamps the preview to a 92 px top/bottom safe area and bounds summaries to 180 characters. The post-fix Electron capture confirms the preview stays inside the app while the target prompt remains visible.
+- Pass 3 replaces full-height percentage positioning with one vertically centered compact stack, adds dense modes for long conversations, and anchors preview cards to the selected mark. The 1224 x 768 Electron capture confirms seven marks remain grouped at the left-center and navigation still lands on the selected turn.
+
+## Verification
+
+- Primary interactions tested: follow-current-turn state, hover/focus preview, first-anchor click-to-jump, keyboard marker traversal, latest-button coexistence.
+- Automated: 774 tests across 87 files pass; type check, Biome, production Electron build, and diff check pass.
+- Electron renderer remained responsive and no app error surface appeared.
+
+final result: passed
+
+---
+
+# Full-width transcript rendering QA
+
+- source visual truth: `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-c17568c5-341b-4f2f-a873-77ed61e40fed.png`
+- implementation screenshot: `tmp/transcript-full-width-qa.jpeg`
+- side-by-side comparison: `tmp/transcript-full-width-comparison.png` (source left, implementation right)
+- viewport: Electron development window, 1224 x 768, device scale factor 1
+- state: same `常用-配置reasoning` transcript containing a long SQL user prompt, assistant prose, tools, table and code blocks
+
+## Full-view comparison target
+
+Every substantive transcript block must fill the available rendering track between the common left and right transcript padding. User, assistant, reasoning, tool, execution, context, collaboration and queued-message surfaces must not stop at an 84ch reading measure.
+
+## Findings
+
+- The previous 84ch implementation was a P1 interpretation error: it made the blocks equal but intentionally left unused horizontal space.
+- The revised contract uses `width: 100%` and a growable content surface. Code blocks and tables retain their own horizontal scrolling when their contents exceed that full-width container.
+- The live Electron capture confirms that the long user prompt card, assistant prose/tool rows, code surface and composer share the same right-hand rendering boundary; the content no longer ends at the old narrow card width.
+- Long SQL text wraps inside the full-width user surface, while code preserves syntax formatting and its own overflow behavior.
+
+## Comparison history
+
+- Pass 1 incorrectly constrained every content surface to 84ch and is explicitly marked blocked above.
+- Pass 2 removes the 84ch cap and makes the shared transcript content surface fill the rendering track.
+- Verification: 769 tests across 86 files, type check, Biome check of touched renderer files, and the production Electron build all pass.
+
+final result: passed
+
+---
+
+# Compact context usage popover QA
+
+- source visual truth: `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-4f15c1bd-52a1-4add-a896-7f8ae0fe93b2.png`
+- implementation screenshot: `tmp/context-usage-popover-live.jpeg`
+- focused source/implementation comparison: `tmp/context-usage-comparison.png`
+- viewport: Electron development window, 1224 x 768, device scale factor 1
+- state: hydrated `Sanitize .env.example credentials` session at 64% context usage with a native provider-anchored context report
+
+## Source truths carried into omp
+
+- The resting composer keeps one compact circular usage control immediately before Send instead of displaying a permanent meter or a second settings panel.
+- Hover, focus or click reveals a neutral elevated popover with percentage and total first, a thin segmented bar second, and three plain category rows last.
+- Token detail is grouped into system context, tools and conversation messages. Colors appear only as small category markers and progress segments.
+
+## Findings
+
+- No actionable P0/P1/P2 visual or interaction mismatch remains in the context usage surface.
+- The focused comparison confirms the source hierarchy, restrained radius and shadow, tabular token values, three-row grouping and compact trigger placement while retaining omp typography and theme tokens.
+- The system row intentionally combines the system prompt, system context and skill instructions. This avoids presenting provider-owned prompt material as three noisy implementation rows.
+- The popover is portalled above the composer, clamps to a 12 px viewport safe area, flips below the trigger when there is insufficient room above, and follows resize or nested scroll changes.
+- Opening the popover requests the native `get_context_report` breakdown. The already-known percentage and total stay available while loading and when that detailed request fails.
+- No decorative black, green or gray panel was introduced. The surface uses the standard elevated background; semantic color is limited to the progress segments, tiny category markers and active trigger ring.
+
+## Primary interactions tested
+
+- Click pins the popover; clicking the trigger again, pressing Escape or clicking outside closes it.
+- Hover and keyboard focus reveal the same non-modal detail without pinning it.
+- In the live Electron session the control exposed `查看上下文用量，已使用 64%`, and the opened dialog showed `~173.7k / 272.0k`, system context `~7.9k`, tools `~9.0k` and conversation messages `~156.8k`.
+- Sessions without context telemetry render no empty usage control.
+- A failed detailed-report request preserves the current total and presents a quiet unavailable message rather than breaking the composer.
+
+## Verification
+
+- Type check passed.
+- Biome check of all touched context-usage and composer files passed.
+- Full suite passed: 784 tests across 91 files.
+- Production Electron build passed.
+- Source and live implementation were judged together in `tmp/context-usage-comparison.png`.
+
+final result: passed

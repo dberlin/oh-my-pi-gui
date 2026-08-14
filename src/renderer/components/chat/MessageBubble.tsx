@@ -111,7 +111,7 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 
 	return (
 		<div className="omp-execution-turn omp-fade-up px-6 py-4">
-			<div className="overflow-hidden rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] shadow-[var(--omp-shadow-sm)]">
+			<div className="omp-transcript-content overflow-hidden rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] shadow-[var(--omp-shadow-sm)]">
 				<div className="flex items-center gap-2 border-b border-[var(--omp-border-muted)] px-3.5 py-2">
 					<Terminal className="text-[var(--omp-status-path)]" size={13} />
 					<span className="text-omp-sm font-semibold text-[var(--omp-text)]">
@@ -178,7 +178,7 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 
 	return (
 		<div className="omp-context-turn omp-fade-up px-6 py-3">
-			<div className="rounded-[10px] border border-[var(--omp-border-muted)] px-3.5 py-3">
+			<div className="omp-transcript-content rounded-[10px] border border-[var(--omp-border-muted)] px-3.5 py-3">
 				<div className="mb-2 flex items-center gap-1.5 text-omp-xs font-bold tracking-[0.12em] text-[var(--omp-status-context)] uppercase">
 					{isFiles ? <FileText size={12} /> : <Archive size={12} />}
 					{label}
@@ -279,7 +279,7 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 		return (
 			<div className="omp-user-turn group flex justify-end px-6 py-2.5">
 				<div
-					className="omp-user-bubble omp-fade-up relative max-w-[75%] rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3"
+					className="omp-transcript-content omp-user-bubble omp-fade-up relative rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3"
 					style={{ boxShadow: "var(--omp-shadow-sm)" }}
 				>
 					<div className="omp-user-bubble-layout">
@@ -295,7 +295,7 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 								if (block.type === "text") {
 									return (
 										<div key={i} className="text-omp-xl leading-[1.6] text-[var(--omp-text)]">
-											<MarkdownRenderer content={block.text} />
+											<MarkdownRenderer content={block.text} singleDollarTextMath={false} />
 										</div>
 									);
 								}
@@ -381,7 +381,7 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 				compactChrome ? "py-1.5" : "py-3",
 			)}
 		>
-			<div className="min-w-0 flex-1">
+			<div className="omp-transcript-content min-w-0">
 				{customLabel && (
 					<div className="mb-2 text-omp-sm font-bold tracking-[0.1em] text-[var(--omp-status-context)] uppercase">
 						{customLabel}

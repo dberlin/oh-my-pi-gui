@@ -228,14 +228,14 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 					<span className="omp-thinking-duration ml-auto tabular-nums text-[var(--omp-dim)]">{duration}</span>
 				)}
 			</button>
-			{open && (
+			{open ? (
 				<div className="omp-thinking-body max-h-64 overflow-y-auto px-3 pb-2 font-mono text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
 					<div className={cx(isLive && "omp-streaming")}>
 						<MarkdownRenderer content={formatted} />
 						{isLive && <span aria-hidden className="omp-caret" />}
 					</div>
 				</div>
-			)}
+			) : null}
 		</div>
 	);
 }

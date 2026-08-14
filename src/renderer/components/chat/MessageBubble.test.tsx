@@ -174,6 +174,25 @@ describe("MessageBubble user content", () => {
 		expect(html).toContain("<strong>bold</strong>");
 		expect(html).toContain("<code");
 	});
+
+	it("keeps SQL JSONPath dollars literal instead of parsing them as inline math", () => {
+		const sql =
+			"JSON_SET(o.parameters, '$.reasoning_effort.required', FALSE, '$.reasoning_effort.default', 'medium')";
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "user",
+						content: [{ type: "text", text: sql }],
+						timestamp: "2026-08-13T00:00:00.000Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("$.reasoning_effort.required");
+		expect(html).toContain("$.reasoning_effort.default");
+		expect(html).not.toContain("katex");
+	});
 });
 
 describe("MessageBubble noise filtering", () => {
@@ -283,5 +302,21 @@ describe("MessageBubble noise filtering", () => {
 		expect(html).not.toContain("Copy message text");
 		expect(html).toContain("py-1.5");
 		expect(html).toContain("omp-assistant-turn--compact");
+	});
+
+	it("uses the full-width transcript content surface for assistant output", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "assistant",
+						content: [{ type: "text", text: "A long answer that must follow the transcript reading measure." }],
+						timestamp: at,
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain('class="omp-transcript-content min-w-0"');
+		expect(html).not.toContain('class="min-w-0 flex-1"');
 	});
 });

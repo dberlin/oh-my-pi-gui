@@ -5,7 +5,7 @@
  */
 
 import type { AgentMessage, MessageContent, RpcQueuedMessage } from "../../../shared/rpc-types";
-import { isRenderableMessageText } from "../../lib/messages";
+import { isRenderableMessageText, messageText } from "../../lib/messages";
 import type { ReadGroupEntry, ReadGroupUsage } from "../../lib/read-group";
 import type { QueueLane } from "../../stores/queue";
 import type { TodoSnapshot } from "../../stores/todo";
@@ -25,6 +25,15 @@ export interface TimelineMarkerSeed {
 	timestamp?: number | string;
 	toolIds: string[];
 }
+
+export interface ConversationAnchor {
+	key: string;
+	rowIndex: number;
+	preview: string;
+	timestamp?: number | string;
+}
+
+const CONVERSATION_PREVIEW_LIMIT = 180;
 
 export type HistoryRow =
 	| { kind: "message"; message: AgentMessage }
@@ -74,6 +83,45 @@ export function buildTranscriptRowKeys(rows: readonly Row[]): string[] {
 		occurrences.set(base, occurrence + 1);
 		return occurrence === 0 ? base : `${base}-${occurrence}`;
 	});
+}
+
+/** One stable minimap anchor per user-authored turn in the rendered row set. */
+export function buildConversationAnchors(rows: readonly Row[], rowKeys: readonly string[]): ConversationAnchor[] {
+	const anchors: ConversationAnchor[] = [];
+	for (const [rowIndex, row] of rows.entries()) {
+		if (row.kind !== "message" || row.message.role !== "user") continue;
+		anchors.push({
+			key: rowKeys[rowIndex] ?? `conversation-${rowIndex}`,
+			rowIndex,
+			preview: conversationPreview(messageText(row.message)),
+			timestamp: row.message.timestamp,
+		});
+	}
+	return anchors;
+}
+
+function conversationPreview(text: string): string {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	if (normalized.length <= CONVERSATION_PREVIEW_LIMIT) return normalized;
+	return `${normalized.slice(0, CONVERSATION_PREVIEW_LIMIT - 1).trimEnd()}…`;
+}
+
+/** Current user turn at or immediately before the first visible transcript row. */
+export function findConversationAnchorIndex(anchors: readonly ConversationAnchor[], visibleRowIndex: number): number {
+	if (anchors.length === 0) return -1;
+	let low = 0;
+	let high = anchors.length - 1;
+	let match = 0;
+	while (low <= high) {
+		const middle = Math.floor((low + high) / 2);
+		if (anchors[middle]!.rowIndex <= visibleRowIndex) {
+			match = middle;
+			low = middle + 1;
+		} else {
+			high = middle - 1;
+		}
+	}
+	return match;
 }
 
 /** Stable finalized-row identities used by the virtualizer and regression tests. */

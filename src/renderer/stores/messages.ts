@@ -42,6 +42,12 @@ interface MessagesStore {
 	 * for a run that settled unseen (background tab: its message_end/agent_end
 	 * never forwarded), where hydrate's transcript merge owns the final content. */
 	clearStreaming: () => void;
+	/**
+	 * Apply a fetched transcript. When delivery identities match the current
+	 * prefix, patch in place instead of replacing the array (avoids a second
+	 * paint after tab restore). A different identity sequence replaces wholesale.
+	 */
+	reconcileFetched: (fetched: AgentMessage[]) => void;
 	/** Capture the full stream state (fields + buffers) for a session-tab switch. */
 	snapshot: () => MessagesSnapshot;
 	/** Restore a captured snapshot; null resets to the empty initial state. */
@@ -99,6 +105,18 @@ export function messageIdentityKey(message: AgentMessage): string {
 				? message.toolCallId
 				: null;
 	return JSON.stringify([message.role, stableId, message.timestamp]);
+}
+
+/** True when `fetched` starts with the same delivery identities as `current`. */
+export function sameIdentityPrefix(current: AgentMessage[], fetched: AgentMessage[]): boolean {
+	const limit = Math.min(current.length, fetched.length);
+	if (limit === 0) return current.length === 0 && fetched.length === 0;
+	for (let i = 0; i < limit; i++) {
+		const left = current[i];
+		const right = fetched[i];
+		if (!left || !right || messageIdentityKey(left) !== messageIdentityKey(right)) return false;
+	}
+	return true;
 }
 
 /**
@@ -262,6 +280,28 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 		}),
 	clearStreaming: () => {
 		set({ streamingMessage: null, streamingText: "", streamingThinking: "" });
+	},
+	reconcileFetched: fetched => {
+		const current = get().messages;
+		if (sameIdentityPrefix(current, fetched)) {
+			if (fetched.length === current.length) {
+				let changed = false;
+				const next = current.map((message, index) => {
+					const incoming = fetched[index];
+					if (!incoming || incoming === message) return message;
+					changed = true;
+					return incoming;
+				});
+				if (!changed) return;
+				set({ messages: next, totalMessages: next.length });
+				return;
+			}
+			if (fetched.length > current.length) {
+				set({ messages: [...current, ...fetched.slice(current.length)], totalMessages: fetched.length });
+				return;
+			}
+		}
+		set({ messages: fetched, totalMessages: fetched.length });
 	},
 	snapshot: () => {
 		const state = get();

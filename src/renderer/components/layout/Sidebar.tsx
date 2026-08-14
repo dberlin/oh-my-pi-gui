@@ -18,15 +18,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import {
-	type CSSProperties,
-	type PointerEvent as ReactPointerEvent,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
@@ -59,60 +51,10 @@ interface WorkspaceGroup {
 	sessions: SessionInfo[];
 }
 
-interface SidebarScrollingTitleProps {
-	className?: string;
-	title: string;
-}
-
-/**
- * A sidebar title gets the full row until hover reveals its action rail. Once
- * the rail compresses the viewport, only genuinely overflowing titles glide
- * far enough to reveal their hidden suffix.
- */
-function SidebarScrollingTitle({ className, title }: SidebarScrollingTitleProps) {
-	const viewportRef = useRef<HTMLSpanElement>(null);
-	const trackRef = useRef<HTMLSpanElement>(null);
-	const [scrollDistance, setScrollDistance] = useState(0);
-
-	const measureOverflow = useCallback(() => {
-		const viewport = viewportRef.current;
-		const track = trackRef.current;
-		if (!viewport || !track) return;
-		const nextDistance = Math.max(0, Math.ceil(track.scrollWidth - viewport.clientWidth));
-		setScrollDistance(current => (current === nextDistance ? current : nextDistance));
-	}, []);
-
-	useEffect(() => {
-		measureOverflow();
-		if (typeof ResizeObserver === "undefined") return;
-		const observer = new ResizeObserver(measureOverflow);
-		const viewport = viewportRef.current;
-		const track = trackRef.current;
-		if (viewport) observer.observe(viewport);
-		if (track) observer.observe(track);
-		return () => observer.disconnect();
-	}, [measureOverflow]);
-
-	const animationDuration = Math.min(4_000, Math.max(1_250, 900 + scrollDistance * 18));
-	const animationStyle = {
-		"--omp-sidebar-scroll-distance": `${scrollDistance}px`,
-		"--omp-sidebar-scroll-duration": `${animationDuration}ms`,
-	} as CSSProperties;
-
+function SidebarRowTitle({ className, title }: { className?: string; title: string }) {
 	return (
-		<span
-			ref={viewportRef}
-			className={cx("omp-sidebar-scrolling-title min-w-0 flex-1 overflow-hidden", className)}
-			title={title}
-		>
-			<span
-				ref={trackRef}
-				className="omp-sidebar-scrolling-title-track"
-				data-overflow={scrollDistance > 1}
-				style={animationStyle}
-			>
-				<span>{title}</span>
-			</span>
+		<span className={cx("omp-sidebar-title min-w-0 flex-1 truncate", className)} title={title}>
+			{title}
 		</span>
 	);
 }
@@ -128,6 +70,7 @@ function SidebarScrollingTitle({ className, title }: SidebarScrollingTitleProps)
 export function Sidebar() {
 	const [query, setQuery] = useState("");
 	const t = useT();
+	const switchPendingTo = useUiStore(s => s.switchPending?.toId ?? null);
 	// Resizable left rail (mirrors PanelContainer's right-rail drag, but the
 	// handle sits on the right edge and dragging right grows the sidebar).
 	const SIDEBAR_MIN = 180;
@@ -383,17 +326,19 @@ export function Sidebar() {
 				onKeyDown={event => {
 					if (event.key === "Enter") void openSession(session);
 				}}
+				data-active={active}
+				data-switch-pending={switchPendingTo === session.id || undefined}
 				data-has-actions={hasActions}
 				data-actions-open={actionsOpen}
 				data-session-kind={session.kind ?? "agent"}
 				className={cx(
-					"omp-sidebar-session-row group cursor-pointer rounded-md border px-2 py-1 transition-colors duration-150 ease-out",
+					"omp-sidebar-session-row omp-color-fade group cursor-pointer rounded-md border px-2 py-1",
 					active
 						? "border-[var(--omp-border-accent)] bg-[var(--omp-selected-bg)]"
 						: "border-transparent hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]",
 				)}
 			>
-				<div className="flex items-center">
+				<div className="flex min-w-0 items-center">
 					<span
 						title={
 							signal === "waiting"
@@ -402,7 +347,7 @@ export function Sidebar() {
 									? t("sidebar.signal.running")
 									: session.status
 						}
-						className={cx("mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full", signal != null && "omp-pulse-dot")}
+						className={cx("mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full", signal === "waiting" && "omp-pulse-dot")}
 						style={{
 							background:
 								signal === "waiting"
@@ -433,7 +378,7 @@ export function Sidebar() {
 							className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-omp-md font-normal text-[var(--omp-muted)] outline-none"
 						/>
 					) : (
-						<SidebarScrollingTitle
+						<SidebarRowTitle
 							className="text-omp-md font-normal leading-5 text-[var(--omp-muted)]"
 							title={title}
 						/>
@@ -634,7 +579,7 @@ export function Sidebar() {
 									data-actions-open={groupActionsOpen}
 									onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
 									className={cx(
-										"omp-sidebar-workspace-row group flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-omp-xs font-medium uppercase tracking-[0.08em] transition-colors duration-150 ease-out",
+										"omp-sidebar-workspace-row omp-color-fade group flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 pr-8 text-left text-omp-xs font-medium uppercase tracking-[0.08em]",
 										isCurrent
 											? "text-[var(--omp-muted)]"
 											: "text-[var(--omp-dim)] hover:text-[var(--omp-muted)]",
@@ -698,7 +643,7 @@ export function Sidebar() {
 													aria-label={t("sidebar.pinned")}
 												/>
 											)}
-											<SidebarScrollingTitle className="text-left" title={group.name} />
+											<SidebarRowTitle className="text-left" title={group.name} />
 											<span className="shrink-0 tabular-nums text-omp-xs font-normal text-[var(--omp-dim)]">
 												{group.sessions.length}
 											</span>

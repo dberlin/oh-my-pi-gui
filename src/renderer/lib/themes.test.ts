@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { THEME_TOKEN_KEYS, THEMES } from "./themes";
+import { THEME_TOKEN_KEYS, THEMES, TRANSCRIPT_OVERLAY_VARS } from "./themes";
 
 describe("theme registry", () => {
 	it("defines every canonical token on every theme", () => {
@@ -36,4 +36,49 @@ describe("theme registry", () => {
 		expect(schemes).toContain("light");
 		expect(schemes).toContain("dark");
 	});
+
+	it("keeps the TUI overlay off chrome tokens", () => {
+		const overlay = new Set(Object.values(TRANSCRIPT_OVERLAY_VARS));
+		for (const chrome of ["--omp-accent", "--omp-sidebar-bg", "--omp-titlebar-bg", "--omp-btn-primary-bg"] as const) {
+			expect(overlay.has(chrome), chrome).toBe(false);
+		}
+	});
+
+	it("keeps dark and light accents in the same hue family", () => {
+		const delta = hueDelta(hexHue(THEMES.dark.tokens["--omp-accent"]), hexHue(THEMES.light.tokens["--omp-accent"]));
+		expect(delta).toBeLessThan(30);
+	});
+
+	it("does not use purple for keyword, model, or custom-label roles", () => {
+		for (const [name, theme] of Object.entries(THEMES)) {
+			for (const key of ["--omp-syntax-keyword", "--omp-status-model", "--omp-custom-msg-label"] as const) {
+				const hue = hexHue(theme.tokens[key]);
+				expect(hue < 260 || hue > 320, `${name} ${key} hue ${hue}`).toBe(true);
+			}
+		}
+	});
 });
+
+function hexHue(hex: string): number {
+	const raw = hex.trim();
+	if (!raw.startsWith("#") || (raw.length !== 7 && raw.length !== 4)) return -1;
+	const n = raw.length === 4 ? `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}` : raw;
+	const r = Number.parseInt(n.slice(1, 3), 16) / 255;
+	const g = Number.parseInt(n.slice(3, 5), 16) / 255;
+	const b = Number.parseInt(n.slice(5, 7), 16) / 255;
+	const max = Math.max(r, g, b);
+	const min = Math.min(r, g, b);
+	if (max === min) return 0;
+	const d = max - min;
+	let h = 0;
+	if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+	else if (max === g) h = ((b - r) / d + 2) * 60;
+	else h = ((r - g) / d + 4) * 60;
+	return h;
+}
+
+function hueDelta(a: number, b: number): number {
+	if (a < 0 || b < 0) return 0;
+	const d = Math.abs(a - b);
+	return Math.min(d, 360 - d);
+}

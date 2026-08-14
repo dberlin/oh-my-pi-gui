@@ -34,10 +34,13 @@ import { useUiStore } from "../../stores/ui";
 import { PiLogo } from "../common";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
+import { ConversationNavigator } from "./ConversationNavigator";
 import {
+	buildConversationAnchors,
 	buildHistoryRows,
 	buildTimelineMarkers,
 	buildTranscriptRowKeys,
+	findConversationAnchorIndex,
 	type HistoryRow,
 	hasStreamingTranscriptContent,
 	mergeTodoSnapshots,
@@ -45,6 +48,7 @@ import {
 	type Row,
 	type TimelineMarkerSeed,
 } from "./chat-stream-utils";
+import { ExecutionGroup } from "./ExecutionGroup";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -59,10 +63,8 @@ export function ChatStream() {
 	const t = useT();
 	const messages = useMessagesStore(s => s.messages);
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
-	const streamingText = useMessagesStore(s => s.streamingText);
-	const streamingThinking = useMessagesStore(s => s.streamingThinking);
-	const streamingTextLen = useMessagesStore(s => s.streamingText.length);
-	const streamingThinkingLen = useMessagesStore(s => s.streamingThinking.length);
+	const hasStreamingText = useMessagesStore(s => isRenderableMessageText(s.streamingText));
+	const hasStreamingThinking = useMessagesStore(s => isRenderableMessageText(s.streamingThinking));
 	const activeTools = useToolsStore(s => s.activeTools);
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
@@ -73,8 +75,10 @@ export function ChatStream() {
 	// Shared agent compaction preference and GUI-local transcript detail.
 	const collapseCompacted = useSettingsStore(s => s.collapseCompacted);
 	const transcriptDetail = useUiStore(s => s.transcriptDetail);
+	const switchPending = useUiStore(s => s.switchPending);
 	const [preCompactionOpen, setPreCompactionOpen] = useState(false);
 	const [pinned, setPinned] = useState(true);
+	const [visibleRowIndex, setVisibleRowIndex] = useState(Number.MAX_SAFE_INTEGER);
 	// Virtualizer measurements and programmatic scrollToIndex both emit scroll
 	// events. Only an actual wheel/touch/scrollbar/keyboard gesture may unpin the
 	// transcript; otherwise a session hydrate can mistake its own layout shift
@@ -87,6 +91,7 @@ export function ChatStream() {
 		setPreCompactionOpen(false);
 		userScrollIntentRef.current = false;
 		setPinned(true);
+		setVisibleRowIndex(Number.MAX_SAFE_INTEGER);
 	}, [sessionId]);
 
 	const lastCompactionIndex = messages.findLastIndex(message => message.role === "compactionSummary");
@@ -107,8 +112,8 @@ export function ChatStream() {
 	// streaming rows, so the shell window never reads as dead air.
 	const hasStreamedContent = hasStreamingTranscriptContent(
 		streamingMessage,
-		streamingText,
-		streamingThinking,
+		hasStreamingText ? "x" : "",
+		hasStreamingThinking ? "x" : "",
 		activeTools,
 	);
 
@@ -162,6 +167,21 @@ export function ChatStream() {
 	}, [hiddenCount, historyRows, historyMarkers, hasStreamedContent, showStatusRow, queued.steering, queued.followUp]);
 
 	const parentRef = useRef<HTMLDivElement>(null);
+	const sizeCacheRef = useRef(new Map<string | number, number>());
+	useEffect(() => {
+		void sessionId;
+		sizeCacheRef.current.clear();
+	}, [sessionId]);
+	const conversationAnchors = useMemo(() => buildConversationAnchors(rows, rowKeys), [rows, rowKeys]);
+	const activeConversationIndex = useMemo(
+		() => findConversationAnchorIndex(conversationAnchors, visibleRowIndex),
+		[conversationAnchors, visibleRowIndex],
+	);
+	const handleVirtualizerChange = useCallback((instance: { range: { startIndex: number } | null }) => {
+		const next = instance.range?.startIndex;
+		if (next == null) return;
+		setVisibleRowIndex(current => (current === next ? current : next));
+	}, []);
 
 	const STARTERS = [
 		{ icon: Code2, title: t("chat.starter.understand.title"), prompt: t("chat.starter.understand.prompt") },
@@ -193,38 +213,50 @@ export function ChatStream() {
 		// layers it produced on large transcripts.
 		useFlushSync: false,
 		getScrollElement: () => parentRef.current,
-		estimateSize: i =>
-			rows[i]?.kind === "streaming"
-				? 96
-				: rows[i]?.kind === "pending" || rows[i]?.kind === "queued"
-					? 56
-					: rows[i]?.kind === "expander" || rows[i]?.kind === "process" || rows[i]?.kind === "todoSnapshot"
-						? 44
-						: 128,
+		estimateSize: i => {
+			const key = rowKeys[i] ?? i;
+			const cached = sizeCacheRef.current.get(key);
+			if (cached != null) return cached;
+			const kind = rows[i]?.kind;
+			if (kind === "streaming") return 80;
+			if (kind === "pending" || kind === "queued") return 56;
+			if (kind === "expander" || kind === "process" || kind === "todoSnapshot") return 48;
+			if (kind === "message") return 72;
+			return 160;
+		},
 		overscan: 8,
-		measureElement: el => el.getBoundingClientRect().height,
+		measureElement: el => {
+			const height = el.getBoundingClientRect().height;
+			const index = Number((el as HTMLElement).dataset.index);
+			const key = Number.isFinite(index) ? (rowKeys[index] ?? index) : undefined;
+			if (key != null) sizeCacheRef.current.set(key, height);
+			return height;
+		},
+		onChange: handleVirtualizerChange,
 	});
 
-	// Pin to bottom whenever new content arrives and the user hasn't scrolled away.
-	// `rows.length` alone misses the growth the virtualizer renders inside a
-	// constant row count: the streaming row's text/thinking accumulate, and the
-	// final `message_end` swap keeps the count at one while its content lands.
-	// The delta-length selectors re-fire the effect so those also snap back to
-	// the bottom while pinned.
+	// Follow newly appended rows while pinned. In-row growth (streaming text)
+	// is handled by ResizeObserver below so token updates do not re-render
+	// the virtualizer owner.
 	useEffect(() => {
 		if (!pinned || rows.length === 0) return;
 		void sessionId;
-		void historyRows;
-		// Read the delta lengths so biome sees them used; they are the trigger
-		// signal that re-fires this effect as the streaming row grows.
-		void streamingTextLen;
-		void streamingThinkingLen;
-		// TanStack Virtual performs a synchronous measurement while scrolling.
-		// Schedule it after React's lifecycle work so hydration/resize cannot
-		// re-enter rendering (which previously left stale, ghosted row layers).
 		const frame = requestAnimationFrame(() => virtualizer.scrollToEnd());
 		return () => cancelAnimationFrame(frame);
-	}, [virtualizer, rows.length, pinned, streamingTextLen, streamingThinkingLen, sessionId, historyRows]);
+	}, [virtualizer, rows.length, pinned, sessionId]);
+
+	useEffect(() => {
+		if (!pinned) return;
+		const el = parentRef.current;
+		if (!el || typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(() => {
+			if (userScrollIntentRef.current) return;
+			const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+			if (distance < 80) virtualizer.scrollToEnd();
+		});
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, [pinned, virtualizer]);
 
 	const handleScroll = useCallback(() => {
 		if (!userScrollIntentRef.current) return;
@@ -259,6 +291,15 @@ export function ChatStream() {
 		virtualizer.scrollToEnd();
 	}, [virtualizer]);
 
+	const jumpToConversation = useCallback(
+		(rowIndex: number) => {
+			userScrollIntentRef.current = false;
+			setPinned(false);
+			virtualizer.scrollToIndex(rowIndex, { align: "start" });
+		},
+		[virtualizer],
+	);
+
 	// Messages hydrate via hydrateSession (use-rpc-events) on sidecar ready —
 	// no separate fetch here (that would double-download the transcript).
 
@@ -273,12 +314,17 @@ export function ChatStream() {
 				onKeyDown={handleScrollKeyDown}
 				className="omp-transcript-scroll h-full overflow-y-auto overscroll-contain"
 			>
-				{status === "starting" && (
+				{switchPending && (
+					<div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden">
+						<div className="h-full w-1/3 animate-pulse bg-[var(--omp-accent)]" />
+					</div>
+				)}
+				{status === "starting" && rows.length === 0 && !switchPending && (
 					<div className="flex justify-center py-3">
 						<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
 					</div>
 				)}
-				{rows.length === 0 && !isStreaming && (
+				{rows.length === 0 && !isStreaming && !switchPending && (
 					<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
 						<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)]">
 							<PiLogo size={22} />
@@ -365,6 +411,11 @@ export function ChatStream() {
 					})}
 				</div>
 			</div>
+			<ConversationNavigator
+				activeIndex={activeConversationIndex}
+				anchors={conversationAnchors}
+				onNavigate={jumpToConversation}
+			/>
 			<button
 				type="button"
 				onClick={jumpToLatest}
@@ -418,14 +469,22 @@ function TimelineMarker({ seed }: { seed: TimelineMarkerSeed | null }) {
 
 function ProcessGroup({ row }: { row: Extract<HistoryRow, { kind: "process" }> }) {
 	return (
-		<div className="omp-process-group">
-			{row.messages.map((message, index) => (
-				<MessageBubble
-					compact
-					key={typeof message.id === "string" ? message.id : `${String(message.timestamp ?? "process")}-${index}`}
-					message={message}
-				/>
-			))}
+		<div className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
+			<ExecutionGroup stepCount={row.stepCount} toolCallIds={row.toolCallIds}>
+				<div className="omp-process-group">
+					{row.messages.map((message, index) => (
+						<MessageBubble
+							compact
+							key={
+								typeof message.id === "string"
+									? message.id
+									: `${String(message.timestamp ?? "process")}-${index}`
+							}
+							message={message}
+						/>
+					))}
+				</div>
+			</ExecutionGroup>
 		</div>
 	);
 }
@@ -548,10 +607,16 @@ function StreamingRows() {
 	return (
 		<div className="omp-streaming-turn flex flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
 			{hasProcess ? (
-				<div className="omp-process-group omp-process-group--live">
-					{hasThinking ? <ThinkingBlock live /> : null}
-					{toolCalls.length + liveTools.length > 0 ? <div>{toolCards}</div> : null}
-				</div>
+				<ExecutionGroup
+					live
+					stepCount={toolCalls.length + liveTools.length + (hasThinking ? 1 : 0)}
+					toolCallIds={allCards.map(card => card.id)}
+				>
+					<div className="omp-process-group omp-process-group--live">
+						{hasThinking ? <ThinkingBlock live /> : null}
+						{toolCalls.length + liveTools.length > 0 ? <div>{toolCards}</div> : null}
+					</div>
+				</ExecutionGroup>
 			) : null}
 			<div className={hasProcess ? "mt-1" : undefined}>
 				<StreamingText />
@@ -692,7 +757,7 @@ function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: Que
 
 	return (
 		<div className="omp-queued-turn group flex justify-end ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1.5">
-			<div className="omp-queued-bubble flex max-w-[75%] items-start gap-2 rounded-xl border border-dashed border-[var(--omp-border)] px-3.5 py-2.5">
+			<div className="omp-transcript-content omp-queued-bubble flex items-start gap-2 rounded-xl border border-dashed border-[var(--omp-border)] px-3.5 py-2.5">
 				<div className="min-w-0 flex-1">
 					<div className="mb-0.5 text-omp-xs font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
 						{t(lane === "steering" ? "pendingBubble.steering" : "pendingBubble.followUp")}
@@ -804,9 +869,11 @@ function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
 export type { HistoryRow, Row, TimelineMarkerSeed } from "./chat-stream-utils";
 // Re-export transcript helpers for consumers/tests that import them from ChatStream.
 export {
+	buildConversationAnchors,
 	buildHistoryRowKeys,
 	buildHistoryRows,
 	buildTimelineMarkers,
+	findConversationAnchorIndex,
 	hasStreamingTranscriptContent,
 	mergeTodoSnapshots,
 } from "./chat-stream-utils";

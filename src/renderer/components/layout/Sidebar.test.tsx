@@ -446,4 +446,22 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(oneIndex).toBeGreaterThanOrEqual(0);
 		expect(twoIndex).toBeLessThan(oneIndex);
 	});
+
+	it("session titles truncate in place and hover actions do not claim row width", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+
+		const row = [...document.querySelectorAll(".omp-sidebar-session-row")].find(el =>
+			(el.textContent ?? "").includes("Session /work/alpha/one"),
+		);
+		expect(row).toBeDefined();
+		const title = row?.querySelector(".omp-sidebar-title");
+		const actions = row?.querySelector(".omp-sidebar-session-actions");
+		expect(title).not.toBeNull();
+		expect(title?.className).toContain("truncate");
+		expect(actions).not.toBeNull();
+		expect(actions?.className).not.toMatch(/\bw-\d|\bwidth/);
+		expect(row?.querySelector("[data-overflow]")).toBeNull();
+	});
 });

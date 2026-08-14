@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import type { TodoSnapshot } from "../../stores/todo";
 import {
+	buildConversationAnchors,
 	buildHistoryRowKeys,
 	buildHistoryRows,
 	buildTimelineMarkers,
+	findConversationAnchorIndex,
 	hasStreamingTranscriptContent,
 	mergeTodoSnapshots,
 } from "./ChatStream";
@@ -216,6 +218,51 @@ describe("virtual transcript identity", () => {
 			"full",
 		);
 		expect(buildHistoryRowKeys(prependedRows).slice(1)).toEqual(existingKeys);
+	});
+});
+
+describe("conversation navigation anchors", () => {
+	it("indexes only user-authored turns and keeps their rendered row targets", () => {
+		const rows = buildHistoryRows(
+			[
+				{ role: "user", content: [{ type: "text", text: "  First\nquestion  " }], timestamp: 100 },
+				assistant([{ type: "text", text: "First answer" }]),
+				{ role: "user", content: [{ type: "text", text: "Second question" }], timestamp: 300 },
+			],
+			"full",
+		);
+		const keys = buildHistoryRowKeys(rows);
+
+		expect(buildConversationAnchors(rows, keys)).toEqual([
+			{ key: keys[0], rowIndex: 0, preview: "First question", timestamp: 100 },
+			{ key: keys[2], rowIndex: 2, preview: "Second question", timestamp: 300 },
+		]);
+	});
+
+	it("selects the user turn at or immediately before the visible row", () => {
+		const anchors = [
+			{ key: "one", rowIndex: 2, preview: "One" },
+			{ key: "two", rowIndex: 7, preview: "Two" },
+			{ key: "three", rowIndex: 12, preview: "Three" },
+		];
+
+		expect(findConversationAnchorIndex(anchors, 0)).toBe(0);
+		expect(findConversationAnchorIndex(anchors, 7)).toBe(1);
+		expect(findConversationAnchorIndex(anchors, 11)).toBe(1);
+		expect(findConversationAnchorIndex(anchors, 99)).toBe(2);
+		expect(findConversationAnchorIndex([], 3)).toBe(-1);
+	});
+
+	it("bounds long prompt previews without changing their target row", () => {
+		const rows = buildHistoryRows(
+			[{ role: "user", content: [{ type: "text", text: "SQL ".repeat(100) }], timestamp: 100 }],
+			"full",
+		);
+		const [anchor] = buildConversationAnchors(rows, buildHistoryRowKeys(rows));
+
+		expect(anchor?.rowIndex).toBe(0);
+		expect(anchor?.preview.length).toBeLessThanOrEqual(180);
+		expect(anchor?.preview.endsWith("…")).toBe(true);
 	});
 });
 

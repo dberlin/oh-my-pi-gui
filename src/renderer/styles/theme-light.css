@@ -12,10 +12,10 @@
 	--omp-accent-dim: rgba(15, 118, 110, 0.08);
 	--omp-accent-glow: rgba(15, 118, 110, 0.15);
 
-	--omp-border: #e5e2dc;
+	--omp-border: #d8d4cc;
 	--omp-border-accent: rgba(15, 118, 110, 0.4);
-	--omp-border-muted: #edebe6;
-	--omp-border-strong: #d2cec5;
+	--omp-border-muted: #e5e2dc;
+	--omp-border-strong: #c9c4bb;
 	--omp-success: #15803d;
 	--omp-success-dim: rgba(21, 128, 61, 0.09);
 	--omp-error: #c2373f;
@@ -27,15 +27,15 @@
 	--omp-text: #1f2328;
 	--omp-text-secondary: #4b5057;
 
-	--omp-bg-primary: #ffffff;
-	--omp-bg-secondary: #faf9f8;
-	--omp-bg-tertiary: #f2f0ed;
+	--omp-bg-primary: #f7f5f2;
+	--omp-bg-secondary: #f3f1ed;
+	--omp-bg-tertiary: #eeebe6;
 	--omp-bg-elevated: #ffffff;
 	--omp-selected-bg: #eceae6;
-	--omp-user-msg-bg: #f4f2ee;
-	--omp-user-msg-border: #dedad3;
-	--omp-custom-msg-bg: #f1effa;
-	--omp-code-bg: #f6f5f3;
+	--omp-user-msg-bg: #efebe4;
+	--omp-user-msg-border: #d8d4cc;
+	--omp-custom-msg-bg: #eceae4;
+	--omp-code-bg: #eeece8;
 
 	--omp-tool-pending-bg: #f5f4f2;
 	--omp-tool-success-bg: #edf6ef;
@@ -50,10 +50,10 @@
 	--omp-md-link-url: #7d8590;
 	--omp-md-code: #9d4e15;
 	--omp-md-code-block: #3a3f46;
-	--omp-md-code-block-border: #e5e2dc;
+	--omp-md-code-block-border: #d8d4cc;
 	--omp-md-quote: #5b636d;
 	--omp-md-quote-border: #cfcabf;
-	--omp-md-hr: #e5e2dc;
+	--omp-md-hr: #d8d4cc;
 	--omp-md-list-bullet: var(--omp-accent);
 
 	--omp-diff-added: #15803d;
@@ -63,24 +63,24 @@
 	--omp-diff-context: #6d7681;
 
 	--omp-syntax-comment: #8a9199;
-	--omp-syntax-keyword: #7c3aed;
-	--omp-syntax-function: #0f766e;
+	--omp-syntax-keyword: #0f766e;
+	--omp-syntax-function: #0d9488;
 	--omp-syntax-variable: #1f2328;
 	--omp-syntax-string: #9d4e15;
-	--omp-syntax-number: #0369a1;
-	--omp-syntax-type: #a16207;
+	--omp-syntax-number: #0d7377;
+	--omp-syntax-type: #3d8a84;
 	--omp-syntax-operator: #4b5057;
 	--omp-syntax-punctuation: #6d7681;
 
 	--omp-thinking-off: #aab0b8;
-	--omp-thinking-minimal: #828a94;
+	--omp-thinking-minimal: #7a8a88;
 	--omp-thinking-low: #3d8a84;
 	--omp-thinking-medium: #0f766e;
-	--omp-thinking-high: #9d4e15;
-	--omp-thinking-xhigh: #b45309;
+	--omp-thinking-high: #0d5c56;
+	--omp-thinking-xhigh: #0a4a45;
 
 	--omp-status-bg: #f0eeeb;
-	--omp-status-model: #6d28d9;
+	--omp-status-model: #4b5057;
 	--omp-status-path: #0d7377;
 	--omp-status-git-clean: #15803d;
 	--omp-status-git-dirty: #a16207;
@@ -95,7 +95,7 @@
 	--omp-muted: #5d646d;
 	--omp-dim: #6d7681;
 	--omp-link: #0f766e;
-	--omp-custom-msg-label: #6d28d9;
+	--omp-custom-msg-label: #0f766e;
 
 	--omp-input-bg: #ffffff;
 	--omp-input-border: #d8d4cc;
@@ -115,16 +115,16 @@
 
 	--omp-overlay-bg: rgba(24, 28, 33, 0.34);
 	--omp-modal-bg: #ffffff;
-	--omp-modal-border: #e5e2dc;
+	--omp-modal-border: #d8d4cc;
 
 	--omp-toast-bg: #ffffff;
 	--omp-toast-text: #1f2328;
-	--omp-toast-border: #e5e2dc;
+	--omp-toast-border: #d8d4cc;
 
 	--omp-progress-bg: #e9e6e1;
 	--omp-progress-fill: var(--omp-accent);
 
-	--omp-sidebar-bg: #faf9f8;
+	--omp-sidebar-bg: #f3f1ed;
 	--omp-sidebar-item-hover: #f1efec;
 	--omp-sidebar-item-active: #eae7e3;
 
@@ -143,15 +143,15 @@
 	--omp-transcript-event: #8c96a0;
 	--omp-transcript-event-live: var(--omp-accent);
 	--omp-transcript-launch: #0f6f72;
-	--omp-transcript-user-bg: #f3f0ea;
-	--omp-transcript-user-border: #ece5dc;
-	--omp-transcript-code-bg: #f7f6f4;
+	--omp-transcript-user-bg: #efebe4;
+	--omp-transcript-user-border: #d8d4cc;
+	--omp-transcript-code-bg: #eeece8;
 
-	--omp-panel-bg: #faf9f8;
-	--omp-panel-border: #e8e5df;
+	--omp-panel-bg: #f3f1ed;
+	--omp-panel-border: #d8d4cc;
 	--omp-panel-header: #5d646d;
 
-	--omp-titlebar-bg: #ffffff;
+	--omp-titlebar-bg: #f7f5f2;
 	--omp-titlebar-text: #1f2328;
 
 	--omp-shadow-sm: 0 1px 2px rgba(24, 28, 33, 0.06);

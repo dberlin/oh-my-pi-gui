@@ -384,8 +384,8 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 			tail.length > 0
 				? [...fetched, ...tail.filter(message => !fetchedKeys.has(messageIdentityKey(message)))]
 				: fetched;
-		useMessagesStore.setState({ messages: merged, totalMessages: merged.length });
-		useToolsStore.getState().hydrateMessages(merged);
+		useMessagesStore.getState().reconcileFetched(merged);
+		useToolsStore.getState().hydrateMessages(useMessagesStore.getState().messages);
 	}
 
 	// Subagents and secondary chips do not hold the transcript hostage. Their
@@ -407,6 +407,9 @@ export function useRpcEvents(): void {
 	useEffect(() => {
 		const unsubscribe = window.omp.events.onBatch((events: AgentSessionEvent[]) => {
 			if (!acceptsActiveTabEvents()) return;
+			// Incoming session events belong to the target sidecar. Drop them
+			// until hydrate commits so they cannot append onto the outgoing transcript.
+			if (useUiStore.getState().switchPending) return;
 			useMessagesStore.getState().applyEvents(events);
 			useToolsStore.getState().applyEvents(events);
 

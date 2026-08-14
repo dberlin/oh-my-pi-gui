@@ -21,6 +21,7 @@ Source-verified against omp codebase (2026-08-01 audit).
 | 16 | [Agent RPC Extensions](./16-agent-rpc-extensions.md) | 11 个新 RPC 命令的线路契约、插入点、错误语义 |
 | 17 | [Composer & Input](./17-composer-input.md) | 队列简写、大粘贴、补全 provider 链、键位/重映射、渲染小项 |
 | 19 | [Chat Sessions](./19-chat-sessions.md) | 无工具纯对话会话:SessionHeader.kind、--chat flag、类型隔离守卫、composer 裁剪、~2 天 | 12.6KB |
+| 22 | [Felt Quality](./22-felt-quality.md) | 对话流畅、session 切换、色彩合同、动效尺、Chrome 去重 |
 
 ## Key Decisions
 

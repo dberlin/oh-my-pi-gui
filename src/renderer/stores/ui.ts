@@ -168,6 +168,9 @@ interface UiStore {
 	closeSessionSwitch: () => void;
 	/** Close UI whose data or actions belong to the outgoing tab. */
 	closeSessionOverlays: () => void;
+	/** In-flight sidebar/picker session switch: keep the outgoing transcript painted. */
+	switchPending: { fromId: string; toId: string } | null;
+	setSwitchPending: (pending: { fromId: string; toId: string } | null) => void;
 	setSidecarError: (error: string | null) => void;
 	clearSidecarError: () => void;
 	setTheme: (theme: ThemeMode) => void;
@@ -202,6 +205,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	notifications: true,
 	thinkingExpanded: false,
 	transcriptDetail: "compact",
+	switchPending: null,
+	setSwitchPending: pending => set({ switchPending: pending }),
 	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),
 	togglePanel: () => set({ panelVisible: !get().panelVisible }),
 	toolsExpandAll: { expanded: false, seq: 0 },

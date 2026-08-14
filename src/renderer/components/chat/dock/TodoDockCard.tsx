@@ -22,24 +22,27 @@ import {
 	useSortable,
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { AlertTriangle, Check, ChevronRight, GripVertical, ListTodo, Pencil, X } from "lucide-react";
+import {
+	AlertCircle,
+	AlertTriangle,
+	Check,
+	CheckCircle2,
+	ChevronRight,
+	Circle,
+	GripVertical,
+	ListTodo,
+	LoaderCircle,
+	Pencil,
+	X,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { TodoPhase, TodoTask } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { toast } from "../../../stores/toast";
 import { type UiTodoPhase, type UiTodoTask, useTodoStore } from "../../../stores/todo";
-import { Badge, type BadgeVariant } from "../../common";
 import { DockCard } from "./DockCard";
 import { buildTodoDockSummary } from "./dock-summary";
 import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
-
-const STATUS_META: Record<TodoTask["status"], { variant: BadgeVariant; dot: boolean }> = {
-	pending: { variant: "muted", dot: false },
-	in_progress: { variant: "info", dot: true },
-	completed: { variant: "success", dot: false },
-	blocked: { variant: "warning", dot: true },
-	abandoned: { variant: "error", dot: false },
-};
 
 const STATUS_LABEL_KEY: Record<TodoTask["status"], string> = {
 	pending: "todoPanel.status.pending",
@@ -50,6 +53,19 @@ const STATUS_LABEL_KEY: Record<TodoTask["status"], string> = {
 };
 
 const STATUS_CYCLE: TodoTask["status"][] = ["pending", "in_progress", "completed", "blocked", "abandoned"];
+
+function TodoStatusIcon({ status }: { status: TodoTask["status"] }) {
+	if (status === "in_progress") {
+		return <LoaderCircle aria-hidden="true" className="animate-spin text-[var(--omp-link)]" size={15} />;
+	}
+	if (status === "completed") {
+		return <CheckCircle2 aria-hidden="true" className="text-[var(--omp-muted)]" size={15} />;
+	}
+	if (status === "blocked" || status === "abandoned") {
+		return <AlertCircle aria-hidden="true" className="text-[var(--omp-error)]" size={15} />;
+	}
+	return <Circle aria-hidden="true" className="text-[var(--omp-dim)]" size={15} strokeDasharray="2.5 2.5" />;
+}
 
 async function pushTodos(phases: UiTodoPhase[], t: (key: string) => string): Promise<void> {
 	const payload: TodoPhase[] = phases.map(phase => ({
@@ -73,10 +89,6 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState(task.content);
-	// task.status is free-form wire data (only the type is narrowed); an
-	// out-of-union status must not deref an undefined meta (white-screen class).
-	const meta = STATUS_META[task.status] ?? STATUS_META.pending;
-
 	const commit = () => {
 		const content = draft.trim();
 		setEditing(false);
@@ -86,7 +98,7 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 
 	return (
 		<div
-			className={`group flex items-center gap-1.5 rounded-sm py-1 pr-1 pl-0.5 text-xs transition-colors ${
+			className={`group flex min-h-8 items-center gap-2 rounded-lg py-1 pr-1 pl-0.5 text-omp-lg transition-colors ${
 				isDragging ? "z-10 bg-(--omp-selected-bg) shadow-md shadow-black/30" : "hover:bg-(--omp-bg-tertiary)"
 			}`}
 			ref={setNodeRef}
@@ -110,7 +122,7 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 				aria-label={t("todoPanel.statusAria", {
 					status: t(STATUS_LABEL_KEY[task.status] ?? "todoPanel.status.pending"),
 				})}
-				className="shrink-0"
+				className="omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
 				onClick={() =>
 					onPatch(phaseId, task.id, {
 						status: STATUS_CYCLE[(STATUS_CYCLE.indexOf(task.status) + 1) % STATUS_CYCLE.length],
@@ -119,9 +131,7 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 				title={t("todoPanel.cycleHint")}
 				type="button"
 			>
-				<Badge dot={meta.dot} pulse={task.status === "in_progress"} variant={meta.variant}>
-					{t(STATUS_LABEL_KEY[task.status] ?? "todoPanel.status.pending")}
-				</Badge>
+				<TodoStatusIcon status={task.status} />
 			</button>
 			{editing ? (
 				<span className="flex min-w-0 flex-1 items-center gap-1">
@@ -192,12 +202,14 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 function PhaseSection({
 	phase,
 	fullPhase,
+	hideHeader,
 	collapsed,
 	onToggle,
 	onPatch,
 }: {
 	phase: UiTodoPhase;
 	fullPhase?: UiTodoPhase;
+	hideHeader: boolean;
 	collapsed: boolean;
 	onToggle: () => void;
 	onPatch: (phaseId: string, taskId: string, patch: Partial<UiTodoTask>) => void;
@@ -209,27 +221,29 @@ function PhaseSection({
 
 	return (
 		<section className="mb-1.5">
-			<button
-				aria-expanded={!collapsed}
-				className="flex w-full items-center gap-1.5 rounded-sm px-1.5 py-1 text-left transition-colors hover:bg-(--omp-bg-tertiary)"
-				onClick={onToggle}
-				type="button"
-			>
-				<ChevronRight
-					className="shrink-0 text-(--omp-dim) transition-transform duration-100"
-					size={12}
-					style={{ transform: collapsed ? undefined : "rotate(90deg)" }}
-				/>
-				<span className="min-w-0 flex-1 truncate text-omp-sm font-semibold tracking-wide text-(--omp-accent) uppercase">
-					{phase.name}
-				</span>
-				<span className="shrink-0 text-omp-xs tabular-nums text-(--omp-dim)">
-					{done}/{total}
-				</span>
-			</button>
-			{!collapsed && (
+			{!hideHeader && (
+				<button
+					aria-expanded={!collapsed}
+					className="flex w-full items-center gap-1.5 rounded-sm px-1.5 py-1 text-left transition-colors hover:bg-(--omp-bg-tertiary)"
+					onClick={onToggle}
+					type="button"
+				>
+					<ChevronRight
+						className="shrink-0 text-(--omp-dim) transition-transform duration-100"
+						size={12}
+						style={{ transform: collapsed ? undefined : "rotate(90deg)" }}
+					/>
+					<span className="min-w-0 flex-1 truncate text-omp-sm font-semibold tracking-wide text-(--omp-accent) uppercase">
+						{phase.name}
+					</span>
+					<span className="shrink-0 text-omp-xs tabular-nums text-(--omp-dim)">
+						{done}/{total}
+					</span>
+				</button>
+			)}
+			{(hideHeader || !collapsed) && (
 				<SortableContext items={phase.tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
-					<div className="ml-2 border-l border-(--omp-border-muted) pl-2">
+					<div className={hideHeader ? "px-0.5" : "ml-2 border-l border-(--omp-border-muted) pl-2"}>
 						{phase.tasks.map(task => (
 							<SortableTaskRow key={task.id} onPatch={onPatch} phaseId={phase.id} task={task} />
 						))}
@@ -306,16 +320,22 @@ export function TodoDockCard() {
 		});
 	}, []);
 
-	const openCount = useMemo(
-		() =>
-			(phases ?? []).reduce(
-				(sum, phase) =>
-					sum +
-					(phase.tasks ?? []).filter(task => task.status !== "completed" && task.status !== "abandoned").length,
-				0,
-			),
-		[phases],
-	);
+	const taskCounts = useMemo(() => {
+		const tasks = phases.flatMap(phase => phase.tasks);
+		return {
+			running: tasks.filter(task => task.status === "in_progress").length,
+			pending: tasks.filter(task => task.status === "pending" || task.status === "blocked").length,
+			completed: tasks.filter(task => task.status === "completed").length,
+		};
+	}, [phases]);
+	const taskSummary =
+		taskCounts.running > 0 && taskCounts.pending > 0
+			? t("dock.todo.runningAndPending", taskCounts)
+			: taskCounts.running > 0
+				? t("dock.todo.running", taskCounts)
+				: taskCounts.pending > 0
+					? t("dock.todo.pending", taskCounts)
+					: t("dock.todo.completed", taskCounts);
 	const summary = useMemo(() => buildTodoDockSummary(phases), [phases]);
 	const displayedPhases = showFull ? phases : summary.phases;
 
@@ -328,9 +348,7 @@ export function TodoDockCard() {
 	return (
 		<DockCard
 			badge={
-				<span className="shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
-					{t("todoPanel.open", { count: openCount })}
-				</span>
+				<span className="min-w-0 truncate text-omp-lg tabular-nums text-[var(--omp-muted)]">{taskSummary}</span>
 			}
 			icon={ListTodo}
 			id="todo"
@@ -361,6 +379,7 @@ export function TodoDockCard() {
 						<PhaseSection
 							collapsed={collapsed.has(phase.id)}
 							fullPhase={phases.find(candidate => candidate.id === phase.id)}
+							hideHeader={displayedPhases.length === 1}
 							key={phase.id}
 							onPatch={patchTask}
 							onToggle={() => togglePhase(phase.id)}

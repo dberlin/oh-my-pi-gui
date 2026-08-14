@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-14
+
+### Changed
+
+- **Felt-quality visual language** (plan 22): one accent family — dark mode is the night version of the light theme instead of a separate cobalt-blue product; surfaces get a clear hierarchy (warm paper canvas, sidebar one step darker, user bubbles with a visible hairline border, code blocks that read as inset rather than page); card borders strengthened; hover/press states change only color and alpha with shared motion tokens (`--omp-motion-fast` / `--omp-motion-med`), now lint-enforced so layout never shifts on interaction.
+- **Session switching feels like turning a page**: the outgoing transcript stays on screen until the new session's transcript is ready — no blank flash; sidecar events arriving mid-switch are dropped instead of appending onto the outgoing transcript; hydrated transcripts patch in place when delivery identities match, eliminating the second paint after tab restore.
+- **Conversation navigator**: a stack of anchor buttons (timestamp + preview) along the transcript lets you jump between turns in long sessions; it compacts beyond 32 anchors and collapses into a dense rail beyond 64.
+- **Execution groups**: completed reasoning/tool phases collapse to a single-line disclosure, while live and failed work auto-opens so current progress and actionable errors are never hidden.
+- **Goal control strip**: a compact persistent bar in the dock carries the session's active goal and its controls.
+- **Context usage popover**: the token/context readout moved out of the title bar and status footer into a popover anchored to the composer (accent-dot indicator on its button); the status footer's minimal mode is now path-only.
+- **Markdown**: user-authored prompts no longer parse single-dollar inline math, so SQL/JSONPath expressions like `$.field` stay literal; display math (`$$…$$`) still renders.
+- **Settings schema labels**: updated for omp 17.3.x — per-agent advisor (`task.agentAdvisor`) label added, stale `advisor.subagents` label removed.
+- **Sidebar rows**: session and workspace titles no longer compress into scrolling labels on hover; full-row titles stay readable with overflow-aware action buttons.
+- **Bundled agent**: the sidecar is rebuilt from the monorepo fork tracking upstream omp 17.3.3.
+
+### Fixed
+
+- Session-switch races: events could append onto the outgoing transcript while the new one hydrates, and tab restore could repaint the entire transcript a second time.
+- Model thinking display: reasoning level and context usage no longer duplicate across the title bar, status footer, and composer surfaces.
+
 ## [0.7.5] - 2026-08-13
 
 ### Changed

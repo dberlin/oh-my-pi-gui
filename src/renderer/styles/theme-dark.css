@@ -1,20 +1,20 @@
 /* ============================================================================
    omp GUI — Dark Theme
-   Neutral graphite surfaces · cobalt accent · high-contrast text
+   Neutral graphite surfaces · teal accent (night version of light)
    ============================================================================ */
 
 :root {
 	color-scheme: dark;
 
 	/* ── Brand ─────────────────────────────────────────────────────────── */
-	--omp-accent: #5b8cff;
-	--omp-accent-bright: #78a1ff;
-	--omp-accent-dim: rgba(91, 140, 255, 0.16);
-	--omp-accent-glow: rgba(91, 140, 255, 0.28);
+	--omp-accent: #4db6ac;
+	--omp-accent-bright: #80cbc4;
+	--omp-accent-dim: rgba(77, 182, 172, 0.16);
+	--omp-accent-glow: rgba(77, 182, 172, 0.28);
 
 	/* ── Core UI ───────────────────────────────────────────────────────── */
 	--omp-border: #344052;
-	--omp-border-accent: rgba(91, 140, 255, 0.62);
+	--omp-border-accent: rgba(77, 182, 172, 0.5);
 	--omp-border-muted: #273142;
 	--omp-border-strong: #4a596f;
 	--omp-success: #4ade80;
@@ -23,8 +23,8 @@
 	--omp-error-dim: rgba(248, 113, 113, 0.12);
 	--omp-warning: #fbbf24;
 	--omp-warning-dim: rgba(251, 191, 36, 0.12);
-	--omp-info: #60a5fa;
-	--omp-info-dim: rgba(96, 165, 250, 0.12);
+	--omp-info: #4db6ac;
+	--omp-info-dim: rgba(77, 182, 172, 0.12);
 	--omp-text: #f4f7fb;
 	--omp-text-secondary: #c3ccda;
 
@@ -33,10 +33,10 @@
 	--omp-bg-secondary: #171c25;
 	--omp-bg-tertiary: #202733;
 	--omp-bg-elevated: #2a3342;
-	--omp-selected-bg: #263754;
-	--omp-user-msg-bg: #1d2d49;
-	--omp-user-msg-border: #36598c;
-	--omp-custom-msg-bg: #242538;
+	--omp-selected-bg: #1a2c2a;
+	--omp-user-msg-bg: #1a2422;
+	--omp-user-msg-border: #2d4440;
+	--omp-custom-msg-bg: #1c2423;
 	--omp-code-bg: #0f141c;
 
 	/* ── Tool cards ────────────────────────────────────────────────────── */
@@ -50,9 +50,9 @@
 
 	/* ── Markdown ──────────────────────────────────────────────────────── */
 	--omp-md-heading: #ffffff;
-	--omp-md-link: #8db8ff;
+	--omp-md-link: #80cbc4;
 	--omp-md-link-url: #95a1b5;
-	--omp-md-code: #d7a5ff;
+	--omp-md-code: #e8b086;
 	--omp-md-code-block: #dce5f4;
 	--omp-md-code-block-border: #344052;
 	--omp-md-quote: #bdc7d5;
@@ -69,30 +69,30 @@
 
 	/* ── Syntax highlighting ───────────────────────────────────────────── */
 	--omp-syntax-comment: #829181;
-	--omp-syntax-keyword: #8db8ff;
-	--omp-syntax-function: #d7a5ff;
+	--omp-syntax-keyword: #4db6ac;
+	--omp-syntax-function: #80cbc4;
 	--omp-syntax-variable: #d5def8;
-	--omp-syntax-string: #76d3c5;
-	--omp-syntax-number: #e6bc76;
-	--omp-syntax-type: #79c8ef;
+	--omp-syntax-string: #e8b086;
+	--omp-syntax-number: #80cbc4;
+	--omp-syntax-type: #4db6ac;
 	--omp-syntax-operator: #d7dbea;
 	--omp-syntax-punctuation: #9aa5bc;
 
 	/* ── Thinking levels ───────────────────────────────────────────────── */
 	--omp-thinking-off: #68738b;
-	--omp-thinking-minimal: #8792aa;
-	--omp-thinking-low: #64a9dc;
-	--omp-thinking-medium: #8db8ff;
-	--omp-thinking-high: #c18ae2;
-	--omp-thinking-xhigh: #e9c2ff;
+	--omp-thinking-minimal: #6b8582;
+	--omp-thinking-low: #3d8a84;
+	--omp-thinking-medium: #4db6ac;
+	--omp-thinking-high: #80cbc4;
+	--omp-thinking-xhigh: #b2dfdb;
 
 	/* ── Status line ───────────────────────────────────────────────────── */
 	--omp-status-bg: #0d121a;
-	--omp-status-model: #d7a5ff;
+	--omp-status-model: #c3ccda;
 	--omp-status-path: #76d3c5;
 	--omp-status-git-clean: #4ade80;
 	--omp-status-git-dirty: #fbbf24;
-	--omp-status-context: #9ba5ff;
+	--omp-status-context: #4db6ac;
 	--omp-status-spend: #76d3c5;
 	--omp-status-subagents: var(--omp-accent);
 	--omp-status-muted: #8792aa;
@@ -103,18 +103,18 @@
 	/* ── Misc ──────────────────────────────────────────────────────────── */
 	--omp-muted: #a9b4c5;
 	--omp-dim: #77849a;
-	--omp-link: #8db8ff;
-	--omp-custom-msg-label: #c18ae2;
+	--omp-link: #80cbc4;
+	--omp-custom-msg-label: #80cbc4;
 
 	/* ── Input ─────────────────────────────────────────────────────────── */
 	--omp-input-bg: #171d27;
 	--omp-input-border: #3a475b;
 	--omp-input-focus-border: var(--omp-accent);
-	--omp-input-glow: rgba(91, 140, 255, 0.18);
+	--omp-input-glow: rgba(77, 182, 172, 0.18);
 
 	/* ── Buttons ───────────────────────────────────────────────────────── */
-	--omp-btn-primary-bg: var(--omp-accent);
-	--omp-btn-primary-text: #08152f;
+	--omp-btn-primary-bg: #e8eef0;
+	--omp-btn-primary-text: #11151c;
 	--omp-btn-secondary-bg: #273142;
 	--omp-btn-secondary-text: #f4f7fb;
 	--omp-btn-danger-bg: var(--omp-error);
@@ -145,7 +145,7 @@
 	--omp-sidebar-item-active: #253149;
 
 	/* ── Selection ─────────────────────────────────────────────────────── */
-	--omp-selection-bg: rgba(91, 140, 255, 0.25);
+	--omp-selection-bg: rgba(77, 182, 172, 0.25);
 	--omp-selection-text: #f4f7fb;
 
 	/* ── Scrollbar ─────────────────────────────────────────────────────── */
@@ -154,7 +154,7 @@
 
 	/* ── Streaming ─────────────────────────────────────────────────────── */
 	--omp-streaming-cursor: var(--omp-accent);
-	--omp-streaming-highlight: rgba(91, 140, 255, 0.07);
+	--omp-streaming-highlight: rgba(77, 182, 172, 0.07);
 
 	/* ── Editorial transcript ──────────────────────────────────────────── */
 	--omp-transcript-rail: #344052;
@@ -162,8 +162,8 @@
 	--omp-transcript-event: #77849a;
 	--omp-transcript-event-live: var(--omp-accent);
 	--omp-transcript-launch: #2aa7a7;
-	--omp-transcript-user-bg: #1d2b42;
-	--omp-transcript-user-border: #31435e;
+	--omp-transcript-user-bg: #1a2422;
+	--omp-transcript-user-border: #2d4440;
 	--omp-transcript-code-bg: #151b24;
 
 	/* ── Panel ─────────────────────────────────────────────────────────── */

@@ -24,6 +24,12 @@ import { useT } from "./i18n";
 interface MarkdownRendererProps {
 	content: string;
 	/**
+	 * Parse single-dollar inline math. User-authored prompts disable this so SQL
+	 * JSONPath expressions such as `$.field ... $.other` remain literal text.
+	 * Display math (`$$...$$`) is still supported in that mode.
+	 */
+	singleDollarTextMath?: boolean;
+	/**
 	 * Force the codeLineNumbers pref on/off. When undefined, code blocks follow
 	 * the GUI pref (hydrated from prefs IPC, flips live on Settings changes).
 	 * SSR/tests pass this — the pref store's server snapshot is always off.
@@ -36,6 +42,10 @@ interface MarkdownRendererProps {
 // remark-math must precede rehype-katex: it parses $...$/$$...$$ into math
 // nodes that rehype-katex (rehype chain below) then renders.
 const REMARK_PLUGINS: Options["remarkPlugins"] = [remarkGfm, remarkMath];
+const REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR: Options["remarkPlugins"] = [
+	remarkGfm,
+	[remarkMath, { singleDollarTextMath: false }],
+];
 
 type SanitizeSchema = NonNullable<Parameters<typeof rehypeSanitize>[0]>;
 
@@ -464,12 +474,16 @@ const COMPONENTS: Components = {
  * Renders markdown content with GFM, a sanitized raw-HTML subset, KaTeX math,
  * and syntax highlighting. Memoized: re-parses only when `content` changes.
  */
-export const MarkdownRenderer = memo(function MarkdownRenderer({ content, codeLineNumbers }: MarkdownRendererProps) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({
+	content,
+	codeLineNumbers,
+	singleDollarTextMath = true,
+}: MarkdownRendererProps) {
 	return (
 		<div className="markdown-body text-[1em] leading-[1.5]">
 			<CodeLineNumbersOverride.Provider value={codeLineNumbers}>
 				<ReactMarkdown
-					remarkPlugins={REMARK_PLUGINS}
+					remarkPlugins={singleDollarTextMath ? REMARK_PLUGINS : REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR}
 					rehypePlugins={REHYPE_PLUGINS}
 					components={COMPONENTS}
 					urlTransform={URL_TRANSFORM}

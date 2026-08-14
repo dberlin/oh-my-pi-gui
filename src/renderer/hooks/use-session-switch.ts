@@ -135,9 +135,12 @@ export async function switchSessionNow(session: SessionInfo): Promise<boolean> {
 		}
 		return tabId !== null;
 	}
+	const fromId = useSessionStore.getState().sessionId;
+	useUiStore.getState().setSwitchPending({ fromId, toId: session.id });
 	try {
 		const response = await window.omp.rpc.switchSession(session.path);
 		if (!response.success) {
+			useUiStore.getState().setSwitchPending(null);
 			// Cross-kind switch guard: refuse agent ↔ chat switches.
 			if (response.code === "session_kind_mismatch") {
 				toast({
@@ -160,41 +163,17 @@ export async function switchSessionNow(session: SessionInfo): Promise<boolean> {
 		// Hook veto: success:true with cancelled:true — stay on the current session.
 		const data = response.data as { cancelled?: boolean } | undefined;
 		if (data?.cancelled) {
+			useUiStore.getState().setSwitchPending(null);
 			toast({ variant: "info", message: translate("sidebar.openCancelled") });
 			return false;
 		}
-		// The sidecar has already switched. Remove the previous session's surface
-		// immediately instead of leaving stale history interactive while the new
-		// transcript hydrates. Events arriving during the fetch are preserved by
-		// hydrateSession's streamed-tail merge.
-		resetSessionSurface();
-		useSessionStore.setState({
-			sessionId: session.id,
-			sessionName: session.title || session.firstMessage || null,
-			sessionFile: session.path,
-			cwd: session.cwd,
-			isStreaming: false,
-			isCompacting: false,
-			awaitingModelSince: null,
-			retryInfo: null,
-			compactionInfo: null,
-			contextUsage: null,
-			messageCount: session.messageCount,
-			queuedMessageCount: 0,
-			planModeEnabled: false,
-			prewalkArmed: false,
-			agentsPaused: false,
-			agentsPausedAt: null,
-			goal: null,
-			goalState: null,
-			loopMode: null,
-			vibeModeEnabled: false,
-		});
-		// `||` not `??`: an empty title slot (auto-title never ran) must fall
-		// through to the first message, not hydrate as an empty name.
+		// Keep the outgoing transcript painted until hydrate commits the next
+		// session. Events for the target sidecar are dropped while pending.
 		await hydrateSession(session.title || session.firstMessage);
+		useUiStore.getState().setSwitchPending(null);
 		return true;
 	} catch (error) {
+		useUiStore.getState().setSwitchPending(null);
 		toast({ variant: "error", title: translate("sidebar.openFailed"), message: String(error) });
 		return false;
 	}

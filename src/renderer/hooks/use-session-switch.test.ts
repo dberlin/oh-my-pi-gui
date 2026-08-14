@@ -257,7 +257,7 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		expect(omp.tabs.setActive).not.toHaveBeenCalled();
 	});
 
-	it("removes the previous transcript as soon as the sidecar accepts an in-place switch", async () => {
+	it("keeps the outgoing transcript painted until hydrate commits the next session", async () => {
 		seedTabs();
 		useComposerStore.setState({
 			draft: "old draft",
@@ -318,27 +318,16 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		const switching = switchSessionNow(session("/sessions/x.jsonl"));
 		await transcriptStarted.promise;
 
-		expect(useMessagesStore.getState().messages).toEqual([]);
-		expect(useComposerStore.getState()).toMatchObject({ draft: "", images: [] });
-		expect(useToolsStore.getState().activeTools.size).toBe(0);
-		expect(useSubagentsStore.getState().subagents.size).toBe(0);
-		expect(useTodoStore.getState().phases).toEqual([]);
-		expect(useModelStore.getState().model).toBeNull();
-		expect(useQueueStore.getState().steering).toEqual([]);
-		expect(usePlanApprovalStore.getState().pending).toBeNull();
-		expect(useUiStore.getState().contextReportOpen).toBe(false);
-		expect(useForkHandoffStore.getState().handoffDialogOpen).toBe(false);
-		expect(useSessionStore.getState()).toMatchObject({ goal: null, vibeModeEnabled: false });
-		expect(useSessionStore.getState()).toMatchObject({
-			sessionId: "/sessions/x.jsonl",
-			sessionName: "Session X",
-			sessionFile: "/sessions/x.jsonl",
-			cwd: "/srv",
+		expect(useMessagesStore.getState().messages).toHaveLength(1);
+		expect(useUiStore.getState().switchPending).toEqual({
+			fromId: useSessionStore.getState().sessionId,
+			toId: "/sessions/x.jsonl",
 		});
-		expect(useSessionStore.getState().loopMode?.enabled ?? false).toBe(false);
 
 		transcript.resolve(ok({ messages: [] }));
 		await expect(switching).resolves.toBe(true);
+		expect(useMessagesStore.getState().messages).toEqual([]);
+		expect(useUiStore.getState().switchPending).toBeNull();
 	});
 
 	it("routes a raced session_owned_elsewhere refusal to the payload owner", async () => {
@@ -386,6 +375,23 @@ describe("switchSessionNow F-OWN owner guard", () => {
 
 		expect(result).toBe(false);
 		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
+	});
+
+	it("keeps the outgoing transcript when switch_session fails", async () => {
+		seedTabs();
+		const kept = { role: "user" as const, content: "stay", timestamp: 1 };
+		useMessagesStore.setState({ messages: [kept], totalMessages: 1 });
+		omp.rpc.switchSession.mockResolvedValue({
+			type: "response",
+			command: "switch_session",
+			success: false,
+			error: "boom",
+		});
+
+		await switchSessionNow(session("/sessions/x.jsonl"));
+
+		expect(useMessagesStore.getState().messages).toEqual([kept]);
+		expect(useUiStore.getState().switchPending).toBeNull();
 	});
 
 	it("surfaces a cross-kind switch as an error toast without switching (session_kind_mismatch)", async () => {

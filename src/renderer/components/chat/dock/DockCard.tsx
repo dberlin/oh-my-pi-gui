@@ -64,7 +64,7 @@ export function DockCard({ id, icon: Icon, title, badge, actions, children }: Do
 		<section
 			aria-label={title}
 			className={cx(
-				"rounded-xl border transition-shadow duration-300",
+				"overflow-hidden rounded-[18px] border bg-[color-mix(in_srgb,var(--omp-bg-secondary)_72%,transparent)] transition-shadow duration-300",
 				flash
 					? "border-[var(--omp-accent)] shadow-[0_0_0_2px_color-mix(in_srgb,var(--omp-accent)_35%,transparent)]"
 					: "border-[var(--omp-border)]",
@@ -74,27 +74,26 @@ export function DockCard({ id, icon: Icon, title, badge, actions, children }: Do
 		>
 			<div
 				className={cx(
-					"flex items-center gap-1.5 px-2.5 py-1.5",
-					focused && "sticky top-0 z-10 bg-[var(--omp-bg)]", // surface-ok: focused-card sticky navigation chrome
+					"flex min-h-10 items-center gap-2 px-3 py-2",
+					focused && "sticky top-0 z-10 bg-[var(--omp-bg-secondary)]", // surface-ok: focused-card sticky navigation chrome
 				)}
 			>
 				<button
 					aria-expanded={expanded}
 					aria-label={focused ? t("dock.backToSummary") : expanded ? t("dock.collapse") : t("dock.expand")}
-					className="omp-pressable flex min-w-0 flex-1 items-center gap-1.5 rounded-md text-left"
+					className="omp-pressable flex min-w-0 flex-1 items-center gap-2 rounded-md text-left"
 					onClick={toggle}
 					type="button"
 				>
+					<Icon className="shrink-0 text-[var(--omp-muted)]" size={15} />
+					<span className="truncate text-omp-lg font-semibold text-[var(--omp-text)]">{title}</span>
+					{badge}
+					<span className="min-w-1 flex-1" />
 					<ChevronRight
 						className="shrink-0 text-[var(--omp-dim)] transition-transform duration-100"
-						size={13}
+						size={14}
 						style={{ transform: expanded ? "rotate(90deg)" : undefined }}
 					/>
-					<Icon className="shrink-0 text-[var(--omp-muted)]" size={13} />
-					<span className="truncate text-omp-sm font-semibold tracking-wide text-[var(--omp-muted)] uppercase">
-						{title}
-					</span>
-					{badge}
 				</button>
 				{!hiddenForFocus && focused && (
 					<button

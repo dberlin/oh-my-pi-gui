@@ -3,6 +3,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { useMessagesStore } from "../../stores/messages";
 import { useSettingsStore } from "../../stores/settings";
 import { useUiStore } from "../../stores/ui";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -53,6 +54,7 @@ afterEach(async () => {
 	});
 	container?.remove();
 	useSettingsStore.getState().reset();
+	useMessagesStore.getState().reset();
 	useUiStore.getState().setThinkingExpanded(false);
 });
 
@@ -80,5 +82,13 @@ describe("ThinkingBlock", () => {
 
 		expect(container.textContent).toContain("Then verify.");
 		expect(container.querySelector("code.language-ts")).toBeNull();
+	});
+
+	it("does not mount markdown while the live block is collapsed", async () => {
+		useUiStore.getState().setThinkingExpanded(false);
+		useMessagesStore.setState({ streamingThinking: HEADLINED_THINKING });
+		await mount(<ThinkingBlock live />);
+		expect(container.querySelector(".markdown-body")).toBeNull();
+		expect(container.querySelector(".omp-thinking-body")).toBeNull();
 	});
 });

@@ -1,4 +1,4 @@
-import { Brain, Cpu, FolderOpen, Gauge, GitBranch, Keyboard, MessageSquare } from "lucide-react";
+import { FolderOpen, GitBranch, Keyboard } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { useGitStatus } from "../../hooks/use-git-status";
@@ -6,7 +6,7 @@ import { shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { loopLimitText, parseLoopLimit } from "../../lib/loop-mode";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../lib/tab-routing";
-import { useModelStore } from "../../stores/model";
+
 import { useSessionStore } from "../../stores/session";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
@@ -62,13 +62,7 @@ function Sep() {
 
 export function StatusFooter() {
 	const t = useT();
-	const model = useModelStore(s => s.model);
-	const thinkingLevel = useModelStore(s => s.thinkingLevel);
-	const thinkingConfigured = useModelStore(s => s.thinkingConfigured);
-	const availableThinkingLevels = useModelStore(s => s.availableThinkingLevels);
-	const sessionName = useSessionStore(s => s.sessionName);
 	const cwd = useSessionStore(s => s.cwd);
-	const contextUsage = useSessionStore(s => s.contextUsage);
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const goalActive = useSessionStore(s => s.goalState?.status === "active" || !!s.goal);
 	const goalObjective = useSessionStore(s => s.goal?.objective ?? null);
@@ -114,24 +108,13 @@ export function StatusFooter() {
 		};
 	}, [activeTabId]);
 
-	// minimal: model + context only. compact hides the optional cost/time
-	// segments, which this subset never renders, so it matches default here.
+	// minimal: path only. compact hides optional cost/time, which this
+	// subset never renders, so it matches default here.
 	const minimal = preset === "minimal";
 	const icons = preset === "nerd";
 	const ascii = preset === "ascii";
 
-	// Thinking tail on the model segment (TUI `model.showThinkingLevel`):
-	// only when the model reasons; "auto" mirrors the configured selector.
-	const thinking =
-		availableThinkingLevels.length > 0
-			? thinkingConfigured === "auto"
-				? "auto"
-				: thinkingLevel && thinkingLevel !== "off"
-					? thinkingLevel
-					: ""
-			: "";
-
-	// Active session modes as small badges beside the model segment. Loop's
+	// Active session modes as small badges. Loop's
 	// tooltip reuses the Modes window's limit/args formatting; paused is the
 	// `set_agents_paused` gate (command palette "Pause All Agents").
 	// Badges are SWITCHES, not just indicators (the exposure audit): plan/vibe
@@ -210,49 +193,25 @@ export function StatusFooter() {
 			className={`flex h-7 shrink-0 items-center overflow-hidden border-t border-[var(--omp-border-muted)] px-3 whitespace-nowrap text-omp-sm text-[var(--omp-muted)] ${routeReady ? "" : "pointer-events-none"}`}
 		>
 			<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-				<button
-					type="button"
-					onClick={() => useUiStore.getState().openModelPicker()}
-					className="flex min-w-0 shrink cursor-pointer items-center gap-1 rounded hover:text-[var(--omp-text)]"
-					title={model ? t("statusFooter.modelTooltip", { model: `${model.provider}/${model.id}` }) : undefined}
-				>
-					{icons && <Cpu size={11} className="shrink-0" />}
-					{ascii && <span className="shrink-0 text-[var(--omp-dim)]">{t("statusFooter.label.model")}</span>}
-					<span className="truncate">{model?.id ?? t("statusFooter.noModel")}</span>
-					{thinking && (
-						<span
-							className="flex shrink-0 items-center gap-0.5 text-[var(--omp-dim)]"
-							title={t("statusFooter.thinkingTooltip", { level: thinking })}
-						>
-							<span aria-hidden>·</span>
-							{icons && <Brain size={10} />}
-							{thinking}
-						</span>
-					)}
-				</button>
-
 				{!minimal && modeBadges.length > 0 && (
-					<>
-						<Sep />
-						<span className="flex shrink-0 items-center gap-1">
-							{modeBadges.map(badge => (
-								<button
-									key={badge.key}
-									type="button"
-									onClick={badge.onClick}
-									title={badge.tooltip}
-									className="flex shrink-0 cursor-pointer rounded hover:brightness-110"
-								>
-									<Badge variant={badge.variant}>{badge.label}</Badge>
-								</button>
-							))}
-						</span>
-					</>
+					<span className="flex shrink-0 items-center gap-1">
+						{modeBadges.map(badge => (
+							<button
+								key={badge.key}
+								type="button"
+								onClick={badge.onClick}
+								title={badge.tooltip}
+								className="flex shrink-0 cursor-pointer rounded hover:brightness-110"
+							>
+								<Badge variant={badge.variant}>{badge.label}</Badge>
+							</button>
+						))}
+					</span>
 				)}
 
 				{!minimal && cwd && (
 					<>
-						<Sep />
+						{modeBadges.length > 0 && <Sep />}
 						<span
 							className="flex min-w-0 shrink items-center gap-1"
 							title={t("statusFooter.cwdTooltip", { path: cwd })}
@@ -287,39 +246,7 @@ export function StatusFooter() {
 						</button>
 					</>
 				)}
-
-				{contextUsage && (
-					<>
-						<Sep />
-						<span
-							className="flex shrink-0 items-center gap-1.5"
-							title={t("input.contextTooltip", { percent: Math.round(contextUsage.percent) })}
-						>
-							{icons && <Gauge size={11} className="shrink-0" />}
-							{ascii && <span className="text-[var(--omp-dim)]">{t("statusFooter.label.context")}</span>}
-							{/* Same meter as the composer's context readout (InputArea). */}
-							<span className="block h-1.5 w-12 overflow-hidden rounded-full bg-[var(--omp-progress-bg)]">
-								<span
-									className="block h-full rounded-full bg-[var(--omp-status-context)]"
-									style={{ width: `${Math.min(100, contextUsage.percent)}%` }}
-								/>
-							</span>
-							<span className="tabular-nums">{Math.round(contextUsage.percent)}%</span>
-						</span>
-					</>
-				)}
 			</div>
-
-			{!minimal && sessionName && (
-				<span
-					className="flex min-w-0 shrink items-center gap-1 ml-3 max-w-[45%]"
-					title={t("statusFooter.sessionTooltip", { name: sessionName })}
-				>
-					{icons && <MessageSquare size={11} className="shrink-0" />}
-					{ascii && <span className="shrink-0 text-[var(--omp-dim)]">{t("statusFooter.label.session")}</span>}
-					<span className="truncate">{sessionName}</span>
-				</span>
-			)}
 
 			<button
 				type="button"

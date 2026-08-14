@@ -21,6 +21,10 @@ function delta(text: string): AgentSessionEvent {
 	};
 }
 
+function userMessage(id: string): AgentMessage {
+	return { role: "user", content: id, timestamp: Number(id.length), id };
+}
+
 beforeEach(() => useMessagesStore.getState().reset());
 
 describe("messages streaming snapshots", () => {
@@ -90,5 +94,24 @@ describe("agent-end delivery dedupe", () => {
 		useMessagesStore.getState().applyEvents([{ type: "agent_end", messages: [second] }]);
 
 		expect(useMessagesStore.getState().messages).toEqual([first, second]);
+	});
+});
+
+describe("reconcileFetched", () => {
+	it("keeps the array identity when delivery keys match and contents are the same references", () => {
+		const a = userMessage("a");
+		const b = userMessage("b");
+		useMessagesStore.setState({ messages: [a, b], totalMessages: 2 });
+		const before = useMessagesStore.getState().messages;
+		useMessagesStore.getState().reconcileFetched([a, b]);
+		expect(useMessagesStore.getState().messages).toBe(before);
+	});
+
+	it("replaces wholesale when the identity sequence changes", () => {
+		const a = userMessage("a");
+		useMessagesStore.setState({ messages: [a], totalMessages: 1 });
+		const next = userMessage("other");
+		useMessagesStore.getState().reconcileFetched([next]);
+		expect(useMessagesStore.getState().messages).toEqual([next]);
 	});
 });

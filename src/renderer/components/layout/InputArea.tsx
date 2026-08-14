@@ -1,6 +1,7 @@
-import { ArrowUp, ChevronDown, Mic, Paperclip, Square, X, Zap } from "lucide-react";
+import { ArrowUp, ChevronDown, Mic, MoreHorizontal, Paperclip, Square, X, Zap } from "lucide-react";
 import type { ClipboardEvent, KeyboardEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { tryEmojiInlineReplace } from "../../lib/emoji";
@@ -36,6 +37,7 @@ import { useUiStore } from "../../stores/ui";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { ApprovalControl } from "./ApprovalControl";
 import { ComposerModes } from "./ComposerModes";
+import { ContextUsagePopover } from "./ContextUsagePopover";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
 import { ThinkingControl } from "./ThinkingControl";
@@ -89,6 +91,46 @@ export function InputArea() {
 	const [recording, setRecording] = useState(false);
 	/** Pending large-paste choice: the paste already happened, this picks the form. */
 	const [pasteMenu, setPasteMenu] = useState<{ content: string; lineCount: number } | null>(null);
+	const [runSettingsOpen, setRunSettingsOpen] = useState(false);
+	const [runSettingsPos, setRunSettingsPos] = useState<{ left: number; bottom: number } | null>(null);
+	const runSettingsTriggerRef = useRef<HTMLButtonElement>(null);
+	const runSettingsMenuRef = useRef<HTMLDivElement>(null);
+	const approvalMode = useSettingsStore(s => s.approvalMode);
+	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
+	const runSettingsActive = fastModeActive || planModeEnabled || approvalMode !== "yolo";
+
+	useLayoutEffect(() => {
+		if (!runSettingsOpen || !runSettingsTriggerRef.current) return;
+		const place = () => {
+			const trigger = runSettingsTriggerRef.current;
+			if (!trigger) return;
+			const rect = trigger.getBoundingClientRect();
+			const menuWidth = runSettingsMenuRef.current?.offsetWidth || 240;
+			const left = Math.min(Math.max(12, rect.left), window.innerWidth - menuWidth - 12);
+			setRunSettingsPos({ left, bottom: window.innerHeight - rect.top + 6 });
+		};
+		place();
+		window.addEventListener("resize", place);
+		return () => window.removeEventListener("resize", place);
+	}, [runSettingsOpen]);
+
+	useEffect(() => {
+		if (!runSettingsOpen) return;
+		const onDown = (event: PointerEvent) => {
+			const target = event.target as Node;
+			if (runSettingsTriggerRef.current?.contains(target) || runSettingsMenuRef.current?.contains(target)) return;
+			setRunSettingsOpen(false);
+		};
+		const onKey = (event: globalThis.KeyboardEvent) => {
+			if (event.key === "Escape") setRunSettingsOpen(false);
+		};
+		document.addEventListener("pointerdown", onDown);
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("pointerdown", onDown);
+			document.removeEventListener("keydown", onKey);
+		};
+	}, [runSettingsOpen]);
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -824,23 +866,51 @@ export function InputArea() {
 							<ChevronDown size={13} className="shrink-0 text-[var(--omp-dim)]" />
 						</button>
 
-						<ThinkingControl />
-
-						<button
-							type="button"
-							onClick={() => void useModelStore.getState().toggleFastMode()}
-							title={`${fastModeEnabled ? t("input.fast.on") : t("input.fast.off")}${fastModeActive ? t("input.fast.active") : ""}`}
-							className={cx(
-								"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
-								fastModeActive ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
-							)}
-						>
-							<Zap size={14} fill={fastModeActive ? "currentColor" : "none"} />
-							<span className="omp-composer-control-label hidden sm:inline">{t("input.fast.label")}</span>
-						</button>
-
-						{!isChat && <ApprovalControl />}
-						{!isChat && <ComposerModes />}
+						<div className="relative">
+							<button
+								ref={runSettingsTriggerRef}
+								type="button"
+								aria-expanded={runSettingsOpen}
+								aria-haspopup="menu"
+								title={t("input.moreModes")}
+								aria-label={t("input.moreModes")}
+								onClick={() => setRunSettingsOpen(open => !open)}
+								className="omp-pressable relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							>
+								<MoreHorizontal size={16} />
+								{runSettingsActive && (
+									<span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
+								)}
+							</button>
+							{runSettingsOpen &&
+								runSettingsPos &&
+								createPortal(
+									<div
+										ref={runSettingsMenuRef}
+										role="menu"
+										style={{ left: runSettingsPos.left, bottom: runSettingsPos.bottom }}
+										className="fixed z-[100] flex min-w-56 flex-col gap-1 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1.5 shadow-[var(--omp-shadow-md)]"
+									>
+										<ThinkingControl />
+										<button
+											type="button"
+											role="menuitem"
+											onClick={() => void useModelStore.getState().toggleFastMode()}
+											title={`${fastModeEnabled ? t("input.fast.on") : t("input.fast.off")}${fastModeActive ? t("input.fast.active") : ""}`}
+											className={cx(
+												"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
+												fastModeActive ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
+											)}
+										>
+											<Zap size={14} fill={fastModeActive ? "currentColor" : "none"} />
+											<span>{t("input.fast.label")}</span>
+										</button>
+										{!isChat && <ApprovalControl />}
+										{!isChat && <ComposerModes />}
+									</div>,
+									document.body,
+								)}
+						</div>
 
 						<div className="flex-1" />
 
@@ -850,38 +920,44 @@ export function InputArea() {
 							</span>
 						)}
 
-						{isStreaming ? (
-							<div className="flex shrink-0 items-center gap-1.5">
+						<div className="omp-composer-send-cluster ml-1 flex shrink-0 items-center gap-2.5">
+							<ContextUsagePopover />
+
+							{isStreaming ? (
+								<div className="flex shrink-0 items-center gap-1.5">
+									<button
+										type="button"
+										disabled={!routeReady}
+										onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
+										title={modeTitle}
+										className="omp-pressable h-7 rounded-md border border-[var(--omp-border)] px-2.5 text-omp-sm font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
+									>
+										{modeLabel}
+									</button>
+									<button
+										type="button"
+										disabled={!routeReady}
+										onClick={() => void window.omp.rpc.abort()}
+										title={t("input.abort")}
+										className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-error-dim)] text-[var(--omp-error)] hover:bg-[var(--omp-error)] hover:text-[var(--omp-btn-danger-text)]"
+									>
+										<Square size={10} fill="currentColor" />
+									</button>
+								</div>
+							) : (
 								<button
 									type="button"
-									disabled={!routeReady}
-									onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
-									title={modeTitle}
-									className="omp-pressable h-8 rounded-lg border border-[var(--omp-border)] px-3 text-omp-md font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
+									onClick={() => send()}
+									disabled={
+										!routeReady || status !== "ready" || sending || (!text.trim() && images.length === 0)
+									}
+									title={t("input.send")}
+									className="omp-pressable flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:brightness-100"
 								>
-									{modeLabel}
+									<ArrowUp size={14} strokeWidth={2.4} />
 								</button>
-								<button
-									type="button"
-									disabled={!routeReady}
-									onClick={() => void window.omp.rpc.abort()}
-									title={t("input.abort")}
-									className="omp-pressable flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--omp-error-dim)] text-[var(--omp-error)] hover:bg-[var(--omp-error)] hover:text-[var(--omp-btn-danger-text)]"
-								>
-									<Square size={11} fill="currentColor" />
-								</button>
-							</div>
-						) : (
-							<button
-								type="button"
-								onClick={() => send()}
-								disabled={!routeReady || status !== "ready" || sending || (!text.trim() && images.length === 0)}
-								title={t("input.send")}
-								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] transition-[box-shadow,filter,transform,opacity] duration-150 hover:brightness-110 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:brightness-100 disabled:active:translate-y-0"
-							>
-								<ArrowUp size={16} strokeWidth={2.4} />
-							</button>
-						)}
+							)}
+						</div>
 					</div>
 				</div>
 				<div className="mt-2 text-center text-omp-sm text-[var(--omp-dim)]">{t("input.hint")}</div>

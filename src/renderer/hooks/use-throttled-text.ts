@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 /** Shared maximum parse cadence for growing Markdown/reasoning streams. */
-export const STREAM_FORMAT_FLUSH_MS = 120;
+export const STREAM_FORMAT_FLUSH_MS = 200;
 
 /**
  * Keep a fast-growing stream responsive without repeatedly re-rendering its
