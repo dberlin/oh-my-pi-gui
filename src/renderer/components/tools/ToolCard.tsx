@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { cx, durationBetween } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
-import { useToolsStore } from "../../stores/tools";
+import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { GenericRenderer } from "./GenericRenderer";
 import { getToolRenderer, getToolSummary } from "./index";
@@ -28,6 +28,8 @@ export interface ToolCardProps {
 	args: Record<string, unknown>;
 	/** A parent activity indicator can own animation for a live tool group. */
 	runningIndicator?: RunningIndicator;
+	/** Explicit transcript-local entry. `null` prevents fallback to the active session store. */
+	entry?: ToolEntry | null;
 }
 
 export type RunningIndicator = "spinner" | "dot";
@@ -37,9 +39,16 @@ export type RunningIndicator = "spinner" | "dot";
  * expand/collapse. The body comes from the tool registry; the tool_result
  * arrives via the tools store keyed by toolCallId.
  */
-export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinner" }: ToolCardProps) {
+export function ToolCard({
+	toolCallId,
+	toolName,
+	args,
+	runningIndicator = "spinner",
+	entry: providedEntry,
+}: ToolCardProps) {
 	const t = useT();
-	const entry = useToolsStore(s => s.activeTools.get(toolCallId));
+	const storeEntry = useToolsStore(s => s.activeTools.get(toolCallId));
+	const entry = providedEntry === undefined ? storeEntry : (providedEntry ?? undefined);
 	const expandAll = useUiStore(s => s.toolsExpandAll);
 	const [expanded, setExpanded] = useState(expandAll.expanded);
 

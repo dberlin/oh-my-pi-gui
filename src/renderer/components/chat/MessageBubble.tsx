@@ -13,7 +13,8 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
-import { toolEntryKey } from "../../stores/tools";
+import { type ToolEntry, toolEntryKey } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -27,6 +28,10 @@ export interface MessageBubbleProps {
 	runningIndicator?: RunningIndicator;
 	/** Opening assistant emoji projected onto this user turn. */
 	reaction?: string;
+	/** Secondary transcripts keep copy/expand interactions but cannot mutate the active session. */
+	readOnly?: boolean;
+	/** Resolves tool results from a transcript-local projection instead of the active session store. */
+	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
 }
 
 const COMPACTION_METHOD_KEYS: Record<string, string> = {
@@ -49,13 +54,23 @@ function InlineImage({ image }: { image: ImageContent }) {
 	);
 }
 
-/** ToolCard subscribes to the tools store itself, so the tool result lands inline. */
-function ToolCardWithResult({ call, runningIndicator }: { call: ToolCallContent; runningIndicator: RunningIndicator }) {
+/** ToolCard defaults to the active session store; secondary transcripts inject an isolated result. */
+function ToolCardWithResult({
+	call,
+	runningIndicator,
+	resolveToolEntry,
+}: {
+	call: ToolCallContent;
+	runningIndicator: RunningIndicator;
+	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
+}) {
+	const isolated = resolveToolEntry !== undefined;
 	return (
 		<ToolCard
-			toolCallId={toolEntryKey(call)}
-			toolName={call.name}
 			args={call.arguments}
+			entry={isolated ? (resolveToolEntry(call) ?? null) : undefined}
+			toolCallId={isolated ? call.id : toolEntryKey(call)}
+			toolName={call.name}
 			runningIndicator={runningIndicator}
 		/>
 	);
@@ -63,7 +78,7 @@ function ToolCardWithResult({ call, runningIndicator }: { call: ToolCallContent;
 
 const FILE_PREVIEW_CHARS = 12_000;
 
-function ExecutionBubble({ message }: { message: AgentMessage }) {
+function ExecutionBubble({ message, readOnly }: { message: AgentMessage; readOnly: boolean }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	// Local placeholder appended by the composer while an `$` eval is in flight
@@ -103,7 +118,7 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 					>
 						{status}
 					</span>
-					{running && (
+					{running && !readOnly && (
 						<button
 							type="button"
 							disabled={abortSent}
@@ -235,6 +250,8 @@ export const MessageBubble = memo(function MessageBubble({
 	compact = false,
 	reaction,
 	runningIndicator = "spinner",
+	readOnly = false,
+	resolveToolEntry,
 }: MessageBubbleProps) {
 	const t = useT();
 	const rpc = useTabRpc();
@@ -243,7 +260,7 @@ export const MessageBubble = memo(function MessageBubble({
 	const [branching, setBranching] = useState(false);
 	const switchPending = useSessionStore(state => state.switchPending !== null);
 	if (message.role === "bashExecution" || message.role === "pythonExecution") {
-		return <ExecutionBubble message={message} />;
+		return <ExecutionBubble message={message} readOnly={readOnly} />;
 	}
 	if (message.role === "branchSummary" || message.role === "compactionSummary" || message.role === "fileMention") {
 		return <ContextBubble message={message} />;
@@ -377,16 +394,18 @@ export const MessageBubble = memo(function MessageBubble({
 						>
 							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
 						</button>
-						<button
-							type="button"
-							onClick={() => void handleBranch()}
-							disabled={branching || switchPending}
-							aria-label={t("chat.branchFromHere")}
-							title={t("chat.branchFromHere")}
-							className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-wait disabled:opacity-50"
-						>
-							<GitBranch size={13} />
-						</button>
+						{!readOnly && (
+							<button
+								type="button"
+								onClick={() => void handleBranch()}
+								disabled={branching || switchPending}
+								aria-label={t("chat.branchFromHere")}
+								title={t("chat.branchFromHere")}
+								className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-wait disabled:opacity-50"
+							>
+								<GitBranch size={13} />
+							</button>
+						)}
 					</div>
 				</div>
 			</div>
@@ -414,7 +433,12 @@ export const MessageBubble = memo(function MessageBubble({
 			}
 			case "toolCall": {
 				blocks.push(
-					<ToolCardWithResult key={toolEntryKey(block)} call={block} runningIndicator={runningIndicator} />,
+					<ToolCardWithResult
+						call={block}
+						key={resolveToolEntry ? blocks.length : toolEntryKey(block)}
+						resolveToolEntry={resolveToolEntry}
+						runningIndicator={runningIndicator}
+					/>,
 				);
 				break;
 			}
