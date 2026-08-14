@@ -4,7 +4,7 @@
  */
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
 import Store from "electron-store";
 import { nativeAccelerator } from "../shared/hotkeys";
@@ -16,6 +16,7 @@ import { ensureDefaultWorkspace } from "./default-workspace";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
+import { LocalSshSettingsService } from "./local-ssh-settings";
 import { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
 import { RemoteAcpClient } from "./remote-acp";
@@ -23,7 +24,7 @@ import { RemoteHostCatalog, type RemoteHostCatalogPrefs } from "./remote-host-ca
 import { nodeRemoteProcessRunner, RemoteSshService } from "./remote-ssh";
 import { writeRuntimeLog } from "./runtime-log";
 import { SessionIndex } from "./session-index";
-import { shellSpawnEnv } from "./shell-env";
+import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { SidecarManager } from "./sidecar";
 import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
@@ -348,6 +349,16 @@ app.whenReady().then(() => {
 	const remoteSsh = new RemoteSshService(nodeRemoteProcessRunner, { controlPathRoot: app.getPath("temp") });
 	const remoteHostCatalog = new RemoteHostCatalog(prefsStore());
 	const remoteAcp = new RemoteAcpClient(remoteSsh);
+	const localSshSettings = new LocalSshSettingsService({
+		home: homedir(),
+		isOpenSshAvailable: async () => {
+			const executableNames = process.platform === "win32" ? ["ssh.exe", "ssh"] : ["ssh"];
+			return (await spawnPath())
+				.split(delimiter)
+				.some(directory => executableNames.some(name => existsSync(join(directory, name))));
+		},
+		resolveRuntime: (target, signal) => remoteSsh.resolveRuntime(target, signal),
+	});
 	remoteServices = { ssh: remoteSsh, catalog: remoteHostCatalog, acp: remoteAcp };
 
 	const initialCwd = resolveInitialCwd();
@@ -433,6 +444,7 @@ app.whenReady().then(() => {
 		remoteSsh,
 		remoteHostCatalog,
 		remoteAcp,
+		localSshSettings,
 	});
 
 	// Global shortcut: Cmd+Shift+O — toggle focused window, else show the most

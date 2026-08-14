@@ -123,6 +123,69 @@ async function invokeProjectHandler(command: string, event: { sender: object }, 
 	return await handler(event, payload);
 }
 
+interface LocalSshHandlerFixture {
+	event: { sender: object };
+	activeCommand: Mock;
+	executeLocal: Mock;
+}
+
+function registerLocalSshHandlerFixture(
+	active: { target: SessionTarget; cwd: string } = { target: SSH_TARGET, cwd: "/srv/app" },
+): LocalSshHandlerFixture {
+	const sender = {};
+	const win = { webContents: { id: 71 } };
+	const activeCommand = vi.fn(async () => ({
+		type: "response",
+		command: "get_ssh_hosts",
+		success: false,
+		error: "RPC timeout (30000ms): get_ssh_hosts",
+	}));
+	const executeLocal = vi.fn(async () => ({
+		type: "response",
+		command: "get_ssh_hosts",
+		success: true,
+		data: {
+			openSshAvailable: true,
+			hosts: [
+				{
+					name: "grill",
+					host: "grill.controls.dberlin.org",
+					scope: "project",
+					editable: true,
+					source: "/Users/test/project/.omp/ssh.json",
+				},
+			],
+			warnings: [],
+		},
+	}));
+	const activeSidecar = { cwd: active.cwd, status: "ready", rpcClient: { command: activeCommand } };
+	const sidecarPool = {
+		activeTabForWindow: vi.fn(() => "active-tab"),
+		entryForWindow: vi.fn(() => ({ sidecar: activeSidecar, target: active.target })),
+		foreignSessionOwner: vi.fn(() => null),
+		sidecarForWindow: vi.fn(() => activeSidecar),
+		tabsForWindow: vi.fn(() => [
+			{ kind: "agent", tabId: "local-tab", cwd: "/Users/test/project", target: { type: "local" }, status: "ready" },
+			{ kind: "agent", tabId: "remote-tab", cwd: "/srv/app", target: SSH_TARGET, status: "ready" },
+		]),
+	};
+	const deps = {
+		sidecarPool,
+		sessionIndex: {},
+		statsClient: {},
+		logWatcher: {},
+		windowManager: { recordFor: vi.fn(() => ({ cwd: "/Users/test/project" })) },
+		spawnWindow: vi.fn(),
+		remoteSsh: {},
+		remoteHostCatalog: { replaceFromRpc: vi.fn() },
+		remoteAcp: {},
+		localSshSettings: { execute: executeLocal },
+	} as unknown as IpcDeps;
+	ipcTestState.fromWebContents.mockReturnValue(win);
+	registerIpcHandlers(deps);
+	return { event: { sender }, activeCommand, executeLocal };
+}
+
 beforeEach(() => {
 	ipcTestState.handlers.clear();
 	vi.clearAllMocks();
@@ -212,6 +275,68 @@ describe("local-only project handlers", () => {
 		expect(ipcTestState.storeSet).toHaveBeenCalledWith("lastProject", process.cwd());
 		expect(fixture.setRecordCwd).toHaveBeenCalledWith(expect.anything(), process.cwd());
 		expect(fixture.restart).toHaveBeenCalledWith(process.cwd());
+	});
+});
+
+describe("local SSH settings handlers", () => {
+	it("loads SSH hosts locally when the active tab is remote", async () => {
+		const fixture = registerLocalSshHandlerFixture();
+
+		const result = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, fixture.event, {
+			command: { type: "get_ssh_hosts" },
+			timeoutMs: 30_000,
+		});
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				command: "get_ssh_hosts",
+				success: true,
+				data: expect.objectContaining({
+					hosts: [expect.objectContaining({ name: "grill", scope: "project" })],
+				}),
+			}),
+		);
+		expect(fixture.executeLocal).toHaveBeenCalledWith("/Users/test/project", { type: "get_ssh_hosts" });
+		expect(fixture.activeCommand).not.toHaveBeenCalled();
+	});
+
+	it("rejects malformed SSH management commands before local dispatch", async () => {
+		const fixture = registerLocalSshHandlerFixture();
+
+		const result = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, fixture.event, {
+			command: {
+				type: "ssh_manage",
+				action: "bogus",
+				scope: "project",
+				name: "renamed",
+				previousName: "victim",
+				host: { host: "example.com" },
+			},
+			timeoutMs: 30_000,
+		});
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				command: "ssh_manage",
+				success: false,
+				error: "Invalid local SSH settings command",
+			}),
+		);
+		expect(fixture.executeLocal).not.toHaveBeenCalled();
+		expect(fixture.activeCommand).not.toHaveBeenCalled();
+	});
+	it("uses the active local tab's project for SSH settings", async () => {
+		const fixture = registerLocalSshHandlerFixture({
+			target: { type: "local" },
+			cwd: "/Users/test/second-project",
+		});
+
+		await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, fixture.event, {
+			command: { type: "get_ssh_hosts" },
+			timeoutMs: 30_000,
+		});
+
+		expect(fixture.executeLocal).toHaveBeenCalledWith("/Users/test/second-project", { type: "get_ssh_hosts" });
 	});
 });
 
