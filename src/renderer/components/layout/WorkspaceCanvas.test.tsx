@@ -201,6 +201,7 @@ describe("WorkspaceCanvas", () => {
 		expect(transcriptColumn?.className).toContain("min-h-0");
 		expect(transcriptColumn?.className).toContain("min-w-0");
 		expect(transcriptColumn?.className).toContain("flex-1");
+		expect(transcriptColumn?.classList.contains("flex")).toBe(true);
 		expect(canvas?.querySelector("[data-activity-rail]")).not.toBeNull();
 		expect(canvas?.querySelector('[data-testid="workspace-dock-scroll"]')).toBeNull();
 	});
