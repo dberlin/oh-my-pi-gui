@@ -165,6 +165,17 @@ describe("App global actions in selected-subagent mode", () => {
 		expect(cycleModel).toHaveBeenCalledTimes(1);
 	});
 
+	it("opens the Main model picker on Main but not for a selected subagent", async () => {
+		await mountApp();
+		await pressKey({ key: "m", code: "KeyM", altKey: true });
+		expect(useUiStore.getState().modelPickerOpen).toBe(true);
+
+		useUiStore.getState().closeModelPicker();
+		await selectSubagent();
+		await pressKey({ key: "m", code: "KeyM", altKey: true });
+		expect(useUiStore.getState().modelPickerOpen).toBe(false);
+	});
+
 	it("dequeues into the hidden Main composer only while Main is selected", async () => {
 		await mountApp();
 		await pressKey({ key: "ArrowUp", code: "ArrowUp", altKey: true });
