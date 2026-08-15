@@ -50,6 +50,8 @@ import type {
 	RemoteDirectoryListResult,
 	IpcRemoteSetExecutableOverridePayload,
 	IpcRemoteListHistoryPayload,
+	IpcSubagentTranscriptReadPayload,
+	IpcSubagentTranscriptReadResult,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { createSessionRpcClient, timeoutForCommand } from "../shared/rpc-client";
@@ -266,6 +268,10 @@ const api: OmpApi = {
 		openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 		consumePendingOpen: () => ipcRenderer.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
+		readSubagentTranscript: (sessionFile: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SESSION_READ_SUBAGENT_TRANSCRIPT, {
+				sessionFile,
+			} satisfies IpcSubagentTranscriptReadPayload) as Promise<IpcSubagentTranscriptReadResult>,
 	},
 	remote: {
 		catalog: () =>

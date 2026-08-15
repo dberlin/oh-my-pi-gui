@@ -2,6 +2,14 @@ import { createStore } from "zustand/vanilla";
 import type { AgentMessage, AgentSessionEvent, MessagesPage } from "../../shared/rpc-types";
 import { messageIdentity, sameMessageContent } from "../lib/message-identity";
 import { createScopedStoreHook } from "./session-runtime-context";
+export interface MessageProjection {
+	messages: AgentMessage[];
+	streamingMessage: AgentMessage | null;
+	streamingText: string;
+	streamingThinking: string;
+	deliveredKeys: Set<string>;
+}
+
 
 /**
  * Session-tab snapshot of committed history plus the active run overlay. The
@@ -153,6 +161,118 @@ export function mergeFetchedTranscript(
 	const tail = current.slice(before.length).filter(message => message.entryId && !fetchedIds.has(message.entryId));
 	return tail.length === 0 ? fetched : [...fetched, ...tail];
 }
+export function createMessageProjection(): MessageProjection {
+	return {
+		messages: [],
+		streamingMessage: null,
+		streamingText: "",
+		streamingThinking: "",
+		deliveredKeys: new Set(),
+	};
+}
+
+export function hydrateMessageProjection(projection: MessageProjection, messages: AgentMessage[]): MessageProjection {
+	if (messages === projection.messages) return projection;
+	return { ...projection, messages };
+}
+
+export function applyMessageProjectionEvents(
+	projection: MessageProjection,
+	events: AgentSessionEvent[],
+): MessageProjection {
+	let deliveredKeys = projection.deliveredKeys;
+	let deliveredKeysCopied = false;
+	let textAccum = "";
+	let thinkAccum = "";
+	const newMessages: AgentMessage[] = [];
+	let runMessages: AgentMessage[] | null = null;
+	let streamingStart: AgentMessage | null = null;
+	let streamingEnd = false;
+
+	for (const event of events) {
+		switch (event.type) {
+			case "agent_start": {
+				deliveredKeys = new Set();
+				deliveredKeysCopied = true;
+				break;
+			}
+			case "message_start": {
+				streamingStart = event.message;
+				textAccum = "";
+				thinkAccum = "";
+				break;
+			}
+			case "message_update": {
+				const { assistantMessageEvent } = event;
+				if (assistantMessageEvent.type === "text_delta") {
+					textAccum += assistantMessageEvent.delta;
+				} else if (assistantMessageEvent.type === "thinking_delta") {
+					thinkAccum += assistantMessageEvent.delta;
+				}
+				break;
+			}
+			case "message_end": {
+				newMessages.push(event.message);
+				if (!deliveredKeysCopied) {
+					deliveredKeys = new Set(deliveredKeys);
+					deliveredKeysCopied = true;
+				}
+				deliveredKeys.add(messageIdentityKey(event.message));
+				streamingEnd = true;
+				break;
+			}
+			case "agent_end": {
+				if (event.messages) runMessages = event.messages;
+				break;
+			}
+			case "turn_end": {
+				if (event.message) {
+					const key = messageIdentityKey(event.message);
+					if (!deliveredKeys.has(key)) {
+						newMessages.push(event.message);
+						if (!deliveredKeysCopied) {
+							deliveredKeys = new Set(deliveredKeys);
+							deliveredKeysCopied = true;
+						}
+						deliveredKeys.add(key);
+					}
+				}
+				break;
+			}
+			default:
+				break;
+		}
+	}
+
+	let streamingMessage = projection.streamingMessage;
+	let streamingText = projection.streamingText;
+	let streamingThinking = projection.streamingThinking;
+	if (streamingStart) {
+		streamingMessage = streamingStart;
+		streamingText = "";
+		streamingThinking = "";
+	}
+	if (textAccum) streamingText = `${streamingStart ? "" : projection.streamingText}${textAccum}`;
+	if (thinkAccum) streamingThinking = `${streamingStart ? "" : projection.streamingThinking}${thinkAccum}`;
+
+	let messages = projection.messages;
+	if (newMessages.length > 0) messages = [...messages, ...newMessages];
+	if (runMessages) messages = mergeRunMessages(messages, runMessages);
+	if (streamingEnd || runMessages) {
+		streamingMessage = null;
+		streamingText = "";
+		streamingThinking = "";
+	}
+
+	return {
+		messages,
+		streamingMessage,
+		streamingText,
+		streamingThinking,
+		deliveredKeys,
+	};
+}
+
 
 export const createMessagesStore = () =>
 	createStore<MessagesStore>()((set, get) => ({

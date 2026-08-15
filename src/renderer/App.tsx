@@ -72,6 +72,7 @@ import {
 } from "./lib/themes";
 import { startVoiceAutoSpeak } from "./lib/voice";
 import { openHandoffDialog } from "./stores/fork-handoff";
+import { useAgentViewStore } from "./stores/agent-view";
 import { useModelStore } from "./stores/model";
 import { useSessionStore } from "./stores/session";
 import { SessionRuntimeProvider } from "./stores/session-runtime-context";
@@ -81,6 +82,30 @@ import { useSessionTabs, useTabsStore } from "./stores/tabs";
 import { toast } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
 import { subscribeUpdaterStatus } from "./stores/updater";
+
+const MAIN_MUTATING_KEYMAP_ACTIONS: Partial<Record<KeymapActionId, true>> = {
+	"model.cycleForward": true,
+	"model.cycleBackward": true,
+	retry: true,
+	dequeue: true,
+	"plan.toggle": true,
+	"thinking.toggle": true,
+};
+
+const MAIN_MUTATING_MENU_ACTIONS: Partial<Record<MenuAction, true>> = {
+	"new-session": true,
+	"open-project": true,
+	"switch-project": true,
+	handoff: true,
+	"toggle-fast": true,
+	"cycle-thinking": true,
+	"set-approval": true,
+};
+
+/** Main has the only writable RPC/composer target; projected subagent views are read-only. */
+function canMutateMainTarget(): boolean {
+	return useAgentViewStore.getState().target.kind === "main";
+}
 
 // Heavy overlays code-split: they render null while closed, so they download
 // only on first open instead of bloating the eager bundle.
@@ -158,6 +183,388 @@ function FocusedSessionEffects() {
 }
 
 /**
+ * Installs the window-global keyboard and native-menu dispatch boundaries.
+ * Exported so their target routing can be exercised without mounting the full shell.
+ */
+export function AppGlobalActions() {
+	const { lang, setLang } = useLang();
+	const t = useT();
+
+
+	// User keybinding overrides → precompiled chord → actionId lookup (B3,
+	// plan/15 §3.5): keydown dispatch is an O(1) map hit, never a config walk.
+	// The memo recomputes only when the overrides object identity changes.
+	const keymapOverrides = useUiStore(s => s.keymapOverrides);
+	const keymap = useMemo(() => compileKeymap(KEYMAP_ACTIONS, keymapOverrides), [keymapOverrides]);
+
+	// Boot hydration of user keybinding overrides (prefs key "keymapOverrides").
+	useEffect(() => {
+		void useUiStore.getState().hydrateKeymap();
+
+		// One dispatch switch keyed by actionId: the compiled-map lookup below and
+		// the default chords share these handlers (they were the hardcoded chains).
+		const dispatchKeymapAction = (actionId: KeymapActionId) => {
+			// The visible tab changes before main finishes moving the RPC/event route.
+			// Never let a shortcut mutate the outgoing sidecar during that gap.
+			if (!acceptsActiveTabEvents()) return;
+			if (MAIN_MUTATING_KEYMAP_ACTIONS[actionId] && !canMutateMainTarget()) return;
+			const ui = useUiStore.getState();
+			switch (actionId) {
+				case "model.cycleForward":
+					// ⌃P — cycle to the next model (TUI parity).
+					void runSessionCommand(focusedTabRpc().cycleModel(), t("palette.failed"));
+					return;
+				case "model.cycleBackward":
+					// ⇧⌃P — cycle model backward (TUI app.model.cycleBackward), via the
+					// cycle_model direction arg (A1 RPC).
+					void runSessionCommand(focusedTabRpc().cycleModel("backward"), t("palette.failed"));
+					return;
+				case "retry":
+					// ⌥R — retry the last failed turn (TUI app.retry) via the retry RPC.
+					// Distinct from the palette's re-send-last-message action: this knows
+					// what "failed turn" means server-side.
+					void retryFailedTurn().catch(error =>
+						toast({ variant: "error", title: t("palette.failed"), message: String(error) }),
+					);
+					return;
+				case "dequeue":
+					// ⌥↑ — restore queued messages to the composer (TUI app.message.dequeue):
+					// newest queued steer/follow-up back into the composer, rest re-queued.
+					void restoreQueuedMessages(() => toast({ variant: "info", message: t("input.dequeueEmpty") })).catch(
+						error => toast({ variant: "error", title: t("palette.failed"), message: String(error) }),
+					);
+					return;
+				case "plan.toggle": {
+					// ⌥⇧P — toggle plan mode (TUI app.plan.toggle).
+					const enabled = !useSessionStore.getState().planModeEnabled;
+					void runSessionCommand(focusedTabRpc().setPlanMode(enabled), t("settings.runtime.planMode"), data => {
+						const result = data as { enabled?: boolean } | undefined;
+						if (typeof result?.enabled === "boolean")
+							useSessionStore.setState({ planModeEnabled: result.enabled });
+					});
+					return;
+				}
+				case "tools.expand":
+					// ⌃O — expand/collapse all tool cards (TUI app.tools.expand).
+					ui.toggleToolsExpandAll();
+					return;
+				case "thinking.toggle": {
+					// ⌃T — show/hide thinking blocks (TUI app.thinking.toggle).
+					void setDisplayPreference("hideThinkingBlock", !readDisplayPreference("hideThinkingBlock"));
+					return;
+				}
+				case "tab.new":
+					// ⌘T — new agent tab (type chosen at creation, immutable).
+					void useTabsStore.getState().openTab();
+					return;
+				case "tab.newChat":
+					void useTabsStore.getState().openTab({ kind: "chat" });
+					return;
+				case "tab.close": {
+					const tabs = useTabsStore.getState();
+					if (tabs.activeTabId) void tabs.closeTab(tabs.activeTabId);
+					return;
+				}
+				case "tab.newWorktree":
+					// ⌥T — new worktree tab (create dialog, plan/20).
+					useUiStore.getState().openWorktreeDialog();
+					return;
+				case "tab.close":
+					// ⌘W — close the active tab, arming the chip's inline confirm
+					// while its run is live (⇧⌘W closes the window from the menu).
+					closeActiveTab();
+					return;
+				case "pr.center":
+					// ⌥P — PR Center panel (plan/21).
+					useUiStore.getState().openPrCenter();
+					return;
+				case "model.select":
+					// ⌥M — model picker (TUI app.model.select).
+					ui.openModelPicker();
+					return;
+				case "agents.hub":
+					// ⌥A — agent hub (TUI app.agents.hub).
+					ui.openAgentHub("hub");
+					return;
+				case "palette":
+					if (ui.commandPaletteOpen) ui.closeCommandPalette();
+					else ui.openCommandPalette();
+					return;
+				case "settings":
+					ui.openSettings();
+					return;
+				case "sidebar.toggle":
+					ui.toggleSidebar();
+					return;
+				case "panel.toggle":
+					ui.togglePanel();
+					return;
+				case "hotkeys":
+					// ⌘/ or ⌃/ — keyboard shortcuts panel (/hotkeys parity).
+					if (ui.hotkeysOpen) ui.closeHotkeys();
+					else ui.openHotkeys();
+					return;
+			}
+		};
+
+		const onKey = (event: KeyboardEvent) => {
+			// One physical shortcut dispatches once; IME composition owns Escape.
+			if (event.repeat || isImeKeyEvent(event)) return;
+			const ui = useUiStore.getState();
+			const overlayOpen =
+				ui.commandPaletteOpen ||
+				ui.modelPickerOpen ||
+				ui.settingsOpen ||
+				ui.statsDashboardOpen ||
+				ui.benchmarkOpen ||
+				ui.sessionPickerOpen ||
+				ui.branchPickerOpen ||
+				ui.hotkeysOpen;
+			if (event.key === "Escape") {
+				// Don't abort when an overlay/dropdown already consumed this Escape to
+				// dismiss itself (its handler ran first + preventDefault).
+				if (
+					acceptsActiveTabEvents() &&
+					canMutateMainTarget() &&
+					!event.defaultPrevented &&
+					!overlayOpen &&
+					!document.querySelector('[role="dialog"]')
+				)
+					void abortActiveTurn();
+				return;
+			}
+
+			// ⇧Tab — cycle thinking level (TUI app.thinking.cycle). In the TUI the
+			// binding lives in the editor, so hijack it only while a textarea (the
+			// composer) owns focus; elsewhere Shift+Tab keeps its focus-traversal
+			// role. Focus-gated and NOT remappable.
+			if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+				if (
+					acceptsActiveTabEvents() &&
+					canMutateMainTarget() &&
+					!overlayOpen &&
+					!event.defaultPrevented &&
+					!document.querySelector('[role="dialog"]') &&
+					document.activeElement instanceof HTMLTextAreaElement
+				) {
+					event.preventDefault();
+					void runSessionCommand(focusedTabRpc().cycleThinkingLevel(), t("palette.failed"));
+				}
+				return;
+			}
+
+			// Remappable chords (B3): one O(1) lookup in the compiled keymap. The
+			// overlayOpen / defaultPrevented / [role=dialog] guards apply exactly
+			// as the pre-B3 hardcoded chains — overlay-safe actions (the old
+			// unguarded ⌘ block: palette, settings, sidebar, panel, hotkeys, ⌃P)
+			// still fire anywhere, the rest stay suppressed.
+			const chord = chordFromEvent(event);
+			if (!chord) return;
+			const actionId = keymap.get(chord);
+			if (!actionId) return;
+			if (KEYMAP_ACTION_BY_ID[actionId].overlaySafe) {
+				event.preventDefault();
+				dispatchKeymapAction(actionId);
+				return;
+			}
+			if (!overlayOpen && !event.defaultPrevented && !document.querySelector('[role="dialog"]')) {
+				event.preventDefault();
+				dispatchKeymapAction(actionId);
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [t, keymap]);
+	useEffect(() => {
+		const run = async (action: MenuAction, payload?: MenuActionPayload) => {
+			const ui = useUiStore.getState();
+			if (action === "toggle-sidebar") {
+				ui.toggleSidebar();
+				return;
+			}
+			if (action === "toggle-panel") {
+				ui.togglePanel();
+				return;
+			}
+			if (action === "toggle-language") {
+				setLang(lang === "zh" ? "en" : "zh");
+				return;
+			}
+			// New tab actions never touch the live run — they must stay OUT of the
+			// streaming busy-guard below (unlike new-session/open-project).
+			if (action === "new-tab") {
+				void useTabsStore.getState().openTab();
+				return;
+			}
+			if (action === "close-tab") {
+				closeActiveTab();
+				return;
+			}
+			if (action === "new-chat-tab") {
+				void useTabsStore.getState().openTab({ kind: "chat" });
+				return;
+			}
+			// Window-only surfaces do not require a live sidecar. Keep these actions
+			// usable while the agent is starting, asleep, or recovering.
+			if (action === "open-settings") {
+				ui.openSettings();
+				return;
+			}
+			if (action === "open-usage") {
+				ui.openUsage();
+				return;
+			}
+			if (action === "open-model-picker") {
+				ui.openModelPicker();
+				return;
+			}
+			if (action === "open-import") {
+				ui.openImportDialog();
+				return;
+			}
+			if (action === "open-branch-picker") {
+				ui.openBranchPicker();
+				return;
+			}
+			if (action === "open-session-tree") {
+				ui.openSessionTree();
+				return;
+			}
+			if (action === "open-capabilities") {
+				ui.openSettings("capabilities");
+				return;
+			}
+			if (action === "open-git") {
+				const active = useTabsStore.getState().tabs.find(tab => tab.id === useTabsStore.getState().activeTabId);
+				if (active?.kind === "chat") {
+					toast({ variant: "warning", message: t("unavailable.chatSession") });
+					return;
+				}
+				ui.setPanelTab("diff");
+				return;
+			}
+			if (action === "restart-sidecar") {
+				void restartSidecarFromGui();
+				return;
+			}
+			if (action === "open-command-center") {
+				ui.openCommandPalette();
+				return;
+			}
+			if (action === "open-context-report") {
+				ui.openContextReport();
+				return;
+			}
+			if (action === "open-jobs") {
+				ui.openJobs();
+				return;
+			}
+			if (action === "open-stats") {
+				ui.openStatsDashboard();
+				return;
+			}
+			if (action === "open-feedback") {
+				ui.openFeedback();
+				return;
+			}
+			if (action === "open-hotkeys") {
+				ui.openHotkeys();
+				return;
+			}
+			if (action === "open-session-info") {
+				ui.openSessionInfo();
+				return;
+			}
+			if (action === "open-share-session") {
+				ui.openShareSession();
+				return;
+			}
+			if (action === "open-workspace-dirs") {
+				ui.openWorkspaceDirs();
+				return;
+			}
+			if (action === "open-agent-hub") {
+				ui.openAgentHub();
+				return;
+			}
+			if (action === "open-modes") {
+				ui.openModes();
+				return;
+			}
+			if (action === "open-providers") {
+				ui.openProviders();
+				return;
+			}
+			if (action === "open-model-roles") {
+				ui.openModelRoles();
+				return;
+			}
+			if (action === "open-extensions") {
+				ui.openExtensions();
+				return;
+			}
+			if (action === "open-inventory") {
+				ui.openInventory();
+				return;
+			}
+			if (action === "open-pr-center") {
+				ui.openPrCenter();
+				return;
+			}
+			if (action === "open-debug") {
+				ui.openDebug();
+				return;
+			}
+			// Menu commands below read or mutate the selected sidecar. Ignore the
+			// short selected-vs-routed gap instead of sending them to the old tab.
+			if (!acceptsActiveTabEvents()) return;
+			// Projected views retain navigation and read-only exports, never Main mutations.
+			if (MAIN_MUTATING_MENU_ACTIONS[action] && !canMutateMainTarget()) return;
+			if (action === "toggle-fast") {
+				void useModelStore.getState().toggleFastMode();
+				return;
+			}
+			if (action === "cycle-thinking") {
+				void runSessionCommand(focusedTabRpc().cycleThinkingLevel(), t("palette.failed"));
+				return;
+			}
+			if (action === "set-approval") {
+				if (payload?.approvalMode) useSettingsStore.getState().setApprovalMode(payload.approvalMode);
+				return;
+			}
+			if (
+				useSessionStore.getState().isStreaming &&
+				(action === "new-session" ||
+					action === "open-project" ||
+					action === "handoff" ||
+					action === "switch-project")
+			) {
+				toast({ variant: "warning", message: t("sessionSwitch.busyBlocked") });
+				return;
+			}
+
+			try {
+				if (action === "open-project") {
+					await window.omp.sidecar.selectProject();
+				} else if (action === "switch-project") {
+					if (payload?.cwd) await window.omp.sidecar.setProject(payload.cwd);
+				} else if (action === "new-session") {
+					await newSessionNow();
+				} else if (action === "export-html") {
+					await exportSessionHtml();
+				} else if (action === "handoff") {
+					openHandoffDialog();
+				}
+			} catch (error) {
+				toast({ variant: "error", title: t("app.actionFailed"), message: String(error) });
+			}
+		};
+		return window.omp.events.onMenuAction((action, payload) => void run(action, payload));
+	}, [lang, setLang, t]);
+	return null;
+}
+
+/**
  * Shell: Sidebar | (TitleBar / ChatStream / InputArea) | PanelContainer,
  * with command palette, extension dialogs, and the model picker overlaid.
  * useRpcEvents() wires the IPC event stream into the stores exactly once.
@@ -200,8 +607,8 @@ export function App() {
 	const activeTabId = useTabsStore(s => s.activeTabId);
 	const activeTabStatus = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.status);
 	const themeSidecarReady = activeTabStatus === "ready" || activeTabStatus === "running";
-	const { lang, setLang } = useLang();
 	const t = useT();
+
 
 	// Seed theme/fontSize from persisted prefs once at boot.
 	useEffect(() => {
@@ -358,385 +765,15 @@ export function App() {
 		};
 		return window.omp.events.onDeepLink(link => void handle(link));
 	}, [t]);
-	// User keybinding overrides → precompiled chord → actionId lookup (B3,
-	// plan/15 §3.5): keydown dispatch is an O(1) map hit, never a config walk.
-	// The memo recomputes only when the overrides object identity changes.
-	const keymapOverrides = useUiStore(s => s.keymapOverrides);
-	const keymap = useMemo(() => compileKeymap(KEYMAP_ACTIONS, keymapOverrides), [keymapOverrides]);
-
-	// Boot hydration of user keybinding overrides (prefs key "keymapOverrides").
-	useEffect(() => {
-		void useUiStore.getState().hydrateKeymap();
-
-		// One dispatch switch keyed by actionId: the compiled-map lookup below and
-		// the default chords share these handlers (they were the hardcoded chains).
-		const dispatchKeymapAction = (actionId: KeymapActionId) => {
-			// The visible tab changes before main finishes moving the RPC/event route.
-			// Never let a shortcut mutate the outgoing sidecar during that gap.
-			if (!acceptsActiveTabEvents()) return;
-			const ui = useUiStore.getState();
-			switch (actionId) {
-				case "model.cycleForward":
-					// ⌃P — cycle to the next model (TUI parity).
-					void runSessionCommand(focusedTabRpc().cycleModel(), t("palette.failed"));
-					return;
-				case "model.cycleBackward":
-					// ⇧⌃P — cycle model backward (TUI app.model.cycleBackward), via the
-					// cycle_model direction arg (A1 RPC).
-					void runSessionCommand(focusedTabRpc().cycleModel("backward"), t("palette.failed"));
-					return;
-				case "retry":
-					// ⌥R — retry the last failed turn (TUI app.retry) via the retry RPC.
-					// Distinct from the palette's re-send-last-message action: this knows
-					// what "failed turn" means server-side.
-					void retryFailedTurn().catch(error =>
-						toast({ variant: "error", title: t("palette.failed"), message: String(error) }),
-					);
-					return;
-				case "dequeue":
-					// ⌥↑ — restore queued messages to the composer (TUI app.message.dequeue):
-					// newest queued steer/follow-up back into the composer, rest re-queued.
-					void restoreQueuedMessages(() => toast({ variant: "info", message: t("input.dequeueEmpty") })).catch(
-						error => toast({ variant: "error", title: t("palette.failed"), message: String(error) }),
-					);
-					return;
-				case "plan.toggle": {
-					// ⌥⇧P — toggle plan mode (TUI app.plan.toggle).
-					const enabled = !useSessionStore.getState().planModeEnabled;
-					void runSessionCommand(focusedTabRpc().setPlanMode(enabled), t("settings.runtime.planMode"), data => {
-						const result = data as { enabled?: boolean } | undefined;
-						if (typeof result?.enabled === "boolean")
-							useSessionStore.setState({ planModeEnabled: result.enabled });
-					});
-					return;
-				}
-				case "tools.expand":
-					// ⌃O — expand/collapse all tool cards (TUI app.tools.expand).
-					ui.toggleToolsExpandAll();
-					return;
-				case "thinking.toggle": {
-					// ⌃T — show/hide thinking blocks (TUI app.thinking.toggle).
-					void setDisplayPreference("hideThinkingBlock", !readDisplayPreference("hideThinkingBlock"));
-					return;
-				}
-				case "tab.new":
-					// ⌘T — new agent tab (type chosen at creation, immutable).
-					void useTabsStore.getState().openTab();
-					return;
-				case "tab.newChat":
-					void useTabsStore.getState().openTab({ kind: "chat" });
-					return;
-				case "tab.close": {
-					const tabs = useTabsStore.getState();
-					if (tabs.activeTabId) void tabs.closeTab(tabs.activeTabId);
-					return;
-				}
-				case "tab.newWorktree":
-					// ⌥T — new worktree tab (create dialog, plan/20).
-					useUiStore.getState().openWorktreeDialog();
-					return;
-				case "tab.close":
-					// ⌘W — close the active tab, arming the chip's inline confirm
-					// while its run is live (⇧⌘W closes the window from the menu).
-					closeActiveTab();
-					return;
-				case "pr.center":
-					// ⌥P — PR Center panel (plan/21).
-					useUiStore.getState().openPrCenter();
-					return;
-				case "model.select":
-					// ⌥M — model picker (TUI app.model.select).
-					ui.openModelPicker();
-					return;
-				case "agents.hub":
-					// ⌥A — agent hub (TUI app.agents.hub).
-					ui.openAgentHub("hub");
-					return;
-				case "palette":
-					if (ui.commandPaletteOpen) ui.closeCommandPalette();
-					else ui.openCommandPalette();
-					return;
-				case "settings":
-					ui.openSettings();
-					return;
-				case "sidebar.toggle":
-					ui.toggleSidebar();
-					return;
-				case "panel.toggle":
-					ui.togglePanel();
-					return;
-				case "hotkeys":
-					// ⌘/ or ⌃/ — keyboard shortcuts panel (/hotkeys parity).
-					if (ui.hotkeysOpen) ui.closeHotkeys();
-					else ui.openHotkeys();
-					return;
-			}
-		};
-
-		const onKey = (event: KeyboardEvent) => {
-			// One physical shortcut dispatches once; IME composition owns Escape.
-			if (event.repeat || isImeKeyEvent(event)) return;
-			const ui = useUiStore.getState();
-			const overlayOpen =
-				ui.commandPaletteOpen ||
-				ui.modelPickerOpen ||
-				ui.settingsOpen ||
-				ui.statsDashboardOpen ||
-				ui.benchmarkOpen ||
-				ui.sessionPickerOpen ||
-				ui.branchPickerOpen ||
-				ui.hotkeysOpen;
-			if (event.key === "Escape") {
-				// Don't abort when an overlay/dropdown already consumed this Escape to
-				// dismiss itself (its handler ran first + preventDefault).
-				if (
-					acceptsActiveTabEvents() &&
-					!event.defaultPrevented &&
-					!overlayOpen &&
-					!document.querySelector('[role="dialog"]')
-				)
-					void abortActiveTurn();
-				return;
-			}
-
-			// ⇧Tab — cycle thinking level (TUI app.thinking.cycle). In the TUI the
-			// binding lives in the editor, so hijack it only while a textarea (the
-			// composer) owns focus; elsewhere Shift+Tab keeps its focus-traversal
-			// role. Focus-gated and NOT remappable.
-			if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-				if (
-					acceptsActiveTabEvents() &&
-					!overlayOpen &&
-					!event.defaultPrevented &&
-					!document.querySelector('[role="dialog"]') &&
-					document.activeElement instanceof HTMLTextAreaElement
-				) {
-					event.preventDefault();
-					void runSessionCommand(focusedTabRpc().cycleThinkingLevel(), t("palette.failed"));
-				}
-				return;
-			}
-
-			// Remappable chords (B3): one O(1) lookup in the compiled keymap. The
-			// overlayOpen / defaultPrevented / [role=dialog] guards apply exactly
-			// as the pre-B3 hardcoded chains — overlay-safe actions (the old
-			// unguarded ⌘ block: palette, settings, sidebar, panel, hotkeys, ⌃P)
-			// still fire anywhere, the rest stay suppressed.
-			const chord = chordFromEvent(event);
-			if (!chord) return;
-			const actionId = keymap.get(chord);
-			if (!actionId) return;
-			if (KEYMAP_ACTION_BY_ID[actionId].overlaySafe) {
-				event.preventDefault();
-				dispatchKeymapAction(actionId);
-				return;
-			}
-			if (!overlayOpen && !event.defaultPrevented && !document.querySelector('[role="dialog"]')) {
-				event.preventDefault();
-				dispatchKeymapAction(actionId);
-			}
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [t, keymap]);
 
 	// Updater status: main-process push + boot replay, unsubscribed on unmount.
 	useEffect(() => subscribeUpdaterStatus(), []);
-
-	useEffect(() => {
-		const run = async (action: MenuAction, payload?: MenuActionPayload) => {
-			const ui = useUiStore.getState();
-			if (action === "toggle-sidebar") {
-				ui.toggleSidebar();
-				return;
-			}
-			if (action === "toggle-panel") {
-				ui.togglePanel();
-				return;
-			}
-			if (action === "toggle-language") {
-				setLang(lang === "zh" ? "en" : "zh");
-				return;
-			}
-			// New tab actions never touch the live run — they must stay OUT of the
-			// streaming busy-guard below (unlike new-session/open-project).
-			if (action === "new-tab") {
-				void useTabsStore.getState().openTab();
-				return;
-			}
-			if (action === "close-tab") {
-				const tabs = useTabsStore.getState();
-				if (tabs.activeTabId) void tabs.closeTab(tabs.activeTabId);
-				return;
-			}
-			if (action === "new-chat-tab") {
-				void useTabsStore.getState().openTab({ kind: "chat" });
-				return;
-			}
-			// Window-only surfaces do not require a live sidecar. Keep these actions
-			// usable while the agent is starting, asleep, or recovering.
-			if (action === "open-settings") {
-				ui.openSettings();
-				return;
-			}
-			if (action === "open-usage") {
-				ui.openUsage();
-				return;
-			}
-			if (action === "open-model-picker") {
-				ui.openModelPicker();
-				return;
-			}
-			if (action === "open-import") {
-				ui.openImportDialog();
-				return;
-			}
-			if (action === "open-branch-picker") {
-				ui.openBranchPicker();
-				return;
-			}
-			if (action === "open-session-tree") {
-				ui.openSessionTree();
-				return;
-			}
-			if (action === "open-capabilities") {
-				ui.openSettings("capabilities");
-				return;
-			}
-			if (action === "open-git") {
-				const active = useTabsStore.getState().tabs.find(tab => tab.id === useTabsStore.getState().activeTabId);
-				if (active?.kind === "chat") {
-					toast({ variant: "warning", message: t("unavailable.chatSession") });
-					return;
-				}
-				ui.setPanelTab("diff");
-				return;
-			}
-			if (action === "restart-sidecar") {
-				void restartSidecarFromGui();
-				return;
-			}
-			if (action === "open-command-center") {
-				ui.openCommandPalette();
-				return;
-			}
-			if (action === "open-context-report") {
-				ui.openContextReport();
-				return;
-			}
-			if (action === "open-jobs") {
-				ui.openJobs();
-				return;
-			}
-			if (action === "open-stats") {
-				ui.openStatsDashboard();
-				return;
-			}
-			if (action === "open-feedback") {
-				ui.openFeedback();
-				return;
-			}
-			if (action === "open-hotkeys") {
-				ui.openHotkeys();
-				return;
-			}
-			if (action === "open-session-info") {
-				ui.openSessionInfo();
-				return;
-			}
-			if (action === "open-share-session") {
-				ui.openShareSession();
-				return;
-			}
-			if (action === "open-workspace-dirs") {
-				ui.openWorkspaceDirs();
-				return;
-			}
-			if (action === "open-agent-hub") {
-				ui.openAgentHub();
-				return;
-			}
-			if (action === "open-modes") {
-				ui.openModes();
-				return;
-			}
-			if (action === "open-providers") {
-				ui.openProviders();
-				return;
-			}
-			if (action === "open-model-roles") {
-				ui.openModelRoles();
-				return;
-			}
-			if (action === "open-extensions") {
-				ui.openExtensions();
-				return;
-			}
-			if (action === "open-inventory") {
-				ui.openInventory();
-				return;
-			}
-			if (action === "open-pr-center") {
-				ui.openPrCenter();
-				return;
-			}
-			if (action === "open-debug") {
-				ui.openDebug();
-				return;
-			}
-			// Menu commands below read or mutate the selected sidecar. Ignore the
-			// short selected-vs-routed gap instead of sending them to the old tab.
-			if (!acceptsActiveTabEvents()) return;
-			if (action === "close-tab") {
-				closeActiveTab();
-				return;
-			}
-			if (action === "toggle-fast") {
-				void useModelStore.getState().toggleFastMode();
-				return;
-			}
-			if (action === "cycle-thinking") {
-				void runSessionCommand(focusedTabRpc().cycleThinkingLevel(), t("palette.failed"));
-				return;
-			}
-			if (action === "set-approval") {
-				if (payload?.approvalMode) useSettingsStore.getState().setApprovalMode(payload.approvalMode);
-				return;
-			}
-			if (
-				useSessionStore.getState().isStreaming &&
-				(action === "new-session" ||
-					action === "open-project" ||
-					action === "handoff" ||
-					action === "switch-project")
-			) {
-				toast({ variant: "warning", message: t("sessionSwitch.busyBlocked") });
-				return;
-			}
-
-			try {
-				if (action === "open-project") {
-					await window.omp.sidecar.selectProject();
-				} else if (action === "switch-project") {
-					if (payload?.cwd) await window.omp.sidecar.setProject(payload.cwd);
-				} else if (action === "new-session") {
-					await newSessionNow();
-				} else if (action === "export-html") {
-					await exportSessionHtml();
-				} else if (action === "handoff") {
-					openHandoffDialog();
-				}
-			} catch (error) {
-				toast({ variant: "error", title: t("app.actionFailed"), message: String(error) });
-			}
-		};
-		return window.omp.events.onMenuAction((action, payload) => void run(action, payload));
-	}, [lang, setLang, t]);
 
 	const focusedRuntime = activeTabId ? ensureTabRuntime(activeTabId) : null;
 	const surface = (
 		<div className="flex h-screen w-screen overflow-hidden text-[var(--omp-text)]">
 			{focusedRuntime && <FocusedSessionEffects />}
+			<AppGlobalActions />
 			{sidebarVisible && <Sidebar />}
 
 			<main className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">

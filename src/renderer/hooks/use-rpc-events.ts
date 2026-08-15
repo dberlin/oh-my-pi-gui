@@ -34,6 +34,7 @@ import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
+import { useAgentViewStore } from "../stores/agent-view";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
@@ -48,7 +49,7 @@ import {
 	withSessionRuntime,
 } from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
-import { useSubagentsStore } from "../stores/subagents";
+import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { isTabClosed, useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
@@ -220,46 +221,6 @@ function toastOnAgentError(tabId: string, event: Extract<AgentSessionEvent, { ty
 	useToastStore.getState().push({ variant: "error", title: translate("events.turnFailed"), message: detail });
 }
 
-/** Apply a get_state snapshot to every state-derived store. */
-function applySessionState(state: RpcSessionState, fallbackName?: string): void {
-	useModelStore.getState().setFromState(state);
-	useSessionStore.getState().setFromState(state);
-	useTabsStore.getState().applyHydratedCwd(state.cwd);
-	if (!state.sessionName && fallbackName) {
-		useSessionStore.setState({ sessionName: fallbackName });
-	}
-	useSettingsStore.getState().setFromState(state);
-	useTodoStore.getState().setPhases(state.todoPhases);
-}
-
-/**
- * Light re-sync of session state (no transcript/subagent fetch). Used for
- * model_changed: a model switch does not rewrite history, so refetching the
- * transcript mid-run would only race the live stream. Also fired on
- * agent_start: server-side plan-mode exits (plan_approval accept) emit no
- * event, so turn start is the sync point that keeps planModeEnabled honest.
- */
-async function refreshSessionState(tabId = useTabsStore.getState().activeTabId): Promise<void> {
-	if (!tabId) return;
-	// Closed tabs keep their tombstone: never resurrect a runtime for them.
-	// Live tabs may legitimately lack one yet (boot race) — create on demand.
-	const runtime = isTabClosed(tabId) ? sessionRuntime(tabId) : ensureTabRuntime(tabId);
-	if (!runtime) return;
-	const sessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
-	try {
-		const res = await runtime.command({ type: "get_state" });
-		if (
-			sessionRuntime(tabId) === runtime &&
-			sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId === sessionId &&
-			res.success &&
-			res.data != null
-		) {
-			withSessionRuntime(tabId, () => applySessionState(res.data as RpcSessionState));
-		}
-	} catch {
-		// Transient — the next heartbeat or hydration retries.
-	}
-}
 /** Goal statuses past which no live goal remains — the composer chip must clear. */
 const TERMINAL_GOAL_STATUSES: Record<string, true> = { dropped: true, complete: true };
 
@@ -293,6 +254,40 @@ function goalPatchFromEvent(
 	return { goal: { objective: goalInfo.objective }, goalState: { status } };
 }
 
+interface ReadyRecovery {
+	tabId: string;
+	generation: number;
+	promise: Promise<void>;
+}
+
+let readyRecovery: ReadyRecovery | null = null;
+let readyRecoveryGeneration = 0;
+
+export function invalidateReadyRecovery(): void {
+	readyRecoveryGeneration += 1;
+	readyRecovery = null;
+}
+
+export function recoverReadySession(tabId: string | null = useTabsStore.getState().activeTabId): Promise<void> {
+	if (!tabId || isTabClosed(tabId)) return Promise.resolve();
+	const generation = readyRecoveryGeneration;
+	if (readyRecovery?.tabId === tabId && readyRecovery.generation === generation) return readyRecovery.promise;
+	const promise = (async () => {
+		sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().invalidateRefresh();
+		await hydrateTabSession(tabId);
+		if (generation !== readyRecoveryGeneration || isTabClosed(tabId)) return;
+		if (useTabsStore.getState().activeTabId !== tabId) return;
+		await useAgentViewStore.getState().reloadSelected();
+	})();
+	readyRecovery = { tabId, generation, promise };
+	const clear = () => {
+		if (readyRecovery?.promise === promise) readyRecovery = null;
+	};
+	void promise.then(clear, clear);
+	return promise;
+}
+
+ 
 /**
  * Subscribes to batched RPC events from the sidecar and dispatches
  * them to the appropriate stores. Call once in App.tsx.
@@ -651,7 +646,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						} else {
 							if (isFocused()) useUiStore.getState().clearSidecarError();
 							if (runtime) {
-								void hydrateTabSession(statusTabId);
+								void recoverReadySession(statusTabId);
 							} else {
 								const wire = res.data as RpcSessionState;
 								applySessionState(wire);

@@ -1,12 +1,24 @@
-import { describe, expect, it } from "vitest";
-import type { AgentMessage } from "../../../shared/rpc-types";
+import { parseHTML } from "linkedom";
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it } from "vitest";
+import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
+import { I18nProvider } from "../../lib/i18n";
+import { useMessagesStore } from "../../stores/messages";
+import { useQueueStore } from "../../stores/queue";
+import { useSessionStore } from "../../stores/session";
+import { useSettingsStore } from "../../stores/settings";
 import type { TodoSnapshot } from "../../stores/todo";
+import { useTodoStore } from "../../stores/todo";
+import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
 import {
 	buildConversationAnchors,
 	buildHistoryRowKeys,
 	buildHistoryRows,
-	buildTimelineMarkers,
 	buildTranscriptRowKeys,
+	ChatStream,
 	claimRowEntrances,
 	createRowEntranceState,
 	findConversationAnchorIndex,
@@ -17,7 +29,109 @@ import {
 	ROW_ENTRANCE_TAIL_ROWS,
 	shouldRePinTranscript,
 } from "./ChatStream";
+import { ProcessGroup, StreamingRows } from "./TranscriptViewport";
+import type { RowEntranceState } from "./chat-stream-utils";
 
+const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+const globals = globalThis as Record<string, unknown>;
+Object.assign(globals, {
+	document,
+	window,
+	Event,
+	CustomEvent,
+	HTMLElement,
+	Element,
+	Node,
+	IS_REACT_ACT_ENVIRONMENT: true,
+	requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
+	cancelAnimationFrame: (handle: number) => clearTimeout(handle),
+	ResizeObserver: class {
+		readonly #callback: (
+			entries: Array<{
+				target: { getAttribute: (name: string) => string | null };
+				contentRect: { width: number; height: number };
+			}>,
+		) => void;
+
+		constructor(
+			callback: (
+				entries: Array<{
+					target: { getAttribute: (name: string) => string | null };
+					contentRect: { width: number; height: number };
+				}>,
+			) => void,
+		) {
+			this.#callback = callback;
+		}
+
+		observe(target: { getAttribute: (name: string) => string | null }): void {
+			this.#callback([{ target, contentRect: { width: 1000, height: 800 } }]);
+		}
+
+		unobserve(): void {}
+
+		disconnect(): void {}
+	},
+});
+Object.assign(HTMLElement.prototype, {
+	clientHeight: 800,
+	clientWidth: 1000,
+	scrollHeight: 1600,
+	scrollWidth: 1000,
+	getBoundingClientRect: () => ({
+		width: 1000,
+		height: 80,
+		top: 0,
+		right: 1000,
+		bottom: 80,
+		left: 0,
+		x: 0,
+		y: 0,
+		toJSON: () => ({}),
+	}),
+	scrollTo: () => {},
+});
+
+interface TestElement {
+	parentElement: TestElement | null;
+	textContent: string | null;
+	remove: () => void;
+	querySelector: (selector: string) => TestElement | null;
+	querySelectorAll: (selector: string) => TestElement[];
+}
+
+let container: TestElement | undefined;
+let root: Root | undefined;
+
+async function mount(element: ReactElement): Promise<void> {
+	container = document.createElement("div") as unknown as TestElement;
+	document.body.appendChild(container as never);
+	root = createRoot(container as unknown as Element);
+	const { promise, resolve } = Promise.withResolvers<void>();
+	setTimeout(resolve, 0);
+	await act(async () => {
+		root?.render(<I18nProvider>{element}</I18nProvider>);
+		await promise;
+	});
+}
+
+afterEach(async () => {
+	if (root) {
+		await act(async () => {
+			root?.unmount();
+		});
+	}
+	container?.remove();
+	container = undefined;
+	root = undefined;
+	useMessagesStore.getState().reset();
+	useQueueStore.setState({ steering: [], followUp: [] });
+	useSessionStore.getState().reset();
+	useSettingsStore.getState().reset();
+	useTodoStore.getState().reset();
+	useToolsStore.getState().reset();
+	useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact", switchPending: null });
+});
 const at = "2026-08-05T04:00:00.000Z";
 
 function assistant(content: AgentMessage["content"]): AgentMessage {
@@ -146,7 +260,152 @@ describe("compact transcript rows", () => {
 			"launch-completion",
 			"async-result",
 		]);
-		expect(buildTimelineMarkers(rows)[0]?.state).toBe("error");
+	});
+
+	it("keeps resolver occurrence keys in compact process rows", () => {
+		const firstCall: ToolCallContent = {
+			type: "toolCall",
+			id: "provider-call:0",
+			name: "read",
+			arguments: { path: "first.ts" },
+		};
+		const secondCall: ToolCallContent = {
+			type: "toolCall",
+			id: "provider-call:0",
+			name: "read",
+			arguments: { path: "second.ts" },
+		};
+		const occurrenceKeys = new WeakMap<ToolCallContent, string>([
+			[firstCall, "provider-call:0#1"],
+			[secondCall, "provider-call:0#2"],
+		]);
+		const resolveToolCall = (call: ToolCallContent) => ({
+			key: occurrenceKeys.get(call) ?? call.id,
+			entry: undefined,
+		});
+		const messages = [
+			assistant([{ type: "text", text: "Inspect both occurrences." }, firstCall]),
+			assistant([{ type: "text", text: "." }, secondCall]),
+		];
+
+		const compactRows = buildHistoryRows(messages, "compact", undefined, resolveToolCall);
+		if (compactRows[0]?.kind !== "process") throw new Error("process row missing");
+		expect(compactRows[0].toolCallIds).toEqual(["provider-call:0#1", "provider-call:0#2"]);
+
+	});
+
+	it("keeps projected row keys tied to resolved occurrences when an earlier duplicate is removed", () => {
+		const firstCall: ToolCallContent = {
+			type: "toolCall",
+			id: "provider-process:0",
+			name: "read",
+			arguments: { path: "first.ts" },
+		};
+		const secondCall: ToolCallContent = {
+			type: "toolCall",
+			id: "provider-process:0",
+			name: "read",
+			arguments: { path: "second.ts" },
+		};
+		const occurrenceKeys = new WeakMap<ToolCallContent, string>([
+			[firstCall, "provider-process:0#1"],
+			[secondCall, "provider-process:0#2"],
+		]);
+		const resolveToolCall = (call: ToolCallContent) => ({
+			key: occurrenceKeys.get(call) ?? call.id,
+			entry: undefined,
+		});
+		const firstMessage = assistant([{ type: "text", text: "Inspect first." }, firstCall]);
+		const secondMessage = assistant([{ type: "text", text: "Inspect second." }, secondCall]);
+		const bothRows = buildHistoryRows([firstMessage, secondMessage], "compact", undefined, resolveToolCall);
+		const remainingRows = buildHistoryRows([secondMessage], "compact", undefined, resolveToolCall);
+
+		expect(buildHistoryRowKeys(bothRows)).toEqual(["process-provider-process:0#1", "process-provider-process:0#2"]);
+		expect(buildHistoryRowKeys(remainingRows)).toEqual(["process-provider-process:0#2"]);
+
+		const bothMessageRows = buildHistoryRows([firstMessage, secondMessage], "full", undefined, resolveToolCall);
+		const remainingMessageRows = buildHistoryRows([secondMessage], "full", undefined, resolveToolCall);
+		expect(buildHistoryRowKeys(bothMessageRows, resolveToolCall)).toEqual([
+			"message-provider-process:0#1",
+			"message-provider-process:0#2",
+		]);
+		expect(buildHistoryRowKeys(remainingMessageRows, resolveToolCall)).toEqual(["message-provider-process:0#2"]);
+	});
+});
+
+describe("projected tool renderers", () => {
+	it("passes the projection through finalized process and streaming tool renderers", () => {
+		const call: ToolCallContent = {
+			type: "toolCall",
+			id: "shared-provider:0",
+			name: "bash",
+			arguments: { command: "printf projected" },
+		};
+		const projectedEntry: ToolEntry = {
+			toolName: "bash",
+			args: call.arguments,
+			status: "running",
+			partialResult: "PROJECTED_PARTIAL",
+			streamingArgs: "",
+			result: null,
+			isError: false,
+			startTime: 1,
+			endTime: null,
+		};
+		const mainEntry: ToolEntry = {
+			...projectedEntry,
+			status: "error",
+			partialResult: "MAIN_PARTIAL",
+			isError: true,
+			endTime: 2,
+		};
+		useToolsStore.setState({
+			activeTools: new Map([
+				[call.id, mainEntry],
+				["shared-provider:0#projected", mainEntry],
+			]),
+		});
+		const projectedTools = new Map([["shared-provider:0#projected", projectedEntry]]);
+		const resolveToolCall = () => ({ key: "shared-provider:0#projected", entry: projectedEntry });
+		const rows = buildHistoryRows(
+			[assistant([{ type: "text", text: "Run projected." }, call])],
+			"compact",
+			undefined,
+			resolveToolCall,
+		);
+		const row = rows[0];
+		if (row?.kind !== "process") throw new Error("projected process row missing");
+
+		const processHtml = renderToStaticMarkup(
+			<I18nProvider>
+				<ProcessGroup
+					activeTools={projectedTools}
+					expanded
+					onExpandedChange={() => {}}
+					resolveToolCall={resolveToolCall}
+					row={row}
+				/>
+			</I18nProvider>,
+		);
+		const streamingHtml = renderToStaticMarkup(
+			<I18nProvider>
+				<StreamingRows
+					activeTools={projectedTools}
+					expanded
+					onExpandedChange={() => {}}
+					resolveToolCall={resolveToolCall}
+					streamingMessage={assistant([call])}
+					streamingText=""
+					streamingThinking=""
+					transcriptDetail="full"
+				/>
+			</I18nProvider>,
+		);
+
+		for (const html of [processHtml, streamingHtml]) {
+			expect(html).toContain('data-tool-status="running"');
+			expect(html).not.toContain('data-tool-error="true"');
+		}
 	});
 });
 
@@ -193,40 +452,6 @@ describe("full transcript rows", () => {
 		}
 	});
 
-	it("renders one marker per narrated phase and aggregates continuation tool state", () => {
-		const phaseRows = buildHistoryRows(
-			[
-				assistant([
-					{ type: "text", text: "Validate the updater." },
-					{ type: "toolCall", id: "call-check", name: "bash", arguments: { command: "bun check" } },
-				]),
-				assistant([
-					{ type: "text", text: "." },
-					{ type: "toolCall", id: "call-format", name: "bash", arguments: { command: "bun format" } },
-				]),
-				assistant([
-					{ type: "thinking", thinking: "The checks passed; launch the audit build." },
-					{ type: "text", text: "Launch the audit build." },
-					{ type: "toolCall", id: "call-build", name: "bash", arguments: { command: "bun run build" } },
-				]),
-				assistant([
-					{ type: "text", text: "." },
-					{ type: "toolCall", id: "call-hub", name: "hub", arguments: { name: "gui-final" } },
-				]),
-				assistant([
-					{ type: "text", text: "." },
-					{ type: "toolCall", id: "call-write", name: "write", arguments: { path: "xd://browser" } },
-				]),
-				{ role: "custom", customType: "launch-completion", content: "gui-final exited with code 0", timestamp: at },
-			],
-			"full",
-		);
-
-		const markers = buildTimelineMarkers(phaseRows);
-		expect(markers.map(marker => marker?.state ?? null)).toEqual(["done", null, "done", null, null, "launch"]);
-		expect(markers[0]?.toolIds).toEqual(["call-check", "call-format"]);
-		expect(markers[2]?.toolIds).toEqual(["call-build", "call-hub", "call-write"]);
-	});
 });
 
 describe("streaming transcript visibility", () => {
@@ -453,7 +678,7 @@ describe("mergeTodoSnapshots", () => {
 
 describe("transcript row entrances", () => {
 	function claim(
-		latch: ReturnType<typeof createRowEntranceState>,
+		latch: RowEntranceState,
 		sessionId: string,
 		live: boolean,
 		rowKeys: string[],
@@ -462,7 +687,6 @@ describe("transcript row entrances", () => {
 		return claimRowEntrances(latch, { sessionId, live, rowKeys, mounted });
 	}
 
-	/** A transcript long enough that its tail is a definite place. */
 	function history(count: number): string[] {
 		return Array.from({ length: count }, (_, index) => `r${index}`);
 	}
@@ -470,8 +694,6 @@ describe("transcript row entrances", () => {
 	it("leaves a restored transcript alone, however it lands", () => {
 		const latch = createRowEntranceState("session-a", []);
 		const restored = history(5);
-		// Opening a session restores a view, not content arriving: no cascade, even
-		// though the row set grew well past its empty baseline.
 		expect(claim(latch, "session-a", false, restored)).toEqual([]);
 		expect(claim(latch, "session-a", true, restored)).toEqual([]);
 	});
@@ -481,23 +703,18 @@ describe("transcript row entrances", () => {
 		const latch = createRowEntranceState("session-a", restored);
 		const next = [...restored, "live"];
 		expect(claim(latch, "session-a", true, next)).toEqual(["live"]);
-		// The same row keeps mounting as the view follows the run: no replay.
 		expect(claim(latch, "session-a", true, next)).toEqual([]);
 	});
 
 	it("claims the reply even when it replaces the waiting row", () => {
 		const restored = [...history(20), "pending"];
 		const latch = createRowEntranceState("session-a", restored);
-		// Sending trades the placeholder for the user row, so the row count never
-		// grows: arrival has to be read from the tail, not from a delta.
 		expect(claim(latch, "session-a", true, [...history(20), "user", "streaming"])).toEqual(["user", "streaming"]);
 	});
 
 	it("does not claim history landing above the tail", () => {
 		const restored = history(20);
 		const latch = createRowEntranceState("session-a", restored);
-		// A page of older rows is fetched while the run is live, so `live` alone
-		// cannot tell them apart from the reply.
 		const older = ["older-1", "older-2"];
 		const next = [...older, ...restored, "live"];
 		const claims = claimRowEntrances(latch, {
@@ -513,7 +730,6 @@ describe("transcript row entrances", () => {
 		const latch = createRowEntranceState("session-a", history(2));
 		const page = [...history(2), ...Array.from({ length: ROW_ENTRANCE_TAIL_ROWS + 8 }, (_, i) => `hydrated-${i}`)];
 		expect(claim(latch, "session-a", true, page)).toEqual([]);
-		// The hydrate becomes the baseline: the next live row is the only claim.
 		expect(claim(latch, "session-a", true, [...page, "live"])).toEqual(["live"]);
 	});
 
@@ -522,5 +738,93 @@ describe("transcript row entrances", () => {
 		const other = history(30);
 		expect(claim(latch, "session-b", true, other)).toEqual([]);
 		expect(claim(latch, "session-b", true, [...other, "a30"])).toEqual(["a30"]);
+	});
+});
+
+describe("Main ChatStream characterization", () => {
+	it("keeps finalized, live, navigation, and Main-only rows on the shared scroll surface", async () => {
+		const streamStartedAt = Date.parse("2026-08-05T04:00:05.000Z");
+		const liveTool: ToolEntry = {
+			toolName: "bash",
+			args: { command: "bun test" },
+			status: "running",
+			partialResult: "running focused tests",
+			streamingArgs: "",
+			result: null,
+			isError: false,
+			startTime: streamStartedAt + 1,
+			endTime: null,
+		};
+		useMessagesStore.setState({
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "**First Main prompt**" }], timestamp: 100 },
+				assistant([
+					{ type: "thinking", thinking: "Inspect the existing renderer." },
+					{ type: "text", text: "**Finalized Main answer**" },
+					{ type: "toolCall", id: "final-read", name: "read", arguments: { path: "src/main.ts" } },
+				]),
+				{ role: "user", content: [{ type: "text", text: "Second Main prompt" }], timestamp: 300 },
+				{ ...assistant([{ type: "text", text: "Second Main answer" }]), timestamp: 400 },
+			],
+			streamingMessage: { ...assistant([]), timestamp: streamStartedAt },
+			// Trailing blank line closes the paragraph so frame-paced streaming promotes it
+			// out of the plain-text tail into a parsed block.
+			streamingText: "**Live Main answer**\n\n",
+			streamingThinking: "Live Main reasoning",
+		});
+		useToolsStore.setState({ activeTools: new Map([["live-bash", liveTool]]) });
+		useSessionStore.setState({
+			sessionId: "main-characterization",
+			status: "ready",
+			isStreaming: true,
+			retryInfo: {
+				attempt: 2,
+				maxAttempts: 3,
+				delayMs: 1000,
+				errorMessage: "temporary provider failure",
+				startedAt: Date.now(),
+			},
+		});
+		useQueueStore.setState({
+			steering: [{ id: "queued-main", text: "Queued Main steer", editable: true, timestamp: 500 }],
+			followUp: [],
+		});
+		useTodoStore.setState({
+			history: [
+				{
+					id: "todo-main",
+					ts: 250,
+					phases: [{ name: "Build", tasks: [{ content: "Preserve Main todo", status: "in_progress" }] }],
+				},
+			],
+		});
+		useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "full", switchPending: null });
+
+		await mount(<ChatStream />);
+
+		if (!container) throw new Error("ChatStream mount missing");
+		expect(container.textContent).toContain("First Main prompt");
+		expect(container.querySelector(".omp-assistant-turn strong")?.textContent).toBe("Finalized Main answer");
+		expect(container.querySelector(".omp-streaming strong")?.textContent).toBe("Live Main answer");
+		expect(container.textContent).toContain("Live Main reasoning");
+		expect(container.querySelector('[data-tool-status="running"]')).not.toBeNull();
+		expect(container.querySelector(".omp-process-group")).toBeNull();
+		expect(container.querySelector('[data-transcript-kind="queued"]')?.textContent).toContain("Queued Main steer");
+		expect(container.querySelector('[data-transcript-kind="todoSnapshot"]')).not.toBeNull();
+		expect(container.querySelector('[data-transcript-kind="pending"]')?.textContent).toContain(
+			"temporary provider failure",
+		);
+
+		const scroll = container.querySelector(".omp-transcript-scroll");
+		const navigator = container.querySelector(".omp-conversation-nav");
+		const jump = container.querySelector('button[aria-label="Jump to latest"]');
+		expect(scroll).not.toBeNull();
+		expect(navigator?.parentElement).toBe(scroll?.parentElement);
+		expect(jump?.parentElement).toBe(scroll?.parentElement);
+
+		await act(async () => {
+			useUiStore.setState({ transcriptDetail: "compact" });
+		});
+		expect(container.querySelector(".omp-process-group")).not.toBeNull();
 	});
 });

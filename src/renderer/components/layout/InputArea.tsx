@@ -1,5 +1,5 @@
 import { ArrowUp, ChevronDown, History, Mic, MoreHorizontal, Paperclip, Square, SquarePen, X, Zap } from "lucide-react";
-import type { ClipboardEvent, KeyboardEvent } from "react";
+import type { ClipboardEvent, KeyboardEvent, ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
@@ -30,15 +30,18 @@ import {
 	recordAndTranscribe,
 	stopVoiceRecording,
 } from "../../lib/voice";
+import { useAgentViewStore } from "../../stores/agent-view";
 import { useComposerStore } from "../../stores/composer";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useModelStore } from "../../stores/model";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useSettingsStore } from "../../stores/settings";
+import { useSubagentsStore } from "../../stores/subagents";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
+import { subagentPrimaryLabel } from "../panels/subagent-graph";
 import { ApprovalControl } from "./ApprovalControl";
 import { ComposerModes } from "./ComposerModes";
 import { ContextUsagePopover } from "./ContextUsagePopover";
@@ -53,11 +56,67 @@ type SendMode = "prompt" | "steer" | "followUp";
 const MENTION_FS_DEBOUNCE_MS = 150;
 
 /**
+ * Top-level composer target gate: Main keeps the full interactive composer,
+ * while selected subagents never mount its input and submission handlers.
+ */
+export function InputArea() {
+	const target = useAgentViewStore(state => state.target);
+	return (
+		<ComposerRegion>
+			{target.kind === "main" ? <MainInputArea /> : <SubagentReadOnlyInputArea subagentId={target.id} />}
+		</ComposerRegion>
+	);
+}
+
+function ComposerRegion({ children }: { children: ReactNode }) {
+	return (
+		<div className="omp-composer-region relative shrink-0 bg-transparent pb-1">
+			<div className="omp-composer-shell relative w-full">{children}</div>
+		</div>
+	);
+}
+
+function SubagentReadOnlyInputArea({ subagentId }: { subagentId: string }) {
+	const t = useT();
+	const snapshot = useSubagentsStore(state => state.subagents.get(subagentId));
+	const agentName = snapshot ? subagentPrimaryLabel(snapshot) : subagentId;
+	const selectMain = useAgentViewStore(state => state.selectMain);
+
+	return (
+		<div data-agent-view-composer="subagent">
+			<div
+				aria-label={t("input.agentView.readOnly", { agent: agentName })}
+				className="overflow-hidden rounded-lg border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)]"
+			>
+				<div className="flex min-h-[60px] items-center px-3.5 py-2.5">
+					<div className="min-w-0">
+						<div className="truncate text-omp-lg font-medium text-[var(--omp-text)]">
+							{t("input.agentView.readOnly", { agent: agentName })}
+						</div>
+					</div>
+				</div>
+				<div className="omp-composer-toolbar flex min-h-10 items-center border-t border-[var(--omp-border-muted)] px-2 py-1.5">
+					<div className="flex-1" />
+					<button
+						type="button"
+						onClick={selectMain}
+						className="omp-pressable h-8 rounded-lg bg-[var(--omp-btn-primary-bg)] px-3 text-omp-md font-medium text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110"
+					>
+						{t("input.agentView.selectMain")}
+					</button>
+				</div>
+			</div>
+			<div className="mt-2 text-center text-omp-sm text-[var(--omp-dim)]">{t("input.agentView.selectMainHint")}</div>
+		</div>
+	);
+}
+
+/**
  * Composer: auto-growing textarea, Enter to send / Shift+Enter for newline,
  * image paste, @file mentions, /command completion, steering-mode selector,
  * and an abort button while the agent streams.
  */
-export function InputArea() {
+function MainInputArea() {
 	const collabReadOnly = useSessionStore(state => state.collab?.readOnly === true);
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const t = useT();
@@ -693,8 +752,7 @@ export function InputArea() {
 	const modeTitle = isStreaming ? t("input.streamingTitle", { mode: steeringMode }) : t("input.sendPrompt");
 
 	return (
-		<div className="omp-composer-region relative shrink-0 bg-transparent pb-1">
-			<div className="omp-composer-shell relative w-full">
+		<>
 				{queueBody !== undefined && (
 					<div
 						className="absolute -top-2 right-5 z-10 flex items-center gap-1.5 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-omp-xs font-semibold text-[var(--omp-warning)]"
@@ -1150,7 +1208,7 @@ export function InputArea() {
 					</div>
 				</div>
 			</div>
-		</div>
+		</>
 	);
 }
 
