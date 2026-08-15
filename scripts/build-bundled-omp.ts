@@ -23,8 +23,8 @@
  *      packages/natives/native/ — downloads the published leaf package
  *      (@oh-my-pi/pi-natives-<tag>@<version>) on a cache miss, and replaces
  *      stale addons whose version sentinel doesn't match the package version.
- *   3. Generates the stats dashboard archive, collab tool views, native addon,
- *      and MuPDF WASM assets required by a self-contained compiled binary.
+ *   3. Generates the stats dashboard archive, collab tool views, and native
+ *      addon assets required by a self-contained compiled binary.
  *   4. Compiles the coding-agent entrypoint into a single executable.
  *   5. Restores temporary generated assets and addon staging, so the monorepo
  *      tree is left in its normal development state.
