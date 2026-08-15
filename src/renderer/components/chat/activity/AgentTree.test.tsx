@@ -221,20 +221,15 @@ describe("AgentTree", () => {
 		expect(container?.textContent?.toLowerCase()).not.toContain("view all");
 	});
 
-	it("selects without activation and activates the selection on Enter or double click", async () => {
+	it("activates subagent and Main transcripts on a single row click", async () => {
 		useSubagentsStore.getState().setSnapshots([snap({ id: "child", agent: "child" })]);
 		await mount(<AgentTree />);
-		const child = row("child");
-		await click(child);
-		expect(child.getAttribute("aria-selected")).toBe("true");
-		expect(getSubagentMessages).not.toHaveBeenCalled();
-		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
 
-		await keyDown(child, "Enter");
+		await click(row("child"));
 		expect(getSubagentMessages).toHaveBeenCalledWith("child", undefined, 0);
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "child" });
 
-		await doubleClick(row("Main"));
+		await click(row("Main"));
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
 	});
 
@@ -268,7 +263,7 @@ describe("AgentTree", () => {
 	it("retains manual row selection across roster refreshes", async () => {
 		useSubagentsStore.getState().setSnapshots([snap({ id: "child", agent: "child" })]);
 		await mount(<AgentTree />);
-		await click(row("child"));
+		await keyDown(row("child"), " ");
 		expect(row("child").getAttribute("aria-selected")).toBe("true");
 		await act(async () => {
 			useSubagentsStore.getState().setSnapshots([snap({ id: "child", agent: "child", status: "completed" })]);
@@ -285,7 +280,7 @@ describe("AgentTree", () => {
 				snap({ id: "child", index: 1, agent: "child", parentSubagentId: "parent" }),
 			]);
 		await mount(<AgentTree />);
-		await doubleClick(row("child"));
+		await click(row("child"));
 		await focus(row("parent"));
 		await keyDown(row("parent"), "ArrowLeft");
 		expect(row("parent").getAttribute("aria-expanded")).toBe("false");
@@ -311,10 +306,10 @@ describe("AgentTree", () => {
 		];
 		useSubagentsStore.getState().setSnapshots(snapshots);
 		await mount(<AgentTree />);
-		await doubleClick(row("child"));
+		await click(row("child"));
 		await focus(row("parent"));
 		await keyDown(row("parent"), "ArrowLeft");
-		await click(row("sibling"));
+		await keyDown(row("sibling"), " ");
 		expect(row("parent").getAttribute("aria-expanded")).toBe("false");
 		expect(row("sibling").getAttribute("aria-selected")).toBe("true");
 
@@ -443,12 +438,12 @@ describe("AgentTree", () => {
 		useSubagentsStore.getState().setSnapshots([snap({ id: "route-agent", agent: "route-agent" })]);
 		await mount(<AgentTree />);
 		await act(async () => beginTabRoute("outgoing-tab", "incoming-tab"));
-		await doubleClick(row("route-agent"));
+		await click(row("route-agent"));
 		expect(getSubagentMessages).not.toHaveBeenCalled();
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
 
 		await act(async () => settleTabRoute("incoming-tab"));
-		await doubleClick(row("route-agent"));
+		await click(row("route-agent"));
 		expect(getSubagentMessages).toHaveBeenCalledWith("route-agent", undefined, 0);
 	});
 
@@ -537,7 +532,7 @@ describe("AgentTree", () => {
 			["aborted-agent", "aborted"],
 			["parked-agent", "parked"],
 		] as const) {
-			await doubleClick(row(label));
+			await click(row(label));
 			expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id });
 		}
 	});

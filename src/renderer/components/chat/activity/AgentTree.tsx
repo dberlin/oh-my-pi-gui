@@ -53,7 +53,6 @@ const AgentRow = memo(function AgentRow({
 	now,
 	lifecycleDisabled,
 	working,
-	onSelect,
 	onActivate,
 	onLifecycleAction,
 	onKeyDown,
@@ -68,7 +67,6 @@ const AgentRow = memo(function AgentRow({
 	now: number;
 	lifecycleDisabled: boolean;
 	working: boolean;
-	onSelect: (row: AgentTreeRow) => void;
 	onActivate: (agent: SubagentSnapshot | null) => void;
 	onLifecycleAction: (action: SubagentLifecycleAction, agent: SubagentSnapshot) => void;
 	onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: AgentTreeRow) => void;
@@ -96,8 +94,7 @@ const AgentRow = memo(function AgentRow({
 			aria-expanded={expanded}
 			aria-level={depth + 1}
 			aria-selected={selected}
-			onClick={() => onSelect(row)}
-			onDoubleClick={() => onActivate(agent)}
+			onClick={() => onActivate(agent)}
 			onFocus={(event: FocusEvent<HTMLDivElement>) => {
 				if (event.currentTarget === event.target) onRowFocus(row);
 			}}
@@ -481,7 +478,6 @@ export function AgentTree({ pollMs = STREAM_POLL_MS }: { pollMs?: number }) {
 							focusedKey.current = focusedRowKey;
 							selectAgentRow(focusedRow);
 						}}
-						onSelect={selectAgentRow}
 						row={row}
 						selected={selectedKey === key}
 						setElement={element => {

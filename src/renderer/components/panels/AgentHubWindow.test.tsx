@@ -280,7 +280,7 @@ describe("AgentHubWindow hub tab", () => {
 		expect(queryAll('button[aria-label="Back to instances"]')).toHaveLength(0);
 	});
 
-	it("uses the same activation path for the row action, double-click, and Enter", async () => {
+	it("uses the same activation path for the row action, single click, and Enter", async () => {
 		const omp = installOmpMock();
 		const onClose = vi.fn();
 		seedHub();
@@ -291,7 +291,7 @@ describe("AgentHubWindow hub tab", () => {
 		expect(onClose).toHaveBeenCalledTimes(1);
 
 		await act(async () => useAgentViewStore.getState().selectMain());
-		await doubleClick(requireElement('[data-agent-id="a2"]'));
+		await click(requireElement('[data-agent-id="a2"]'));
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "a2" });
 		expect(onClose).toHaveBeenCalledTimes(2);
 
