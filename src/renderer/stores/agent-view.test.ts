@@ -94,6 +94,38 @@ describe("agent view store", () => {
 
 		expect(store.getState().messages.messages).toEqual([history, onPageAndLive, liveOnly]);
 	});
+
+	it("preserves matching live frames received while restored idle, errored, and reloading", async () => {
+		const page = Promise.withResolvers<RpcResponse>();
+		const history = message("history", 1);
+		const whileIdle = message("while idle", 2);
+		const whileErrored = message("while errored", 3);
+		const duringReload = message("during reload", 4);
+		const store = createAgentViewStore(loader(async () => page.promise));
+		const selected = snapshot("a1");
+
+		store.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		store.getState().reconcileRoster([selected]);
+		store.getState().applyFrame({
+			type: "subagent_event",
+			payload: { id: selected.id, event: { type: "message_end", message: whileIdle } },
+		});
+		store.getState().markSelectedLoadError("temporarily unavailable");
+		store.getState().applyFrame({
+			type: "subagent_event",
+			payload: { id: selected.id, event: { type: "message_end", message: whileErrored } },
+		});
+		const loading = store.getState().reloadSelected();
+		store.getState().applyFrame({
+			type: "subagent_event",
+			payload: { id: selected.id, event: { type: "message_end", message: duringReload } },
+		});
+		page.resolve(ok({ messages: [history], nextByte: 5, hasMore: false }));
+		await loading;
+
+		expect(store.getState().messages.messages).toEqual([history, whileIdle, whileErrored, duringReload]);
+		expect(store.getState().loadState).toBe("ready");
+	});
 	it("does not redeliver a hydrated tool-call message when its live turn ends", async () => {
 		const callMessage = {
 			role: "assistant",
@@ -392,6 +424,25 @@ describe("agent view store", () => {
 		expect(store.getState().loadState).toBe("ready");
 		expect(store.getState().messages.messages).toEqual([historical]);
 	});
+	it.each(["completed", "failed", "aborted"] as const)(
+		"loads a retained %s agent from its guarded persisted session after sidecar lookup fails",
+		async status => {
+			const historical = message(`persisted ${status} result`, 7);
+			const getSubagentMessages = vi
+				.fn<AgentViewLoader["getSubagentMessages"]>()
+				.mockResolvedValue(fail("Unknown subagent"));
+			const readPersistedSubagentTranscript = vi
+				.fn<AgentViewLoader["readPersistedSubagentTranscript"]>()
+				.mockResolvedValue({ ok: true, messages: [historical] });
+			const store = createAgentViewStore(loader(getSubagentMessages, readPersistedSubagentTranscript));
+
+			await store.getState().selectSubagent({ ...snapshot("retained"), status });
+
+			expect(readPersistedSubagentTranscript).toHaveBeenCalledWith("/tmp/retained.jsonl");
+			expect(store.getState().loadState).toBe("ready");
+			expect(store.getState().messages.messages).toEqual([historical]);
+		},
+	);
 	it("rejects stale pages after a later target selection", async () => {
 		const aPage = Promise.withResolvers<RpcResponse>();
 		const bPage = Promise.withResolvers<RpcResponse>();

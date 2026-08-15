@@ -11,7 +11,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentProgress, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
-import { resetTabRoute } from "../../../lib/tab-routing";
+import { beginTabRoute, resetTabRoute, settleTabRoute } from "../../../lib/tab-routing";
 import { useAgentViewStore } from "../../../stores/agent-view";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
@@ -144,6 +144,7 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 	resetTabRoute();
 	useUiStore.setState({ dockCollapsed: {}, dockFocus: null });
+	resetTabRoute();
 });
 
 function containerText(): string {
@@ -261,6 +262,24 @@ describe("AgentsDockCard", () => {
 		await doubleClick(main);
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
 		expect(main.getAttribute("aria-current")).toBe("true");
+	});
+
+	it("does not activate a subagent against the outgoing route while a tab switch is unsettled", async () => {
+		useSubagentsStore.getState().setSnapshots([snap({ id: "route-agent", agent: "route-agent" })]);
+		await mount(<AgentsDockCard />);
+		const agentRow = row("route-agent");
+		await act(async () => {
+			beginTabRoute("outgoing-tab", "incoming-tab");
+			agentRow.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
+		});
+		await flush();
+		expect(getSubagentMessages).not.toHaveBeenCalled();
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
+
+		await act(async () => settleTabRoute("incoming-tab"));
+		await doubleClick(row("route-agent"));
+		expect(getSubagentMessages).toHaveBeenCalledWith("route-agent", undefined, 0);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "route-agent" });
 	});
 
 	it("routes graph activation and lifecycle actions through the same dock handlers as list rows", async () => {

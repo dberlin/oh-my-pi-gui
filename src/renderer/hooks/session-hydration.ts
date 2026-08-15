@@ -6,8 +6,10 @@ import type {
 	RpcLoopModeState,
 	RpcResponse,
 	RpcSessionState,
+	SubagentSnapshot,
 	RpcVibeModeState,
 } from "../../shared/rpc-types";
+import { useAgentViewStore } from "../stores/agent-view";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
 import { type QueueStore, useQueueStore } from "../stores/queue";
@@ -23,7 +25,7 @@ import {
 } from "../stores/session-runtime-context";
 import { type SettingsStore, useSettingsStore } from "../stores/settings";
 import { useSubagentGraphStore } from "../stores/subagent-graph";
-import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
+import { historicalSubagentsFromMessages, type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
 import { isTabClosed, useTabsStore } from "../stores/tabs";
 import { useTodoStore } from "../stores/todo";
@@ -283,6 +285,12 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	await secondary;
 }
 
+function hydrationFailureMessage(result: PromiseSettledResult<RpcResponse>, fallback: string): string {
+	if (result.status === "rejected")
+		return result.reason instanceof Error ? result.reason.message : String(result.reason);
+	return result.value.success ? fallback : result.value.error;
+}
+
 /** Reload every renderer store that belongs to the active sidecar session. */
 export async function hydrateSession(fallbackName?: string): Promise<void> {
 	const tabId = useTabsStore.getState().activeTabId;
@@ -303,14 +311,17 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 	const beforeMessages = initialMessagesStore?.messages ?? [];
 	const beforeLiveMessages = initialMessagesStore?.liveMessages ?? [];
 	const beforeEventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
+	const subagents = sessionRuntimeStore<SubagentsStore>(tabId, "subagents");
+	const beforeRoster = subagents?.getState().subagents;
+	const focusedAgentView = useTabsStore.getState().activeTabId === tabId ? useAgentViewStore.getState() : null;
+	const beforeAgentViewGeneration = focusedAgentView?.generation;
+	let hydratedMessages = beforeMessages;
 
 	const coreResult = Promise.allSettled([
 		runtime.command({ type: "get_state" }),
 		createSessionRpcClient(runtime.command).getTranscript(),
 	]);
-	const subagentsResult = sessionRuntimeStore<SubagentsStore>(tabId, "subagents")
-		?.getState()
-		.refresh({ expect: isCurrent });
+	const subagentsResult = Promise.allSettled([runtime.command({ type: "get_subagents" })]);
 	const queue = sessionRuntimeStore<QueueStore>(tabId, "queue")?.getState();
 	const settings = sessionRuntimeStore<SettingsStore>(tabId, "settings")?.getState();
 	const secondaryResult = Promise.allSettled([
@@ -385,7 +396,8 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		void runtime.command({ type: "set_subagent_subscription", level: "events" });
 	}
 
-	if (messagesResult.status === "fulfilled" && messagesResult.value.success) {
+	const mainTranscriptReady = isCurrent() && messagesResult.status === "fulfilled" && messagesResult.value.success;
+	if (mainTranscriptReady) {
 		const data = messagesResult.value.data as { messages?: AgentMessage[] } | undefined;
 		const fetched = data?.messages ?? [];
 		const messages = sessionRuntimeStore<MessagesStore>(tabId, "messages");
@@ -395,12 +407,35 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === beforeLiveMessages) {
 			messages.getState().clearDeliveredLiveMessages();
 		}
-		if (eventsUnchanged)
-			tools?.getState().hydrateMessages(messages?.getState().messages ?? [], { turnIsLive: stateIsStreaming });
+		hydratedMessages = messages?.getState().messages ?? [];
+		if (eventsUnchanged) tools?.getState().hydrateMessages(hydratedMessages, { turnIsLive: stateIsStreaming });
 	}
 
 	// Subagents and secondary chips do not hold the transcript hostage. Their
 	// requests still begin in parallel, but the core session can paint first.
-	await subagentsResult;
+	const [settledSubagents] = await subagentsResult;
+	const rosterReady = isCurrent() && settledSubagents.status === "fulfilled" && settledSubagents.value.success;
+	const authoritativeRosterReady = mainTranscriptReady && rosterReady;
+	if (authoritativeRosterReady) {
+		const data = settledSubagents.value.data as { subagents?: SubagentSnapshot[] } | undefined;
+		const sessionFile = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionFile;
+		const roster = new Map(
+			historicalSubagentsFromMessages(hydratedMessages, sessionFile).map(snapshot => [snapshot.id, snapshot]),
+		);
+		for (const snapshot of data?.subagents ?? []) roster.set(snapshot.id, snapshot);
+		if (subagents && subagents.getState().subagents === beforeRoster) {
+			subagents.getState().setSnapshots([...roster.values()]);
+		}
+	} else if (
+		isCurrent() &&
+		focusedAgentView &&
+		focusedAgentView.generation === beforeAgentViewGeneration &&
+		focusedAgentView.target.kind === "subagent"
+	) {
+		const error = !mainTranscriptReady
+			? hydrationFailureMessage(messagesResult, "Main transcript hydration failed")
+			: hydrationFailureMessage(settledSubagents, "Subagent roster hydration failed");
+		focusedAgentView.markSelectedLoadError(error);
+	}
 	await secondaryResult;
 }

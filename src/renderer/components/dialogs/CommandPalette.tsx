@@ -6,25 +6,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
  * submenus, prompts) instead of injecting "/command" text into the composer.
  */
 
-import {
-	Blocks,
-	Check,
-	ChevronRight,
-	CornerDownLeft,
-	Cpu,
-	FolderTree,
-	Gauge,
-	History,
-	Layers,
-	LayoutPanelLeft,
-	type LucideIcon,
-	MessageSquare,
-	Plug,
-	Search,
-	Slash,
-	Wrench,
-	X,
-} from "lucide-react";
+import { Check, ChevronRight, CornerDownLeft, History, Search, Slash, X } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvailableCommand } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
@@ -32,7 +14,6 @@ import { newSessionNow } from "../../hooks/use-session-switch";
 import {
 	buildCommandMenu,
 	type CommandAffordance,
-	type CommandCategory,
 	type CommandMenuItem,
 	commandArgPrefill,
 	forkSessionFromGui,
@@ -42,6 +23,7 @@ import {
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { retryLastTurn as retryLastTurnShared } from "../../lib/messages";
+import { useAgentViewStore } from "../../stores/agent-view";
 import { openHandoffDialog } from "../../stores/fork-handoff";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
@@ -61,6 +43,45 @@ function sidecarBlocked(item: CommandMenuItem, ready: boolean): boolean {
 		return false;
 	}
 	return item.affordance.kind === "action" || item.affordance.kind === "toggle" || item.affordance.kind === "prompt";
+}
+
+/**
+ * Projected agent transcripts expose navigation and read-only inspection only.
+ * Unknown commands default to Main-only so newly advertised prompt commands
+ * cannot silently gain a writable path.
+ */
+const SUBAGENT_VIEW_COMMANDS: Record<string, true> = {
+	agents: true,
+	changelog: true,
+	context: true,
+	copy: true,
+	dump: true,
+	export: true,
+	hotkeys: true,
+	jobs: true,
+	"new-chat-tab": true,
+	"new-tab": true,
+	"session info": true,
+	stats: true,
+	theme: true,
+	tree: true,
+	usage: true,
+};
+
+function isSubagentViewCommand(item: CommandMenuItem): boolean {
+	if (Object.hasOwn(SUBAGENT_VIEW_COMMANDS, item.name)) return true;
+	return item.affordance.kind === "submenu" && item.affordance.items.some(isSubagentViewCommand);
+}
+
+function projectSubagentViewCommand(item: CommandMenuItem): CommandMenuItem | null {
+	if (item.affordance.kind === "submenu") {
+		const items = item.affordance.items
+			.map(projectSubagentViewCommand)
+			.filter((child): child is CommandMenuItem => child !== null);
+		if (items.length === 0 && !isSubagentViewCommand(item)) return null;
+		return { ...item, affordance: { kind: "submenu", items } };
+	}
+	return isSubagentViewCommand(item) ? item : null;
 }
 
 function loadRecent(): string[] {
@@ -151,24 +172,11 @@ async function runAffordance(
 	}
 }
 
-/** One glyph per category, so a long list reads by kind instead of repeating one marker. */
-const CATEGORY_ICONS: Record<CommandCategory, LucideIcon> = {
-	session: MessageSquare,
-	model: Cpu,
-	context: Gauge,
-	tools: Wrench,
-	providers: Plug,
-	extensions: Blocks,
-	modes: Layers,
-	view: LayoutPanelLeft,
-	workspace: FolderTree,
-	other: Slash,
-};
-
 export function CommandPalette() {
 	const tabRpc = useTabRpc();
 	const tabId = useRuntimeTabId();
 	const t = useT();
+	const mainTargetSelected = useAgentViewStore(state => state.target.kind === "main");
 	const open = useUiStore(state => state.commandPaletteOpen);
 	const close = useUiStore(state => state.closeCommandPalette);
 	const openModelPicker = useUiStore(state => state.openModelPicker);
@@ -190,7 +198,6 @@ export function CommandPalette() {
 	const openThemePicker = useUiStore(state => state.openThemePicker);
 	const openModes = useUiStore(state => state.openModes);
 	const openAgentHub = useUiStore(state => state.openAgentHub);
-	const openMemory = useUiStore(state => state.openMemory);
 	const openPrCenter = useUiStore(state => state.openPrCenter);
 	const openHotkeys = useUiStore(state => state.openHotkeys);
 	const openImportDialog = useUiStore(state => state.openImportDialog);
@@ -359,8 +366,10 @@ export function CommandPalette() {
 				openInventory,
 				openThemePicker,
 				openModes,
-				openAgentHub,
-				openMemory,
+				openAgentHub: tab => {
+					if (useAgentViewStore.getState().target.kind === "main") openAgentHub(tab);
+					else focusDockCard("agents");
+				},
 				openPrCenter,
 				openHotkeys,
 				openImportDialog,
@@ -421,7 +430,6 @@ export function CommandPalette() {
 			openModelCompare,
 			openBenchmark,
 			openAgentHub,
-			openMemory,
 			openPrCenter,
 			openHotkeys,
 			openImportDialog,
@@ -446,12 +454,20 @@ export function CommandPalette() {
 			tabId,
 		],
 	);
+	const visibleMenuItems = useMemo(
+		() =>
+			mainTargetSelected
+				? menuItems
+				: menuItems.map(projectSubagentViewCommand).filter((item): item is CommandMenuItem => item !== null),
+		[mainTargetSelected, menuItems],
+	);
 
 	// The working set: submenu items when drilled in, else the full menu.
-	const workingItems = useMemo(
-		() => (submenu?.affordance.kind === "submenu" ? submenu.affordance.items : menuItems),
-		[submenu, menuItems],
-	);
+	const workingItems = useMemo(() => {
+		const items = submenu?.affordance.kind === "submenu" ? submenu.affordance.items : visibleMenuItems;
+		if (mainTargetSelected) return items;
+		return items.map(projectSubagentViewCommand).filter((item): item is CommandMenuItem => item !== null);
+	}, [mainTargetSelected, submenu, visibleMenuItems]);
 
 	const results = useMemo<ScoredItem[]>(() => {
 		const q = query.trim();
@@ -478,9 +494,9 @@ export function CommandPalette() {
 	// live menu so stale names from a previous session are dropped.
 	const recentItems = useMemo(() => {
 		if (submenu || query.trim().length > 0) return [];
-		const byName = new Map(menuItems.map(item => [item.name, item]));
+		const byName = new Map(visibleMenuItems.map(item => [item.name, item]));
 		return recent.map(name => byName.get(name)).filter((item): item is CommandMenuItem => item != null);
-	}, [menuItems, recent, submenu, query]);
+	}, [visibleMenuItems, recent, submenu, query]);
 
 	const flatList = useMemo(() => {
 		if (grouped) {
@@ -502,6 +518,7 @@ export function CommandPalette() {
 
 	const execute = useCallback(
 		(item: CommandMenuItem) => {
+			if (useAgentViewStore.getState().target.kind !== "main" && !isSubagentViewCommand(item)) return;
 			if (item.affordance.kind === "unavailable") {
 				toast({ variant: "warning", message: `${item.label}: ${item.affordance.reason}` });
 				return;
@@ -614,7 +631,6 @@ export function CommandPalette() {
 		const disabled = item.affordance.kind === "unavailable" || blocked;
 		const isSubmenu = item.affordance.kind === "submenu";
 		const toggleOn = item.affordance.kind === "toggle" ? item.affordance.get() : null;
-		const CategoryIcon = CATEGORY_ICONS[item.category] ?? Slash;
 
 		return (
 			<button
@@ -633,16 +649,16 @@ export function CommandPalette() {
 				type="button"
 			>
 				{options?.recent ? (
-					<History className="shrink-0 text-(--omp-muted)" size={13} />
+					<History className="shrink-0 text-(--omp-accent)" size={12} />
 				) : (
-					<CategoryIcon className="shrink-0 text-(--omp-muted)" size={13} />
+					<Slash className="shrink-0 text-(--omp-accent)" size={12} />
 				)}
 				<span className="min-w-0 flex-1">
 					<span className="flex items-center gap-1.5">
 						<span className="truncate text-xs font-medium text-(--omp-text)">{item.label}</span>
 						{toggleOn !== null && (
 							<span
-								className={`rounded px-1 text-omp-xxs font-semibold ${
+								className={`rounded px-1 text-omp-xxs font-semibold uppercase ${
 									toggleOn ? "text-(--omp-success)" : "text-(--omp-dim)"
 								}`}
 							>
@@ -664,7 +680,9 @@ export function CommandPalette() {
 					</span>
 				</span>
 				{options?.categoryLabel && (
-					<span className="shrink-0 text-omp-xxs text-(--omp-dim)">{options.categoryLabel}</span>
+					<span className="shrink-0 text-omp-xxs tracking-wide text-(--omp-dim) uppercase">
+						{options.categoryLabel}
+					</span>
 				)}
 				{isSubmenu ? (
 					<ChevronRight className="shrink-0 text-(--omp-dim)" size={12} />
@@ -682,7 +700,7 @@ export function CommandPalette() {
 
 	return (
 		<div
-			className="omp-dialog-overlay omp-fade-in fixed inset-0 z-50 flex items-start justify-center bg-[var(--omp-overlay-bg)] p-4 pt-[12dvh]"
+			className="omp-dialog-overlay omp-fade-in fixed inset-0 z-50 flex items-start justify-center bg-[var(--omp-overlay-bg)] p-4 pt-[12dvh] backdrop-blur-[2px]"
 			onMouseDown={event => {
 				if (event.target === event.currentTarget) close();
 			}}
@@ -750,7 +768,7 @@ export function CommandPalette() {
 						<>
 							{recentItems.length > 0 && (
 								<div className="mb-1">
-									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-omp-xxs font-semibold text-(--omp-dim)">
+									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 										{t("palette.recent")}
 									</div>
 									{recentItems.map(item => renderItem(item, { recent: true }))}
@@ -758,7 +776,7 @@ export function CommandPalette() {
 							)}
 							{Array.from(grouped.entries()).map(([category, items]) => (
 								<div key={category} className="mb-1">
-									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-omp-xxs font-semibold text-(--omp-dim)">
+									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 										{t(`category.${category}`)}
 									</div>
 									{items.map(item => renderItem(item))}
