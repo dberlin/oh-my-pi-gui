@@ -17,6 +17,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { useAgentViewStore } from "../../../stores/agent-view";
 import { useQueuedMessages } from "../../../stores/queue";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
@@ -37,13 +38,17 @@ function clampFocusHeight(height: number): number {
 function WorkspaceDockContent() {
 	const { focusedCard } = useWorkspaceDockFocus();
 	const t = useT();
+	const mainTargetSelected = useAgentViewStore(state => state.target.kind === "main");
 	const planModeEnabled = useSessionStore(state => state.planModeEnabled);
 	const goalVisible = useSessionStore(state => state.goal !== null);
 	const todoVisible = useTodoStore(state => state.phases.length > 0 || state.reminderVisible);
 	const agentsVisible = useSubagentsStore(state => state.subagents.size > 0);
 	const queued = useQueuedMessages();
 	const cardsVisible =
-		planModeEnabled || todoVisible || agentsVisible || queued.steering.length > 0 || queued.followUp.length > 0;
+		agentsVisible ||
+		(mainTargetSelected &&
+			(planModeEnabled || todoVisible || queued.steering.length > 0 || queued.followUp.length > 0));
+	const mainGoalVisible = mainTargetSelected && goalVisible;
 
 	// Focused-card height: user-resizable via the drag handle above the stack,
 	// persisted across launches. null = fall back to the viewport-derived cap.
@@ -99,7 +104,7 @@ function WorkspaceDockContent() {
 		persistHeight(next);
 	};
 
-	if (!cardsVisible && !goalVisible) return null;
+	if (!cardsVisible && !mainGoalVisible) return null;
 
 	return (
 		<div className="flex flex-col gap-1.5 pb-1.5" data-focused-card={focusedCard ?? undefined}>
@@ -134,24 +139,32 @@ function WorkspaceDockContent() {
 						ref={scrollerRef}
 						style={focusedCard ? { maxHeight: focusHeight ?? "min(50dvh, calc(100dvh - 300px))" } : undefined}
 					>
-						<PanelErrorBoundary>
-							<PlanDockCard />
-						</PanelErrorBoundary>
-						<PanelErrorBoundary>
-							<TodoDockCard />
-						</PanelErrorBoundary>
+						{mainTargetSelected && (
+							<PanelErrorBoundary>
+								<PlanDockCard />
+							</PanelErrorBoundary>
+						)}
+						{mainTargetSelected && (
+							<PanelErrorBoundary>
+								<TodoDockCard />
+							</PanelErrorBoundary>
+						)}
 						<PanelErrorBoundary>
 							<AgentsDockCard />
 						</PanelErrorBoundary>
-						<PanelErrorBoundary>
-							<QueueDockChip />
-						</PanelErrorBoundary>
+						{mainTargetSelected && (
+							<PanelErrorBoundary>
+								<QueueDockChip />
+							</PanelErrorBoundary>
+						)}
 					</div>
 				</>
 			)}
-			<PanelErrorBoundary>
-				<GoalDockBar />
-			</PanelErrorBoundary>
+			{mainTargetSelected && (
+				<PanelErrorBoundary>
+					<GoalDockBar />
+				</PanelErrorBoundary>
+			)}
 		</div>
 	);
 }

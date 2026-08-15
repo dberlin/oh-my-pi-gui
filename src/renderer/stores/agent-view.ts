@@ -33,6 +33,7 @@ export interface AgentViewStore {
 	selectMain: () => void;
 	selectSubagent: (snapshot: SubagentSnapshot) => Promise<void>;
 	reloadSelected: () => Promise<void>;
+	markSelectedLoadError: (error: string) => void;
 	/** Update the selected locator or fall back when a successful authoritative roster omits it. */
 	reconcileRoster: (snapshots: Iterable<SubagentSnapshot>) => void;
 	/** Refresh the selected locator from a non-authoritative live roster update. */
@@ -180,7 +181,14 @@ export function createAgentViewStore(loader: AgentViewLoader = defaultAgentViewL
 					let page: SubagentMessagesPage | undefined;
 					if (response.success) {
 						page = response.data as SubagentMessagesPage | undefined;
-					} else if (fromByte === 0 && snapshot.status === "unknown" && snapshot.sessionFile) {
+					} else if (
+						fromByte === 0 &&
+						snapshot.sessionFile &&
+						(snapshot.status === "unknown" ||
+							snapshot.status === "completed" ||
+							snapshot.status === "failed" ||
+							snapshot.status === "aborted")
+					) {
 						const persisted = await loader.readPersistedSubagentTranscript(snapshot.sessionFile);
 						if (!isCurrent()) return;
 						if (!persisted.ok) throw new Error(persisted.error);
@@ -230,7 +238,6 @@ export function createAgentViewStore(loader: AgentViewLoader = defaultAgentViewL
 				set({ loadState: "ready", error: null });
 			} catch (error) {
 				if (!isCurrent()) return;
-				loadingEvents = [];
 				set({ loadState: "error", error: error instanceof Error ? error.message : String(error) });
 			}
 		};
@@ -246,10 +253,13 @@ export function createAgentViewStore(loader: AgentViewLoader = defaultAgentViewL
 				set(state => ({ target: { kind: "main" }, generation: state.generation + 1, ...emptyProjectionState() }));
 			},
 			selectSubagent: async snapshot => {
+				const current = get();
+				const preservePendingEvents =
+					current.target.kind === "subagent" && current.target.id === snapshot.id && current.loadState !== "ready";
 				rosterSnapshot = snapshot;
 				activeSnapshot = snapshot;
-				loadingEvents = [];
-				const generation = get().generation + 1;
+				if (!preservePendingEvents) loadingEvents = [];
+				const generation = current.generation + 1;
 				set({
 					target: { kind: "subagent", id: snapshot.id },
 					generation,
@@ -264,6 +274,9 @@ export function createAgentViewStore(loader: AgentViewLoader = defaultAgentViewL
 				const snapshot = rosterSnapshot;
 				if (!snapshot || snapshot.id !== target.id) return;
 				await get().selectSubagent(snapshot);
+			},
+			markSelectedLoadError: error => {
+				if (get().target.kind === "subagent") set({ loadState: "error", error });
 			},
 			reconcileRoster: snapshots => {
 				const target = get().target;
@@ -290,7 +303,7 @@ export function createAgentViewStore(loader: AgentViewLoader = defaultAgentViewL
 				const state = get();
 				if (state.target.kind !== "subagent" || state.target.id !== frame.payload.id) return;
 				const generation = state.generation;
-				if (state.loadState === "loading") loadingEvents.push(frame.payload.event);
+				if (state.loadState !== "ready") loadingEvents.push(frame.payload.event);
 				const messages = applyMessageProjectionEvents(state.messages, [frame.payload.event]);
 				const tools = applyToolProjectionEvents(state.tools, [frame.payload.event]);
 				const current = get();

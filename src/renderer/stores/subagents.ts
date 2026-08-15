@@ -1,15 +1,74 @@
+import { z } from "zod";
 import { create } from "zustand";
 import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
 import { useAgentViewStore } from "./agent-view";
 
 export type SubagentNode = SubagentSnapshot;
 
+const historicalTaskEvidenceSchema = z.looseObject({
+	index: z.number().int().optional(),
+	id: z.string().optional(),
+	agent: z.string().optional(),
+	status: z.string().optional(),
+	task: z.string().optional(),
+	assignment: z.string().optional(),
+	description: z.string().optional(),
+	sessionFile: z.string().optional(),
+	aborted: z.boolean().optional(),
+	error: z.string().optional(),
+	exitCode: z.number().optional(),
+});
+type HistoricalTaskEvidence = z.infer<typeof historicalTaskEvidenceSchema>;
+
+const historicalTaskDetailsSchema = z.looseObject({
+	progress: z.array(historicalTaskEvidenceSchema).optional(),
+	results: z.array(historicalTaskEvidenceSchema).optional(),
+});
+
+const requestedHistoricalTaskSchema = z.looseObject({
+	name: z.string().optional(),
+	agent: z.string().optional(),
+	task: z.string().optional(),
+});
+const HISTORICAL_TERMINAL_STATUSES = new Set(["completed", "failed", "aborted", "cancelled"]);
+
+function nonEmptyString(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function taskEvidenceQueues(messages: AgentMessage[]): Map<string, Map<number, HistoricalTaskEvidence>[]> {
+	const queues = new Map<string, Map<number, HistoricalTaskEvidence>[]>();
+	for (const message of messages) {
+		if (message.role !== "toolResult" || message.toolName !== "task" || !message.toolCallId) continue;
+		const parsed = historicalTaskDetailsSchema.safeParse(message.details);
+		if (!parsed.success) continue;
+		const byIndex = new Map<number, HistoricalTaskEvidence>();
+		for (const rows of [parsed.data.progress, parsed.data.results]) {
+			if (!rows) continue;
+			for (const [position, value] of rows.entries()) byIndex.set(value.index ?? position, value);
+		}
+		const queue = queues.get(message.toolCallId);
+		if (queue) queue.push(byIndex);
+		else queues.set(message.toolCallId, [byIndex]);
+	}
+	return queues;
+}
+
+function historicalStatus(evidence: HistoricalTaskEvidence | undefined): string {
+	const status = nonEmptyString(evidence?.status);
+	if (status && HISTORICAL_TERMINAL_STATUSES.has(status)) return status;
+	if (evidence?.aborted === true) return "aborted";
+	if (nonEmptyString(evidence?.error)) return "failed";
+	if (typeof evidence?.exitCode === "number") return evidence.exitCode === 0 ? "completed" : "failed";
+	return "unknown";
+}
 /** Recover inspectable terminal agents after the live registry has released them. */
 export function historicalSubagentsFromMessages(
 	messages: AgentMessage[],
 	parentSessionFile?: string | null,
 ): SubagentNode[] {
 	const sessionDirectory = parentSessionFile?.endsWith(".jsonl") ? parentSessionFile.slice(0, -".jsonl".length) : null;
+	const evidenceQueues = taskEvidenceQueues(messages);
 	const snapshots: SubagentNode[] = [];
 	const seen = new Set<string>();
 	for (const message of messages) {
@@ -17,13 +76,19 @@ export function historicalSubagentsFromMessages(
 		for (const block of message.content) {
 			if (block.type !== "toolCall" || block.name !== "task") continue;
 			const taskValues = Array.isArray(block.arguments.tasks) ? block.arguments.tasks : [];
-			for (const taskValue of taskValues) {
-				if (taskValue === null || typeof taskValue !== "object" || Array.isArray(taskValue)) continue;
-				const task = taskValue as Record<string, unknown>;
-				const name = typeof task.name === "string" ? task.name.trim() : "";
-				if (!name || seen.has(name)) continue;
-				seen.add(name);
-				const assignment = typeof task.task === "string" ? task.task : undefined;
+			const evidenceByIndex = evidenceQueues.get(block.id)?.shift();
+			for (const [taskIndex, taskValue] of taskValues.entries()) {
+				const requested = requestedHistoricalTaskSchema.safeParse(taskValue);
+				if (!requested.success) continue;
+				const evidence = evidenceByIndex?.get(taskIndex);
+				const requestedName = nonEmptyString(requested.data.name);
+				const canonicalId = nonEmptyString(evidence?.id);
+				const id = canonicalId ?? requestedName;
+				if (!id || seen.has(id)) continue;
+				seen.add(id);
+				const requestedTask = nonEmptyString(requested.data.task);
+				const task = nonEmptyString(evidence?.task) ?? requestedTask;
+				const assignment = nonEmptyString(evidence?.assignment) ?? requestedTask;
 				const timestamp =
 					typeof message.timestamp === "number"
 						? message.timestamp
@@ -31,14 +96,16 @@ export function historicalSubagentsFromMessages(
 							? Date.parse(message.timestamp)
 							: Number.NaN;
 				snapshots.push({
-					id: name,
+					id,
 					index: snapshots.length,
-					agent: typeof task.agent === "string" && task.agent ? task.agent : "task",
-					status: "unknown",
-					task: assignment,
+					agent: nonEmptyString(evidence?.agent) ?? nonEmptyString(requested.data.agent) ?? "task",
+					status: historicalStatus(evidence),
+					task,
 					assignment,
-					description: name,
-					sessionFile: sessionDirectory ? `${sessionDirectory}/${name}.jsonl` : undefined,
+					description: nonEmptyString(evidence?.description) ?? requestedName ?? id,
+					sessionFile:
+						nonEmptyString(evidence?.sessionFile) ??
+						(sessionDirectory ? `${sessionDirectory}/${id}.jsonl` : undefined),
 					lastUpdate: Number.isFinite(timestamp) ? timestamp : Date.now(),
 					parentToolCallId: block.id,
 					kind: "sub",

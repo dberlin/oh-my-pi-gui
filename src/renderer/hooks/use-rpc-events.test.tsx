@@ -303,6 +303,7 @@ function subagentSnapshot(id = "agent-1"): SubagentSnapshot {
 		id,
 		index: 1,
 		agent: "worker",
+		agentSource: "project",
 		status: "running",
 		sessionFile: `/sessions/${id}.jsonl`,
 		lastUpdate: 1,
@@ -412,6 +413,39 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, selected.sessionFile, 0);
 		subscription.resolve(success({}));
+	});
+
+	it("does not replace newer live roster state with a stale hydration response", async () => {
+		const { omp, emitSubagentFrame } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+		const selected = subagentSnapshot("newer-live-roster");
+		useSubagentsStore.getState().setSnapshots([selected]);
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		const staleRoster = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getSubagents.mockReturnValue(staleRoster.promise);
+		omp.rpc.getSubagentMessages.mockClear();
+
+		const recovery = recoverReadySession(null);
+		await act(async () => {
+			emitSubagentFrame({
+				type: "subagent_lifecycle",
+				payload: {
+					id: selected.id,
+					index: selected.index,
+					agent: selected.agent,
+					agentSource: "project",
+					status: "completed",
+					sessionFile: selected.sessionFile,
+				},
+			});
+		});
+		staleRoster.resolve(success({ subagents: [] }));
+		await recovery;
+
+		expect(useSubagentsStore.getState().subagents.get(selected.id)?.status).toBe("completed");
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, selected.sessionFile, 0);
 	});
 
 	it("coalesces concurrent full and light ready recovery into one subscription, roster fetch, and reload", async () => {
@@ -1460,6 +1494,44 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		expect(omp.rpc.getSubagentMessages).not.toHaveBeenCalled();
 	});
 
+	it("preserves the selected locator as a retryable error when Main transcript hydration fails", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+		const selected = subagentSnapshot("main-transcript-offline");
+		useSubagentsStore.getState().setSnapshots([selected]);
+		await useAgentViewStore.getState().selectSubagent(selected);
+		omp.rpc.getSubagentMessages.mockClear();
+		omp.rpc.getMessages.mockResolvedValue({
+			type: "response",
+			command: "get_messages",
+			success: false,
+			error: "Main transcript offline",
+		});
+		omp.rpc.getSubagents.mockResolvedValue(success({ subagents: [] }));
+
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/tmp" });
+		});
+		await flush();
+		await flush();
+
+		expect(useAgentViewStore.getState()).toMatchObject({
+			target: { kind: "subagent", id: selected.id },
+			loadState: "error",
+		});
+		expect(useAgentViewStore.getState().error).toContain("Main transcript offline");
+		expect(omp.rpc.getSubagentMessages).not.toHaveBeenCalled();
+
+		await useAgentViewStore.getState().reloadSelected();
+		expect(useAgentViewStore.getState()).toMatchObject({
+			target: { kind: "subagent", id: selected.id },
+			loadState: "ready",
+			error: null,
+		});
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, selected.sessionFile, 0);
+	});
+
 	it("rehydrates a completed agent from the persisted task call when the live roster is empty", async () => {
 		const { omp, emitSidecarStatus } = installMockOmp();
 		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
@@ -1534,7 +1606,11 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		await flush();
 		await flush();
 
-		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+		expect(useAgentViewStore.getState()).toMatchObject({
+			target: { kind: "subagent", id: selected.id },
+			loadState: "error",
+		});
+		expect(useAgentViewStore.getState().error).toContain("roster offline");
 		expect(omp.rpc.getSubagentMessages).not.toHaveBeenCalled();
 	});
 

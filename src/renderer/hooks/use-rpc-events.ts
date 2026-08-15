@@ -15,6 +15,7 @@ import {
 	type SessionInfoUpdateFrame,
 	type SubagentSnapshot,
 	type TodoPhase,
+	type RpcResponse,
 } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
@@ -31,6 +32,10 @@ import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
 
 import { useAgentViewStore } from "../stores/agent-view";
+
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../lib/tab-routing";
+import { historicalSubagentsFromMessages, useSubagentsStore } from "../stores/subagents";
+import { consumePendingSession, invalidatePendingSessionGeneration, useTabsStore } from "../stores/tabs";
 
 /**
  * Routine informational notice sources suppressed from the toast stack — they
@@ -294,6 +299,11 @@ async function syncVibeMode(isCurrent: HydrationGuard): Promise<void> {
 
 let hydrationVersion = 0;
 
+function hydrationFailureMessage(result: PromiseSettledResult<RpcResponse>, fallback: string): string {
+	if (result.status === "rejected")
+		return result.reason instanceof Error ? result.reason.message : String(result.reason);
+	return result.value.success ? fallback : result.value.error;
+}
 /** Hydrate Main stores and report whether this route committed an authoritative roster. */
 async function hydrateSessionWithRoster(fallbackName?: string): Promise<boolean> {
 	const version = ++hydrationVersion;
@@ -313,6 +323,8 @@ async function hydrateSessionWithRoster(fallbackName?: string): Promise<boolean>
 	// Capture before the fetch: messages the live stream appends while the
 	// transcript RPC is in flight must survive the merge below.
 	const beforeMessages = useMessagesStore.getState().messages;
+	const beforeRoster = useSubagentsStore.getState().subagents;
+	const beforeAgentViewGeneration = useAgentViewStore.getState().generation;
 	let hydratedMessages = beforeMessages;
 
 	const coreResult = Promise.allSettled([window.omp.rpc.getState(), window.omp.rpc.getMessages()]);
@@ -364,7 +376,8 @@ async function hydrateSessionWithRoster(fallbackName?: string): Promise<boolean>
 		// requests are in flight.
 	}
 
-	if (messagesResult.status === "fulfilled" && messagesResult.value.success) {
+	const mainTranscriptReady = messagesResult.status === "fulfilled" && messagesResult.value.success;
+	if (mainTranscriptReady) {
 		const data = messagesResult.value.data as { messages?: AgentMessage[] } | undefined;
 		const fetched = data?.messages ?? [];
 		const current = useMessagesStore.getState().messages;
@@ -396,7 +409,8 @@ async function hydrateSessionWithRoster(fallbackName?: string): Promise<boolean>
 	// requests still begin in parallel, but the core session can paint first.
 	const [settledSubagents] = await subagentsResult;
 	const rosterReady = isCurrent() && settledSubagents.status === "fulfilled" && settledSubagents.value.success;
-	if (rosterReady) {
+	const authoritativeRosterReady = mainTranscriptReady && rosterReady;
+	if (authoritativeRosterReady) {
 		const data = settledSubagents.value.data as { subagents?: SubagentSnapshot[] } | undefined;
 		const roster = new Map(
 			historicalSubagentsFromMessages(hydratedMessages, useSessionStore.getState().sessionFile).map(snapshot => [
@@ -405,10 +419,20 @@ async function hydrateSessionWithRoster(fallbackName?: string): Promise<boolean>
 			]),
 		);
 		for (const snapshot of data?.subagents ?? []) roster.set(snapshot.id, snapshot);
-		useSubagentsStore.getState().setSnapshots([...roster.values()]);
+		if (useSubagentsStore.getState().subagents === beforeRoster) {
+			useSubagentsStore.getState().setSnapshots([...roster.values()]);
+		}
+	} else if (isCurrent()) {
+		const view = useAgentViewStore.getState();
+		if (view.generation === beforeAgentViewGeneration && view.target.kind === "subagent") {
+			const error = !mainTranscriptReady
+				? hydrationFailureMessage(messagesResult, "Main transcript hydration failed")
+				: hydrationFailureMessage(settledSubagents, "Subagent roster hydration failed");
+			view.markSelectedLoadError(error);
+		}
 	}
 	await secondaryResult;
-	return rosterReady && isCurrent();
+	return authoritativeRosterReady && isCurrent();
 }
 /** Reload every renderer store that belongs to the active sidecar session. */
 export async function hydrateSession(fallbackName?: string): Promise<void> {

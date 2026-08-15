@@ -67,6 +67,7 @@ import { subscribeUpdaterStatus } from "./stores/updater";
 const MAIN_MUTATING_KEYMAP_ACTIONS: Partial<Record<KeymapActionId, true>> = {
 	"model.cycleForward": true,
 	"model.cycleBackward": true,
+	"model.select": true,
 	retry: true,
 	dequeue: true,
 	"plan.toggle": true,

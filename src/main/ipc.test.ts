@@ -1,4 +1,6 @@
 import { promises as fsp } from "node:fs";
+import os, { tmpdir } from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { IPC_COMMANDS, type SessionTarget } from "../shared/ipc-types";
 import {
@@ -127,6 +129,28 @@ async function invokeProjectHandler(command: string, event: { sender: object }, 
 	const handler = ipcTestState.handlers.get(command);
 	if (!handler) throw new Error(`Missing handler for ${command}`);
 	return await handler(event, payload);
+}
+
+function registerTranscriptHandlerFixture(target: SessionTarget, remoteSsh: object = {}): { sender: object } {
+	const sender = {};
+	const win = { webContents: { id: 71 } };
+	const deps = {
+		sidecarPool: {
+			activeTabForWindow: vi.fn(() => "tab-1"),
+			tabsForWindow: vi.fn(() => [{ tabId: "tab-1", target }]),
+		},
+		sessionIndex: {},
+		statsClient: {},
+		logWatcher: {},
+		windowManager: {},
+		spawnWindow: vi.fn(),
+		remoteSsh,
+		remoteHostCatalog: {},
+		remoteAcp: {},
+	} as unknown as IpcDeps;
+	ipcTestState.fromWebContents.mockReturnValue(win);
+	registerIpcHandlers(deps);
+	return { sender };
 }
 
 interface LocalSshHandlerFixture {
@@ -450,15 +474,117 @@ describe("renderer side-channel response ownership", () => {
 });
 
 describe("persisted subagent transcripts", () => {
-	it("extracts message entries and ignores metadata plus an incomplete trailing row", () => {
-		const message = { role: "assistant", content: [{ type: "text", text: "finished" }], timestamp: 7 };
+	it("reconstructs only the canonical active branch", () => {
+		const root = { role: "user", content: [{ type: "text", text: "root" }], timestamp: 1 };
+		const abandoned = { role: "assistant", content: [{ type: "text", text: "abandoned" }], timestamp: 2 };
+		const active = { role: "assistant", content: [{ type: "text", text: "active" }], timestamp: 3 };
 		const content = [
-			JSON.stringify({ type: "session", id: "child" }),
-			JSON.stringify({ type: "message", message }),
-			'{"type":"message","message":',
+			JSON.stringify({
+				type: "session",
+				version: 3,
+				id: "child-session",
+				timestamp: "2026-08-14T00:00:00.000Z",
+				cwd: "/repo",
+			}),
+			JSON.stringify({
+				type: "message",
+				id: "root",
+				parentId: null,
+				timestamp: "2026-08-14T00:00:01.000Z",
+				message: root,
+			}),
+			JSON.stringify({
+				type: "message",
+				id: "old-leaf",
+				parentId: "root",
+				timestamp: "2026-08-14T00:00:02.000Z",
+				message: abandoned,
+			}),
+			JSON.stringify({
+				type: "message",
+				id: "active-leaf",
+				parentId: "root",
+				timestamp: "2026-08-14T00:00:03.000Z",
+				message: active,
+			}),
 		].join("\n");
 
-		expect(parsePersistedSubagentMessages(content)).toEqual([message]);
+		expect(parsePersistedSubagentMessages(content)).toEqual([root, active]);
+	});
+
+	it("reconstructs supported custom-message transcript entries", () => {
+		const content = [
+			JSON.stringify({
+				type: "session",
+				version: 3,
+				id: "child-session",
+				timestamp: "2026-08-14T00:00:00.000Z",
+				cwd: "/repo",
+			}),
+			JSON.stringify({
+				type: "custom_message",
+				id: "custom",
+				parentId: null,
+				timestamp: "2026-08-14T00:00:01.000Z",
+				customType: "notice",
+				content: "retained custom entry",
+				display: true,
+			}),
+		].join("\n");
+
+		expect(parsePersistedSubagentMessages(content)).toMatchObject([
+			{ role: "custom", customType: "notice", content: "retained custom entry", display: true },
+		]);
+	});
+
+	it("uses Win32 semantics to authorize a local Windows session path", async () => {
+		const platform = Object.getOwnPropertyDescriptor(process, "platform");
+		const homedir = vi.spyOn(os, "homedir").mockReturnValue("C:\\Users\\me");
+		Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+		try {
+			const event = registerTranscriptHandlerFixture({ type: "local" });
+			const result = await invokeProjectHandler(IPC_COMMANDS.SESSION_READ_SUBAGENT_TRANSCRIPT, event, {
+				sessionFile: "C:\\Users\\me\\.omp\\agent\\sessions\\project\\parent\\Scout.jsonl",
+			});
+
+			expect(result).toMatchObject({ ok: false });
+			if (!result || typeof result !== "object" || !("error" in result) || typeof result.error !== "string") {
+				throw new Error("Expected transcript failure");
+			}
+			expect(result.error).toContain("ENOENT");
+		} finally {
+			homedir.mockRestore();
+			if (platform) Object.defineProperty(process, "platform", platform);
+		}
+	});
+
+	it("rejects invalid UTF-8 in a local persisted transcript", async () => {
+		const home = await fsp.mkdtemp(path.join(tmpdir(), "omp-gui-transcript-"));
+		const homedir = vi.spyOn(os, "homedir").mockReturnValue(home);
+		const sessionFile = path.join(home, ".omp", "agent", "sessions", "project", "parent", "Scout.jsonl");
+		await fsp.mkdir(path.dirname(sessionFile), { recursive: true });
+		const prefix = [
+			JSON.stringify({
+				type: "session",
+				version: 3,
+				id: "child-session",
+				timestamp: "2026-08-14T00:00:00.000Z",
+				cwd: "/repo",
+			}),
+			'{"type":"message","id":"m1","parentId":null,"timestamp":"2026-08-14T00:00:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"',
+		].join("\n");
+		await fsp.writeFile(sessionFile, Buffer.concat([Buffer.from(prefix), Buffer.from([0xff]), Buffer.from('"}]}}')]));
+		try {
+			const event = registerTranscriptHandlerFixture({ type: "local" });
+			const result = await invokeProjectHandler(IPC_COMMANDS.SESSION_READ_SUBAGENT_TRANSCRIPT, event, {
+				sessionFile,
+			});
+
+			expect(result).toEqual({ ok: false, error: "Subagent transcript is not valid UTF-8" });
+		} finally {
+			homedir.mockRestore();
+			await fsp.rm(home, { recursive: true, force: true });
+		}
 	});
 
 	it("reads a child transcript from the active SSH host's session store", async () => {
@@ -466,7 +592,24 @@ describe("persisted subagent transcripts", () => {
 		const win = { webContents: { id: 71 } };
 		const sessionFile = "/home/build/.omp/agent/sessions/project/parent/Scout.jsonl";
 		const message = { role: "assistant", content: [{ type: "text", text: "remote result" }], timestamp: 8 };
-		const data = new TextEncoder().encode(JSON.stringify({ type: "message", message }));
+		const data = new TextEncoder().encode(
+			[
+				JSON.stringify({
+					type: "session",
+					version: 3,
+					id: "child-session",
+					timestamp: "2026-08-14T00:00:00.000Z",
+					cwd: "/srv/app",
+				}),
+				JSON.stringify({
+					type: "message",
+					id: "message-1",
+					parentId: null,
+					timestamp: "2026-08-14T00:00:01.000Z",
+					message,
+				}),
+			].join("\n"),
+		);
 		const resolveRuntime = vi.fn(async () => ({
 			ok: true as const,
 			target: SSH_TARGET,

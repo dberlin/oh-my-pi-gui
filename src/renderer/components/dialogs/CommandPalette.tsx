@@ -18,6 +18,7 @@ import {
 } from "../../lib/command-registry";
 import { useT } from "../../lib/i18n";
 import { retryLastTurn as retryLastTurnShared } from "../../lib/messages";
+import { useAgentViewStore } from "../../stores/agent-view";
 import { openHandoffDialog } from "../../stores/fork-handoff";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
@@ -29,6 +30,45 @@ import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
 
 const RECENT_KEY = "omp.palette.recent";
 const RECENT_LIMIT = 5;
+
+/**
+ * Projected agent transcripts expose navigation and read-only inspection only.
+ * Unknown commands default to Main-only so newly advertised prompt commands
+ * cannot silently gain a writable path.
+ */
+const SUBAGENT_VIEW_COMMANDS: Record<string, true> = {
+	agents: true,
+	changelog: true,
+	context: true,
+	copy: true,
+	dump: true,
+	export: true,
+	hotkeys: true,
+	jobs: true,
+	"new-chat-tab": true,
+	"new-tab": true,
+	"session info": true,
+	stats: true,
+	theme: true,
+	tree: true,
+	usage: true,
+};
+
+function isSubagentViewCommand(item: CommandMenuItem): boolean {
+	if (Object.hasOwn(SUBAGENT_VIEW_COMMANDS, item.name)) return true;
+	return item.affordance.kind === "submenu" && item.affordance.items.some(isSubagentViewCommand);
+}
+
+function projectSubagentViewCommand(item: CommandMenuItem): CommandMenuItem | null {
+	if (item.affordance.kind === "submenu") {
+		const items = item.affordance.items
+			.map(projectSubagentViewCommand)
+			.filter((child): child is CommandMenuItem => child !== null);
+		if (items.length === 0 && !isSubagentViewCommand(item)) return null;
+		return { ...item, affordance: { kind: "submenu", items } };
+	}
+	return isSubagentViewCommand(item) ? item : null;
+}
 
 function loadRecent(): string[] {
 	try {
@@ -118,6 +158,7 @@ async function runAffordance(
 
 export function CommandPalette() {
 	const t = useT();
+	const mainTargetSelected = useAgentViewStore(state => state.target.kind === "main");
 	const open = useUiStore(state => state.commandPaletteOpen);
 	const close = useUiStore(state => state.closeCommandPalette);
 	const openModelPicker = useUiStore(state => state.openModelPicker);
@@ -276,7 +317,10 @@ export function CommandPalette() {
 				openInventory,
 				openThemePicker,
 				openModes,
-				openAgentHub,
+				openAgentHub: tab => {
+					if (useAgentViewStore.getState().target.kind === "main") openAgentHub(tab);
+					else focusDockCard("agents");
+				},
 				openPrCenter,
 				openHotkeys,
 				openImportDialog,
@@ -342,12 +386,20 @@ export function CommandPalette() {
 			openExtensions,
 		],
 	);
+	const visibleMenuItems = useMemo(
+		() =>
+			mainTargetSelected
+				? menuItems
+				: menuItems.map(projectSubagentViewCommand).filter((item): item is CommandMenuItem => item !== null),
+		[mainTargetSelected, menuItems],
+	);
 
 	// The working set: submenu items when drilled in, else the full menu.
-	const workingItems = useMemo(
-		() => (submenu?.affordance.kind === "submenu" ? submenu.affordance.items : menuItems),
-		[submenu, menuItems],
-	);
+	const workingItems = useMemo(() => {
+		const items = submenu?.affordance.kind === "submenu" ? submenu.affordance.items : visibleMenuItems;
+		if (mainTargetSelected) return items;
+		return items.map(projectSubagentViewCommand).filter((item): item is CommandMenuItem => item !== null);
+	}, [mainTargetSelected, submenu, visibleMenuItems]);
 
 	const results = useMemo<ScoredItem[]>(() => {
 		const q = query.trim();
@@ -374,9 +426,9 @@ export function CommandPalette() {
 	// live menu so stale names from a previous session are dropped.
 	const recentItems = useMemo(() => {
 		if (submenu || query.trim().length > 0) return [];
-		const byName = new Map(menuItems.map(item => [item.name, item]));
+		const byName = new Map(visibleMenuItems.map(item => [item.name, item]));
 		return recent.map(name => byName.get(name)).filter((item): item is CommandMenuItem => item != null);
-	}, [menuItems, recent, submenu, query]);
+	}, [visibleMenuItems, recent, submenu, query]);
 
 	const flatList = useMemo(() => {
 		if (grouped) {
@@ -398,6 +450,7 @@ export function CommandPalette() {
 
 	const execute = useCallback(
 		(item: CommandMenuItem) => {
+			if (useAgentViewStore.getState().target.kind !== "main" && !isSubagentViewCommand(item)) return;
 			if (item.affordance.kind === "unavailable") {
 				toast({ variant: "warning", message: `${item.label}: ${item.affordance.reason}` });
 				return;

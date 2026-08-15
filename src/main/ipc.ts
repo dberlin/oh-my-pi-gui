@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
+import { z } from "zod";
 import type {
 	CustomProviderInput,
 	FsTreeEntry,
@@ -602,31 +603,163 @@ function isPersistedSubagentSessionPath(
 	return segments.length >= 3 && pathApi.extname(resolved) === ".jsonl";
 }
 
+const persistedEntrySchema = z.looseObject({
+	type: z.string(),
+	id: z.string(),
+	parentId: z.string().nullable(),
+	timestamp: z.string(),
+});
+type PersistedEntry = z.infer<typeof persistedEntrySchema>;
+
+const persistedAgentMessageSchema = z
+	.looseObject({
+		role: z.enum([
+			"user",
+			"assistant",
+			"system",
+			"toolResult",
+			"bashExecution",
+			"pythonExecution",
+			"custom",
+			"hookMessage",
+			"branchSummary",
+			"compactionSummary",
+			"fileMention",
+		]),
+	})
+	.transform(message => message as AgentMessage);
+
+const persistedCustomMessageSchema = persistedEntrySchema.extend({
+	type: z.literal("custom_message"),
+	customType: z.string(),
+	content: z.union([
+		z.string(),
+		z.array(
+			z.union([
+				z.looseObject({ type: z.literal("text"), text: z.string() }),
+				z.looseObject({ type: z.literal("image"), data: z.string(), mimeType: z.string() }),
+			]),
+		),
+	]),
+	display: z.boolean(),
+	details: z.unknown().optional(),
+});
+
+function persistedActivePath(entries: PersistedEntry[]): PersistedEntry[] {
+	const byId = new Map(entries.map(entry => [entry.id, entry]));
+	const pathEntries: PersistedEntry[] = [];
+	const visited = new Set<string>();
+	let current = entries.at(-1);
+	while (current && !visited.has(current.id)) {
+		visited.add(current.id);
+		pathEntries.push(current);
+		current = current.parentId ? byId.get(current.parentId) : undefined;
+	}
+	return pathEntries.reverse();
+}
+
+function collapsedPersistedTranscriptEntries(pathEntries: PersistedEntry[]): PersistedEntry[] {
+	let compactionIndex = -1;
+	let resetIndex = -1;
+	for (const [index, entry] of pathEntries.entries()) {
+		if (entry.type === "compaction") compactionIndex = index;
+		else if (entry.type === "reset_boundary") resetIndex = index;
+	}
+	if (resetIndex > compactionIndex) return pathEntries.slice(resetIndex + 1);
+	if (compactionIndex < 0) return pathEntries;
+
+	const compaction = pathEntries[compactionIndex];
+	const firstKeptEntryId = typeof compaction.firstKeptEntryId === "string" ? compaction.firstKeptEntryId : undefined;
+	const keptStart = firstKeptEntryId
+		? pathEntries.findIndex((entry, index) => index < compactionIndex && entry.id === firstKeptEntryId)
+		: -1;
+	return [
+		...(keptStart >= 0 ? pathEntries.slice(keptStart, compactionIndex) : []),
+		compaction,
+		...pathEntries.slice(compactionIndex + 1),
+	];
+}
+
 export function parsePersistedSubagentMessages(content: string): AgentMessage[] {
-	const messages: AgentMessage[] = [];
+	const parsedRows: unknown[] = [];
 	for (const line of content.split(/\r?\n/)) {
-		if (!line) continue;
+		if (!line.trim()) continue;
 		try {
-			const entry = JSON.parse(line) as unknown;
-			if (
-				typeof entry !== "object" ||
-				entry === null ||
-				Array.isArray(entry) ||
-				!("type" in entry) ||
-				entry.type !== "message" ||
-				!("message" in entry) ||
-				typeof entry.message !== "object" ||
-				entry.message === null ||
-				Array.isArray(entry.message)
-			) {
-				continue;
-			}
-			messages.push(entry.message as AgentMessage);
+			parsedRows.push(JSON.parse(line));
 		} catch {
 			// Ignore a malformed or partially appended JSONL row.
 		}
 	}
+	const logicalRows = parsedRows.filter(
+		row => !(row && typeof row === "object" && "type" in row && row.type === "title"),
+	);
+	const header = logicalRows[0];
+	if (
+		!header ||
+		typeof header !== "object" ||
+		!("type" in header) ||
+		header.type !== "session" ||
+		!("id" in header) ||
+		typeof header.id !== "string"
+	) {
+		return [];
+	}
+
+	const entries: PersistedEntry[] = [];
+	for (const row of logicalRows.slice(1)) {
+		const parsed = persistedEntrySchema.safeParse(row);
+		if (parsed.success) entries.push(parsed.data);
+	}
+	const messages: AgentMessage[] = [];
+	for (const entry of collapsedPersistedTranscriptEntries(persistedActivePath(entries))) {
+		if (entry.type === "message") {
+			const parsed = persistedAgentMessageSchema.safeParse(entry.message);
+			if (parsed.success) messages.push(parsed.data);
+			continue;
+		}
+		if (entry.type === "custom_message") {
+			const parsed = persistedCustomMessageSchema.safeParse(entry);
+			if (!parsed.success) continue;
+			const customMessage: AgentMessage = {
+				role: "custom",
+				customType: parsed.data.customType,
+				content: parsed.data.content,
+				display: parsed.data.display,
+				...(parsed.data.details === undefined ? {} : { details: parsed.data.details }),
+				timestamp: Date.parse(parsed.data.timestamp),
+			};
+			messages.push(customMessage);
+			continue;
+		}
+		if (entry.type === "branch_summary" && typeof entry.summary === "string" && typeof entry.fromId === "string") {
+			messages.push({
+				role: "branchSummary",
+				summary: entry.summary,
+				fromId: entry.fromId,
+				timestamp: Date.parse(entry.timestamp),
+			});
+			continue;
+		}
+		if (entry.type === "compaction" && typeof entry.summary === "string" && typeof entry.tokensBefore === "number") {
+			messages.push({
+				role: "compactionSummary",
+				summary: entry.summary,
+				...(typeof entry.shortSummary === "string" ? { shortSummary: entry.shortSummary } : {}),
+				tokensBefore: entry.tokensBefore,
+				timestamp: Date.parse(entry.timestamp),
+			});
+		}
+	}
 	return messages;
+}
+
+function decodePersistedSubagentMessages(data: Uint8Array): IpcSubagentTranscriptReadResult {
+	try {
+		const content = new TextDecoder("utf-8", { fatal: true }).decode(data);
+		return { ok: true, messages: parsePersistedSubagentMessages(content) };
+	} catch {
+		return subagentTranscriptFailure("Subagent transcript is not valid UTF-8");
+	}
 }
 
 async function readPersistedSubagentTranscript(
@@ -648,8 +781,9 @@ async function readPersistedSubagentTranscript(
 	const sessionFile = payload.sessionFile;
 	const target = context.tab.target;
 	if (target.type === "local") {
-		const sessionsRoot = path.join(os.homedir(), ".omp", "agent", "sessions");
-		if (!isPersistedSubagentSessionPath(sessionFile, sessionsRoot, path.posix)) {
+		const pathApi = process.platform === "win32" ? path.win32 : path.posix;
+		const sessionsRoot = pathApi.join(os.homedir(), ".omp", "agent", "sessions");
+		if (!isPersistedSubagentSessionPath(sessionFile, sessionsRoot, pathApi)) {
 			return subagentTranscriptFailure("Subagent transcript is outside the local session store");
 		}
 		try {
@@ -658,7 +792,7 @@ async function readPersistedSubagentTranscript(
 			if (stat.size > SUBAGENT_TRANSCRIPT_MAX_BYTES) {
 				return subagentTranscriptFailure("Subagent transcript exceeds the 25 MB limit");
 			}
-			return { ok: true, messages: parsePersistedSubagentMessages(await fsp.readFile(sessionFile, "utf8")) };
+			return decodePersistedSubagentMessages(await fsp.readFile(sessionFile));
 		} catch (error) {
 			return subagentTranscriptFailure(error instanceof Error ? error.message : String(error));
 		}
@@ -682,12 +816,7 @@ async function readPersistedSubagentTranscript(
 		if (result.truncated || result.size > SUBAGENT_TRANSCRIPT_MAX_BYTES) {
 			return subagentTranscriptFailure("Subagent transcript exceeds the 25 MB limit");
 		}
-		try {
-			const content = new TextDecoder("utf-8", { fatal: true }).decode(result.data);
-			return { ok: true, messages: parsePersistedSubagentMessages(content) };
-		} catch {
-			return subagentTranscriptFailure("Subagent transcript is not valid UTF-8");
-		}
+		return decodePersistedSubagentMessages(result.data);
 	} catch (error) {
 		return subagentTranscriptFailure(error instanceof Error ? error.message : String(error));
 	}

@@ -12,6 +12,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useTabsStore } from "../../stores/tabs";
+import { useTodoStore } from "../../stores/todo";
 import { useUiStore } from "../../stores/ui";
 import { InputArea } from "./InputArea";
 
@@ -67,6 +68,9 @@ let abort: Mock;
 let getAvailableCommands: Mock;
 let writeLocalPaste: Mock;
 let prefsGet: Mock;
+let setGoal: Mock;
+let setTodos: Mock;
+let includeMainDockState = false;
 
 async function flush(): Promise<void> {
 	await act(async () => {
@@ -112,17 +116,30 @@ async function mountSubagentComposer(startAtMain = false): Promise<void> {
 	getAvailableCommands = vi.fn(async () => ok({ commands: [] }));
 	writeLocalPaste = vi.fn(async () => ok({ url: "local://paste-1.txt" }));
 	prefsGet = vi.fn(async () => []);
+	setGoal = vi.fn(async () => ok());
+	setTodos = vi.fn(async () => ok());
 	(window as unknown as Record<string, unknown>).omp = {
-		fs: { list: vi.fn(async () => ({ entries: [] })) },
+		fs: { list: vi.fn(async () => ({ entries: [] })), readPlan: vi.fn(async () => ({ ok: true })) },
 		events: { onCommandsUpdate: vi.fn(() => () => {}) },
 		prefs: { set: vi.fn(async () => ({})), get: prefsGet },
 		rpc: {
 			getAvailableCommands,
-			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
+			getPlanMode: vi.fn(async () => ok({ enabled: includeMainDockState, planFilePath: null })),
+			getQueue: vi.fn(async () =>
+				ok({
+					steering: [],
+					followUp: includeMainDockState
+						? [{ id: "queued-1", text: "Main queued work", editable: true, timestamp: 1 }]
+						: [],
+				}),
+			),
 			followUp,
 			steer,
 			prompt,
 			abort,
+			setGoal,
+			setPlanMode: vi.fn(async (enabled: boolean) => ok({ enabled })),
+			setTodos,
 			writeLocalPaste,
 		},
 	};
@@ -134,6 +151,16 @@ async function mountSubagentComposer(startAtMain = false): Promise<void> {
 		sessionId: "s1",
 		sessionName: null,
 	});
+	if (includeMainDockState) {
+		useSessionStore.setState({
+			goal: { objective: "Protect Main state" },
+			goalState: { status: "active" },
+			planModeEnabled: true,
+		});
+		useTodoStore
+			.getState()
+			.setPhases([{ name: "Safety", tasks: [{ content: "Do not mutate Main", status: "pending" }] }]);
+	}
 	useSettingsStore.setState({ sttEnabled: true });
 	useTabsStore.setState({
 		tabs: [{ kind: "agent", id: "t0", cwd: "/tmp", status: "ready", target: { type: "local" }, unreadDone: false }],
@@ -169,6 +196,8 @@ afterEach(async () => {
 	useMessagesStore.getState().reset();
 	useComposerStore.getState().reset();
 	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
+	useTodoStore.getState().reset();
+	includeMainDockState = false;
 	useTabsStore.getState().reset();
 	useUiStore.getState().closeModelPicker();
 	useUiStore.getState().closeComposerEditor();
@@ -234,6 +263,42 @@ describe("InputArea selected-subagent mode", () => {
 		});
 		expect(container.querySelector('section[aria-label="Agents"]')).not.toBeNull();
 		expect(container.querySelector("textarea")).not.toBeNull();
+	});
+
+	it("removes every Main-owned dock mutation while preserving Agents navigation", async () => {
+		includeMainDockState = true;
+		await mountSubagentComposer(true);
+
+		const pauseGoal = container.querySelector('[aria-label="Pause"]');
+		const todoStatus = container.querySelector('[aria-label^="Status:"]');
+		expect(pauseGoal).not.toBeNull();
+		expect(todoStatus).not.toBeNull();
+		expect(container.textContent).toContain("Plan");
+		expect(container.textContent).toContain("Queue");
+
+		if (!pauseGoal || !todoStatus) throw new Error("Expected Main dock mutation controls");
+		await click(pauseGoal);
+		await click(todoStatus);
+		expect(setGoal).toHaveBeenCalledTimes(1);
+		expect(setTodos).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selectedAgent.id });
+		});
+
+		expect(container.querySelector('section[aria-label="Agents"]')).not.toBeNull();
+		expect(container.querySelector('[aria-label="Pause"]')).toBeNull();
+		expect(container.querySelector('[aria-label="Resume"]')).toBeNull();
+		expect(container.querySelector('[aria-label="Drop goal"]')).toBeNull();
+		expect(container.textContent).not.toContain("Queue");
+		expect(container.textContent).not.toContain("Plan mode");
+		expect(setGoal).toHaveBeenCalledTimes(1);
+		expect(setTodos).toHaveBeenCalledTimes(1);
+
+		await act(async () => useAgentViewStore.getState().selectMain());
+		expect(container.querySelector('[aria-label="Resume"]')).not.toBeNull();
+		expect(container.querySelector('[aria-label^="Status:"]')).not.toBeNull();
+		expect(container.textContent).toContain("Queue");
 	});
 
 	it("preserves Main draft and attachments through a subagent view, then submits normally on return", async () => {

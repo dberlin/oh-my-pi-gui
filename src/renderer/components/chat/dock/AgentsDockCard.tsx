@@ -15,9 +15,11 @@
 import { Bot, List, Network, RefreshCw, Square } from "lucide-react";
 import { type FocusEvent, type KeyboardEvent, memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import { useActiveTabRouteReady } from "../../../hooks/use-active-tab-route";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { cx, formatCost, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { acceptsActiveTabEvents } from "../../../lib/tab-routing";
 import { type AgentViewTarget, useAgentViewStore } from "../../../stores/agent-view";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
@@ -295,6 +297,7 @@ function ViewToggle({ view, onChange }: { view: PanelView; onChange: (view: Pane
 export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number }) {
 	const t = useT();
 	const { capture, isActive } = useTabGuard();
+	const routeReady = useActiveTabRouteReady();
 	const { managed, focusedCard, focusCard, clearFocus } = useWorkspaceDockFocus();
 	const focused = focusedCard === "agents";
 	const showFull = !managed || focused;
@@ -358,12 +361,13 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 
 	const activateAgentView = useCallback(
 		(agent: SubagentSnapshot | null) => {
+			if (agent && (!routeReady || !acceptsActiveTabEvents())) return;
 			setSelectedKey(agent?.id ?? "main");
 			if (agent) void useAgentViewStore.getState().selectSubagent(agent);
 			else useAgentViewStore.getState().selectMain();
 			clearFocus();
 		},
-		[clearFocus],
+		[clearFocus, routeReady],
 	);
 
 	const runLifecycleAction = useCallback(
