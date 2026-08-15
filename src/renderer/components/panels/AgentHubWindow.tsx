@@ -10,23 +10,22 @@
  *
  * Hub tab (multi-agent table): live view of the session's subagents from the
  * subagents store (get_subagents hydration + lifecycle frames) with status,
- * elapsed time, model, and transcripts in a slide-over drawer. Per-agent
- * abort and revive ride the abort_subagent / revive_subagent RPCs (TUI hub
- * `x`/`r` parity); the session-scoped "abort turn" remains for stopping
- * everything.
+ * elapsed time, model, and main-canvas navigation. Per-agent abort and revive
+ * ride the abort_subagent / revive_subagent RPCs (TUI hub `x`/`r` parity); the
+ * session-scoped "abort turn" remains for stopping everything.
  */
 
-import { ArrowLeft, Check, MessageSquare, RefreshCw, Square, X } from "lucide-react";
+import { Check, MessageSquare, RefreshCw, Square, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { RpcAgentDefinitionInfo, SubagentSnapshot } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { abortActiveTurn } from "../../lib/messages";
+import { useAgentViewStore } from "../../stores/agent-view";
 import { useSubagentsStore } from "../../stores/subagents";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Modal, Spinner, type TabItem, Tabs } from "../common";
 import { type AgentSettingsRpc, type AgentSettingsState, useAgentSettings } from "./agent-hub-settings";
-import { SubagentTranscript } from "./SubagentTranscript";
 import {
 	formatElapsed,
 	isLiveSubagentStatus,
@@ -504,7 +503,7 @@ const HubRow = memo(function HubRow({
 	agent,
 	now,
 	actionState,
-	onView,
+	onActivate,
 	onAbort,
 	onRevive,
 	onAbortConfirm,
@@ -514,7 +513,7 @@ const HubRow = memo(function HubRow({
 	now: number;
 	/** "confirming" = inline ✓/✕ abort confirm; "working" = RPC in flight. */
 	actionState: "idle" | "confirming" | "working";
-	onView: () => void;
+	onActivate: () => void;
 	onAbort: () => void;
 	onRevive: () => void;
 	onAbortConfirm: () => void;
@@ -535,13 +534,20 @@ const HubRow = memo(function HubRow({
 	const revivable = parked && agent.kind !== "advisor";
 
 	return (
-		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent">
+		<div
+			className="rounded-lg border border-(--omp-border-muted) bg-transparent"
+			data-agent-id={agent.id}
+			onDoubleClick={onActivate}
+			onKeyDown={event => {
+				if (event.currentTarget !== event.target || event.key !== "Enter") return;
+				event.preventDefault();
+				onActivate();
+			}}
+			role="treeitem"
+			tabIndex={0}
+		>
 			<div className="flex items-center">
-				<button
-					className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-2 text-left"
-					onClick={onView}
-					type="button"
-				>
+				<div className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-2 text-left">
 					<Badge dot pulse={meta.live} variant={meta.variant}>
 						{t(meta.labelKey)}
 					</Badge>
@@ -550,14 +556,17 @@ const HubRow = memo(function HubRow({
 					<span className="ml-auto shrink-0 text-omp-xs text-(--omp-dim) tabular-nums">
 						{elapsed !== null ? formatElapsed(elapsed) : "—"}
 					</span>
-				</button>
-				{/* 查看消息 opens the transcript slide-over; abort/revive are the TUI
-				    hub `x`/`r` parity actions via abort_subagent / revive_subagent.
-				    Abort is inline-confirmed like session deletes. */}
+				</div>
+				{/* This action and row double-click/Enter share main-canvas activation.
+				    Abort/revive remain isolated TUI-parity lifecycle controls. */}
 				<button
 					type="button"
 					title={t("agentHub.hub.viewMessages")}
-					onClick={onView}
+					onClick={event => {
+						event.stopPropagation();
+						onActivate();
+					}}
+					onDoubleClick={event => event.stopPropagation()}
 					className="omp-pressable mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-accent)"
 				>
 					<MessageSquare size={11} />
@@ -567,7 +576,11 @@ const HubRow = memo(function HubRow({
 						type="button"
 						disabled={actionState === "working"}
 						title={t("agentHub.hub.abortAgent")}
-						onClick={onAbort}
+						onClick={event => {
+							event.stopPropagation();
+							onAbort();
+						}}
+						onDoubleClick={event => event.stopPropagation()}
 						className="omp-pressable mr-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-error-dim) hover:text-(--omp-error) disabled:opacity-40"
 					>
 						<Square size={10} fill="currentColor" />
@@ -578,7 +591,11 @@ const HubRow = memo(function HubRow({
 						<button
 							type="button"
 							title={t("agentHub.hub.confirmAbort")}
-							onClick={onAbortConfirm}
+							onClick={event => {
+								event.stopPropagation();
+								onAbortConfirm();
+							}}
+							onDoubleClick={event => event.stopPropagation()}
 							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent text-(--omp-error)"
 						>
 							<Check size={12} />
@@ -586,7 +603,11 @@ const HubRow = memo(function HubRow({
 						<button
 							type="button"
 							title={t("agentHub.hub.cancelAbort")}
-							onClick={onAbortCancel}
+							onClick={event => {
+								event.stopPropagation();
+								onAbortCancel();
+							}}
+							onDoubleClick={event => event.stopPropagation()}
 							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg)"
 						>
 							<X size={12} />
@@ -598,7 +619,11 @@ const HubRow = memo(function HubRow({
 						type="button"
 						disabled={actionState === "working"}
 						title={t("agentHub.hub.reviveAgent")}
-						onClick={onRevive}
+						onClick={event => {
+							event.stopPropagation();
+							onRevive();
+						}}
+						onDoubleClick={event => event.stopPropagation()}
 						className="omp-pressable mr-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-accent) disabled:opacity-40"
 					>
 						<RefreshCw size={11} />
@@ -625,66 +650,11 @@ const HubRow = memo(function HubRow({
 		</div>
 	);
 });
-
-/**
- * 查看消息 slide-over: covers the hub tab body with the agent's transcript
- * (get_subagent_messages byte pagination inside SubagentTranscript). Escape
- * closes the drawer, not the whole hub modal — window-capture runs before the
- * Modal's document-capture handler (PluginDetailDrawer pattern).
- */
-function AgentTranscriptDrawer({ agent, onClose }: { agent: SubagentSnapshot; onClose: () => void }) {
-	const t = useT();
-	const meta = statusMeta(agent.status);
-
-	useEffect(() => {
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			onClose();
-		};
-		window.addEventListener("keydown", onKeyDown, true);
-		return () => window.removeEventListener("keydown", onKeyDown, true);
-	}, [onClose]);
-
-	return (
-		<div className="omp-fade-in absolute inset-0 z-10 flex flex-col bg-(--omp-modal-bg)">
-			<div className="flex shrink-0 items-center gap-2 border-b border-(--omp-border-muted) px-3 py-2">
-				<button
-					aria-label={t("agentHub.hub.backToHub")}
-					className="omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text)"
-					onClick={onClose}
-					type="button"
-				>
-					<ArrowLeft size={13} />
-				</button>
-				<Badge dot pulse={meta.live} variant={meta.variant}>
-					{t(meta.labelKey)}
-				</Badge>
-				<span className="min-w-0 truncate text-omp-md font-medium text-(--omp-text)">
-					{subagentPrimaryLabel(agent)}
-				</span>
-				<span className="shrink-0 text-omp-xs text-(--omp-dim)">{agent.agent}</span>
-			</div>
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				<SubagentTranscript agent={agent} />
-			</div>
-		</div>
-	);
-}
-
-function HubTab() {
+function HubTab({ onClose }: { onClose: () => void }) {
 	const t = useT();
 	const subagents = useSubagentsStore(s => s.subagents);
-	const [viewingId, setViewingId] = useState<string | null>(null);
 	const [now, setNow] = useState(() => Date.now());
 	const [aborting, setAborting] = useState(false);
-
-	// Close the slide-over if its agent leaves the roster (released mid-view).
-	useEffect(() => {
-		if (viewingId !== null && !subagents.has(viewingId)) setViewingId(null);
-	}, [viewingId, subagents]);
-
-	const viewing = viewingId !== null ? (subagents.get(viewingId) ?? null) : null;
 
 	const sorted = useMemo(
 		() =>
@@ -692,6 +662,14 @@ function HubTab() {
 				(a, b) => hubStatusOrder(a.status) - hubStatusOrder(b.status) || b.index - a.index,
 			),
 		[subagents],
+	);
+
+	const activateAgent = useCallback(
+		(agent: SubagentSnapshot) => {
+			void useAgentViewStore.getState().selectSubagent(agent);
+			onClose();
+		},
+		[onClose],
 	);
 
 	// Live count drives the 1s elapsed tick and the Abort button. Counted with
@@ -838,7 +816,7 @@ function HubTab() {
 					</Button>
 				</span>
 			</div>
-			<div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+			<div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto" role="tree">
 				{sorted.length === 0 ? (
 					<div className="m-auto px-3 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
 						{t("subagent.empty")}
@@ -851,7 +829,7 @@ function HubTab() {
 							agent={agent}
 							key={agent.id}
 							now={now}
-							onView={() => setViewingId(agent.id)}
+							onActivate={() => activateAgent(agent)}
 							actionState={rowAction?.id === agent.id ? rowAction.state : "idle"}
 							onAbort={() => setRowAction({ id: agent.id, state: "confirming" })}
 							onAbortConfirm={() => void abortAgent(agent.id)}
@@ -864,7 +842,6 @@ function HubTab() {
 			<div className="shrink-0 border-t border-(--omp-border-muted) pt-2 text-omp-xs leading-relaxed text-(--omp-dim)">
 				{t("agentHub.hub.gapNote")}
 			</div>
-			{viewing && <AgentTranscriptDrawer agent={viewing} onClose={() => setViewingId(null)} />}
 		</div>
 	);
 }
@@ -911,7 +888,7 @@ export function AgentHubWindow({ open, onClose, initialTab = "definitions" }: Ag
 					tabs={tabs}
 				/>
 				{tab === "definitions" && <DefinitionsTab rpc={settings} />}
-				{tab === "hub" && <HubTab />}
+				{tab === "hub" && <HubTab onClose={onClose} />}
 			</div>
 		</Modal>
 	);

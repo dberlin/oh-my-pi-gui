@@ -39,10 +39,12 @@ import type {
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
 	IpcStatsFetchPayload,
+	IpcSubagentTranscriptReadPayload,
+	IpcSubagentTranscriptReadResult,
 	SshSessionTarget,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
-import type { RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
+import type { AgentMessage, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { mainT } from "./i18n";
@@ -75,7 +77,7 @@ import {
 	type WorkspaceDispatchDeps,
 	type WorkspaceTabIdentity,
 } from "./remote-ipc";
-import type { RemoteSshService } from "./remote-ssh";
+import { REMOTE_PATH_MAX_BYTES, type RemoteSshService } from "./remote-ssh";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
 import { resolveEditorCommand } from "./shell-env";
@@ -579,6 +581,118 @@ function workspaceDispatchContext(
 	return { tab, dispatch };
 }
 
+const SUBAGENT_TRANSCRIPT_MAX_BYTES = 25_000_000;
+
+function subagentTranscriptFailure(error: string): IpcSubagentTranscriptReadResult {
+	return { ok: false, error };
+}
+
+function isPersistedSubagentSessionPath(
+	sessionFile: string,
+	sessionsRoot: string,
+	pathApi: typeof path.posix,
+): boolean {
+	const root = pathApi.resolve(sessionsRoot);
+	const resolved = pathApi.resolve(sessionFile);
+	const relative = pathApi.relative(root, resolved);
+	if (!relative || relative === ".." || relative.startsWith(`..${pathApi.sep}`) || pathApi.isAbsolute(relative)) {
+		return false;
+	}
+	const segments = relative.split(pathApi.sep).filter(Boolean);
+	return segments.length >= 3 && pathApi.extname(resolved) === ".jsonl";
+}
+
+export function parsePersistedSubagentMessages(content: string): AgentMessage[] {
+	const messages: AgentMessage[] = [];
+	for (const line of content.split(/\r?\n/)) {
+		if (!line) continue;
+		try {
+			const entry = JSON.parse(line) as unknown;
+			if (
+				typeof entry !== "object" ||
+				entry === null ||
+				Array.isArray(entry) ||
+				!("type" in entry) ||
+				entry.type !== "message" ||
+				!("message" in entry) ||
+				typeof entry.message !== "object" ||
+				entry.message === null ||
+				Array.isArray(entry.message)
+			) {
+				continue;
+			}
+			messages.push(entry.message as AgentMessage);
+		} catch {
+			// Ignore a malformed or partially appended JSONL row.
+		}
+	}
+	return messages;
+}
+
+async function readPersistedSubagentTranscript(
+	deps: IpcDeps,
+	context: WorkspaceDispatchContext,
+	payload: unknown,
+): Promise<IpcSubagentTranscriptReadResult> {
+	if (
+		typeof payload !== "object" ||
+		payload === null ||
+		Array.isArray(payload) ||
+		!("sessionFile" in payload) ||
+		typeof payload.sessionFile !== "string" ||
+		payload.sessionFile.length === 0 ||
+		Buffer.byteLength(payload.sessionFile, "utf8") > REMOTE_PATH_MAX_BYTES
+	) {
+		return subagentTranscriptFailure("Invalid subagent session file");
+	}
+	const sessionFile = payload.sessionFile;
+	const target = context.tab.target;
+	if (target.type === "local") {
+		const sessionsRoot = path.join(os.homedir(), ".omp", "agent", "sessions");
+		if (!isPersistedSubagentSessionPath(sessionFile, sessionsRoot, path.posix)) {
+			return subagentTranscriptFailure("Subagent transcript is outside the local session store");
+		}
+		try {
+			const stat = await fsp.stat(sessionFile);
+			if (!stat.isFile()) return subagentTranscriptFailure("Subagent transcript is not a file");
+			if (stat.size > SUBAGENT_TRANSCRIPT_MAX_BYTES) {
+				return subagentTranscriptFailure("Subagent transcript exceeds the 25 MB limit");
+			}
+			return { ok: true, messages: parsePersistedSubagentMessages(await fsp.readFile(sessionFile, "utf8")) };
+		} catch (error) {
+			return subagentTranscriptFailure(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	try {
+		const resolution = await deps.remoteSsh.resolveRuntime(target);
+		if (!resolution.ok) return subagentTranscriptFailure(resolution.error);
+		const pathApi = resolution.runtime.platform === "windows" ? path.win32 : path.posix;
+		const sessionsRoot = pathApi.join(resolution.runtime.home, ".omp", "agent", "sessions");
+		if (!isPersistedSubagentSessionPath(sessionFile, sessionsRoot, pathApi)) {
+			return subagentTranscriptFailure("Subagent transcript is outside the remote session store");
+		}
+		const result = await deps.remoteSsh.readFile(
+			target,
+			sessionFile,
+			[sessionsRoot],
+			SUBAGENT_TRANSCRIPT_MAX_BYTES + 1,
+		);
+		if (!result.ok) return subagentTranscriptFailure(result.error);
+		if (result.truncated || result.size > SUBAGENT_TRANSCRIPT_MAX_BYTES) {
+			return subagentTranscriptFailure("Subagent transcript exceeds the 25 MB limit");
+		}
+		try {
+			const content = new TextDecoder("utf-8", { fatal: true }).decode(result.data);
+			return { ok: true, messages: parsePersistedSubagentMessages(content) };
+		} catch {
+			return subagentTranscriptFailure("Subagent transcript is not valid UTF-8");
+		}
+	} catch (error) {
+		return subagentTranscriptFailure(error instanceof Error ? error.message : String(error));
+	}
+}
+
 // Dedupe state for SYSTEM_NOTIFY across multiple windows (see the handler).
 let lastNotifyKey = "";
 let lastNotifyAt = 0;
@@ -1056,6 +1170,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		return win ? (deps.windowManager.consumePendingSession(win) ?? null) : null;
 	});
+
+	ipcMain.handle(
+		IPC_COMMANDS.SESSION_READ_SUBAGENT_TRANSCRIPT,
+		async (event, payload: IpcSubagentTranscriptReadPayload): Promise<IpcSubagentTranscriptReadResult> => {
+			const context = workspaceDispatchContext(deps, event, remoteWorkspaceTrust);
+			if (!context) return subagentTranscriptFailure("No active session tab");
+			return readPersistedSubagentTranscript(deps, context, payload);
+		},
+	);
 
 	// ========================================================================
 	// Session tabs — in-window parallel sessions. Each tab owns a pooled

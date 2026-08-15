@@ -13,6 +13,7 @@
 import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
+import { useAgentViewStore } from "../stores/agent-view";
 import { useComposerStore } from "../stores/composer";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useForkHandoffStore } from "../stores/fork-handoff";
@@ -65,11 +66,16 @@ export function resetSessionSurface(): void {
 	});
 }
 
+function selectMainForSessionReplacement(): void {
+	useAgentViewStore.getState().selectMain();
+}
+
 /** Start a new in-place session and remove the previous surface at the commit boundary. */
 export async function newSessionNow(): Promise<RpcResponse> {
 	const response = await window.omp.rpc.newSession();
 	if (!response.success) throw new Error(response.error);
 	if ((response.data as { cancelled?: boolean } | undefined)?.cancelled) return response;
+	selectMainForSessionReplacement();
 	resetSessionSurface();
 	await hydrateSession();
 	return response;
@@ -80,6 +86,7 @@ export async function dropSessionNow(): Promise<RpcResponse> {
 	const response = await window.omp.rpc.dropSession();
 	if (!response.success) throw new Error(response.error);
 	if ((response.data as { cancelled?: boolean } | undefined)?.cancelled) return response;
+	selectMainForSessionReplacement();
 	resetSessionSurface();
 	await hydrateSession();
 	return response;
@@ -167,6 +174,7 @@ export async function switchSessionNow(session: SessionInfo): Promise<boolean> {
 			toast({ variant: "info", message: translate("sidebar.openCancelled") });
 			return false;
 		}
+		selectMainForSessionReplacement();
 		// Keep the outgoing transcript painted until hydrate commits the next
 		// session. Events for the target sidecar are dropped while pending.
 		await hydrateSession(session.title || session.firstMessage);

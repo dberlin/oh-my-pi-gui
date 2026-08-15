@@ -22,18 +22,23 @@ import type {
 	RpcResponse,
 	SessionInfoUpdateFrame,
 	TodoPhase,
+	SubagentFrame,
+	SubagentSnapshot,
+	RpcSessionState,
 } from "../../shared/rpc-types";
-import { TurnStatusRow } from "../components/chat/ChatStream";
 import { I18nProvider } from "../lib/i18n";
 import { useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
-import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
-import { hydrateSession, useRpcEvents } from "./use-rpc-events";
+
+import type { IpcSidecarStatusPayload, IpcTabInfo, IpcTabStatusPayload } from "../../shared/ipc-types";
+import { TurnStatusRow } from "../components/chat/TranscriptViewport";
+import { useAgentViewStore } from "../stores/agent-view";
+import { useSubagentsStore } from "../stores/subagents";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -59,30 +64,65 @@ function success(data: unknown): RpcResponse {
 	return { type: "response", command: "test", success: true, data };
 }
 
+function sessionState(): RpcSessionState {
+	return {
+		model: null,
+		thinkingLevel: undefined,
+		isStreaming: false,
+		isCompacting: false,
+		steeringMode: "all",
+		followUpMode: "all",
+		interruptMode: "immediate",
+		sessionFile: null,
+		cwd: "/tmp",
+		sessionId: "s1",
+		sessionName: null,
+		fastModeEnabled: false,
+		fastModeActive: false,
+		tokensPerSecond: null,
+		autoCompactionEnabled: true,
+		autoRetryEnabled: true,
+		messageCount: 0,
+		queuedMessageCount: 0,
+		todoPhases: [],
+		systemPrompt: [],
+		dumpTools: [],
+		contextUsage: null,
+		planModeEnabled: false,
+		agentsPaused: false,
+	};
+}
 type BatchHandler = (events: AgentSessionEvent[]) => void;
 type CommandOutputHandler = (frame: CommandOutputFrame) => void;
 type PromptResultHandler = (frame: PromptResultFrame) => void;
+type SidecarStatusHandler = (payload: IpcSidecarStatusPayload) => void;
+type SubagentFrameHandler = (frame: SubagentFrame) => void;
+type TabStatusHandler = (payload: IpcTabStatusPayload) => void;
 type ModelCatalogUpdateHandler = (frame: ModelCatalogUpdateFrame) => void;
 
 interface MockOmp {
 	tabs: {
+		list: Mock<() => Promise<IpcTabInfo[]>>;
 		setActive: Mock<(tabId: string) => Promise<boolean>>;
 	};
 	rpc: {
 		getState: Mock<() => Promise<RpcResponse>>;
 		getMessages: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
+		getSubagentMessages: Mock<(subagentId?: string, sessionFile?: string, fromByte?: number) => Promise<RpcResponse>>;
 		getGoal: Mock<() => Promise<RpcResponse>>;
 		getLoopMode: Mock<() => Promise<RpcResponse>>;
 		getVibeMode: Mock<() => Promise<RpcResponse>>;
 		getQueue: Mock<() => Promise<RpcResponse>>;
 		getSettings: Mock<(keys: string[]) => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
+		switchSession: Mock<(sessionPath: string) => Promise<RpcResponse>>;
 	};
 	events: {
 		onBatch: Mock<(callback: BatchHandler) => () => void>;
-		onSidecarStatus: Mock<() => () => void>;
-		onSubagentFrame: Mock<() => () => void>;
+		onSidecarStatus: Mock<(callback: SidecarStatusHandler) => () => void>;
+		onSubagentFrame: Mock<(callback: SubagentFrameHandler) => () => void>;
+		onTabStatus: Mock<(callback: TabStatusHandler) => () => void>;
 		onModelCatalogUpdate: Mock<(callback: ModelCatalogUpdateHandler) => () => void>;
 		onConfigUpdate: Mock<() => () => void>;
 		onExtensionUi: Mock<() => () => void>;
@@ -105,18 +145,27 @@ function installMockOmp(): {
 	emitBatch: BatchHandler;
 	emitCommandOutput: CommandOutputHandler;
 	emitPromptResult: PromptResultHandler;
+	emitSidecarStatus: SidecarStatusHandler;
+	emitSubagentFrame: SubagentFrameHandler;
+	emitTabStatus: TabStatusHandler;
 	emitModelCatalogUpdate: ModelCatalogUpdateHandler;
 } {
 	let batchHandler: BatchHandler = () => {};
 	let commandOutputHandler: CommandOutputHandler = () => {};
 	let promptResultHandler: PromptResultHandler = () => {};
+	let sidecarStatusHandler: SidecarStatusHandler = () => {};
+	let subagentFrameHandler: SubagentFrameHandler = () => {};
+	let tabStatusHandler: TabStatusHandler = () => {};
 	let modelCatalogUpdateHandler: ModelCatalogUpdateHandler = () => {};
 	// Mirror the real server: get_state reports isStreaming=true mid-run, and
 	// agent_start triggers refreshSessionState — a static mock would overwrite
 	// the event-set flag with stale state and test a race production never has.
 	let mockStreaming = false;
 	const omp: MockOmp = {
-		tabs: { setActive: vi.fn(async () => true) },
+		tabs: {
+			list: vi.fn(async () => []),
+			setActive: vi.fn(async () => true),
+		},
 		rpc: {
 			getState: vi.fn(async () =>
 				success({
@@ -135,11 +184,13 @@ function installMockOmp(): {
 			),
 			getMessages: vi.fn(async () => success({ messages: [] })),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
+			getSubagentMessages: vi.fn(async () => success({ messages: [], nextByte: 0, hasMore: false })),
 			getGoal: vi.fn(async () => success({ enabled: false })),
 			getLoopMode: vi.fn(async () => success({ enabled: false, state: "off" })),
 			getVibeMode: vi.fn(async () => success({ enabled: false })),
 			getQueue: vi.fn(async () => success({ steering: [], followUp: [] })),
 			getSettings: vi.fn(async () => success({ values: {} })),
+			switchSession: vi.fn(async () => success({ cancelled: false })),
 			setSubagentSubscription: vi.fn(async () => success({})),
 		},
 		events: {
@@ -147,8 +198,18 @@ function installMockOmp(): {
 				batchHandler = callback;
 				return () => {};
 			}),
-			onSidecarStatus: vi.fn(() => () => {}),
-			onSubagentFrame: vi.fn(() => () => {}),
+			onSidecarStatus: vi.fn((callback: SidecarStatusHandler) => {
+				sidecarStatusHandler = callback;
+				return () => {};
+			}),
+			onSubagentFrame: vi.fn((callback: SubagentFrameHandler) => {
+				subagentFrameHandler = callback;
+				return () => {};
+			}),
+			onTabStatus: vi.fn((callback: TabStatusHandler) => {
+				tabStatusHandler = callback;
+				return () => {};
+			}),
 			onModelCatalogUpdate: vi.fn((callback: ModelCatalogUpdateHandler) => {
 				modelCatalogUpdateHandler = callback;
 				return () => {};
@@ -189,6 +250,9 @@ function installMockOmp(): {
 		omp,
 		emitBatch,
 		emitCommandOutput: frame => commandOutputHandler(frame),
+		emitSidecarStatus: payload => sidecarStatusHandler(payload),
+		emitSubagentFrame: frame => subagentFrameHandler(frame),
+		emitTabStatus: payload => tabStatusHandler(payload),
 		emitPromptResult: frame => promptResultHandler(frame),
 		emitModelCatalogUpdate: frame => modelCatalogUpdateHandler(frame),
 	};
@@ -215,14 +279,40 @@ async function mount(element: ReactElement): Promise<void> {
 	await flush();
 }
 
+function turnStatusRow(): ReactElement {
+	const { awaitingModelSince, compactionInfo, retryInfo } = useSessionStore.getState();
+	return (
+		<TurnStatusRow awaitingModelSince={awaitingModelSince} compactionInfo={compactionInfo} retryInfo={retryInfo} />
+	);
+}
 /** Renders the hook under test with no visible chrome of its own. */
 function RpcEventsProbe() {
 	useRpcEvents();
 	return null;
 }
 
+function RpcEventsAndTabsProbe() {
+	useSessionTabs();
+	useRpcEvents();
+	return null;
+}
 const assistantMessage: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 
+function subagentSnapshot(id = "agent-1"): SubagentSnapshot {
+	return {
+		id,
+		index: 1,
+		agent: "worker",
+		status: "running",
+		sessionFile: `/sessions/${id}.jsonl`,
+		lastUpdate: 1,
+		kind: "sub",
+	};
+}
+
+function textMessage(text: string, timestamp = 1): AgentMessage {
+	return { role: "user", content: [{ type: "text", text }], timestamp } as AgentMessage;
+}
 afterEach(async () => {
 	if (root) {
 		await act(async () => {
@@ -231,14 +321,1251 @@ afterEach(async () => {
 	}
 	container?.remove();
 	useSessionStore.getState().reset();
+	useAgentViewStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useModelStore.getState().reset();
 	useToolsStore.getState().reset();
+	useSubagentsStore.getState().reset();
 	useTodoStore.getState().reset();
 	useSettingsStore.getState().reset();
 	useTabsStore.getState().reset();
 });
 
+describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => {
+	it("uses the single roster subscription to forward matching live frames without mutating Main stores", async () => {
+		const { omp, emitSubagentFrame } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+		const selected = subagentSnapshot();
+		useSubagentsStore.getState().setSnapshots([selected]);
+		await useAgentViewStore.getState().selectSubagent(selected);
+		const mainMessage = textMessage("Main transcript", 10);
+		useMessagesStore.setState({ messages: [mainMessage] });
+		const mainTools = useToolsStore.getState();
+
+		await act(async () => {
+			emitSubagentFrame({
+				type: "subagent_lifecycle",
+				payload: {
+					id: selected.id,
+					index: selected.index,
+					agent: selected.agent,
+					agentSource: "bundled",
+					status: "completed",
+					sessionFile: selected.sessionFile,
+				},
+			});
+			emitSubagentFrame({
+				type: "subagent_event",
+				payload: { id: selected.id, event: { type: "message_end", message: textMessage("Agent transcript", 20) } },
+			});
+		});
+
+		expect(omp.events.onSubagentFrame).toHaveBeenCalledTimes(1);
+		expect(useSubagentsStore.getState().subagents.get(selected.id)?.status).toBe("completed");
+		expect(useAgentViewStore.getState().messages.messages).toEqual([textMessage("Agent transcript", 20)]);
+		expect(useMessagesStore.getState().messages).toEqual([mainMessage]);
+		expect(useToolsStore.getState().activeTools).toBe(mainTools.activeTools);
+	});
+
+	it("reasserts events before Main hydration, awaits the authoritative roster, then reloads the selected target once", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+		const selected = subagentSnapshot();
+		useSubagentsStore.getState().setSnapshots([selected]);
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		const subscription = Promise.withResolvers<RpcResponse>();
+		const roster = Promise.withResolvers<RpcResponse>();
+		const sequence: string[] = [];
+		omp.rpc.setSubagentSubscription.mockClear();
+		omp.rpc.getMessages.mockClear();
+		omp.rpc.getSubagents.mockClear();
+		omp.rpc.getSubagentMessages.mockClear();
+		omp.rpc.setSubagentSubscription.mockImplementation(() => {
+			sequence.push("subscribe");
+			return subscription.promise;
+		});
+		omp.rpc.getMessages.mockImplementation(async () => {
+			sequence.push("main");
+			return success({ messages: [] });
+		});
+		omp.rpc.getSubagents.mockImplementation(() => {
+			sequence.push("roster");
+			return roster.promise;
+		});
+
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/tmp" });
+		});
+		await flush();
+
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+		expect(sequence).toEqual(["subscribe", "main", "roster"]);
+		expect(omp.rpc.getSubagentMessages).not.toHaveBeenCalled();
+
+		roster.resolve(success({ subagents: [selected] }));
+		await flush();
+
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, selected.sessionFile, 0);
+		subscription.resolve(success({}));
+	});
+
+	it("coalesces concurrent full and light ready recovery into one subscription, roster fetch, and reload", async () => {
+		const { omp } = installMockOmp();
+		const selected = subagentSnapshot("coalesced-ready");
+		useSubagentsStore.getState().setSnapshots([selected]);
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		const roster = Promise.withResolvers<RpcResponse>();
+		omp.rpc.setSubagentSubscription.mockClear();
+		omp.rpc.getMessages.mockClear();
+		omp.rpc.getSubagents.mockClear();
+		omp.rpc.getSubagentMessages.mockClear();
+		omp.rpc.getSubagents.mockReturnValue(roster.promise);
+
+		const fullReady = recoverReadySession(null);
+		const lightReady = recoverReadySession(null);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+		roster.resolve(success({ subagents: [selected] }));
+		await Promise.all([fullReady, lightReady]);
+
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
+	});
+
+	it("starts a fresh recovery when starting interrupts an older ready recovery for the same tab", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+		const selected = subagentSnapshot("reconnected-generation");
+		useSubagentsStore.getState().setSnapshots([selected]);
+		await useAgentViewStore.getState().selectSubagent(selected);
+		const oldRoster = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getSubagents.mockClear();
+		omp.rpc.getSubagentMessages.mockClear();
+		omp.rpc.getSubagents.mockReturnValueOnce(oldRoster.promise).mockResolvedValue(success({ subagents: [selected] }));
+
+		const interrupted = recoverReadySession(null);
+		await act(async () => {
+			emitSidecarStatus({ status: "starting", cwd: "/tmp" });
+			emitSidecarStatus({ status: "ready", cwd: "/tmp" });
+		});
+		await flush();
+		await flush();
+
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(2);
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
+		oldRoster.resolve(success({ subagents: [] }));
+		await interrupted;
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+	});
+
+	it("cancels an older hydration as soon as the sidecar starts reconnecting", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+		const staleState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValue(staleState.promise);
+
+		const interrupted = recoverReadySession(null);
+		await act(async () => {
+			emitSidecarStatus({ status: "starting", cwd: "/tmp" });
+		});
+		staleState.resolve(
+			success({
+				sessionId: "stale-session",
+				sessionName: "Stale",
+				sessionFile: "/stale.jsonl",
+				cwd: "/stale",
+				isStreaming: false,
+				isCompacting: false,
+				contextUsage: null,
+				messageCount: 0,
+				queuedMessageCount: 0,
+				planModeEnabled: false,
+				todoPhases: [],
+			}),
+		);
+		await interrupted;
+
+		expect(useSessionStore.getState().sessionId).toBe("");
+		expect(useSessionStore.getState().cwd).toBe("/tmp");
+	});
+
+	it("switches a pending session before the joined full and light ready hydration", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/fresh" });
+		omp.tabs.list.mockResolvedValue([
+			{
+				tabId: "t0",
+				cwd: "/fresh",
+				target: { type: "local" },
+				status: "starting",
+				kind: "agent",
+			},
+		]);
+		await mount(<RpcEventsAndTabsProbe />);
+		const pendingOpen = Promise.withResolvers<unknown>();
+		const targetAgent = subagentSnapshot("target-agent");
+		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
+		omp.rpc.getState
+			.mockResolvedValueOnce(success({ ...sessionState(), sessionFile: "/fresh.jsonl" }))
+			.mockResolvedValue(
+				success({
+					...sessionState(),
+					sessionId: "target-session",
+					sessionName: "Target",
+					sessionFile: "/target.jsonl",
+					cwd: "/target",
+					messageCount: 1,
+				}),
+			);
+		omp.rpc.getMessages.mockResolvedValue(success({ messages: [textMessage("target transcript", 2)] }));
+		omp.rpc.getSubagents.mockResolvedValue(success({ subagents: [targetAgent] }));
+		omp.rpc.setSubagentSubscription.mockClear();
+
+		await act(async () => {
+			emitTabStatus({
+				kind: "agent",
+				tabId: "t0",
+				cwd: "/fresh",
+				target: { type: "local" },
+				status: "ready",
+			});
+			emitSidecarStatus({ status: "ready", cwd: "/fresh" });
+		});
+		await flush();
+		expect(omp.rpc.getState).not.toHaveBeenCalled();
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+
+		pendingOpen.resolve("/target.jsonl");
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/target.jsonl");
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(useSessionStore.getState().sessionId).toBe("target-session");
+		expect(useMessagesStore.getState().messages).toEqual([textMessage("target transcript", 2)]);
+		expect(useSubagentsStore.getState().subagents.has(targetAgent.id)).toBe(true);
+	});
+
+	it("parks a delayed pending open on its original tab and retries after switching back", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "starting", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		const pendingOpen = Promise.withResolvers<unknown>();
+		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
+
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		await useTabsStore.getState().switchTab("t1");
+		pendingOpen.resolve("/alpha-session.jsonl");
+		await flush();
+
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t0")?.pendingSessionPath).toBe(
+			"/alpha-session.jsonl",
+		);
+
+		omp.rpc.switchSession.mockClear();
+		const messagesBefore = omp.rpc.getMessages.mock.calls.length;
+		const subscriptionsBefore = omp.rpc.setSubagentSubscription.mock.calls.length;
+		await useTabsStore.getState().switchTab("t0");
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/alpha-session.jsonl");
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t0")?.pendingSessionPath).toBeUndefined();
+		expect(omp.rpc.getMessages.mock.calls.length).toBe(messagesBefore + 1);
+		expect(omp.rpc.setSubagentSubscription.mock.calls.length).toBe(subscriptionsBefore + 1);
+	});
+
+	it("parks pending open when tabs reconcile during the initial ready wait", async () => {
+		const { omp } = installMockOmp();
+		const tabs = Promise.withResolvers<IpcTabInfo[]>();
+		const pendingOpen = Promise.withResolvers<unknown>();
+		omp.tabs.list.mockReturnValue(tabs.promise);
+		omp.sidecar.getStatus.mockResolvedValue({ status: "ready", cwd: "/alpha" });
+		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
+		await mount(<RpcEventsAndTabsProbe />);
+
+		tabs.resolve([
+			{
+				tabId: "t0",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				kind: "agent",
+			},
+		]);
+		await flush();
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		const messagesBefore = omp.rpc.getMessages.mock.calls.length;
+		const subscriptionsBefore = omp.rpc.setSubagentSubscription.mock.calls.length;
+		pendingOpen.resolve("/boot-session.jsonl");
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/boot-session.jsonl");
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+		expect(omp.rpc.getMessages.mock.calls.length).toBe(messagesBefore + 1);
+		expect(omp.rpc.setSubagentSubscription.mock.calls.length).toBe(subscriptionsBefore + 1);
+	});
+
+	it("keeps the boot-selected pending-open owner across a later tab switch", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		const tabs = Promise.withResolvers<IpcTabInfo[]>();
+		const pendingOpen = Promise.withResolvers<unknown>();
+		omp.tabs.list.mockReturnValue(tabs.promise);
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
+		await mount(<RpcEventsAndTabsProbe />);
+
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		tabs.resolve([
+			{ tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", kind: "agent" },
+			{ tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "starting", kind: "agent" },
+		]);
+		await flush();
+		await useTabsStore.getState().switchTab("t1");
+		pendingOpen.resolve("/owned-at-boot.jsonl");
+		await flush();
+
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t0")?.pendingSessionPath).toBe(
+			"/owned-at-boot.jsonl",
+		);
+		omp.rpc.switchSession.mockClear();
+		await useTabsStore.getState().switchTab("t0");
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/owned-at-boot.jsonl");
+	});
+
+	it("joins a light pending-session switch before full ready recovery", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "starting",
+					unreadDone: false,
+					pendingSessionPath: "/joined.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		const switched = Promise.withResolvers<RpcResponse>();
+		omp.rpc.switchSession.mockReturnValue(switched.promise);
+		await act(async () => {
+			emitTabStatus({
+				kind: "agent",
+				tabId: "t0",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+			});
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		await flush();
+		switched.resolve(success({ cancelled: false }));
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+	});
+
+	it("joins a pending claim when a second light ready arrives before its reply", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+					pendingSessionPath: "/second-ready.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		const oldState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise);
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		oldState.resolve(success(sessionState()));
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not recover on running-to-ready but recovers once on starting-to-ready", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "running",
+					sessionId: "active-session",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		useSessionStore.setState({ sessionId: "active-session" });
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+		expect(omp.rpc.getMessages).not.toHaveBeenCalled();
+		await act(async () => {
+			emitTabStatus({
+				kind: "agent",
+				tabId: "t0",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				sessionId: "active-session",
+			});
+		});
+		await flush();
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+		expect(omp.rpc.getMessages).not.toHaveBeenCalled();
+		expect(omp.rpc.getSubagents).not.toHaveBeenCalled();
+
+		useTabsStore.setState(current => ({
+			tabs: current.tabs.map(tab => (tab.id === "t0" ? { ...tab, status: "starting" } : tab)),
+		}));
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+	});
+
+	it("recovers once when ready tab status replaces the active session identity", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					sessionId: "old-session",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		useSessionStore.setState({ sessionId: "old-session" });
+		await act(async () => {
+			emitTabStatus({
+				kind: "agent",
+				tabId: "t0",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				sessionId: "new-session",
+			});
+		});
+		await flush();
+
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+	});
+
+	it("joins light ready to a full recovery claimed before delayed health checks", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		const selected = subagentSnapshot("joined-reload");
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "starting",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		useSubagentsStore.getState().setSnapshots([selected]);
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		omp.rpc.getSubagents.mockResolvedValue(success({ subagents: [selected] }));
+		const pendingOpen = Promise.withResolvers<unknown>();
+		const health = Promise.withResolvers<RpcResponse>();
+		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
+		omp.rpc.getState.mockResolvedValueOnce(success(sessionState())).mockReturnValueOnce(health.promise);
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		pendingOpen.resolve(null);
+		await flush();
+		health.resolve(success(sessionState()));
+		await flush();
+
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
+	});
+
+	it("promotes a boot-time full prelude so reconciled light ready joins it", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		const tabs = Promise.withResolvers<IpcTabInfo[]>();
+		const pendingOpen = Promise.withResolvers<unknown>();
+		const health = Promise.withResolvers<RpcResponse>();
+		const selected = subagentSnapshot("boot-promoted-agent");
+		omp.tabs.list.mockReturnValue(tabs.promise);
+		omp.sidecar.getStatus.mockResolvedValue({ status: "ready", cwd: "/alpha" });
+		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
+		omp.rpc.getState.mockReturnValueOnce(health.promise);
+		omp.rpc.getSubagents.mockResolvedValue(success({ subagents: [selected] }));
+		await mount(<RpcEventsAndTabsProbe />);
+		tabs.resolve([{ tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "starting", kind: "agent" }]);
+		await flush();
+		useSubagentsStore.getState().setSnapshots([selected]);
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+		expect(omp.rpc.getMessages).not.toHaveBeenCalled();
+		pendingOpen.resolve("/boot-promoted.jsonl");
+		await flush();
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+		health.resolve(success(sessionState()));
+		await flush();
+		expect(omp.rpc.switchSession.mock.invocationCallOrder[0]).toBeLessThan(
+			omp.rpc.setSubagentSubscription.mock.invocationCallOrder[0] ?? 0,
+		);
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
+	});
+
+	it("waits for the reconciled boot owner when pending-open resolves first", async () => {
+		const { omp } = installMockOmp();
+		const tabs = Promise.withResolvers<IpcTabInfo[]>();
+		const pendingOpen = Promise.withResolvers<unknown>();
+		omp.tabs.list.mockReturnValue(tabs.promise);
+		omp.sidecar.getStatus.mockResolvedValue({ status: "ready", cwd: "/alpha" });
+		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
+		omp.rpc.getState
+			.mockResolvedValueOnce(success({ ...sessionState(), sessionFile: "/fresh.jsonl" }))
+			.mockResolvedValue(success({ ...sessionState(), sessionFile: "/pending-first.jsonl" }));
+		await mount(<RpcEventsAndTabsProbe />);
+		pendingOpen.resolve("/pending-first.jsonl");
+		await flush();
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+		tabs.resolve([{ tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", kind: "agent" }]);
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/pending-first.jsonl");
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("retains pending-first boot work across a starting generation before owner reconciliation", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		const tabs = Promise.withResolvers<IpcTabInfo[]>();
+		const pendingOpen = Promise.withResolvers<unknown>();
+		omp.tabs.list.mockReturnValue(tabs.promise);
+		omp.sidecar.getStatus.mockResolvedValue({ status: "ready", cwd: "/alpha" });
+		omp.sessions.consumePendingOpen.mockReturnValueOnce(pendingOpen.promise).mockResolvedValue(null);
+		omp.rpc.getState
+			.mockResolvedValueOnce(success({ ...sessionState(), sessionFile: "/fresh.jsonl" }))
+			.mockResolvedValue(success({ ...sessionState(), sessionFile: "/retained-boot.jsonl" }));
+		await mount(<RpcEventsAndTabsProbe />);
+		pendingOpen.resolve("/retained-boot.jsonl");
+		await flush();
+		await act(async () => {
+			emitSidecarStatus({ status: "starting", cwd: "/alpha" });
+		});
+		tabs.resolve([{ tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "starting", kind: "agent" }]);
+		await flush();
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		await flush();
+
+		expect(omp.sessions.consumePendingOpen).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/retained-boot.jsonl");
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+	});
+
+	it("hands a delayed boot pending read to replacement ready after invalidation", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		const tabs = Promise.withResolvers<IpcTabInfo[]>();
+		const pendingOpen = Promise.withResolvers<unknown>();
+		omp.tabs.list.mockReturnValue(tabs.promise);
+		omp.sidecar.getStatus.mockResolvedValue({ status: "ready", cwd: "/alpha" });
+		omp.sessions.consumePendingOpen.mockReturnValueOnce(pendingOpen.promise).mockResolvedValue(null);
+		omp.rpc.getState
+			.mockResolvedValueOnce(success({ ...sessionState(), sessionFile: "/fresh.jsonl" }))
+			.mockResolvedValue(success({ ...sessionState(), sessionFile: "/delayed-retained.jsonl" }));
+		await mount(<RpcEventsAndTabsProbe />);
+		await act(async () => {
+			emitSidecarStatus({ status: "starting", cwd: "/alpha" });
+		});
+		tabs.resolve([{ tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "starting", kind: "agent" }]);
+		await flush();
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		await flush();
+		expect(omp.sessions.consumePendingOpen).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+		pendingOpen.resolve("/delayed-retained.jsonl");
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/delayed-retained.jsonl");
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+	});
+
+	it("restores a boot pending path after a failed switch response and retries on light ready", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "starting",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		omp.sessions.consumePendingOpen.mockResolvedValue("/boot-failed.jsonl");
+		omp.rpc.switchSession
+			.mockResolvedValueOnce({ type: "response", command: "switch_session", success: false, error: "refused" })
+			.mockResolvedValue(success({ cancelled: false }));
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		await flush();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBe("/boot-failed.jsonl");
+		expect(useToastStore.getState().toasts.at(-1)?.message).toBe("refused");
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(2);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("restores a boot pending path after cancellation and retries on light ready", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "starting",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		omp.sessions.consumePendingOpen.mockResolvedValue("/boot-cancelled.jsonl");
+		omp.rpc.switchSession
+			.mockResolvedValueOnce(success({ cancelled: true }))
+			.mockResolvedValue(success({ cancelled: false }));
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		await flush();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBe("/boot-cancelled.jsonl");
+		expect(useToastStore.getState().toasts.at(-1)?.variant).toBe("info");
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(2);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("restores a boot pending path after switch rejection and retries on light ready", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "starting",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		omp.sessions.consumePendingOpen.mockResolvedValue("/boot-rejected.jsonl");
+		omp.rpc.switchSession
+			.mockRejectedValueOnce(new Error("switch unavailable"))
+			.mockResolvedValue(success({ cancelled: false }));
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		await flush();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBe("/boot-rejected.jsonl");
+		expect(useToastStore.getState().toasts.at(-1)?.message).toContain("switch unavailable");
+		expect(omp.rpc.setSubagentSubscription).not.toHaveBeenCalled();
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(2);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("restores a failed pending switch response and retries on the next real ready", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "starting",
+					unreadDone: false,
+					pendingSessionPath: "/failed-response.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		omp.rpc.switchSession
+			.mockResolvedValueOnce({ type: "response", command: "switch_session", success: false, error: "refused" })
+			.mockResolvedValue(success({ cancelled: false }));
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBe("/failed-response.jsonl");
+		expect(useToastStore.getState().toasts.at(-1)?.message).toBe("refused");
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(2);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("restores a cancelled pending switch response and retries on the next real ready", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "starting",
+					unreadDone: false,
+					pendingSessionPath: "/cancelled-response.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		omp.rpc.switchSession
+			.mockResolvedValueOnce(success({ cancelled: true }))
+			.mockResolvedValue(success({ cancelled: false }));
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBe("/cancelled-response.jsonl");
+		expect(useToastStore.getState().toasts.at(-1)?.variant).toBe("info");
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(2);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("hydrates the boot-selected tab when delayed pending-open resolves empty", async () => {
+		const { omp } = installMockOmp();
+		const tabs = Promise.withResolvers<IpcTabInfo[]>();
+		const pendingOpen = Promise.withResolvers<unknown>();
+		omp.tabs.list.mockReturnValue(tabs.promise);
+		omp.sidecar.getStatus.mockResolvedValue({ status: "ready", cwd: "/alpha" });
+		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
+		await mount(<RpcEventsAndTabsProbe />);
+		tabs.resolve([{ tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", kind: "agent" }]);
+		await flush();
+		pendingOpen.resolve(null);
+		await flush();
+
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
+	});
+
+	it("retries a stale pending consumer restored after an A-to-B-to-A route cycle", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+					pendingSessionPath: "/aba.jsonl",
+				},
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		const oldState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise);
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		await useTabsStore.getState().switchTab("t1");
+		await useTabsStore.getState().switchTab("t0");
+		omp.rpc.switchSession.mockClear();
+		oldState.resolve(success(sessionState()));
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/aba.jsonl");
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("rejects a pending consumer reply after the active sidecar starts restarting", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+					pendingSessionPath: "/restart.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		const oldState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise);
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+			emitSidecarStatus({ status: "starting", cwd: "/alpha" });
+		});
+		oldState.resolve(success(sessionState()));
+		await flush();
+
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBe("/restart.jsonl");
+	});
+
+	it("retries a restarted pending consumer when ready returns before its old reply", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+					pendingSessionPath: "/restart-ready.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		const oldState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise);
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+			emitSidecarStatus({ status: "starting", cwd: "/alpha" });
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		await flush();
+		oldState.resolve(success(sessionState()));
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/restart-ready.jsonl");
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("retries only after a session replacement invalidates the pending reply", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					sessionId: "old",
+					unreadDone: false,
+					pendingSessionPath: "/replacement.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		const oldState = Promise.withResolvers<RpcResponse>();
+		const newState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise).mockReturnValueOnce(newState.promise);
+		await act(async () => {
+			emitTabStatus({
+				kind: "agent",
+				tabId: "t0",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				sessionId: "old",
+			});
+		});
+		await flush();
+		await act(async () => {
+			emitTabStatus({
+				kind: "agent",
+				tabId: "t0",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				sessionId: "new",
+			});
+		});
+		oldState.resolve(success(sessionState()));
+		await flush();
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		newState.resolve(success(sessionState()));
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/replacement.jsonl");
+	});
+
+	it("restores and retries after pending getState rejects", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+					pendingSessionPath: "/get-state-retry.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		omp.rpc.getState.mockRejectedValueOnce(new Error("get_state unavailable"));
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBe("/get-state-retry.jsonl");
+		expect(useToastStore.getState().toasts.at(-1)?.message).toContain("get_state unavailable");
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/get-state-retry.jsonl");
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("restores and retries after pending switchSession rejects", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+					pendingSessionPath: "/switch-retry.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		omp.rpc.switchSession
+			.mockRejectedValueOnce(new Error("switch unavailable"))
+			.mockResolvedValue(success({ cancelled: false }));
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBe("/switch-retry.jsonl");
+		expect(useToastStore.getState().toasts.at(-1)?.message).toContain("switch unavailable");
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(2);
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("falls back to Main only after a successful reconnect roster omits the selected target", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+		const selected = subagentSnapshot("missing-after-reconnect");
+		useSubagentsStore.getState().setSnapshots([selected]);
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		omp.rpc.getSubagents.mockResolvedValue(success({ subagents: [] }));
+		omp.rpc.getSubagentMessages.mockClear();
+
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/tmp" });
+		});
+		await flush();
+		await flush();
+
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
+		expect(omp.rpc.getSubagentMessages).not.toHaveBeenCalled();
+	});
+
+	it("rehydrates a completed agent from the persisted task call when the live roster is empty", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		omp.rpc.getState.mockResolvedValue(success({ ...sessionState(), sessionFile: "/tmp/current.jsonl" }));
+		await mount(<RpcEventsProbe />);
+		const selected = subagentSnapshot("PackageNameScout");
+		useSubagentsStore.getState().setSnapshots([selected]);
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		omp.rpc.getMessages.mockResolvedValue(
+			success({
+				messages: [
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: "spawn-package-scout",
+								name: "task",
+								arguments: {
+									tasks: [
+										{
+											name: selected.id,
+											agent: "scout",
+											task: "Read package.json and report the package name.",
+										},
+									],
+								},
+							},
+						],
+						timestamp: 1,
+					},
+				],
+			}),
+		);
+		omp.rpc.getSubagents.mockResolvedValue(success({ subagents: [] }));
+		omp.rpc.getSubagentMessages.mockResolvedValue(success({ messages: [], hasMore: false }));
+		omp.rpc.getSubagentMessages.mockClear();
+
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/tmp" });
+		});
+		await flush();
+		await flush();
+
+		expect(useSubagentsStore.getState().subagents.get(selected.id)).toMatchObject({
+			id: selected.id,
+			agent: "scout",
+			task: "Read package.json and report the package name.",
+		});
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, "/tmp/current/PackageNameScout.jsonl", 0);
+	});
+
+	it("does not reload or fall back when reconnect roster reconciliation fails", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+		const selected = subagentSnapshot("roster-offline");
+		useSubagentsStore.getState().setSnapshots([selected]);
+		await useAgentViewStore.getState().selectSubagent(selected);
+		omp.rpc.getSubagentMessages.mockClear();
+		omp.rpc.getSubagents.mockResolvedValue({
+			type: "response",
+			command: "get_subagents",
+			success: false,
+			error: "roster offline",
+		});
+
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/tmp" });
+		});
+		await flush();
+		await flush();
+
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+		expect(omp.rpc.getSubagentMessages).not.toHaveBeenCalled();
+	});
+
+	it("keeps the selected target in error state when reconnect transcript reload fails", async () => {
+		const { omp, emitSidecarStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+		const selected = subagentSnapshot("reload-error");
+		useSubagentsStore.getState().setSnapshots([selected]);
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		omp.rpc.getSubagents.mockResolvedValue(success({ subagents: [selected] }));
+		omp.rpc.getSubagentMessages.mockResolvedValue({
+			type: "response",
+			command: "get_subagent_messages",
+			success: false,
+			error: "transcript offline",
+		});
+
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/tmp" });
+		});
+		await flush();
+		await flush();
+
+		expect(useAgentViewStore.getState()).toMatchObject({
+			target: { kind: "subagent", id: selected.id },
+			loadState: "error",
+			error: "transcript offline",
+		});
+	});
+});
 describe("useRpcEvents thinking selection sync", () => {
 	it("replaces a stale auto selector when an explicit level event omits configured", async () => {
 		const { emitBatch } = installMockOmp();
@@ -682,7 +2009,7 @@ describe("retryPending reset on tab switch", () => {
 describe("TurnStatusRow", () => {
 	it("renders the waiting label with elapsed seconds and the interrupt hint", async () => {
 		useSessionStore.setState({ awaitingModelSince: Date.now() - 5000 });
-		await mount(<TurnStatusRow />);
+		await mount(turnStatusRow());
 		expect(document.body.textContent).toContain("Waiting for model response");
 		expect(document.body.textContent).toContain("5s");
 		expect(document.body.textContent).toContain("(press Esc to interrupt)");
@@ -691,14 +2018,14 @@ describe("TurnStatusRow", () => {
 
 	it("escalates to the slow-response hint after 30s", async () => {
 		useSessionStore.setState({ awaitingModelSince: Date.now() - 35_000 });
-		await mount(<TurnStatusRow />);
+		await mount(turnStatusRow());
 		expect(document.body.textContent).toContain("35s");
 		expect(document.body.textContent).toContain("Slow response");
 	});
 
 	it("escalates to the stalled-connection hint after 90s, replacing the generic interrupt hint", async () => {
 		useSessionStore.setState({ awaitingModelSince: Date.now() - 95_000 });
-		await mount(<TurnStatusRow />);
+		await mount(turnStatusRow());
 		expect(document.body.textContent).toContain("95s");
 		// The stalled copy explains the ~5min watchdog + retry and names Esc
 		// itself, so the generic interrupt hint would be redundant noise.
@@ -716,7 +2043,7 @@ describe("TurnStatusRow", () => {
 				startedAt: Date.now(),
 			},
 		});
-		await mount(<TurnStatusRow />);
+		await mount(turnStatusRow());
 		expect(document.body.textContent).toContain("Retrying (2/5) in 9s…");
 		expect(document.body.textContent).toContain("stream stalled");
 	});
@@ -731,14 +2058,14 @@ describe("TurnStatusRow", () => {
 				startedAt: Date.now() - 10_000,
 			},
 		});
-		await mount(<TurnStatusRow />);
+		await mount(turnStatusRow());
 		expect(document.body.textContent).toContain("Retrying (2/5)…");
 		expect(document.body.textContent).not.toContain("in 9s");
 	});
 
 	it("renders the compaction loader with TUI reason/action text", async () => {
 		useSessionStore.setState({ compactionInfo: { reason: "overflow", action: "handoff" } });
-		await mount(<TurnStatusRow />);
+		await mount(turnStatusRow());
 		expect(document.body.textContent).toContain("Context overflow detected, Auto-handoff…");
 	});
 });

@@ -5,7 +5,7 @@
  * must replicate, independent of the render layer.
  */
 import { describe, expect, it } from "vitest";
-import type { AgentMessage, MessageContent } from "../../shared/rpc-types";
+import type { AgentMessage, MessageContent, ToolCallContent } from "../../shared/rpc-types";
 import { useToolsStore } from "../stores/tools";
 import { collapsibleReadTarget, groupReadRows, mergeReadGroupEntries } from "./read-group";
 
@@ -195,6 +195,30 @@ describe("groupReadRows", () => {
 		} finally {
 			useToolsStore.getState().reset();
 		}
+	});
+
+	it("uses caller-supplied occurrence keys when raw provider ids repeat", () => {
+		const firstCall = readCall("provider-read:0", "first.ts");
+		const secondCall = readCall("provider-read:0", "second.ts");
+		const occurrenceKeys = new WeakMap<ToolCallContent, string>([
+			[firstCall, "provider-read:0#1"],
+			[secondCall, "provider-read:0#2"],
+		]);
+		const resolveToolCall = (call: ToolCallContent) => ({
+			key: occurrenceKeys.get(call) ?? call.id,
+			entry: undefined,
+		});
+
+		const grouped = groupReadRows(
+			[
+				{ kind: "message" as const, message: assistant(firstCall) },
+				{ kind: "message" as const, message: assistant(secondCall) },
+			],
+			resolveToolCall,
+		);
+
+		if (grouped[0]?.kind !== "readGroup") throw new Error("expected one read group");
+		expect(grouped[0].entries.map(entry => entry.toolKey)).toEqual(["provider-read:0#1", "provider-read:0#2"]);
 	});
 });
 

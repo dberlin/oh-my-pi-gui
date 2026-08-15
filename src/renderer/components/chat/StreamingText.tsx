@@ -2,20 +2,17 @@ import { useMemo } from "react";
 import { STREAM_FORMAT_FLUSH_MS, useStreamingTextFrame } from "../../hooks/use-throttled-text";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { segmentStreamingMarkdown } from "../../lib/streaming-markdown";
-import { useMessagesStore } from "../../stores/messages";
 
 /**
- * Live tail of the assistant's in-flight reply. The store accumulates
- * text_delta events into `streamingText`. Presentation is aligned to browser
- * frames, then split into immutable Markdown blocks plus a cheap unfinished
- * tail. Completed blocks parse once; the live suffix receives a subtle reveal
- * instead of making the whole growing response re-parse and jump.
+ * Live tail of an assistant projection's in-flight reply. Presentation is
+ * aligned to browser frames, then split into immutable Markdown blocks plus a
+ * cheap unfinished tail. Completed blocks parse once; the live suffix receives
+ * a subtle reveal instead of making the whole growing response re-parse and jump.
  */
-export function StreamingText() {
-	const streamingText = useMessagesStore(s => s.streamingText);
-	const frame = useStreamingTextFrame(streamingText, STREAM_FORMAT_FLUSH_MS);
+export function StreamingText({ text }: { text: string }) {
+	const frame = useStreamingTextFrame(text, STREAM_FORMAT_FLUSH_MS);
 	const segments = useMemo(() => segmentStreamingMarkdown(frame.text), [frame.text]);
-	if (!streamingText) return null;
+	if (!text) return null;
 
 	const deltaOffset = Math.max(0, Math.min(segments.tail.length, frame.deltaStart - segments.tailStart));
 	const settledTail = segments.tail.slice(0, deltaOffset);

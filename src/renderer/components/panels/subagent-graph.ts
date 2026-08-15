@@ -10,8 +10,8 @@
  * registry (filled in as transcripts load) for nested ones.
  */
 
-import { create } from "zustand";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
+import { useSubagentsStore } from "../../stores/subagents";
 import type { BadgeVariant } from "../common";
 
 /**
@@ -92,31 +92,10 @@ export function extractTaskToolCallIds(messages: AgentMessage[]): string[] {
 	}
 	return ids;
 }
-
-interface SubagentGraphStore {
-	/** Maps a `task` tool call id to the id of the subagent whose transcript contains it. */
-	toolCallOwners: Map<string, string>;
-	registerToolCallOwners: (agentId: string, toolCallIds: string[]) => void;
-}
-
-export const useSubagentGraphStore = create<SubagentGraphStore>()((set, get) => ({
-	toolCallOwners: new Map(),
-	registerToolCallOwners: (agentId, toolCallIds) => {
-		const current = get().toolCallOwners;
-		let next: Map<string, string> | null = null;
-		for (const id of toolCallIds) {
-			if (current.get(id) === agentId) continue;
-			if (!next) next = new Map(current);
-			next.set(id, agentId);
-		}
-		if (next) set({ toolCallOwners: next });
-	},
-}));
-
-/** Register every `task` tool call found in a loaded transcript page as owned by that subagent. */
+/** Register every `task` tool call found in a selected transcript projection as owned by that subagent. */
 export function registerTranscriptToolCalls(agentId: string, messages: AgentMessage[]): void {
 	const ids = extractTaskToolCallIds(messages);
-	if (ids.length > 0) useSubagentGraphStore.getState().registerToolCallOwners(agentId, ids);
+	if (ids.length > 0) useSubagentsStore.getState().registerToolCallOwners(agentId, ids);
 }
 
 // ============================================================================

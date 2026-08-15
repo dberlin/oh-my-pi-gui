@@ -1,6 +1,14 @@
 import { create } from "zustand";
 import type { AgentMessage, AgentSessionEvent, MessagesPage } from "../../shared/rpc-types";
 
+export interface MessageProjection {
+	messages: AgentMessage[];
+	streamingMessage: AgentMessage | null;
+	streamingText: string;
+	streamingThinking: string;
+	deliveredKeys: Set<string>;
+}
+
 /**
  * Session-tab snapshot of the message stream: the zustand fields PLUS the
  * streaming fields and run-dedupe set. The accumulated strings are sufficient
@@ -120,13 +128,6 @@ export function sameIdentityPrefix(current: AgentMessage[], fetched: AgentMessag
 }
 
 /**
- * Keys of messages appended during the current agent run. turn_end re-sends
- * the turn's assistant message (already appended via message_end), and batch
- * boundaries make a batch-local guard insufficient — dedupe run-wide.
- */
-let deliveredThisRun = new Set<string>();
-
-/**
  * Merge run-scoped agent_end messages onto the transcript. Messages streamed
  * live via message_end (or hydrated mid-run) already form a suffix of the
  * current list, so find the longest delivery-identity prefix of `run` matching
@@ -156,133 +157,217 @@ function mergeRunMessages(current: AgentMessage[], run: AgentMessage[]): AgentMe
 	return [...current, ...run.slice(overlap)];
 }
 
+export function createMessageProjection(): MessageProjection {
+	return {
+		messages: [],
+		streamingMessage: null,
+		streamingText: "",
+		streamingThinking: "",
+		deliveredKeys: new Set(),
+	};
+}
+
+export function hydrateMessageProjection(projection: MessageProjection, messages: AgentMessage[]): MessageProjection {
+	if (messages === projection.messages) return projection;
+	return { ...projection, messages };
+}
+
+export function applyMessageProjectionEvents(
+	projection: MessageProjection,
+	events: AgentSessionEvent[],
+): MessageProjection {
+	let deliveredKeys = projection.deliveredKeys;
+	let deliveredKeysCopied = false;
+	let textAccum = "";
+	let thinkAccum = "";
+	const newMessages: AgentMessage[] = [];
+	let runMessages: AgentMessage[] | null = null;
+	let streamingStart: AgentMessage | null = null;
+	let streamingEnd = false;
+
+	for (const event of events) {
+		switch (event.type) {
+			case "agent_start": {
+				deliveredKeys = new Set();
+				deliveredKeysCopied = true;
+				break;
+			}
+			case "message_start": {
+				streamingStart = event.message;
+				textAccum = "";
+				thinkAccum = "";
+				break;
+			}
+			case "message_update": {
+				const { assistantMessageEvent } = event;
+				if (assistantMessageEvent.type === "text_delta") {
+					textAccum += assistantMessageEvent.delta;
+				} else if (assistantMessageEvent.type === "thinking_delta") {
+					thinkAccum += assistantMessageEvent.delta;
+				}
+				break;
+			}
+			case "message_end": {
+				newMessages.push(event.message);
+				if (!deliveredKeysCopied) {
+					deliveredKeys = new Set(deliveredKeys);
+					deliveredKeysCopied = true;
+				}
+				deliveredKeys.add(messageIdentityKey(event.message));
+				streamingEnd = true;
+				break;
+			}
+			case "agent_end": {
+				// Wire sends run-scoped newMessages, NOT the full transcript —
+				// append-merge onto history, never replace.
+				if (event.messages) {
+					runMessages = event.messages;
+				}
+				break;
+			}
+			case "turn_end": {
+				// turn_end re-delivers the turn's assistant message; append only
+				// when this run has not already delivered it via message_end.
+				if (event.message) {
+					const key = messageIdentityKey(event.message);
+					if (!deliveredKeys.has(key)) {
+						newMessages.push(event.message);
+						if (!deliveredKeysCopied) {
+							deliveredKeys = new Set(deliveredKeys);
+							deliveredKeysCopied = true;
+						}
+						deliveredKeys.add(key);
+					}
+				}
+				break;
+			}
+			default:
+				break;
+		}
+	}
+
+	let streamingMessage = projection.streamingMessage;
+	let streamingText = projection.streamingText;
+	let streamingThinking = projection.streamingThinking;
+	if (streamingStart) {
+		streamingMessage = streamingStart;
+		streamingText = "";
+		streamingThinking = "";
+	}
+	if (textAccum) {
+		streamingText = `${streamingStart ? "" : projection.streamingText}${textAccum}`;
+	}
+	if (thinkAccum) {
+		streamingThinking = `${streamingStart ? "" : projection.streamingThinking}${thinkAccum}`;
+	}
+
+	let messages = projection.messages;
+	if (newMessages.length > 0) {
+		messages = [...messages, ...newMessages];
+	}
+	if (runMessages) {
+		messages = mergeRunMessages(messages, runMessages);
+	}
+
+	if (streamingEnd || runMessages) {
+		streamingMessage = null;
+		streamingText = "";
+		streamingThinking = "";
+	}
+
+	return {
+		messages,
+		streamingMessage,
+		streamingText,
+		streamingThinking,
+		deliveredKeys,
+	};
+}
+
+let storeProjection = createMessageProjection();
+
+function synchronizeStoreProjection(state: MessagesStore): MessageProjection {
+	return {
+		messages: state.messages,
+		streamingMessage: state.streamingMessage,
+		streamingText: state.streamingText,
+		streamingThinking: state.streamingThinking,
+		deliveredKeys: storeProjection.deliveredKeys,
+	};
+}
+
 export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 	...initialState,
 	applyEvents: events => {
-		let textAccum = "";
-		let thinkAccum = "";
-		const newMessages: AgentMessage[] = [];
-		let runMessages: AgentMessage[] | null = null;
-		let streamingStart: AgentMessage | null = null;
-		let streamingEnd = false;
-
-		for (const event of events) {
-			switch (event.type) {
-				case "agent_start": {
-					deliveredThisRun = new Set();
-					break;
-				}
-				case "message_start": {
-					streamingStart = event.message;
-					textAccum = "";
-					thinkAccum = "";
-					break;
-				}
-				case "message_update": {
-					const { assistantMessageEvent } = event;
-					if (assistantMessageEvent.type === "text_delta") {
-						textAccum += assistantMessageEvent.delta;
-					} else if (assistantMessageEvent.type === "thinking_delta") {
-						thinkAccum += assistantMessageEvent.delta;
-					}
-					break;
-				}
-				case "message_end": {
-					newMessages.push(event.message);
-					deliveredThisRun.add(messageIdentityKey(event.message));
-					streamingEnd = true;
-					break;
-				}
-				case "agent_end": {
-					// Wire sends run-scoped newMessages, NOT the full transcript —
-					// append-merge onto history, never replace.
-					if (event.messages) {
-						runMessages = event.messages;
-					}
-					break;
-				}
-				case "turn_end": {
-					// turn_end re-delivers the turn's assistant message; append only
-					// when this run has not already delivered it via message_end.
-					if (event.message) {
-						const key = messageIdentityKey(event.message);
-						if (!deliveredThisRun.has(key)) {
-							newMessages.push(event.message);
-							deliveredThisRun.add(key);
-						}
-					}
-					break;
-				}
-				default:
-					break;
-			}
-		}
+		const state = get();
+		const projection = synchronizeStoreProjection(state);
+		const nextProjection = applyMessageProjectionEvents(projection, events);
+		storeProjection = nextProjection;
 
 		// Single set() call per batch — one React re-render
-		const state = get();
 		const patch: Partial<MessagesStore> = {};
-
-		if (streamingStart) {
-			patch.streamingMessage = streamingStart;
-			patch.streamingText = "";
-			patch.streamingThinking = "";
+		if (nextProjection.streamingMessage !== state.streamingMessage) {
+			patch.streamingMessage = nextProjection.streamingMessage;
 		}
-		if (textAccum) {
-			patch.streamingText = `${streamingStart ? "" : state.streamingText}${textAccum}`;
+		if (nextProjection.streamingText !== state.streamingText) {
+			patch.streamingText = nextProjection.streamingText;
 		}
-		if (thinkAccum) {
-			patch.streamingThinking = `${streamingStart ? "" : state.streamingThinking}${thinkAccum}`;
+		if (nextProjection.streamingThinking !== state.streamingThinking) {
+			patch.streamingThinking = nextProjection.streamingThinking;
 		}
-
-		let messages = state.messages;
-		if (newMessages.length > 0) {
-			messages = [...messages, ...newMessages];
-		}
-		if (runMessages) {
-			messages = mergeRunMessages(messages, runMessages);
-		}
-		if (messages !== state.messages) {
-			patch.messages = messages;
-			patch.totalMessages = state.totalMessages + (messages.length - state.messages.length);
-			// Both paths above are append-only, so everything beyond the prior
-			// length is new (message_end/turn_end/agent_end deliveries).
-			const appended = messages.slice(state.messages.length);
+		if (nextProjection.messages !== state.messages) {
+			patch.messages = nextProjection.messages;
+			patch.totalMessages = state.totalMessages + (nextProjection.messages.length - state.messages.length);
+			// Projection event delivery is append-only, so everything beyond
+			// the prior length is genuinely new.
+			const appended = nextProjection.messages.slice(state.messages.length);
 			if (appended.length > 0) patch.lastAppended = appended;
-		}
-
-		if (streamingEnd || runMessages) {
-			patch.streamingMessage = null;
-			patch.streamingText = "";
-			patch.streamingThinking = "";
 		}
 
 		if (Object.keys(patch).length > 0) {
 			set(patch);
 		}
 	},
-	loadPage: page =>
+	loadPage: page => {
+		storeProjection = hydrateMessageProjection(synchronizeStoreProjection(get()), page.messages);
 		set({
 			messages: page.messages,
 			lastAppended: [],
 			totalMessages: page.totalMessages,
 			nextCursor: page.nextCursor,
 			isLoadingPage: false,
-		}),
+		});
+	},
 	appendMessage: message =>
-		set(s => ({ messages: [...s.messages, message], lastAppended: [message], totalMessages: s.totalMessages + 1 })),
+		set(state => {
+			const messages = [...state.messages, message];
+			storeProjection = hydrateMessageProjection(synchronizeStoreProjection(state), messages);
+			return { messages, lastAppended: [message], totalMessages: state.totalMessages + 1 };
+		}),
 	/** Drop a locally appended placeholder (e.g. the composer's running-eval bubble) by identity. */
 	removeMessage: message =>
-		set(s => {
-			const messages = s.messages.filter(entry => entry !== message);
-			const removed = s.messages.length - messages.length;
-			if (removed === 0) return s;
-			return { messages, totalMessages: Math.max(0, s.totalMessages - removed) };
+		set(state => {
+			const messages = state.messages.filter(entry => entry !== message);
+			const removed = state.messages.length - messages.length;
+			storeProjection = hydrateMessageProjection(synchronizeStoreProjection(state), messages);
+			if (removed === 0) return state;
+			return { messages, totalMessages: Math.max(0, state.totalMessages - removed) };
 		}),
 	clearStreaming: () => {
+		const projection = synchronizeStoreProjection(get());
+		storeProjection = {
+			...projection,
+			streamingMessage: null,
+			streamingText: "",
+			streamingThinking: "",
+		};
 		set({ streamingMessage: null, streamingText: "", streamingThinking: "" });
 	},
 	reconcileFetched: fetched => {
-		const current = get().messages;
+		const state = get();
+		const current = state.messages;
+		storeProjection = synchronizeStoreProjection(state);
+		let messages = fetched;
 		if (sameIdentityPrefix(current, fetched)) {
 			if (fetched.length === current.length) {
 				let changed = false;
@@ -293,18 +378,17 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 					return incoming;
 				});
 				if (!changed) return;
-				set({ messages: next, totalMessages: next.length });
-				return;
-			}
-			if (fetched.length > current.length) {
-				set({ messages: [...current, ...fetched.slice(current.length)], totalMessages: fetched.length });
-				return;
+				messages = next;
+			} else if (fetched.length > current.length) {
+				messages = [...current, ...fetched.slice(current.length)];
 			}
 		}
-		set({ messages: fetched, totalMessages: fetched.length });
+		storeProjection = hydrateMessageProjection(storeProjection, messages);
+		set({ messages, totalMessages: messages.length });
 	},
 	snapshot: () => {
 		const state = get();
+		storeProjection = synchronizeStoreProjection(state);
 		return {
 			messages: state.messages,
 			lastAppended: state.lastAppended,
@@ -314,7 +398,7 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 			totalMessages: state.totalMessages,
 			nextCursor: state.nextCursor,
 			isLoadingPage: state.isLoadingPage,
-			deliveredKeys: [...deliveredThisRun],
+			deliveredKeys: [...storeProjection.deliveredKeys],
 		};
 	},
 	restoreSnapshot: snapshot => {
@@ -322,7 +406,13 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 			get().reset();
 			return;
 		}
-		deliveredThisRun = new Set(snapshot.deliveredKeys);
+		storeProjection = {
+			messages: snapshot.messages,
+			streamingMessage: snapshot.streamingMessage,
+			streamingText: snapshot.streamingText,
+			streamingThinking: snapshot.streamingThinking,
+			deliveredKeys: new Set(snapshot.deliveredKeys),
+		};
 		set({
 			messages: snapshot.messages,
 			lastAppended: snapshot.lastAppended,
@@ -335,7 +425,7 @@ export const useMessagesStore = create<MessagesStore>()((set, get) => ({
 		});
 	},
 	reset: () => {
-		deliveredThisRun = new Set();
+		storeProjection = createMessageProjection();
 		set(initialState);
 	},
 }));

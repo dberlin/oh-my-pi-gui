@@ -6,10 +6,15 @@
 
 import type { AgentMessage, MessageContent, RpcQueuedMessage } from "../../../shared/rpc-types";
 import { isRenderableMessageText, messageText } from "../../lib/messages";
-import type { ReadGroupEntry, ReadGroupUsage } from "../../lib/read-group";
+import {
+	type ReadGroupEntry,
+	type ReadGroupUsage,
+	type ResolveToolCall,
+	resolveMainToolCall,
+} from "../../lib/read-group";
 import type { QueueLane } from "../../stores/queue";
 import type { TodoSnapshot } from "../../stores/todo";
-import { type ToolEntry, toolEntryKey } from "../../stores/tools";
+import type { ToolEntry } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
 
 interface ProcessMeta {
@@ -57,24 +62,24 @@ export type Row =
 	| { kind: "pending" }
 	| { kind: "expander"; count: number }
 	| { kind: "queued"; item: RpcQueuedMessage; lane: QueueLane };
-function messageKey(message: AgentMessage): string {
+function messageKey(message: AgentMessage, resolveToolCall: ResolveToolCall): string {
 	if (typeof message.id === "string" && message.id.length > 0) return message.id;
 	const firstTool = messageContent(message).find(block => block.type === "toolCall");
-	if (firstTool?.type === "toolCall") return toolEntryKey(firstTool);
+	if (firstTool?.type === "toolCall") return resolveToolCall(firstTool).key;
 	return `${message.role}-${String(message.timestamp ?? "untimed")}`;
 }
 
-function transcriptRowBaseKey(row: Row): string {
+function transcriptRowBaseKey(row: Row, resolveToolCall: ResolveToolCall): string {
 	switch (row.kind) {
 		case "queued":
 			return `queued-${row.item.id}`;
 		case "message":
-			return `message-${messageKey(row.message)}`;
+			return `message-${messageKey(row.message, resolveToolCall)}`;
 		case "process":
 			// Compact mode may replace one live assistant row with a process row,
 			// or split it into process + answer rows. Key the first finalized row
 			// by the same assistant identity so the viewport anchor survives both.
-			return `message-${messageKey(row.messages[0]!)}`;
+			return `message-${messageKey(row.messages[0]!, resolveToolCall)}`;
 		case "readGroup":
 			return `read-${row.entries.map(entry => entry.toolKey).join("-")}`;
 		case "todoSnapshot":
@@ -84,7 +89,7 @@ function transcriptRowBaseKey(row: Row): string {
 			// Reusing it prevents the virtualizer from replacing one huge measured
 			// streaming row with a fresh 72px estimate, briefly clamping scrollTop
 			// to the end before the finalized row is measured.
-			return `message-${messageKey(row.message)}`;
+			return `message-${messageKey(row.message, resolveToolCall)}`;
 		case "pending":
 			return row.kind;
 		case "expander":
@@ -92,10 +97,13 @@ function transcriptRowBaseKey(row: Row): string {
 	}
 }
 
-export function buildTranscriptRowKeys(rows: readonly Row[]): string[] {
+export function buildTranscriptRowKeys(
+	rows: readonly Row[],
+	resolveToolCall: ResolveToolCall = resolveMainToolCall,
+): string[] {
 	const occurrences = new Map<string, number>();
 	return rows.map(row => {
-		const base = transcriptRowBaseKey(row);
+		const base = transcriptRowBaseKey(row, resolveToolCall);
 		const occurrence = occurrences.get(base) ?? 0;
 		occurrences.set(base, occurrence + 1);
 		return occurrence === 0 ? base : `${base}-${occurrence}`;
@@ -142,8 +150,11 @@ export function findConversationAnchorIndex(anchors: readonly ConversationAnchor
 }
 
 /** Stable finalized-row identities used by the virtualizer and regression tests. */
-export function buildHistoryRowKeys(rows: readonly HistoryRow[]): string[] {
-	return buildTranscriptRowKeys(rows);
+export function buildHistoryRowKeys(
+	rows: readonly HistoryRow[],
+	resolveToolCall: ResolveToolCall = resolveMainToolCall,
+): string[] {
+	return buildTranscriptRowKeys(rows, resolveToolCall);
 }
 
 function messageContent(message: AgentMessage): MessageContent[] {
@@ -152,10 +163,10 @@ function messageContent(message: AgentMessage): MessageContent[] {
 	return [];
 }
 
-function messageToolIds(message: AgentMessage): string[] {
+function messageToolIds(message: AgentMessage, resolveToolCall: ResolveToolCall): string[] {
 	return messageContent(message)
 		.filter(block => block.type === "toolCall")
-		.map(block => toolEntryKey(block));
+		.map(block => resolveToolCall(block).key);
 }
 
 /** A real narration/reasoning block starts a new visual execution phase. */
@@ -233,7 +244,7 @@ export function hasStreamingTranscriptContent(
 	return false;
 }
 
-function summarizeProcess(messages: AgentMessage[]): ProcessMeta {
+function summarizeProcess(messages: AgentMessage[], resolveToolCall: ResolveToolCall): ProcessMeta {
 	let thinkingCount = 0;
 	const toolCallIds: string[] = [];
 	const toolNames: string[] = [];
@@ -241,7 +252,7 @@ function summarizeProcess(messages: AgentMessage[]): ProcessMeta {
 		for (const block of messageContent(message)) {
 			if (block.type === "thinking" && isRenderableMessageText(block.thinking)) thinkingCount++;
 			if (block.type !== "toolCall") continue;
-			toolCallIds.push(toolEntryKey(block));
+			toolCallIds.push(resolveToolCall(block).key);
 			toolNames.push(block.name);
 		}
 	}
@@ -254,12 +265,16 @@ function summarizeProcess(messages: AgentMessage[]): ProcessMeta {
  * A final assistant message containing both thinking and text is split: only
  * the thinking fragment joins the process row.
  */
-export function buildHistoryRows(messages: AgentMessage[], detail: TranscriptDetail): HistoryRow[] {
+export function buildHistoryRows(
+	messages: AgentMessage[],
+	detail: TranscriptDetail,
+	resolveToolCall: ResolveToolCall = resolveMainToolCall,
+): HistoryRow[] {
 	const rows: HistoryRow[] = [];
 	let processMessages: AgentMessage[] = [];
 	const flushProcess = () => {
 		if (processMessages.length === 0) return;
-		rows.push({ kind: "process", messages: processMessages, ...summarizeProcess(processMessages) });
+		rows.push({ kind: "process", messages: processMessages, ...summarizeProcess(processMessages, resolveToolCall) });
 		processMessages = [];
 	};
 
@@ -351,7 +366,10 @@ export function mergeTodoSnapshots(rows: readonly HistoryRow[], snapshots: reado
  * phase's first marker and timestamp. Tool state is aggregated so a later
  * running/error call still updates that one marker.
  */
-export function buildTimelineMarkers(rows: readonly HistoryRow[]): Array<TimelineMarkerSeed | null> {
+export function buildTimelineMarkers(
+	rows: readonly HistoryRow[],
+	resolveToolCall: ResolveToolCall = resolveMainToolCall,
+): Array<TimelineMarkerSeed | null> {
 	const markers: Array<TimelineMarkerSeed | null> = rows.map(() => null);
 	let phaseOwner: number | null = null;
 
@@ -364,7 +382,7 @@ export function buildTimelineMarkers(rows: readonly HistoryRow[]): Array<Timelin
 			markers[index] = {
 				state: row.message.errorMessage ? "error" : "launch",
 				timestamp: row.message.timestamp,
-				toolIds: messageToolIds(row.message),
+				toolIds: messageToolIds(row.message, resolveToolCall),
 			};
 			continue;
 		}
@@ -381,7 +399,7 @@ export function buildTimelineMarkers(rows: readonly HistoryRow[]): Array<Timelin
 			toolIds = row.entries.map(entry => entry.toolKey);
 		} else if (row.kind === "message") {
 			timestamp = row.message.timestamp;
-			toolIds = messageToolIds(row.message);
+			toolIds = messageToolIds(row.message, resolveToolCall);
 			startsPhase = hasProcessNarration(row.message);
 		}
 

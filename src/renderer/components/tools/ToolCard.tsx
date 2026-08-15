@@ -32,16 +32,23 @@ export type RunningIndicator = "spinner" | "dot";
  * expand/collapse. The body comes from the tool registry; the tool_result
  * arrives via the tools store keyed by toolCallId.
  */
-export function ToolCard({
-	toolCallId,
-	toolName,
+export function ToolCard({ entry, ...props }: ToolCardProps) {
+	if (entry !== undefined) return <ToolCardContent {...props} entry={entry ?? undefined} />;
+	return <MainToolCard {...props} />;
+}
+
+function MainToolCard(props: Omit<ToolCardProps, "entry">) {
+	const entry = useToolsStore(state => state.activeTools.get(props.toolCallId));
+	return <ToolCardContent {...props} entry={entry} />;
+}
+
+function ToolCardContent({
 	args,
-	summary,
+	entry,
 	runningIndicator = "spinner",
-	entry: providedEntry,
-}: ToolCardProps) {
-	const storeEntry = useToolsStore(s => s.activeTools.get(toolCallId));
-	const entry = providedEntry === undefined ? storeEntry : (providedEntry ?? undefined);
+	summary,
+	toolName,
+}: Omit<ToolCardProps, "entry"> & { entry: ToolEntry | undefined }) {
 	const expandAll = useUiStore(s => s.toolsExpandAll);
 	const [expanded, setExpanded] = useState(expandAll.expanded);
 

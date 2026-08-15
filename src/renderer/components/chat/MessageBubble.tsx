@@ -1,15 +1,16 @@
 import { Archive, Check, Copy, FileText, GitBranch, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
-import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
+import type { AgentMessage, ImageContent, MessageContent } from "../../../shared/rpc-types";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { copyText, cx, formatClock, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { branchSessionFromEntry, isRenderableMessageText } from "../../lib/messages";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
+import type { ResolveToolCall } from "../../lib/read-group";
 import { toast } from "../../stores/toast";
-import { type ToolEntry, toolEntryKey } from "../../stores/tools";
+import { toolEntryKey } from "../../stores/tools";
 import { editArgumentSummary } from "../tools/edit-args";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
@@ -24,8 +25,8 @@ export interface MessageBubbleProps {
 	runningIndicator?: RunningIndicator;
 	/** Secondary transcripts keep copy/expand interactions but cannot mutate the active session. */
 	readOnly?: boolean;
-	/** Resolves tool results from a transcript-local projection instead of the active session store. */
-	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
+	/** Resolves occurrence keys and results from a transcript-local projection. */
+	resolveToolCall?: ResolveToolCall;
 }
 
 function messageEntryId(message: AgentMessage): string | undefined {
@@ -89,29 +90,6 @@ function InlineImage({ image }: { image: ImageContent }) {
 			src={src}
 			alt={t("chat.attachedImage")}
 			className="my-1 max-h-48 max-w-64 rounded-md border border-[var(--omp-border-muted)] object-contain"
-		/>
-	);
-}
-
-/** ToolCard defaults to the active session store; secondary transcripts inject an isolated result. */
-function ToolCardWithResult({
-	call,
-	runningIndicator,
-	resolveToolEntry,
-}: {
-	call: ToolCallContent;
-	runningIndicator: RunningIndicator;
-	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
-}) {
-	const isolated = resolveToolEntry !== undefined;
-	return (
-		<ToolCard
-			args={call.arguments}
-			entry={isolated ? (resolveToolEntry(call) ?? null) : undefined}
-			summary={toolSummary(call.name, call.arguments)}
-			toolCallId={isolated ? call.id : toolEntryKey(call)}
-			toolName={call.name}
-			runningIndicator={runningIndicator}
 		/>
 	);
 }
@@ -271,7 +249,7 @@ export const MessageBubble = memo(function MessageBubble({
 	compact = false,
 	runningIndicator = "spinner",
 	readOnly = false,
-	resolveToolEntry,
+	resolveToolCall,
 }: MessageBubbleProps) {
 	const t = useT();
 	const [copied, setCopied] = useState(false);
@@ -411,11 +389,16 @@ export const MessageBubble = memo(function MessageBubble({
 				break;
 			}
 			case "toolCall": {
+				const resolved = resolveToolCall?.(block);
+				const key = resolved?.key ?? toolEntryKey(block);
 				blocks.push(
-					<ToolCardWithResult
-						call={block}
-						key={resolveToolEntry ? blocks.length : toolEntryKey(block)}
-						resolveToolEntry={resolveToolEntry}
+					<ToolCard
+						args={block.arguments}
+						entry={resolveToolCall ? (resolved?.entry ?? null) : undefined}
+						key={key}
+						summary={toolSummary(block.name, block.arguments)}
+						toolCallId={key}
+						toolName={block.name}
 						runningIndicator={runningIndicator}
 					/>,
 				);

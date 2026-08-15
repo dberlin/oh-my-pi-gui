@@ -1,9 +1,9 @@
 /**
- * Agents dock card: the live subagent roster rendered in the center dock
- * above the composer (previously the workspace drawer's agents tab). Live
- * tree of subagent nodes with status badges, elapsed time, progress line,
- * and lazily loaded transcripts (byte pagination). A List/Graph toggle in
- * the card header switches the compact spawn tree for the graphical DAG.
+ * Agents dock card: the live agent roster rendered in the center dock above
+ * the composer. The list is a navigation surface for the shared transcript
+ * canvas; its synthetic Main root and subagent rows keep selection separate
+ * from activation. A List/Graph toggle switches the compact spawn tree for
+ * the graphical DAG.
  *
  * Owns stream-time polling of get_subagents (moved from the ActivityStrip
  * agents chip): lifecycle/progress frames keep the store fresh while agents
@@ -12,104 +12,202 @@
  * until the next session hydration.
  */
 
-import { Bot, ChevronRight, List, Network } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { Bot, List, Network, RefreshCw, Square } from "lucide-react";
+import { type FocusEvent, type KeyboardEvent, memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { cx, formatCost, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { type AgentViewTarget, useAgentViewStore } from "../../../stores/agent-view";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
+import { toast } from "../../../stores/toast";
 import { Badge } from "../../common";
-import { SubagentDag } from "../../panels/SubagentDag";
-import { SubagentTranscript } from "../../panels/SubagentTranscript";
+import { SubagentDag, type SubagentLifecycleAction } from "../../panels/SubagentDag";
 import {
 	buildSubagentList,
 	extractTaskToolCallIds,
 	formatElapsed,
 	isLiveSubagentStatus,
+	type SubagentListRow,
 	statusMeta,
 	subagentElapsedMs,
 	subagentPrimaryLabel,
-	useSubagentGraphStore,
 } from "../../panels/subagent-graph";
 import { DockCard } from "./DockCard";
 import { buildAgentDockSummary } from "./dock-summary";
 import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
 type PanelView = "list" | "graph";
+type AgentDockRow = { kind: "main" } | { kind: "subagent"; agent: SubagentSnapshot; depth: number };
 
+function rowKey(row: AgentDockRow | AgentViewTarget): string {
+	return row.kind === "main" ? "main" : row.kind === "subagent" && "agent" in row ? row.agent.id : row.id;
+}
+
+function lifecycleActionSucceeded(data: unknown): boolean {
+	return typeof data === "object" && data !== null && "ok" in data && data.ok === true;
+}
+
+/**
+ * Compact rosters keep the active subagent visible by replacing a terminal
+ * preview leaf. Ancestry comes from buildSubagentList's resolved pre-order
+ * projection, so explicit and parent-tool-call fallback links behave alike.
+ */
+function keepActiveRowInSummary(
+	rows: SubagentListRow[],
+	summaryRows: SubagentListRow[],
+	activeTarget: AgentViewTarget,
+): SubagentListRow[] {
+	if (activeTarget.kind === "main" || summaryRows.some(({ agent }) => agent.id === activeTarget.id)) {
+		return summaryRows;
+	}
+
+	const rowById = new Map<string, SubagentListRow>();
+	const parentIdById = new Map<string, string>();
+	const ancestry: SubagentListRow[] = [];
+	for (const row of rows) {
+		rowById.set(row.agent.id, row);
+		ancestry.length = row.depth;
+		const parent = row.depth > 0 ? ancestry[row.depth - 1] : undefined;
+		if (parent) parentIdById.set(row.agent.id, parent.agent.id);
+		ancestry[row.depth] = row;
+	}
+	const activeRow = rowById.get(activeTarget.id);
+	if (!activeRow) return summaryRows;
+
+	const requiredIds = new Set<string>();
+	let required: SubagentListRow | undefined = activeRow;
+	while (required && !requiredIds.has(required.agent.id)) {
+		requiredIds.add(required.agent.id);
+		const parentId = parentIdById.get(required.agent.id);
+		required = parentId ? rowById.get(parentId) : undefined;
+	}
+
+	const visibleIds = new Set(summaryRows.map(row => row.agent.id));
+	for (const id of requiredIds) visibleIds.add(id);
+	for (const { agent } of summaryRows.toReversed()) {
+		if (visibleIds.size <= summaryRows.length) break;
+		if (
+			requiredIds.has(agent.id) ||
+			isLiveSubagentStatus(agent.status) ||
+			agent.status === "waiting" ||
+			agent.status === "failed"
+		) {
+			continue;
+		}
+		const hasVisibleChild = rows.some(
+			row => visibleIds.has(row.agent.id) && parentIdById.get(row.agent.id) === agent.id,
+		);
+		if (!hasVisibleChild) visibleIds.delete(agent.id);
+	}
+
+	return rows.filter(row => visibleIds.has(row.agent.id));
+}
 /** Poll cadence while a turn streams (covers frame-less parked/idle transitions). */
 const STREAM_POLL_MS = 3000;
 
-const SubagentRow = memo(function SubagentRow({
-	agent,
-	depth,
-	expanded,
-	onToggle,
+const AgentRow = memo(function AgentRow({
+	row,
+	selected,
+	viewing,
 	now,
+	working,
+	onSelect,
+	onActivate,
+	onLifecycleAction,
 }: {
-	agent: SubagentSnapshot;
-	depth: number;
-	expanded: boolean;
-	onToggle: () => void;
+	row: AgentDockRow;
+	selected: boolean;
+	viewing: boolean;
 	now: number;
+	working: boolean;
+	onSelect: (row: AgentDockRow) => void;
+	onActivate: (agent: SubagentSnapshot | null) => void;
+	onLifecycleAction: (action: SubagentLifecycleAction, agent: SubagentSnapshot) => void;
 }) {
 	const t = useT();
-	const meta = statusMeta(agent.status);
-	const live = isLiveSubagentStatus(agent.status);
-	const elapsed = subagentElapsedMs(agent, now);
-	const title = subagentPrimaryLabel(agent);
-	const progressLine = live ? agent.progress?.description?.trim() : undefined;
-	const description = agent.description?.trim();
+	const agent = row.kind === "subagent" ? row.agent : null;
+	const depth = row.kind === "subagent" ? row.depth + 1 : 0;
+	const meta = agent ? statusMeta(agent.status) : null;
+	const live = agent ? isLiveSubagentStatus(agent.status) : false;
+	const elapsed = agent ? subagentElapsedMs(agent, now) : null;
+	const title = agent ? subagentPrimaryLabel(agent) : t("agentView.main");
+	const progressLine = agent && live ? agent.progress?.description?.trim() : undefined;
+	const description = agent?.description?.trim();
 	const detail = [progressLine, description].find(line => line && line !== title);
-	const model = agent.progress?.resolvedModel;
+	const model = agent?.progress?.resolvedModel;
 	const usage =
-		agent.progress && (agent.progress.requests > 0 || agent.progress.tokens > 0 || agent.progress.cost > 0)
+		agent?.progress && (agent.progress.requests > 0 || agent.progress.tokens > 0 || agent.progress.cost > 0)
 			? `${formatTokens(agent.progress.tokens)} ${t("sessionInfo.tokens")} · ${formatCost(agent.progress.cost)}`
 			: undefined;
+	const actionable = agent !== null && live && agent.kind !== "advisor";
+	const revivable = agent?.status === "parked" && agent.kind !== "advisor";
+
+	const stopActionKey = (event: KeyboardEvent<HTMLButtonElement>) => {
+		event.stopPropagation();
+	};
 
 	return (
-		<div aria-level={depth + 1} className="relative" role="treeitem" style={{ marginLeft: Math.min(depth, 6) * 14 }}>
+		<div
+			aria-current={viewing || undefined}
+			aria-level={depth + 1}
+			aria-selected={selected}
+			onClick={() => onSelect(row)}
+			onDoubleClick={() => onActivate(agent)}
+			onFocus={(event: FocusEvent<HTMLDivElement>) => {
+				if (event.currentTarget === event.target) onSelect(row);
+			}}
+			onKeyDown={event => {
+				if (event.currentTarget !== event.target || event.key !== "Enter") return;
+				event.preventDefault();
+				onActivate(agent);
+			}}
+			role="treeitem"
+			style={{ marginLeft: Math.min(depth, 7) * 14 }}
+			tabIndex={0}
+		>
 			{depth > 0 && (
 				<span className="pointer-events-none absolute top-0 -left-2.5 h-5 w-2.5 rounded-bl-md border-b border-l border-(--omp-border-muted)" />
 			)}
 			<div
 				className={cx(
-					"relative overflow-hidden rounded-lg border border-(--omp-border-muted) bg-transparent transition-colors duration-150 hover:bg-(--omp-bg-tertiary)",
-					agent.status === "cancelled" && "opacity-70",
+					"relative flex min-w-0 items-start gap-1.5 overflow-hidden rounded-lg border py-2 pr-2.5 pl-2 text-left transition-colors duration-150",
+					selected
+						? "border-(--omp-border-strong) bg-(--omp-bg-tertiary)"
+						: "border-(--omp-border-muted) bg-transparent hover:bg-(--omp-bg-tertiary)",
+					agent?.status === "cancelled" && "opacity-70",
 				)}
 			>
 				<span
 					aria-hidden
 					className={cx(
 						"absolute inset-y-2 left-0 w-0.5 rounded-full",
-						live ? "bg-(--omp-link)" : agent.status === "failed" ? "bg-(--omp-error)" : "bg-(--omp-border)",
+						viewing
+							? "bg-(--omp-link)"
+							: live
+								? "bg-(--omp-status-subagents)"
+								: agent?.status === "failed"
+									? "bg-(--omp-error)"
+									: "bg-(--omp-border)",
 					)}
 				/>
-				<button
-					aria-expanded={expanded}
-					className="flex w-full items-start gap-1.5 py-2 pr-2.5 pl-2 text-left"
-					onClick={onToggle}
-					type="button"
-				>
-					<ChevronRight
-						className="omp-disclosure-chevron mt-0.5 shrink-0 text-(--omp-dim)"
-						size={12}
-						style={{ transform: expanded ? "rotate(90deg)" : undefined }}
-					/>
-					<span className="min-w-0 flex-1">
-						<span className="flex min-w-0 items-center gap-1.5">
-							<span className="min-w-0 flex-1 truncate text-omp-sm font-medium text-(--omp-text)" title={title}>
-								{title}
-							</span>
+				<Bot className="mt-0.5 shrink-0 text-(--omp-status-subagents)" size={12} />
+				<span className="min-w-0 flex-1">
+					<span className="flex min-w-0 items-center gap-1.5">
+						<span className="min-w-0 flex-1 truncate text-omp-sm font-medium text-(--omp-text)" title={title}>
+							{title}
+						</span>
+						{viewing && <Badge variant="info">{t("agentView.viewing")}</Badge>}
+						{meta && (
 							<Badge dot={meta.live} pulse={meta.live} variant={meta.variant}>
 								{t(meta.labelKey)}
 							</Badge>
-						</span>
+						)}
+					</span>
+					{agent && (
 						<span className="mt-1 flex min-w-0 items-center gap-1 text-omp-xxs text-(--omp-dim)">
-							<Bot className="shrink-0 text-(--omp-status-subagents)" size={10} />
 							<span className="shrink-0">{agent.agent}</span>
 							<span className="shrink-0 tabular-nums">#{agent.index + 1}</span>
 							{model && <span className="min-w-0 truncate">· {model}</span>}
@@ -118,17 +216,46 @@ const SubagentRow = memo(function SubagentRow({
 								<span className="ml-auto shrink-0 tabular-nums">{formatElapsed(elapsed)}</span>
 							)}
 						</span>
-					</span>
-				</button>
-				{detail && (
-					<div className="truncate px-6 pb-2 text-omp-xs text-(--omp-muted)" title={detail}>
-						{detail}
-					</div>
+					)}
+					{detail && (
+						<span className="mt-1 block truncate text-omp-xs text-(--omp-muted)" title={detail}>
+							{detail}
+						</span>
+					)}
+				</span>
+				{actionable && (
+					<button
+						aria-label={t("agentHub.hub.abortAgent")}
+						className="omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-error-dim) hover:text-(--omp-error) disabled:opacity-40"
+						disabled={working}
+						onClick={event => {
+							event.stopPropagation();
+							if (agent) onLifecycleAction("abort", agent);
+						}}
+						onDoubleClick={event => event.stopPropagation()}
+						onKeyDown={stopActionKey}
+						title={t("agentHub.hub.abortAgent")}
+						type="button"
+					>
+						<Square fill="currentColor" size={10} />
+					</button>
 				)}
-				{expanded && (
-					<div className="border-t border-(--omp-border-muted)">
-						<SubagentTranscript agent={agent} />
-					</div>
+				{revivable && (
+					<button
+						aria-label={t("agentHub.hub.reviveAgent")}
+						className="omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-accent) disabled:opacity-40"
+						disabled={working}
+						onClick={event => {
+							event.stopPropagation();
+							if (agent) onLifecycleAction("revive", agent);
+						}}
+						onDoubleClick={event => event.stopPropagation()}
+						onKeyDown={stopActionKey}
+						title={t("agentHub.hub.reviveAgent")}
+						type="button"
+					>
+						<RefreshCw size={11} />
+					</button>
 				)}
 			</div>
 		</div>
@@ -172,10 +299,13 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 	const focused = focusedCard === "agents";
 	const showFull = !managed || focused;
 	const subagents = useSubagentsStore(state => state.subagents);
-	const toolCallOwners = useSubagentGraphStore(state => state.toolCallOwners);
+	const toolCallOwners = useSubagentsStore(state => state.toolCallOwners);
 	const messages = useMessagesStore(state => state.messages);
 	const isStreaming = useSessionStore(s => s.isStreaming);
-	const [expanded, setExpanded] = useState<Set<string>>(new Set());
+	const activeTarget = useAgentViewStore(state => state.target);
+	const activeKey = rowKey(activeTarget);
+	const [selectedKey, setSelectedKey] = useState(activeKey);
+	const [workingAgentId, setWorkingAgentId] = useState<string | null>(null);
 	const [view, setView] = useState<PanelView>("list");
 	const [now, setNow] = useState(() => Date.now());
 
@@ -208,23 +338,59 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 		[agents, rootToolCallIds, toolCallOwners],
 	);
 	const summary = useMemo(() => buildAgentDockSummary(rows), [rows]);
-	const displayedRows = showFull ? rows : summary.rows;
+	const displayedRows = useMemo(
+		() => (showFull ? rows : keepActiveRowInSummary(rows, summary.rows, activeTarget)),
+		[activeTarget, rows, showFull, summary.rows],
+	);
+	const navigationRows = useMemo<AgentDockRow[]>(
+		() => [
+			{ kind: "main" },
+			...displayedRows.map(({ agent, depth }) => ({ kind: "subagent" as const, agent, depth })),
+		],
+		[displayedRows],
+	);
 
-	const toggle = useCallback((id: string) => {
-		setExpanded(prev => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
+	useEffect(() => setSelectedKey(activeKey), [activeKey]);
+
+	const selectAgentRow = useCallback((row: AgentDockRow) => {
+		setSelectedKey(rowKey(row));
 	}, []);
 
-	const openAgent = useCallback(
-		(id: string) => {
-			if (managed && !focused) focusCard("agents");
-			toggle(id);
+	const activateAgentView = useCallback(
+		(agent: SubagentSnapshot | null) => {
+			setSelectedKey(agent?.id ?? "main");
+			if (agent) void useAgentViewStore.getState().selectSubagent(agent);
+			else useAgentViewStore.getState().selectMain();
+			clearFocus();
 		},
-		[focusCard, focused, managed, toggle],
+		[clearFocus],
+	);
+
+	const runLifecycleAction = useCallback(
+		async (action: SubagentLifecycleAction, agent: SubagentSnapshot) => {
+			setWorkingAgentId(agent.id);
+			const failureTitle = action === "abort" ? t("agentHub.hub.abortAgentFailed") : t("agentHub.hub.reviveFailed");
+			try {
+				const response =
+					action === "abort"
+						? await window.omp.rpc.abortSubagent(agent.id)
+						: await window.omp.rpc.reviveSubagent(agent.id);
+				if (!response.success) {
+					toast({ variant: "error", title: failureTitle, message: response.error });
+					return;
+				}
+				if (!lifecycleActionSucceeded(response.data)) {
+					toast({ variant: "error", title: failureTitle, message: failureTitle });
+					return;
+				}
+				await useSubagentsStore.getState().refresh();
+			} catch (cause) {
+				toast({ variant: "error", title: failureTitle, message: String(cause) });
+			} finally {
+				setWorkingAgentId(null);
+			}
+		},
+		[t],
 	);
 	const changeView = useCallback(
 		(next: PanelView) => {
@@ -253,28 +419,39 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 			title={t("dock.agents")}
 		>
 			{view === "graph" ? (
-				<div className="h-72">
-					<SubagentDag />
+				<div className="h-72 min-h-0">
+					<SubagentDag
+						onActivate={activateAgentView}
+						onLifecycleAction={runLifecycleAction}
+						viewedAgentId={activeTarget.kind === "subagent" ? activeTarget.id : null}
+						working={workingAgentId !== null}
+					/>
 				</div>
 			) : (
 				<div className="space-y-1.5 px-2 py-1.5" role="tree">
-					{displayedRows.map(({ agent, depth }) => (
-						<SubagentRow
-							agent={agent}
-							depth={depth}
-							expanded={showFull && expanded.has(agent.id)}
-							key={agent.id}
+					{navigationRows.map(row => (
+						<AgentRow
+							key={rowKey(row)}
 							now={now}
-							onToggle={() => openAgent(agent.id)}
+							onActivate={activateAgentView}
+							onLifecycleAction={runLifecycleAction}
+							onSelect={selectAgentRow}
+							row={row}
+							selected={selectedKey === rowKey(row)}
+							viewing={activeKey === rowKey(row)}
+							working={workingAgentId !== null}
 						/>
 					))}
-					{managed && !focused && summary.hiddenCount > 0 && (
+					{managed && !focused && rows.length - displayedRows.length > 0 && (
 						<button
 							className="omp-pressable flex w-full items-center justify-center rounded-md border border-dashed border-[var(--omp-border-muted)] px-2 py-1.5 text-omp-xs font-medium text-[var(--omp-link)] hover:border-[var(--omp-border-strong)]"
 							onClick={() => focusCard("agents")}
 							type="button"
 						>
-							{t("dock.viewAllAgents", { hidden: summary.hiddenCount, total: summary.totalCount })}
+							{t("dock.viewAllAgents", {
+								hidden: rows.length - displayedRows.length,
+								total: summary.totalCount,
+							})}
 						</button>
 					)}
 				</div>

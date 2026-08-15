@@ -37,10 +37,12 @@ function toolEntry(status: "running" | "error", isError = false): ToolEntry {
 }
 
 function StatefulExecutionGroup({
+	activeTools,
 	children,
 	live,
 	toolCallIds,
 }: {
+	activeTools?: ReadonlyMap<string, ToolEntry>;
 	children: ReactNode;
 	live: boolean;
 	toolCallIds: string[];
@@ -48,6 +50,7 @@ function StatefulExecutionGroup({
 	const [expanded, setExpanded] = useState(false);
 	return (
 		<ExecutionGroup
+			activeTools={activeTools}
 			expanded={expanded}
 			live={live}
 			onExpandedChange={setExpanded}
@@ -63,6 +66,7 @@ async function mount(
 	toolCallIds: string[] = [],
 	live = false,
 	children: ReactNode = <div data-testid="details">tool details</div>,
+	activeTools?: ReadonlyMap<string, ToolEntry>,
 ): Promise<void> {
 	container = document.createElement("div") as unknown as HTMLElement;
 	document.body.appendChild(container as never);
@@ -70,7 +74,7 @@ async function mount(
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<StatefulExecutionGroup live={live} toolCallIds={toolCallIds}>
+				<StatefulExecutionGroup activeTools={activeTools} live={live} toolCallIds={toolCallIds}>
 					{children}
 				</StatefulExecutionGroup>
 			</I18nProvider>,
@@ -162,5 +166,21 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelectorAll(".animate-spin, .animate-pulse")).toHaveLength(1);
 		expect(container.querySelectorAll(".omp-tool-status-icon")).toHaveLength(2);
 		expect(container.querySelector('[role="status"]')?.textContent).toContain("2 running");
+	});
+
+	it("uses an explicit projection map instead of Main tool state", async () => {
+		const failed = toolEntry("error", true);
+		const projected: ToolEntry = {
+			...failed,
+			status: "done",
+			isError: false,
+		};
+		useToolsStore.setState({ activeTools: new Map([["occurrence-1", failed]]) });
+
+		await mount(["occurrence-1"], false, undefined, new Map([["occurrence-1", projected]]));
+
+		expect(container.textContent).toContain("2 steps complete");
+		expect(container.textContent).not.toContain("failed");
+		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 	});
 });

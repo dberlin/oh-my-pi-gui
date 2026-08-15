@@ -35,7 +35,12 @@ testWindow.cancelAnimationFrame = (id: number) => frameCallbacks.delete(id);
 let container: TestElement;
 let root: Root;
 
-async function mount(text: string, element: ReactElement = <StreamingText />): Promise<void> {
+/** StreamingText renders a projection's text, so drive it from the store the way ChatStream does. */
+function MainStreamingText() {
+	return <StreamingText text={useMessagesStore(s => s.streamingText)} />;
+}
+
+async function mount(text: string, element: ReactElement = <MainStreamingText />): Promise<void> {
 	useMessagesStore.setState({ streamingText: text });
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);

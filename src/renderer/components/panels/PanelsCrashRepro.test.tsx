@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { useAgentViewStore } from "../../stores/agent-view";
 import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useToolsStore } from "../../stores/tools";
@@ -24,7 +25,7 @@ globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
 
-// Minimal omp bridge: SubagentTranscript fetches transcripts on mount.
+// Minimal omp bridge: the selected agent-view loader fetches transcripts.
 const getSubagentMessages = vi.fn(async () => ({
 	type: "response",
 	command: "get_subagent_messages",
@@ -65,6 +66,7 @@ afterEach(async () => {
 		});
 	}
 	container?.remove();
+	useAgentViewStore.getState().reset();
 	useToolsStore.getState().reset();
 	useSubagentsStore.getState().reset();
 	useMessagesStore.getState().reset();
@@ -152,7 +154,7 @@ describe("panels under running state", () => {
 		expect(document.body.textContent).toContain("src/a.ts");
 	});
 
-	it("AgentsDockCard expands a transcript and switches to graph view", async () => {
+	it("AgentsDockCard activates the selected transcript without embedding it and switches to graph view", async () => {
 		const snapshot: SubagentSnapshot = {
 			id: "sub-1",
 			agent: "scout",
@@ -176,15 +178,19 @@ describe("panels under running state", () => {
 		expect(document.body.textContent).toContain("Read-only research");
 		expect(document.body.textContent).not.toContain("# Target");
 
-		const row = Array.from(document.querySelectorAll("button")).find(b => b.textContent?.includes("scout"));
+		const row = Array.from(document.querySelectorAll<HTMLElement>('[role="treeitem"]')).find(item =>
+			item.textContent?.includes("scout"),
+		);
 		expect(row).toBeDefined();
 		if (!row) return;
 		await act(async () => {
-			row.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+			row.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
 		});
 		await flush();
 		expect(getSubagentMessages).toHaveBeenCalledWith("sub-1", "/tmp/sub-1.jsonl", 0);
-		expect(document.body.textContent).toContain("Transcript loaded");
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "sub-1" });
+		expect(useAgentViewStore.getState().messages.messages[0]?.content).toBe("Transcript loaded");
+		expect(document.querySelector("[data-agent-view-id]")).toBeNull();
 
 		const graphButton = Array.from(document.querySelectorAll('button[aria-pressed="false"]')).at(-1);
 		expect(graphButton).toBeDefined();
@@ -193,6 +199,6 @@ describe("panels under running state", () => {
 			graphButton.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 		});
 		expect(graphButton.getAttribute("aria-pressed")).toBe("true");
-		expect(document.querySelector('[role="tree"]')).toBeNull();
+		expect(document.querySelector('[data-subagent-dag="true"]')).not.toBeNull();
 	});
 });

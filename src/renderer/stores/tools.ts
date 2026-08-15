@@ -21,6 +21,21 @@ interface ToolsStore {
 	reset: () => void;
 }
 
+export interface ToolProjection {
+	activeTools: Map<string, ToolEntry>;
+	callEntryKeys: WeakMap<object, string>;
+	nextOccurrenceByCallId: Map<string, number>;
+	latestEntryKeyByCallId: Map<string, string>;
+	streamEntryKeysByIndex: Map<number, string>;
+	queuedExecutionKeysByCallId: Map<string, string[]>;
+	runningEntryKeyByCallId: Map<string, string>;
+}
+
+export interface ResolvedToolCall {
+	key: string;
+	entry: ToolEntry | undefined;
+}
+
 function timestampMs(value: string | number | undefined, fallback: number): number {
 	if (typeof value === "number" && Number.isFinite(value)) return value;
 	if (typeof value === "string") {
@@ -30,81 +45,57 @@ function timestampMs(value: string | number | undefined, fallback: number): numb
 	return fallback;
 }
 
-/**
- * Provider tool-call ids are only required to be unique inside one assistant
- * message. Some providers therefore reuse ids such as `read:0` on every turn.
- * The GUI keeps the full transcript in one map, so raw ids cannot be map keys
- * on their own: later calls would overwrite earlier results.
- *
- * Call objects are bound to occurrence-specific store keys. The first
- * occurrence retains the raw id for compatibility; later occurrences get an
- * internal suffix. Live execution events still arrive with the raw id and are
- * routed through the queues below.
- */
-let callEntryKeys = new WeakMap<object, string>();
-let nextOccurrenceByCallId = new Map<string, number>();
-let latestEntryKeyByCallId = new Map<string, string>();
-let streamEntryKeysByIndex = new Map<number, string>();
-let queuedExecutionKeysByCallId = new Map<string, string[]>();
-let runningEntryKeyByCallId = new Map<string, string>();
-
-function resetEntryKeyTracking(): void {
-	callEntryKeys = new WeakMap();
-	nextOccurrenceByCallId = new Map();
-	latestEntryKeyByCallId = new Map();
-	streamEntryKeysByIndex = new Map();
-	queuedExecutionKeysByCallId = new Map();
-	runningEntryKeyByCallId = new Map();
-}
-
-function allocateProjectionEntryKey(callId: string, occurrences: Map<string, number>): string {
-	const occurrence = occurrences.get(callId) ?? 0;
-	occurrences.set(callId, occurrence + 1);
-	return occurrence === 0 ? callId : `\u0000omp-tool:${JSON.stringify([callId, occurrence])}`;
-}
-
-function allocateEntryKey(callId: string): string {
-	const key = allocateProjectionEntryKey(callId, nextOccurrenceByCallId);
-	latestEntryKeyByCallId.set(callId, key);
+function allocateProjectionEntryKey(projection: ToolProjection, callId: string): string {
+	const occurrence = projection.nextOccurrenceByCallId.get(callId) ?? 0;
+	projection.nextOccurrenceByCallId.set(callId, occurrence + 1);
+	const key = occurrence === 0 ? callId : `\u0000omp-tool:${JSON.stringify([callId, occurrence])}`;
+	projection.latestEntryKeyByCallId.set(callId, key);
 	return key;
 }
 
-function bindCallEntryKey(call: object, callId: string, key: string): void {
-	callEntryKeys.set(call, key);
-	latestEntryKeyByCallId.set(callId, key);
+function bindCallEntryKey(projection: ToolProjection, call: object, callId: string, key: string): void {
+	projection.callEntryKeys.set(call, key);
+	projection.latestEntryKeyByCallId.set(callId, key);
 }
 
-/** Resolve the occurrence-specific store key for one transcript tool call. */
-export function toolEntryKey(call: { id: string }): string {
-	return callEntryKeys.get(call) ?? latestEntryKeyByCallId.get(call.id) ?? call.id;
-}
-
-function queueExecutionKey(callId: string, key: string): void {
-	const queue = queuedExecutionKeysByCallId.get(callId);
+function queueExecutionKey(projection: ToolProjection, callId: string, key: string): void {
+	const queue = projection.queuedExecutionKeysByCallId.get(callId);
 	if (queue) queue.push(key);
-	else queuedExecutionKeysByCallId.set(callId, [key]);
+	else projection.queuedExecutionKeysByCallId.set(callId, [key]);
 }
 
-function takeExecutionKey(callId: string, tools: Map<string, ToolEntry>): string {
-	const queue = queuedExecutionKeysByCallId.get(callId);
+function takeExecutionKey(projection: ToolProjection, callId: string, tools: Map<string, ToolEntry>): string {
+	const queue = projection.queuedExecutionKeysByCallId.get(callId);
 	const queued = queue?.shift();
-	if (queue?.length === 0) queuedExecutionKeysByCallId.delete(callId);
+	if (queue?.length === 0) projection.queuedExecutionKeysByCallId.delete(callId);
 	if (queued) return queued;
 
-	const latest = latestEntryKeyByCallId.get(callId);
+	const latest = projection.latestEntryKeyByCallId.get(callId);
 	const latestEntry = latest ? tools.get(latest) : undefined;
 	if (latest && (latestEntry?.status === "pending" || latestEntry?.status === "running")) return latest;
-	return allocateEntryKey(callId);
+	return allocateProjectionEntryKey(projection, callId);
 }
 
-interface TranscriptToolProjection {
-	tools: Map<string, ToolEntry>;
-	entriesByCall: WeakMap<ToolCallContent, ToolEntry>;
+export function createToolProjection(): ToolProjection {
+	return {
+		activeTools: new Map(),
+		callEntryKeys: new WeakMap(),
+		nextOccurrenceByCallId: new Map(),
+		latestEntryKeyByCallId: new Map(),
+		streamEntryKeysByIndex: new Map(),
+		queuedExecutionKeysByCallId: new Map(),
+		runningEntryKeyByCallId: new Map(),
+	};
 }
 
-function projectTranscriptTools(messages: AgentMessage[], bindGlobalKeys: boolean): TranscriptToolProjection {
+/**
+ * Rebuild a transcript projection from scratch. Hydration deliberately resets
+ * every occurrence and routing map so one transcript can never inherit another
+ * transcript's provider-ID bindings.
+ */
+export function hydrateToolProjection(_projection: ToolProjection, messages: AgentMessage[]): ToolProjection {
+	const projection = createToolProjection();
 	const now = Date.now();
-	const localOccurrences = new Map<string, number>();
 	const results = new Map<string, AgentMessage[]>();
 	for (const message of messages) {
 		if (message.role !== "toolResult" || !message.toolCallId) continue;
@@ -114,21 +105,17 @@ function projectTranscriptTools(messages: AgentMessage[], bindGlobalKeys: boolea
 	}
 	const resultIndexes = new Map<string, number>();
 
-	const tools = new Map<string, ToolEntry>();
-	const entriesByCall = new WeakMap<ToolCallContent, ToolEntry>();
 	for (const message of messages) {
 		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
 		for (const block of message.content) {
 			if (block.type !== "toolCall") continue;
-			const key = bindGlobalKeys
-				? allocateEntryKey(block.id)
-				: allocateProjectionEntryKey(block.id, localOccurrences);
-			if (bindGlobalKeys) bindCallEntryKey(block, block.id, key);
+			const key = allocateProjectionEntryKey(projection, block.id);
+			bindCallEntryKey(projection, block, block.id, key);
 			const resultIndex = resultIndexes.get(block.id) ?? 0;
 			const result = results.get(block.id)?.[resultIndex];
 			resultIndexes.set(block.id, resultIndex + 1);
 			const startTime = timestampMs(message.timestamp, now);
-			const entry: ToolEntry = {
+			projection.activeTools.set(key, {
 				toolName: block.name,
 				args: block.arguments,
 				status: result ? (result.isError ? "error" : "done") : "running",
@@ -138,153 +125,187 @@ function projectTranscriptTools(messages: AgentMessage[], bindGlobalKeys: boolea
 				isError: result?.isError ?? false,
 				startTime,
 				endTime: result ? timestampMs(result.timestamp, startTime) : null,
-			};
-			tools.set(key, entry);
-			entriesByCall.set(block, entry);
+			});
 		}
 	}
-	return { tools, entriesByCall };
+	return projection;
 }
 
-/** Build read-only tool results for a secondary transcript without mutating the active session store. */
+export function resolveProjectionToolCall(projection: ToolProjection, call: ToolCallContent): ResolvedToolCall {
+	const key = projection.callEntryKeys.get(call) ?? projection.latestEntryKeyByCallId.get(call.id) ?? call.id;
+	return { key, entry: projection.activeTools.get(key) };
+}
+
+let mainToolProjection = createToolProjection();
+
+/** Resolve the occurrence-specific store key for one Main transcript tool call. */
+export function toolEntryKey(call: { id: string }): string {
+	return (
+		mainToolProjection.callEntryKeys.get(call) ?? mainToolProjection.latestEntryKeyByCallId.get(call.id) ?? call.id
+	);
+}
+
+/** Build read-only tool results for a secondary transcript without mutating Main. */
 export function buildTranscriptToolEntries(messages: AgentMessage[]): WeakMap<ToolCallContent, ToolEntry> {
-	return projectTranscriptTools(messages, false).entriesByCall;
+	const projection = hydrateToolProjection(createToolProjection(), messages);
+	const entries = new WeakMap<ToolCallContent, ToolEntry>();
+	for (const message of messages) {
+		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (block.type !== "toolCall") continue;
+			const entry = resolveProjectionToolCall(projection, block).entry;
+			if (entry) entries.set(block, entry);
+		}
+	}
+	return entries;
 }
-export const useToolsStore = create<ToolsStore>()((set, get) => ({
-	activeTools: new Map(),
-	hydrateMessages: messages => {
-		resetEntryKeyTracking();
-		set({ activeTools: projectTranscriptTools(messages, true).tools });
-	},
-	applyEvents: events => {
-		// Copy-on-first-write: batches without tool events (the common case —
-		// text/thinking deltas) must not pay an O(tools) Map clone per batch.
-		let tools: Map<string, ToolEntry> | null = null;
-		const writable = () => (tools ??= new Map(get().activeTools));
+export function applyToolProjectionEvents(projection: ToolProjection, events: AgentSessionEvent[]): ToolProjection {
+	// Copy-on-first-write: batches without tool events (the common case —
+	// text/thinking deltas) must not pay an O(tools) Map clone per batch.
+	let tools: Map<string, ToolEntry> | null = null;
+	const writable = () => (tools ??= new Map(projection.activeTools));
 
-		for (const event of events) {
-			switch (event.type) {
-				case "message_start": {
-					streamEntryKeysByIndex.clear();
-					break;
-				}
-				case "message_update": {
-					const ame = event.assistantMessageEvent;
-					if (ame.type === "toolcall_delta") {
-						// The wire shape is `{contentIndex, delta, partial}` (pi-ai):
-						// `partial` is the full streamed message so far and its
-						// content[contentIndex] toolCall block carries the final
-						// tool-call id from the very first delta.
-						const block = Array.isArray(ame.partial?.content) ? ame.partial.content[ame.contentIndex] : null;
-						if (block?.type !== "toolCall") break;
-						let key = streamEntryKeysByIndex.get(ame.contentIndex);
-						if (!key) {
-							key = allocateEntryKey(block.id);
-							streamEntryKeysByIndex.set(ame.contentIndex, key);
-						}
-						bindCallEntryKey(block, block.id, key);
-						const map = writable();
-						const existing = map.get(key);
-						if (existing) {
-							map.set(key, { ...existing, streamingArgs: existing.streamingArgs + (ame.delta ?? "") });
-						} else {
-							map.set(key, {
-								toolName: block.name ?? "unknown",
-								args: {},
-								status: "pending",
-								partialResult: null,
-								streamingArgs: ame.delta ?? "",
-								result: null,
-								isError: false,
-								startTime: Date.now(),
-								endTime: null,
-							});
-						}
+	for (const event of events) {
+		switch (event.type) {
+			case "message_start": {
+				projection.streamEntryKeysByIndex.clear();
+				break;
+			}
+			case "message_update": {
+				const ame = event.assistantMessageEvent;
+				if (ame.type === "toolcall_delta") {
+					// The wire shape is `{contentIndex, delta, partial}` (pi-ai):
+					// `partial` is the full streamed message so far and its
+					// content[contentIndex] toolCall block carries the final
+					// tool-call id from the very first delta.
+					const block = Array.isArray(ame.partial?.content) ? ame.partial.content[ame.contentIndex] : null;
+					if (block?.type !== "toolCall") break;
+					let key = projection.streamEntryKeysByIndex.get(ame.contentIndex);
+					if (!key) {
+						key = allocateProjectionEntryKey(projection, block.id);
+						projection.streamEntryKeysByIndex.set(ame.contentIndex, key);
 					}
-					break;
-				}
-				case "message_end": {
-					if (event.message.role !== "assistant" || !Array.isArray(event.message.content)) break;
+					bindCallEntryKey(projection, block, block.id, key);
 					const map = writable();
-					for (const [contentIndex, block] of event.message.content.entries()) {
-						if (block.type !== "toolCall") continue;
-						const key = streamEntryKeysByIndex.get(contentIndex) ?? allocateEntryKey(block.id);
-						bindCallEntryKey(block, block.id, key);
-						queueExecutionKey(block.id, key);
-						const existing = map.get(key);
-						if (existing) {
-							map.set(key, { ...existing, toolName: block.name, args: block.arguments });
-						} else {
-							map.set(key, {
-								toolName: block.name,
-								args: block.arguments,
-								status: "pending",
-								partialResult: null,
-								streamingArgs: "",
-								result: null,
-								isError: false,
-								startTime: timestampMs(event.message.timestamp, Date.now()),
-								endTime: null,
-							});
-						}
-					}
-					streamEntryKeysByIndex.clear();
-					break;
-				}
-				case "tool_execution_start": {
-					const map = writable();
-					const key = takeExecutionKey(event.toolCallId, map);
-					latestEntryKeyByCallId.set(event.toolCallId, key);
-					runningEntryKeyByCallId.set(event.toolCallId, key);
-					map.set(key, {
-						toolName: event.toolName,
-						args: event.args,
-						status: "running",
-						partialResult: null,
-						streamingArgs: "",
-						result: null,
-						isError: false,
-						startTime: Date.now(),
-						endTime: null,
-					});
-					break;
-				}
-				case "tool_execution_update": {
-					const key =
-						runningEntryKeyByCallId.get(event.toolCallId) ?? latestEntryKeyByCallId.get(event.toolCallId);
-					const existing = key ? (tools ?? get().activeTools).get(key) : undefined;
-					if (key && existing) {
-						writable().set(key, { ...existing, partialResult: event.partialResult });
-					}
-					break;
-				}
-				case "tool_execution_end": {
-					const key =
-						runningEntryKeyByCallId.get(event.toolCallId) ?? latestEntryKeyByCallId.get(event.toolCallId);
-					const existing = key ? (tools ?? get().activeTools).get(key) : undefined;
-					if (key && existing) {
-						writable().set(key, {
-							...existing,
-							status: event.isError ? "error" : "done",
-							result: event.result,
-							isError: event.isError ?? false,
-							endTime: Date.now(),
+					const existing = map.get(key);
+					if (existing) {
+						map.set(key, { ...existing, streamingArgs: existing.streamingArgs + (ame.delta ?? "") });
+					} else {
+						map.set(key, {
+							toolName: block.name ?? "unknown",
+							args: {},
+							status: "pending",
+							partialResult: null,
+							streamingArgs: ame.delta ?? "",
+							result: null,
+							isError: false,
+							startTime: Date.now(),
+							endTime: null,
 						});
 					}
-					runningEntryKeyByCallId.delete(event.toolCallId);
-					break;
 				}
-				default:
-					break;
+				break;
 			}
+			case "message_end": {
+				if (event.message.role !== "assistant" || !Array.isArray(event.message.content)) break;
+				for (const [contentIndex, block] of event.message.content.entries()) {
+					if (block.type !== "toolCall") continue;
+					const key =
+						projection.streamEntryKeysByIndex.get(contentIndex) ??
+						allocateProjectionEntryKey(projection, block.id);
+					bindCallEntryKey(projection, block, block.id, key);
+					queueExecutionKey(projection, block.id, key);
+					const map = writable();
+					const existing = map.get(key);
+					if (existing) {
+						map.set(key, { ...existing, toolName: block.name, args: block.arguments });
+					} else {
+						map.set(key, {
+							toolName: block.name,
+							args: block.arguments,
+							status: "pending",
+							partialResult: null,
+							streamingArgs: "",
+							result: null,
+							isError: false,
+							startTime: timestampMs(event.message.timestamp, Date.now()),
+							endTime: null,
+						});
+					}
+				}
+				projection.streamEntryKeysByIndex.clear();
+				break;
+			}
+			case "tool_execution_start": {
+				const map = writable();
+				const key = takeExecutionKey(projection, event.toolCallId, map);
+				projection.latestEntryKeyByCallId.set(event.toolCallId, key);
+				projection.runningEntryKeyByCallId.set(event.toolCallId, key);
+				map.set(key, {
+					toolName: event.toolName,
+					args: event.args,
+					status: "running",
+					partialResult: null,
+					streamingArgs: "",
+					result: null,
+					isError: false,
+					startTime: Date.now(),
+					endTime: null,
+				});
+				break;
+			}
+			case "tool_execution_update": {
+				const key =
+					projection.runningEntryKeyByCallId.get(event.toolCallId) ??
+					projection.latestEntryKeyByCallId.get(event.toolCallId);
+				const existing = key ? (tools ?? projection.activeTools).get(key) : undefined;
+				if (key && existing) {
+					writable().set(key, { ...existing, partialResult: event.partialResult });
+				}
+				break;
+			}
+			case "tool_execution_end": {
+				const key =
+					projection.runningEntryKeyByCallId.get(event.toolCallId) ??
+					projection.latestEntryKeyByCallId.get(event.toolCallId);
+				const existing = key ? (tools ?? projection.activeTools).get(key) : undefined;
+				if (key && existing) {
+					writable().set(key, {
+						...existing,
+						status: event.isError ? "error" : "done",
+						result: event.result,
+						isError: event.isError ?? false,
+						endTime: Date.now(),
+					});
+				}
+				projection.runningEntryKeyByCallId.delete(event.toolCallId);
+				break;
+			}
+			default:
+				break;
 		}
+	}
 
-		if (tools) {
-			set({ activeTools: tools });
+	return tools ? { ...projection, activeTools: tools } : projection;
+}
+
+export const useToolsStore = create<ToolsStore>()((set, get) => ({
+	activeTools: mainToolProjection.activeTools,
+	hydrateMessages: messages => {
+		mainToolProjection = hydrateToolProjection(mainToolProjection, messages);
+		set({ activeTools: mainToolProjection.activeTools });
+	},
+	applyEvents: events => {
+		const state = get();
+		mainToolProjection = { ...mainToolProjection, activeTools: state.activeTools };
+		const nextProjection = applyToolProjectionEvents(mainToolProjection, events);
+		mainToolProjection = nextProjection;
+		if (nextProjection.activeTools !== state.activeTools) {
+			set({ activeTools: nextProjection.activeTools });
 		}
 	},
 	reset: () => {
-		resetEntryKeyTracking();
-		set({ activeTools: new Map() });
+		mainToolProjection = createToolProjection();
+		set({ activeTools: mainToolProjection.activeTools });
 	},
 }));

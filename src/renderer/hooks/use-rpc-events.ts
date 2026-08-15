@@ -18,7 +18,6 @@ import {
 } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
-import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { messageIdentityKey, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
@@ -26,12 +25,12 @@ import { usePlanApprovalStore } from "../stores/plan-approval";
 import { useQueueStore } from "../stores/queue";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
-import { useSubagentsStore } from "../stores/subagents";
-import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
+
+import { useAgentViewStore } from "../stores/agent-view";
 
 /**
  * Routine informational notice sources suppressed from the toast stack — they
@@ -295,18 +294,26 @@ async function syncVibeMode(isCurrent: HydrationGuard): Promise<void> {
 
 let hydrationVersion = 0;
 
-/** Reload every renderer store that belongs to the active sidecar session. */
-export async function hydrateSession(fallbackName?: string): Promise<void> {
+/** Hydrate Main stores and report whether this route committed an authoritative roster. */
+async function hydrateSessionWithRoster(fallbackName?: string): Promise<boolean> {
 	const version = ++hydrationVersion;
-	if (!acceptsActiveTabEvents()) return;
+	if (!acceptsActiveTabEvents()) return false;
 	const tabId = useTabsStore.getState().activeTabId;
 	const isCurrent = (): boolean =>
 		version === hydrationVersion &&
 		acceptsActiveTabEvents() &&
 		(tabId === null || useTabsStore.getState().activeTabId === tabId);
+	try {
+		void window.omp.rpc.setSubagentSubscription("events").catch(() => {
+			// Best-effort: the next ready/switch retries.
+		});
+	} catch {
+		// A synchronous preload failure must not block Main hydration.
+	}
 	// Capture before the fetch: messages the live stream appends while the
 	// transcript RPC is in flight must survive the merge below.
 	const beforeMessages = useMessagesStore.getState().messages;
+	let hydratedMessages = beforeMessages;
 
 	const coreResult = Promise.allSettled([window.omp.rpc.getState(), window.omp.rpc.getMessages()]);
 	const subagentsResult = Promise.allSettled([window.omp.rpc.getSubagents()]);
@@ -330,7 +337,7 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 		useSettingsStore.getState().syncApproval(),
 	]);
 	const [stateResult, messagesResult] = await coreResult;
-	if (!isCurrent()) return;
+	if (!isCurrent()) return false;
 
 	if (stateResult.status === "fulfilled" && stateResult.value.success && stateResult.value.data != null) {
 		const wire = stateResult.value.data as RpcSessionState;
@@ -352,13 +359,9 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 			// resume onto the restored buffers.
 			useMessagesStore.getState().clearStreaming();
 		}
-		// Per-tab subagent subscription (F-HYDRATE), re-asserted on every
-		// successful hydrate: RPC commands route through the ACTIVE tab's
-		// sidecar, so this lands on the tab just switched to. Tabs that report
-		// ready while active also subscribe via the status handlers — this
-		// covers tabs that booted or settled in the background, whose frames
-		// would otherwise stay silent on return. Idempotent server-side.
-		void window.omp.rpc.setSubagentSubscription("events");
+		// The events subscription was reasserted before hydration began, so
+		// live subagent frames can join the projection while roster/transcript
+		// requests are in flight.
 	}
 
 	if (messagesResult.status === "fulfilled" && messagesResult.value.success) {
@@ -385,19 +388,147 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 				? [...fetched, ...tail.filter(message => !fetchedKeys.has(messageIdentityKey(message)))]
 				: fetched;
 		useMessagesStore.getState().reconcileFetched(merged);
-		useToolsStore.getState().hydrateMessages(useMessagesStore.getState().messages);
+		hydratedMessages = useMessagesStore.getState().messages;
+		useToolsStore.getState().hydrateMessages(hydratedMessages);
 	}
 
 	// Subagents and secondary chips do not hold the transcript hostage. Their
 	// requests still begin in parallel, but the core session can paint first.
 	const [settledSubagents] = await subagentsResult;
-	if (isCurrent() && settledSubagents.status === "fulfilled" && settledSubagents.value.success) {
+	const rosterReady = isCurrent() && settledSubagents.status === "fulfilled" && settledSubagents.value.success;
+	if (rosterReady) {
 		const data = settledSubagents.value.data as { subagents?: SubagentSnapshot[] } | undefined;
-		useSubagentsStore.getState().setSnapshots(data?.subagents ?? []);
+		const roster = new Map(
+			historicalSubagentsFromMessages(hydratedMessages, useSessionStore.getState().sessionFile).map(snapshot => [
+				snapshot.id,
+				snapshot,
+			]),
+		);
+		for (const snapshot of data?.subagents ?? []) roster.set(snapshot.id, snapshot);
+		useSubagentsStore.getState().setSnapshots([...roster.values()]);
 	}
 	await secondaryResult;
+	return rosterReady && isCurrent();
+}
+/** Reload every renderer store that belongs to the active sidecar session. */
+export async function hydrateSession(fallbackName?: string): Promise<void> {
+	invalidateReadyRecovery();
+	useSubagentsStore.getState().invalidateRefresh();
+	await hydrateSessionWithRoster(fallbackName);
 }
 
+interface ReadyRecovery {
+	tabId: string | null;
+	generation: number;
+	promise: Promise<void>;
+}
+
+interface FullReadyPrelude {
+	tabId: string | null;
+	claimId: number;
+	promise: Promise<void>;
+}
+
+interface RetainedBootPending {
+	claimId: number;
+	path: string;
+}
+
+interface PendingBootOwnerWait {
+	claimId: number;
+	resolve: (tabId: string | null) => void;
+}
+
+interface BootPendingRead {
+	claim: { value: RetainedBootPending | null };
+	promise: Promise<void>;
+}
+let readyRecovery: ReadyRecovery | null = null;
+let readyRecoveryGeneration = 0;
+let fullReadyPrelude: FullReadyPrelude | null = null;
+let fullReadyPreludeClaimId = 0;
+let retainedBootPending: RetainedBootPending | null = null;
+let retainedBootPendingClaimId = 0;
+let pendingBootOwnerWait: PendingBootOwnerWait | null = null;
+let bootPendingRead: BootPendingRead | null = null;
+
+/** Invalidate hydration/recovery when the active route or session generation changes. */
+export function invalidateReadyRecovery(preserveFullReadyPrelude = false): void {
+	hydrationVersion += 1;
+	readyRecoveryGeneration += 1;
+	readyRecovery = null;
+	const ownerWait = pendingBootOwnerWait;
+	pendingBootOwnerWait = null;
+	ownerWait?.resolve(null);
+	if (!preserveFullReadyPrelude) fullReadyPrelude = null;
+}
+
+function claimFullReadyPrelude(
+	tabId: string | null,
+	operation: (promoteToTab: (tabId: string) => void) => Promise<void>,
+): Promise<void> {
+	if (fullReadyPrelude?.tabId === tabId) return fullReadyPrelude.promise;
+	fullReadyPreludeClaimId += 1;
+	const claimId = fullReadyPreludeClaimId;
+	const promoteToTab = (promotedTabId: string): void => {
+		if (fullReadyPrelude?.claimId === claimId && fullReadyPrelude.tabId === null) {
+			fullReadyPrelude.tabId = promotedTabId;
+		}
+	};
+	const promise = operation(promoteToTab);
+	fullReadyPrelude = { tabId, claimId, promise };
+	const clear = () => {
+		if (fullReadyPrelude?.claimId === claimId) fullReadyPrelude = null;
+	};
+	void promise.then(clear, clear);
+	return promise;
+}
+
+function getBootPendingRead(): BootPendingRead {
+	if (bootPendingRead !== null) return bootPendingRead;
+	const claim = { value: null as RetainedBootPending | null };
+	const promise = window.omp.sessions.consumePendingOpen().then(pending => {
+		if (pending) {
+			retainedBootPendingClaimId += 1;
+			claim.value = {
+				claimId: retainedBootPendingClaimId,
+				path: pending,
+			};
+		}
+	});
+	bootPendingRead = { claim, promise };
+	return bootPendingRead;
+}
+
+/** Join full ready's pending-open and health prelude before light recovery. */
+export function joinFullReadyPrelude(tabId: string): Promise<void> | null {
+	return fullReadyPrelude?.tabId === tabId ? fullReadyPrelude.promise : null;
+}
+
+/**
+ * Coalesce the full active-sidecar ready event with the light per-tab ready
+ * event. Both channels can report the same transition; one authoritative
+ * hydrate/reload sequence is enough and prevents duplicate subscriptions and
+ * transcript/roster fetches.
+ */
+export function recoverReadySession(tabId: string | null = useTabsStore.getState().activeTabId): Promise<void> {
+	const generation = readyRecoveryGeneration;
+	if (readyRecovery?.tabId === tabId && readyRecovery.generation === generation) return readyRecovery.promise;
+	const promise = (async () => {
+		const rosterReady = await hydrateSessionWithRoster();
+		if (!rosterReady || generation !== readyRecoveryGeneration) return;
+		if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== tabId) return;
+		await useAgentViewStore.getState().reloadSelected();
+	})();
+	readyRecovery = { tabId, generation, promise };
+	const clear = () => {
+		setTimeout(() => {
+			if (readyRecovery?.promise === promise) readyRecovery = null;
+		}, 0);
+	};
+	void promise.then(clear, clear);
+	return promise;
+}
 /**
  * Subscribes to batched RPC events from the sidecar and dispatches
  * them to the appropriate stores. Call once in App.tsx.
@@ -676,12 +807,20 @@ export function useRpcEvents(): void {
 		const handleStatus = (payload: IpcSidecarStatusPayload) => {
 			if (!acceptsActiveTabEvents()) return;
 			const statusTabId = useTabsStore.getState().activeTabId;
+			if (statusTabId !== null && (payload.status === "starting" || payload.status === "ready")) {
+				useTabsStore.setState(current => ({
+					tabs: current.tabs.map(tab => (tab.id === statusTabId ? { ...tab, status: payload.status } : tab)),
+				}));
+			}
 			if (payload.status === "starting") {
 				stopHeartbeat();
+				invalidatePendingSessionGeneration();
+				invalidateReadyRecovery();
 				retryPending = false;
 				useMessagesStore.getState().reset();
 				useModelStore.getState().reset();
 				useSessionStore.getState().reset();
+				useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
 				useSettingsStore.getState().reset();
 				useSubagentsStore.getState().reset();
 				useTodoStore.getState().reset();
@@ -695,35 +834,110 @@ export function useRpcEvents(): void {
 			if (payload.status === "ready") {
 				startHeartbeat();
 				// One-shot boot health check: verify the command loop is live.
-				void (async () => {
+				void claimFullReadyPrelude(statusTabId, async promoteFullReadyPrelude => {
+					const statusGeneration = readyRecoveryGeneration;
+					let pendingOwnerTabId = statusTabId;
+					const pendingOwnerReady = statusTabId === null ? Promise.withResolvers<string | null>() : null;
+					const stopPendingOwnerCapture =
+						statusTabId === null
+							? onActiveTabRouteSettled(() => {
+									if (pendingOwnerTabId === null && statusGeneration === readyRecoveryGeneration) {
+										const reconciledTabId = useTabsStore.getState().activeTabId;
+										if (reconciledTabId !== null) {
+											pendingOwnerTabId = reconciledTabId;
+											pendingOwnerReady?.resolve(reconciledTabId);
+											promoteFullReadyPrelude(reconciledTabId);
+										}
+									}
+								})
+							: null;
+					const isStatusCurrent = (): boolean =>
+						statusGeneration === readyRecoveryGeneration &&
+						acceptsActiveTabEvents() &&
+						useTabsStore.getState().activeTabId === statusTabId;
 					try {
 						// A window opened "in new window" for a specific session
 						// switches to it BEFORE hydrating, so the first transcript
-						// it pulls is the target session, not the fresh empty one.
-						const pending = await window.omp.sessions.consumePendingOpen();
-						if (pending) {
-							const sw = await window.omp.rpc.switchSession(pending);
-							if (!sw.success) {
-								useToastStore.getState().push({
-									variant: "error",
-									message: translate("events.sessionOpenFailed", { error: sw.error }),
-								});
+						let pendingClaim = retainedBootPending;
+						if (pendingClaim !== null) retainedBootPending = null;
+						try {
+							if (pendingClaim === null) {
+								const pendingRead = getBootPendingRead();
+								try {
+									await pendingRead.promise;
+								} catch (error) {
+									if (bootPendingRead === pendingRead) bootPendingRead = null;
+									throw error;
+								}
+								if (statusGeneration !== readyRecoveryGeneration && pendingOwnerTabId === null) {
+									return;
+								}
+								pendingClaim = pendingRead.claim.value;
+								pendingRead.claim.value = null;
+								if (bootPendingRead === pendingRead) bootPendingRead = null;
 							}
+							if (pendingClaim !== null && pendingOwnerTabId === null && pendingOwnerReady !== null) {
+								retainedBootPending = pendingClaim;
+								pendingBootOwnerWait = {
+									claimId: pendingClaim.claimId,
+									resolve: pendingOwnerReady.resolve,
+								};
+								const reconciledOwner = await pendingOwnerReady.promise;
+								if (pendingBootOwnerWait?.claimId === pendingClaim.claimId) {
+									pendingBootOwnerWait = null;
+								}
+								if (reconciledOwner === null) return;
+								pendingOwnerTabId = reconciledOwner;
+								if (retainedBootPending?.claimId === pendingClaim.claimId) {
+									retainedBootPending = null;
+								}
+							}
+						} finally {
+							stopPendingOwnerCapture?.();
+						}
+						const pendingTabId = statusTabId ?? pendingOwnerTabId;
+						if (pendingClaim !== null) {
+							if (pendingTabId !== null) {
+								useTabsStore.setState(current => ({
+									tabs: current.tabs.map(tab =>
+										tab.id === pendingTabId && tab.pendingSessionPath === undefined
+											? { ...tab, pendingSessionPath: pendingClaim.path }
+											: tab,
+									),
+								}));
+								await consumePendingSession(pendingTabId);
+							}
+							return;
+						}
+						if (!isStatusCurrent()) {
+							if (pendingOwnerTabId !== null) {
+								const currentTabs = useTabsStore.getState();
+								const owner = currentTabs.tabs.find(tab => tab.id === pendingOwnerTabId);
+								if (
+									currentTabs.activeTabId === pendingOwnerTabId &&
+									(owner?.status === "ready" || owner?.status === "running") &&
+									acceptsActiveTabEvents()
+								) {
+									await recoverReadySession(pendingOwnerTabId);
+								}
+							}
+							return;
 						}
 						const res = await window.omp.rpc.getState();
-						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== statusTabId) return;
+						if (!isStatusCurrent()) return;
 						if (!res.success) {
 							useUiStore.getState().setSidecarError(translate("events.sidecarNoResponse"));
 						} else {
 							useUiStore.getState().clearSidecarError();
-							void hydrateSession();
-							void window.omp.rpc.setSubagentSubscription("events");
+							if (statusTabId !== null && (await consumePendingSession(statusTabId))) return;
+							await recoverReadySession(statusTabId);
 						}
 					} catch {
-						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== statusTabId) return;
+						stopPendingOwnerCapture?.();
+						if (!isStatusCurrent()) return;
 						useUiStore.getState().setSidecarError(translate("events.sidecarHealthFailed"));
 					}
-				})();
+				});
 			} else if (payload.status === "error" || payload.status === "exited") {
 				stopHeartbeat();
 				useUiStore.getState().setSidecarError(payload.message ?? translate("events.sidecarProcessFailed"));
@@ -736,6 +950,7 @@ export function useRpcEvents(): void {
 		const unsubSubagent = window.omp.events.onSubagentFrame(frame => {
 			if (!acceptsActiveTabEvents()) return;
 			useSubagentsStore.getState().applyFrame(frame);
+			useAgentViewStore.getState().applyFrame(frame);
 		});
 
 		const unsubModelCatalog = window.omp.events.onModelCatalogUpdate(frame => {
@@ -801,6 +1016,11 @@ export function useRpcEvents(): void {
 		});
 
 		return () => {
+			const ownerWait = pendingBootOwnerWait;
+			pendingBootOwnerWait = null;
+			ownerWait?.resolve(null);
+			retainedBootPending = null;
+			bootPendingRead = null;
 			stopHeartbeat();
 			unsubscribe();
 			unsubStatus();

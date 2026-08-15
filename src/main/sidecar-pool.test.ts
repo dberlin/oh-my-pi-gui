@@ -739,7 +739,16 @@ describe("SidecarPool tabs", () => {
 		const snapshots: Array<PersistedTabLayout | null> = [];
 		pool.onWindowTabsChanged = (_win, layout) => snapshots.push(layout);
 
-		pool.acquire({ cwd: "/neutral", win: fw.win, tabId: "tab-idle", sessionPath: undefined, kind: "chat", worktree: undefined, fresh: true, placeholder: true });
+		pool.acquire({
+			cwd: "/neutral",
+			win: fw.win,
+			tabId: "tab-idle",
+			sessionPath: undefined,
+			kind: "chat",
+			worktree: undefined,
+			fresh: true,
+			placeholder: true,
+		});
 		expect(pool.tabsForWindow(fw.win)[0]).toMatchObject({ tabId: "tab-idle", placeholder: true });
 		expect(pool.tabLayoutForWindow(fw.win)?.tabs[0]).toMatchObject({ placeholder: true });
 

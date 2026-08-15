@@ -122,6 +122,9 @@ export const zh: Record<string, string> = {
 	"input.placeholder.streaming": "在 omp 工作时添加指导…",
 	"input.placeholder.idle": "让 omp 构建、解释或修复某些内容…",
 	"input.placeholder.chat": "随便问——无工具，纯对话…",
+	"input.agentView.readOnly": "正在查看 {agent} — 只读",
+	"input.agentView.selectMainHint": "选择主代理后才能发送消息。",
+	"input.agentView.selectMain": "选择主代理",
 	"tabs.kind.chat": "聊天会话（无工具）",
 	"input.attach": "附加图片",
 	"input.model": "切换模型",
@@ -2426,6 +2429,16 @@ export const zh: Record<string, string> = {
 	"planPanel.footerNote":
 		"批准会以聊天消息的形式发送 — 结构化的“批准并执行”尚未通过 RPC 提供。关闭计划模式即可让代理开始实现。",
 	"planPanel.noFsPath": "会话保存到磁盘后才能确定计划文件的位置。",
+
+	// Active transcript identity
+	"agentView.ariaLabel": "当前代理",
+	"agentView.main": "主代理",
+	"agentView.mainSession": "主会话",
+	"agentView.subagent": "子代理",
+	"agentView.viewing": "正在查看",
+	"agentView.status.restarting": "正在重新连接",
+	"agentView.status.disconnected": "已断开连接",
+	"agentView.status.error": "错误",
 
 	// Subagent shared (panel + DAG + transcript)
 	"subagent.status.started": "运行中",

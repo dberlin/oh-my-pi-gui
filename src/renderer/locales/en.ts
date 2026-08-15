@@ -123,6 +123,9 @@ export const en: Record<string, string> = {
 	"input.placeholder.streaming": "Add guidance while omp is working…",
 	"input.placeholder.idle": "Ask omp to build, explain, or fix something…",
 	"input.placeholder.chat": "Ask anything — no tools, just conversation…",
+	"input.agentView.readOnly": "Viewing {agent} — read-only",
+	"input.agentView.selectMainHint": "Select Main to send a message.",
+	"input.agentView.selectMain": "Select Main",
 	"tabs.kind.chat": "Chat session (no tools)",
 	"input.attach": "Attach image",
 	"input.model": "Change model",
@@ -2465,6 +2468,16 @@ export const en: Record<string, string> = {
 	"planPanel.footerNote":
 		"Approval is sent as a chat message — structured approve & execute isn't exposed over RPC yet. Switch plan mode off to let the agent implement.",
 	"planPanel.noFsPath": "Plan file location is unavailable until the session is saved to disk.",
+
+	// Active transcript identity
+	"agentView.ariaLabel": "Active agent",
+	"agentView.main": "Main",
+	"agentView.mainSession": "Main session",
+	"agentView.subagent": "Subagent",
+	"agentView.viewing": "Viewing",
+	"agentView.status.restarting": "Restarting",
+	"agentView.status.disconnected": "Disconnected",
+	"agentView.status.error": "Error",
 
 	// Subagent shared (panel + DAG + transcript)
 	"subagent.status.started": "running",

@@ -352,7 +352,14 @@ describe("TabBar", () => {
 					title: "Alpha plan",
 					unreadDone: false,
 				},
-				{ kind: "agent", id: "t1", cwd: "/work/beta", target: { type: "local" }, status: "ready", unreadDone: false },
+				{
+					kind: "agent",
+					id: "t1",
+					cwd: "/work/beta",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
 			],
 			activeTabId: "t1",
 			bundles: new Map(),
@@ -783,7 +790,16 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 	it("uses the sidebar workspace alias as the visible tab subtitle", async () => {
 		useSidebarPrefs.setState({ groupAliases: { "/work/infron": "Production API" } });
 		useTabsStore.setState({
-			tabs: [{ kind: "agent", id: "t0", cwd: "/work/infron", target: { type: "local" }, status: "ready", unreadDone: false }],
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/work/infron",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+			],
 			activeTabId: "t0",
 			bundles: new Map(),
 		});

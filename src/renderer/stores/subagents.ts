@@ -1,11 +1,61 @@
 import { create } from "zustand";
-import type { SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
+import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
+import { useAgentViewStore } from "./agent-view";
 
 export type SubagentNode = SubagentSnapshot;
 
+/** Recover inspectable terminal agents after the live registry has released them. */
+export function historicalSubagentsFromMessages(
+	messages: AgentMessage[],
+	parentSessionFile?: string | null,
+): SubagentNode[] {
+	const sessionDirectory = parentSessionFile?.endsWith(".jsonl") ? parentSessionFile.slice(0, -".jsonl".length) : null;
+	const snapshots: SubagentNode[] = [];
+	const seen = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (block.type !== "toolCall" || block.name !== "task") continue;
+			const taskValues = Array.isArray(block.arguments.tasks) ? block.arguments.tasks : [];
+			for (const taskValue of taskValues) {
+				if (taskValue === null || typeof taskValue !== "object" || Array.isArray(taskValue)) continue;
+				const task = taskValue as Record<string, unknown>;
+				const name = typeof task.name === "string" ? task.name.trim() : "";
+				if (!name || seen.has(name)) continue;
+				seen.add(name);
+				const assignment = typeof task.task === "string" ? task.task : undefined;
+				const timestamp =
+					typeof message.timestamp === "number"
+						? message.timestamp
+						: typeof message.timestamp === "string"
+							? Date.parse(message.timestamp)
+							: Number.NaN;
+				snapshots.push({
+					id: name,
+					index: snapshots.length,
+					agent: typeof task.agent === "string" && task.agent ? task.agent : "task",
+					status: "unknown",
+					task: assignment,
+					assignment,
+					description: name,
+					sessionFile: sessionDirectory ? `${sessionDirectory}/${name}.jsonl` : undefined,
+					lastUpdate: Number.isFinite(timestamp) ? timestamp : Date.now(),
+					parentToolCallId: block.id,
+					kind: "sub",
+				});
+			}
+		}
+	}
+	return snapshots;
+}
 interface SubagentsStore {
 	subagents: Map<string, SubagentNode>;
+	/** Maps a `task` tool call id to the id of the subagent whose transcript contains it. */
+	toolCallOwners: Map<string, string>;
+	registerToolCallOwners: (agentId: string, toolCallIds: string[]) => void;
 	applyFrame: (frame: SubagentFrame) => void;
+	invalidateRefresh: () => void;
+	/** Replace from a successful authoritative get_subagents response. */
 	setSnapshots: (snapshots: SubagentNode[]) => void;
 	/**
 	 * Pull the full roster over get_subagents and MERGE it. Unlike
@@ -57,10 +107,22 @@ function mergeFetchedSnapshot(fresh: SubagentNode, prev: SubagentNode): Subagent
 		sessionFile: fresh.sessionFile ?? prev.sessionFile,
 	};
 }
-
+let refreshRevision = 0;
 export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
 	subagents: new Map(),
+	toolCallOwners: new Map(),
+	registerToolCallOwners: (agentId, toolCallIds) => {
+		const current = get().toolCallOwners;
+		let next: Map<string, string> | null = null;
+		for (const id of toolCallIds) {
+			if (current.get(id) === agentId) continue;
+			if (!next) next = new Map(current);
+			next.set(id, agentId);
+		}
+		if (next) set({ toolCallOwners: next });
+	},
 	applyFrame: frame => {
+		refreshRevision += 1;
 		// Copy-on-first-write: frames that match no known subagent leave the
 		// map untouched and must not trigger a re-render.
 		let subagents: Map<string, SubagentNode> | null = null;
@@ -125,24 +187,34 @@ export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
 			}
 		}
 
-		if (subagents) set({ subagents });
+		if (subagents) {
+			set({ subagents });
+			const view = useAgentViewStore.getState();
+			if (view.target.kind === "subagent") {
+				const selected = subagents.get(view.target.id);
+				if (selected) view.updateSnapshot(selected);
+			}
+		}
 	},
 	setSnapshots: snapshots => {
+		refreshRevision += 1;
 		const subagents = new Map<string, SubagentNode>();
 		for (const snap of snapshots) {
 			const normalized = normalizeSnapshot(snap);
 			subagents.set(normalized.id, normalized);
 		}
 		set({ subagents });
+		useAgentViewStore.getState().reconcileRoster(subagents.values());
 	},
 	refresh: async options => {
+		const revision = ++refreshRevision;
 		try {
 			const res = await window.omp.rpc.getSubagents();
 			// Post-await guard: the poll may have been sent for a tab/session
 			// that is no longer foreground — its snapshots must not merge into
 			// the new session's store.
 			if (options?.expect && !options.expect()) return;
-			if (!res.success) return;
+			if (revision !== refreshRevision || !res.success) return;
 			const data = res.data as { subagents?: SubagentNode[] } | undefined;
 			if (!data?.subagents) return;
 			const current = get().subagents;
@@ -160,9 +232,16 @@ export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
 				if (!fetched.has(id) && !LIVE_STATUSES[node.status]) subagents.set(id, node);
 			}
 			set({ subagents });
+			useAgentViewStore.getState().reconcileRoster(subagents.values());
 		} catch {
 			// Best-effort poll: frames + hydration remain authoritative.
 		}
 	},
-	reset: () => set({ subagents: new Map() }),
+	invalidateRefresh: () => {
+		refreshRevision += 1;
+	},
+	reset: () => {
+		refreshRevision += 1;
+		set({ subagents: new Map(), toolCallOwners: new Map() });
+	},
 }));

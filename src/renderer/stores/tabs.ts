@@ -40,7 +40,14 @@ import type {
 	ThinkingLevel,
 	TodoTask,
 } from "../../shared/rpc-types";
-import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
+import { isSshSessionTarget, normalizeSessionTarget } from "../../shared/session-target";
+import {
+	invalidateReadyRecovery,
+	joinFullReadyPrelude,
+	recoverReadySession,
+	resetRetryPending,
+} from "../hooks/use-rpc-events";
+import { basename, sanitizeDisplayText } from "../lib/format";
 import { translate } from "../lib/i18n";
 import {
 	acceptsActiveTabEvents,
@@ -49,6 +56,7 @@ import {
 	resetTabRoute,
 	settleTabRoute,
 } from "../lib/tab-routing";
+import { type AgentViewTarget, useAgentViewStore } from "./agent-view";
 import { type ComposerImage, useComposerStore } from "./composer";
 import { applyExtensionUiRequest, type ExtensionUiSnapshot, useExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
@@ -159,6 +167,7 @@ interface ModelSlice {
 interface SessionTabBundle {
 	session: SessionSlice;
 	messages: MessagesSnapshot;
+	agentViewTarget: AgentViewTarget;
 	todos: {
 		phases: UiTodoPhase[];
 		reminderVisible: boolean;
@@ -166,7 +175,10 @@ interface SessionTabBundle {
 		history: TodoSnapshot[];
 		historyHydrated: boolean;
 	};
-	subagents: Map<string, SubagentNode>;
+	subagents: {
+		nodes: Map<string, SubagentNode>;
+		toolCallOwners: Map<string, string>;
+	};
 	queue: { steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] };
 	model: ModelSlice;
 	composer: { draft: string; images: ComposerImage[] };
@@ -193,6 +205,12 @@ const EMPTY_MODEL_SLICE: ModelSlice = {
 // makes superseded switches skip hydration; only the latest visible tab may
 // project sidecar state back into the shared renderer stores.
 let switchVersion = 0;
+let pendingSessionGeneration = 0;
+
+/** Reject pending-session RPC replies from a restarted or replaced sidecar session. */
+export function invalidatePendingSessionGeneration(): void {
+	pendingSessionGeneration += 1;
+}
 let routingChain: Promise<void> = Promise.resolve();
 
 function routeActiveTab(tabId: string): Promise<boolean> {
@@ -213,6 +231,7 @@ function captureBundle(): SessionTabBundle {
 	const composer = useComposerStore.getState();
 	const planApproval = usePlanApprovalStore.getState();
 	const extensionUi = useExtensionUiStore.getState();
+	const subagents = useSubagentsStore.getState();
 	return {
 		session: {
 			sessionId: session.sessionId,
@@ -234,6 +253,7 @@ function captureBundle(): SessionTabBundle {
 			vibeModeEnabled: session.vibeModeEnabled,
 		},
 		messages: useMessagesStore.getState().snapshot(),
+		agentViewTarget: useAgentViewStore.getState().target,
 		todos: {
 			phases: todos.phases,
 			reminderVisible: todos.reminderVisible,
@@ -241,7 +261,10 @@ function captureBundle(): SessionTabBundle {
 			history: todos.history,
 			historyHydrated: todos.historyHydrated,
 		},
-		subagents: new Map(useSubagentsStore.getState().subagents),
+		subagents: {
+			nodes: new Map(subagents.subagents),
+			toolCallOwners: new Map(subagents.toolCallOwners),
+		},
 		queue: { steering: queue.steering, followUp: queue.followUp },
 		model: {
 			model: model.model,
@@ -285,6 +308,7 @@ function restoreBundle(bundle: SessionTabBundle | null, tab: SessionTab | undefi
 	// keep the outgoing tab's mid-retry state from suppressing the restored
 	// tab's agent_end notification/toast.
 	resetRetryPending();
+	useAgentViewStore.getState().restoreTarget(bundle?.agentViewTarget ?? { kind: "main" });
 	const session = bundle?.session;
 	useSessionStore.setState({
 		sessionId: session?.sessionId ?? "",
@@ -313,8 +337,12 @@ function restoreBundle(bundle: SessionTabBundle | null, tab: SessionTab | undefi
 	useTodoStore.setState(
 		bundle?.todos ?? { phases: [], reminderVisible: false, reminderTodos: [], history: [], historyHydrated: false },
 	);
-	useSubagentsStore.setState({ subagents: bundle ? new Map(bundle.subagents) : new Map() });
-	useQueueStore.setState(bundle?.queue ?? { steering: [], followUp: [] });
+	useSubagentsStore.getState().invalidateRefresh();
+	useSubagentsStore.setState({
+		subagents: bundle ? new Map(bundle.subagents.nodes) : new Map(),
+		toolCallOwners: bundle ? new Map(bundle.subagents.toolCallOwners) : new Map(),
+	});
+	useQueueStore.getState().setFromFrame(bundle?.queue ?? { steering: [], followUp: [] });
 	useModelStore.setState(bundle?.model ?? EMPTY_MODEL_SLICE);
 	useComposerStore.setState(bundle?.composer ?? { draft: "", images: [] });
 	usePlanApprovalStore.setState(
@@ -439,6 +467,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			// stays empty and TAB_STATUS pushes rebuild it.
 			return false;
 		}
+		const previousActiveTab = get().tabs.find(tab => tab.id === get().activeTabId);
+		const refreshedActiveTab = list.find(info => info.tabId === previousActiveTab?.id);
+		const activeSessionChanged =
+			previousActiveTab?.sessionId !== undefined &&
+			refreshedActiveTab?.sessionId !== undefined &&
+			previousActiveTab.sessionId !== refreshedActiveTab.sessionId;
 		set(state => {
 			const leftovers = new Map(state.tabs.map(tab => [tab.id, tab]));
 			const bundles = new Map(state.bundles);
@@ -482,6 +516,13 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 						: (tabs[0]?.id ?? null);
 			return { tabs, activeTabId, bundles };
 		});
+		if (activeSessionChanged) {
+			invalidatePendingSessionGeneration();
+			invalidateReadyRecovery();
+			useSubagentsStore.getState().invalidateRefresh();
+			useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
+			useAgentViewStore.getState().selectMain();
+		}
 		// After a renderer reload with multiple tabs, re-converge main's active
 		// tab with the renderer's pick. GET_TABS carries main's persisted choice
 		// when the renderer has no surviving in-memory selection.
@@ -491,12 +532,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (needsRoute && activeTabId) {
 			try {
 				const routed = await routeActiveTab(activeTabId);
-				if (routed) settleTabRoute(activeTabId);
+				if (routed) {
+					settleTabRoute(activeTabId);
+					await consumePendingSession(activeTabId);
+				}
 				return routed;
 			} catch {
 				// Best-effort — the next explicit switchTab re-points routing.
 				return false;
 			}
+		}
+		if (activeTabId !== null) {
+			await consumePendingSession(activeTabId);
 		}
 		return true;
 	},
@@ -587,6 +634,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const target = state.tabs.find(tab => tab.id === id);
 		if (!target) return;
 		const version = ++switchVersion;
+		invalidateReadyRecovery();
+		useSubagentsStore.getState().invalidateRefresh();
 		beginTabRoute(state.activeTabId, id);
 		// Live voice owns the currently routed sidecar and audio device. Close it
 		// immediately, then stop that sidecar before routing the window elsewhere.
@@ -636,7 +685,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			toast({ variant: "error", title: translate("tabs.switchFailed"), message: String(error) });
 			const converged = await get().reconcileTabs();
 			if (version !== switchVersion) return;
-			if (converged && get().activeTabId === id) await hydrateSession();
+			if (converged && get().activeTabId === id) {
+				await recoverReadySession(id);
+				if (version !== switchVersion) return;
+			}
 			return;
 		}
 		if (version !== switchVersion) return;
@@ -648,7 +700,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const routedTab = get().tabs.find(tab => tab.id === id);
 		if (routedTab?.status === "ready" || routedTab?.status === "running") {
 			useSessionStore.getState().setStatus("ready", routedTab.cwd);
-			await hydrateSession();
+			const consumedPending = await consumePendingSession(id);
+			if (version !== switchVersion) return;
+			if (!consumedPending) {
+				await recoverReadySession(id);
+				if (version !== switchVersion) return;
+			}
 		}
 	},
 
@@ -678,6 +735,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 
 	applyTabStatus: payload => {
 		const active = get().activeTabId === payload.tabId;
+		const previous = get().tabs.find(tab => tab.id === payload.tabId);
+		const activeSessionChanged =
+			active &&
+			previous?.sessionId !== undefined &&
+			payload.sessionId !== undefined &&
+			previous.sessionId !== payload.sessionId;
 		set(state => {
 			const index = state.tabs.findIndex(tab => tab.id === payload.tabId);
 			const previous = index >= 0 ? state.tabs[index] : undefined;
@@ -722,6 +785,13 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			bundles.delete(payload.tabId);
 			return { tabs, bundles };
 		});
+		if (activeSessionChanged) {
+			invalidatePendingSessionGeneration();
+			invalidateReadyRecovery();
+			useSubagentsStore.getState().invalidateRefresh();
+			useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
+			useAgentViewStore.getState().selectMain();
+		}
 		// TAB_STATUS is keyed, so it remains safe while the window-global route
 		// is converging. Keep the visible session's connection state aligned with
 		// its chip; routeReady still prevents commands until SET_ACTIVE_TAB lands.
@@ -747,11 +817,146 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 
 	reset: () => {
 		switchVersion += 1;
+		invalidatePendingSessionGeneration();
+		pendingSessionConsumptions.clear();
+		invalidateReadyRecovery();
+		useSubagentsStore.getState().invalidateRefresh();
+		useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
 		resetTabRoute();
+		useAgentViewStore.getState().reset();
 		set({ tabs: [], activeTabId: null, bundles: new Map() });
 	},
 }));
 
+interface PendingSessionConsumption {
+	switchVersion: number;
+	sessionGeneration: number;
+	promise: Promise<boolean>;
+}
+const pendingSessionConsumptions = new Map<string, PendingSessionConsumption>();
+const noPendingSession = Promise.resolve(false);
+const pendingSessionClaimed = Promise.resolve(true);
+
+/**
+ * Apply the active ready tab's parked session path through its routed sidecar.
+ * Clearing before the first await deduplicates full/light/route triggers; a
+ * route or session-generation change restores the path for its owning tab.
+ */
+export function consumePendingSession(tabId: string): Promise<boolean> {
+	const activeConsumption = pendingSessionConsumptions.get(tabId);
+	const sessionGeneration = pendingSessionGeneration;
+	if (activeConsumption) {
+		if (
+			activeConsumption.switchVersion === switchVersion &&
+			activeConsumption.sessionGeneration === sessionGeneration
+		) {
+			return activeConsumption.promise;
+		}
+		// The prior generation still owns a cleared path. Suppress ordinary
+		// hydration until its stale reply restores and reclaims that path.
+		return pendingSessionClaimed;
+	}
+	const initial = useTabsStore.getState();
+	const tab = initial.tabs.find(entry => entry.id === tabId);
+	if (
+		initial.activeTabId !== tabId ||
+		!tab?.pendingSessionPath ||
+		(tab.status !== "ready" && tab.status !== "running") ||
+		!acceptsActiveTabEvents()
+	) {
+		return noPendingSession;
+	}
+	const sessionPath = tab.pendingSessionPath;
+	const claimedSwitchVersion = switchVersion;
+	let retryAfterRestore = false;
+	const promise = (async (): Promise<boolean> => {
+		const isCurrent = (): boolean => {
+			const current = useTabsStore.getState();
+			const currentTab = current.tabs.find(entry => entry.id === tabId);
+			return (
+				claimedSwitchVersion === switchVersion &&
+				sessionGeneration === pendingSessionGeneration &&
+				acceptsActiveTabEvents() &&
+				current.activeTabId === tabId &&
+				(currentTab?.status === "ready" || currentTab?.status === "running")
+			);
+		};
+		const canRetryRestoredPath = (): boolean => {
+			const current = useTabsStore.getState();
+			const currentTab = current.tabs.find(entry => entry.id === tabId);
+			return (
+				acceptsActiveTabEvents() &&
+				current.activeTabId === tabId &&
+				(currentTab?.status === "ready" || currentTab?.status === "running") &&
+				(claimedSwitchVersion !== switchVersion ||
+					sessionGeneration !== pendingSessionGeneration ||
+					currentTab.sessionId !== tab.sessionId)
+			);
+		};
+		const restorePendingPath = () => {
+			useTabsStore.setState(current => ({
+				tabs: current.tabs.map(entry =>
+					entry.id === tabId && entry.pendingSessionPath === undefined
+						? { ...entry, pendingSessionPath: sessionPath }
+						: entry,
+				),
+			}));
+		};
+		useTabsStore.setState(current => ({
+			tabs: current.tabs.map(entry => (entry.id === tabId ? { ...entry, pendingSessionPath: undefined } : entry)),
+		}));
+		try {
+			const state = await window.omp.rpc.getState();
+			if (!isCurrent()) {
+				restorePendingPath();
+				retryAfterRestore = canRetryRestoredPath();
+				return true;
+			}
+			const currentFile =
+				state.success && state.data != null ? (state.data as RpcSessionState).sessionFile : undefined;
+			if (currentFile !== sessionPath) {
+				const response = await window.omp.rpc.switchSession(sessionPath);
+				if (!isCurrent()) {
+					restorePendingPath();
+					retryAfterRestore = canRetryRestoredPath();
+					return true;
+				}
+				if (!response.success) {
+					restorePendingPath();
+					toast({ variant: "error", title: translate("sidebar.openFailed"), message: response.error });
+					return true;
+				}
+				const data = response.data as { cancelled?: unknown } | undefined;
+				if (data?.cancelled === true) {
+					restorePendingPath();
+					toast({ variant: "info", message: translate("sidebar.openCancelled") });
+					return true;
+				}
+			}
+			invalidateReadyRecovery(true);
+			useSubagentsStore.getState().invalidateRefresh();
+			await recoverReadySession(tabId);
+			return true;
+		} catch (error) {
+			restorePendingPath();
+			toast({ variant: "error", title: translate("sidebar.openFailed"), message: String(error) });
+			return true;
+		}
+	})();
+	pendingSessionConsumptions.set(tabId, {
+		switchVersion: claimedSwitchVersion,
+		sessionGeneration,
+		promise,
+	});
+	const clear = () => {
+		if (pendingSessionConsumptions.get(tabId)?.promise === promise) {
+			pendingSessionConsumptions.delete(tabId);
+			if (retryAfterRestore) void consumePendingSession(tabId);
+		}
+	};
+	void promise.then(clear, clear);
+	return promise;
+}
 /** Route an extension UI frame into the tab that raised it. Blocking dialogs,
  * status text, and widgets disappear while that tab is parked and return with
  * it; a late IPC delivery can never leak into the newly selected tab. */
@@ -881,55 +1086,34 @@ export function useSessionTabs(): void {
 		const subscribe = window.omp.events.onTabStatus;
 		if (typeof subscribe !== "function") return;
 		return subscribe.call(window.omp.events, payload => {
+			const previous = useTabsStore.getState().tabs.find(tab => tab.id === payload.tabId);
+			const sessionChanged =
+				previous?.sessionId !== undefined &&
+				payload.sessionId !== undefined &&
+				previous.sessionId !== payload.sessionId;
+			const shouldRecoverConnection =
+				sessionChanged ||
+				(previous?.status !== "running" &&
+					(previous?.status !== "ready" || useSessionStore.getState().sessionId.length === 0));
 			useTabsStore.getState().applyTabStatus(payload);
 			if (payload.status !== "ready") return;
 			const state = useTabsStore.getState();
-			const tab = state.tabs.find(entry => entry.id === payload.tabId);
-			// Per-tab subagent subscription (F-HYDRATE): a sidecar only forwards
-			// subagent frames once subscribed, and RPC commands route through
-			// the ACTIVE tab — so subscribe at each tab's ready-while-active
-			// moment. Background tabs can't be routed to; hydrateSession
-			// re-asserts the subscription on switch-in.
-			if (payload.tabId === state.activeTabId) {
-				void window.omp.rpc.setSubagentSubscription("events");
-				if (!tab?.pendingSessionPath) {
-					// Light TAB_STATUS is registered before the full active-tab channel.
-					// If ready raced SET_ACTIVE_TAB, the full ready event was already
-					// missed. Give a concurrently delivered full event one turn to run;
-					// otherwise make the light event authoritative and hydrate here.
-					setTimeout(() => {
-						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== payload.tabId) return;
-						if (useSessionStore.getState().sessionId) return;
-						void hydrateSession();
-					}, 0);
-				}
-			}
-			if (!tab?.pendingSessionPath || tab.id !== state.activeTabId) return;
-			// Clear before the RPC so a duplicate ready push can't re-enter.
-			const sessionPath = tab.pendingSessionPath;
-			useTabsStore.setState(current => ({
-				tabs: current.tabs.map(entry =>
-					entry.id === tab.id ? { ...entry, pendingSessionPath: undefined } : entry,
-				),
-			}));
-			void (async () => {
-				// A sidecar spawned WITH --session is already on the pending
-				// session by the time it reports ready: switching again would
-				// abort the in-flight resume. Gate on get_state and only switch
-				// when the sidecar's sessionFile differs (a failed read keeps
-				// the old behavior — switch unconditionally).
-				const state = await window.omp.rpc.getState();
-				const currentFile =
-					state.success && state.data != null ? (state.data as RpcSessionState).sessionFile : undefined;
-				if (currentFile !== sessionPath) {
-					const response = await window.omp.rpc.switchSession(sessionPath);
-					if (!response.success) {
-						toast({ variant: "error", title: translate("sidebar.openFailed"), message: response.error });
+			if (payload.tabId !== state.activeTabId) return;
+			// Light TAB_STATUS is registered before the full active-tab channel.
+			// Give a concurrently delivered full event one turn to claim its
+			// prelude, then join pending-session work before ordinary recovery.
+			setTimeout(() => {
+				void (async () => {
+					if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== payload.tabId) return;
+					const fullPrelude = joinFullReadyPrelude(payload.tabId);
+					if (fullPrelude) {
+						await fullPrelude;
 						return;
 					}
-				}
-				await hydrateSession();
-			})();
+					const consumedPending = await consumePendingSession(payload.tabId);
+					if (!consumedPending && shouldRecoverConnection) await recoverReadySession(payload.tabId);
+				})();
+			}, 0);
 		});
 	}, []);
 }

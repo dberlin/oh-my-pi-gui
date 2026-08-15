@@ -4,6 +4,7 @@
  */
 
 import type {
+	AgentMessage,
 	AgentSessionEvent,
 	AvailableCommand,
 	CommandOutputFrame,
@@ -179,6 +180,8 @@ export const IPC_COMMANDS = {
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
 	SESSION_CONSUME_PENDING: "session:consume-pending",
+	/** Read a persisted child-agent transcript through the active local/SSH tab. */
+	SESSION_READ_SUBAGENT_TRANSCRIPT: "session:read-subagent-transcript",
 	/** Spawn a tab (own sidecar) bound to the calling window */
 	SPAWN_TAB: "tab:spawn",
 	/** Close a tab: release its sidecar; last tab leaves the window tab-less */
@@ -744,6 +747,12 @@ export interface IpcSessionOpenNewWindowPayload {
 	resumeSessionId?: string;
 }
 
+export interface IpcSubagentTranscriptReadPayload {
+	sessionFile: string;
+}
+
+export type IpcSubagentTranscriptReadResult = { ok: true; messages: AgentMessage[] } | { ok: false; error: string };
+
 // ============================================================================
 // Session Tab Types (in-window parallel sessions, one sidecar per tab)
 // ============================================================================
@@ -1148,6 +1157,7 @@ export interface OmpApi {
 		openInNewWindow(payload: IpcSessionOpenNewWindowPayload): Promise<boolean>;
 		/** One-shot: the session this window was opened to display, if any. */
 		consumePendingOpen(): Promise<string | null>;
+		readSubagentTranscript(sessionFile: string): Promise<IpcSubagentTranscriptReadResult>;
 	};
 	remote: {
 		catalog(): Promise<RemoteCatalogResult>;

@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
-import { useMessagesStore } from "./messages";
+import {
+	applyMessageProjectionEvents,
+	createMessageProjection,
+	type MessageProjection,
+	useMessagesStore,
+} from "./messages";
 
 const streamingMessage: AgentMessage = {
 	role: "assistant",
@@ -21,11 +26,110 @@ function delta(text: string): AgentSessionEvent {
 	};
 }
 
+function thinkingDelta(text: string): AgentSessionEvent {
+	return {
+		type: "message_update",
+		message: streamingMessage,
+		assistantMessageEvent: {
+			type: "thinking_delta",
+			contentIndex: 0,
+			delta: text,
+			partial: streamingMessage,
+		},
+	};
+}
+
 function userMessage(id: string): AgentMessage {
 	return { role: "user", content: id, timestamp: Number(id.length), id };
 }
 
 beforeEach(() => useMessagesStore.getState().reset());
+
+describe("message projections", () => {
+	it("isolates interleaved streaming deltas and finalization", () => {
+		let first = createMessageProjection();
+		let second = createMessageProjection();
+		const finalized: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "first answer" }],
+			responseId: "response-1",
+			timestamp: 2,
+		};
+
+		first = applyMessageProjectionEvents(first, [
+			{ type: "message_start", message: streamingMessage },
+			delta("first "),
+			thinkingDelta("think first "),
+		]);
+		second = applyMessageProjectionEvents(second, [
+			{ type: "message_start", message: streamingMessage },
+			delta("second "),
+			thinkingDelta("think second "),
+		]);
+		first = applyMessageProjectionEvents(first, [delta("answer"), thinkingDelta("done")]);
+		second = applyMessageProjectionEvents(second, [delta("answer"), thinkingDelta("done")]);
+
+		expect(first.streamingText).toBe("first answer");
+		expect(first.streamingThinking).toBe("think first done");
+		expect(second.streamingText).toBe("second answer");
+		expect(second.streamingThinking).toBe("think second done");
+
+		first = applyMessageProjectionEvents(first, [{ type: "message_end", message: finalized }]);
+
+		expect(first.messages).toEqual([finalized]);
+		expect(first.streamingMessage).toBeNull();
+		expect(first.streamingText).toBe("");
+		expect(first.streamingThinking).toBe("");
+		expect(second.messages).toEqual([]);
+		expect(second.streamingMessage).toBe(streamingMessage);
+		expect(second.streamingText).toBe("second answer");
+		expect(second.streamingThinking).toBe("think second done");
+	});
+
+	it("scopes delivery-key deduplication to each projection", () => {
+		let first = createMessageProjection();
+		let second = createMessageProjection();
+		const finalized: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "shared delivery" }],
+			responseId: "shared-response",
+			timestamp: 3,
+		};
+
+		first = applyMessageProjectionEvents(first, [
+			{ type: "agent_start" },
+			{ type: "message_end", message: finalized },
+			{ type: "turn_end", message: finalized },
+		]);
+		second = applyMessageProjectionEvents(second, [{ type: "turn_end", message: finalized }]);
+
+		expect(first.messages).toEqual([finalized]);
+		expect(second.messages).toEqual([finalized]);
+	});
+
+	it("resets one projection without changing another", () => {
+		let first = applyMessageProjectionEvents(createMessageProjection(), [
+			{ type: "message_start", message: streamingMessage },
+			delta("discard"),
+		]);
+		const second = applyMessageProjectionEvents(createMessageProjection(), [
+			{ type: "message_start", message: streamingMessage },
+			delta("keep"),
+		]);
+
+		first = createMessageProjection();
+
+		expect(first).toEqual<MessageProjection>({
+			messages: [],
+			streamingMessage: null,
+			streamingText: "",
+			streamingThinking: "",
+			deliveredKeys: new Set(),
+		});
+		expect(second.streamingText).toBe("keep");
+		expect(second.streamingMessage).toBe(streamingMessage);
+	});
+});
 
 describe("messages streaming snapshots", () => {
 	it("resumes the accumulated prefix after switching away and back", () => {

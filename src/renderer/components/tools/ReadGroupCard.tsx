@@ -10,49 +10,124 @@ import { ChevronRight, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { mergeReadGroupEntries, type ReadGroupEntry, type ReadGroupUsage, readGroupTitle } from "../../lib/read-group";
-import { useToolsStore } from "../../stores/tools";
+import {
+	type ReadGroupEntry,
+	type ReadGroupUsage,
+	type ResolveToolCall,
+	mergeReadGroupEntries,
+	readGroupTitle,
+} from "../../lib/read-group";
+import { type ResolvedToolCall, type ToolEntry, useToolsStore } from "../../stores/tools";
 import { UsageRow } from "../chat/UsageRow";
 import { type RunningIndicator, ToolCard } from "./ToolCard";
 
-function statusOf(status: string | undefined): "pending" | "success" | "error" {
+type ReadEntryStatus = "pending" | "success" | "error";
+
+function statusOf(status: string | undefined): ReadEntryStatus {
 	if (status === "error") return "error";
 	if (status === "pending" || status === "running") return "pending";
 	return "success";
 }
 
-export function ReadGroupCard({
-	entries,
-	inset,
-	runningIndicator = "spinner",
-	usage,
-}: {
+interface ReadGroupCardProps {
+	activeTools?: ReadonlyMap<string, ToolEntry>;
 	entries: ReadGroupEntry[];
 	inset?: boolean;
 	runningIndicator?: RunningIndicator;
 	/** Usage carried from fully-consumed assistant turns (TUI parity). */
 	usage?: ReadGroupUsage[];
+	/** Transcript-local occurrence resolver; omitted for the active Main transcript. */
+	resolveToolCall?: ResolveToolCall;
+}
+
+interface ResolvedReadEntry extends ResolvedToolCall {
+	source: ReadGroupEntry;
+}
+export function ReadGroupCard(props: ReadGroupCardProps) {
+	if (props.resolveToolCall || props.activeTools) {
+		return <ProjectedReadGroupCard {...props} />;
+	}
+	return <MainReadGroupCard {...props} />;
+}
+
+function ProjectedReadGroupCard({ activeTools, entries, resolveToolCall, ...props }: ReadGroupCardProps) {
+	const resolvedEntries = useMemo<ResolvedReadEntry[]>(
+		() =>
+			entries.map(source => {
+				const resolved =
+					source.call && resolveToolCall
+						? resolveToolCall(source.call)
+						: { key: source.toolKey, entry: undefined };
+				return {
+					source,
+					key: resolved.key,
+					entry: resolved.entry ?? activeTools?.get(resolved.key),
+				};
+			}),
+		[activeTools, entries, resolveToolCall],
+	);
+	const statuses = useMemo(() => {
+		const map = new Map<string, ReadEntryStatus>();
+		for (const resolved of resolvedEntries) {
+			map.set(resolved.source.toolKey, statusOf(resolved.entry?.status));
+		}
+		return map;
+	}, [resolvedEntries]);
+	return (
+		<ReadGroupCardContent
+			{...props}
+			entries={entries}
+			explicit
+			resolvedEntries={resolvedEntries}
+			statuses={statuses}
+		/>
+	);
+}
+
+function MainReadGroupCard(props: ReadGroupCardProps) {
+	const { entries } = props;
+	// One primitive snapshot for this group's calls: unrelated tool events may
+	// replace the store Map without re-rendering historical read groups. The
+	// resolved entries stay entry-free here — ToolCard reads the store itself
+	// on the Main transcript (`explicit` is false).
+	const statusKey = useToolsStore(s =>
+		entries.map(entry => statusOf(s.activeTools.get(entry.toolKey)?.status)).join("|"),
+	);
+	const statuses = useMemo(() => {
+		const values = statusKey.split("|") as ReadEntryStatus[];
+		return new Map(entries.map((entry, index) => [entry.toolKey, values[index] ?? "success"]));
+	}, [entries, statusKey]);
+	const resolvedEntries = useMemo<ResolvedReadEntry[]>(
+		() => entries.map(source => ({ source, key: source.toolKey, entry: undefined })),
+		[entries],
+	);
+	return <ReadGroupCardContent {...props} explicit={false} resolvedEntries={resolvedEntries} statuses={statuses} />;
+}
+
+function ReadGroupCardContent({
+	entries,
+	explicit,
+	inset,
+	resolvedEntries,
+	runningIndicator = "spinner",
+	statuses,
+	usage,
+}: ReadGroupCardProps & {
+	explicit: boolean;
+	resolvedEntries: ResolvedReadEntry[];
+	statuses: ReadonlyMap<string, ReadEntryStatus>;
 }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
 	const rows = mergeReadGroupEntries(entries);
 	const single = entries.length === 1;
 	const pad = inset ? "py-0.5" : "ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-0.5";
-
-	// One primitive snapshot for this group's calls: unrelated tool events may
-	// replace the store Map without re-rendering historical read groups.
-	const statusKey = useToolsStore(s =>
-		entries.map(entry => statusOf(s.activeTools.get(entry.toolKey)?.status)).join("|"),
-	);
-	const statuses = useMemo(() => {
-		const values = statusKey.split("|") as Array<"pending" | "success" | "error">;
-		return new Map(entries.map((entry, index) => [entry.toolKey, values[index] ?? "success"]));
-	}, [entries, statusKey]);
 	const anyPending = entries.some(entry => statuses.get(entry.toolKey) === "pending");
 	const anyError = entries.some(entry => statuses.get(entry.toolKey) === "error");
 
 	if (single) {
-		const entry = entries[0]!;
+		const resolved = resolvedEntries[0]!;
+		const entry = resolved.source;
 		const status = statuses.get(entry.toolKey);
 		return (
 			<div className={cx("omp-read-group", pad)}>
@@ -83,7 +158,13 @@ export function ReadGroupCard({
 				</button>
 				{open && (
 					<div className="omp-read-group-body ml-4 mt-1">
-						<ToolCard toolCallId={entry.toolKey} toolName="read" args={entry.args} runningIndicator="dot" />
+						<ToolCard
+							toolCallId={resolved.key}
+							toolName="read"
+							args={entry.args}
+							entry={explicit ? (resolved.entry ?? null) : undefined}
+							runningIndicator="dot"
+						/>
 					</div>
 				)}
 				{usage?.map((item, index) => (
@@ -138,12 +219,13 @@ export function ReadGroupCard({
 			</div>
 			{open && (
 				<div className="omp-read-group-body ml-6 mt-1 space-y-1.5">
-					{entries.map(entry => (
+					{resolvedEntries.map(resolved => (
 						<ToolCard
-							key={entry.toolKey}
-							toolCallId={entry.toolKey}
+							key={resolved.key}
+							toolCallId={resolved.key}
 							toolName="read"
-							args={entry.args}
+							args={resolved.source.args}
+							entry={explicit ? (resolved.entry ?? null) : undefined}
 							runningIndicator="dot"
 						/>
 					))}

@@ -1,9 +1,9 @@
 /**
- * switchSessionNow F-OWN owner-guard contract tests: a session already
- * attached to a tab routes to the owner (switch in-window / focus the foreign
- * window) instead of double-attaching; main's raced refusal
- * (session_owned_elsewhere) routes via the error payload; ordinary failures
- * still toast.
+ * Session replacement transaction and F-OWN owner-guard contract tests.
+ * Successful same-tab replacements select Main before hydration, while
+ * rejected, cancelled, and failed replacements preserve the selected target.
+ * Owned sessions route to the existing tab or window instead of attaching
+ * twice, and ordinary failures still toast.
  *
  * Harness: linkedom globals (hydrateSession's store graph expects them) +
  * a mocked window.omp, same shape as tabs.test.tsx.
@@ -13,6 +13,7 @@ import { parseHTML } from "linkedom";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
 import type { RpcResponse, RpcSessionState } from "../../shared/rpc-types";
+import { useAgentViewStore } from "../stores/agent-view";
 import { useComposerStore } from "../stores/composer";
 import { useForkHandoffStore } from "../stores/fork-handoff";
 import { useMessagesStore } from "../stores/messages";
@@ -138,8 +139,13 @@ function seedTabs(): void {
 	});
 }
 
+function selectSubagentTarget(): void {
+	useAgentViewStore.setState({ target: { kind: "subagent", id: "old-agent" } });
+}
+
 function resetAll(): void {
 	useTabsStore.getState().reset();
+	useAgentViewStore.getState().selectMain();
 	useComposerStore.getState().reset();
 	useSessionStore.getState().reset();
 	useMessagesStore.getState().reset();
@@ -164,8 +170,9 @@ afterEach(() => {
 
 omp = installMockOmp();
 
-describe("switchSessionNow F-OWN owner guard", () => {
-	it("clears old todo history and agents before a successful new session hydrates", async () => {
+describe("session replacement transactions and F-OWN owner guard", () => {
+	it("selects Main before a successful new session begins replacement hydration", async () => {
+		selectSubagentTarget();
 		useTodoStore.getState().setPhases([{ name: "old phase", tasks: [] }]);
 		useTodoStore.getState().setPhases([{ name: "old updated phase", tasks: [] }]);
 		useSubagentsStore.setState({
@@ -173,16 +180,24 @@ describe("switchSessionNow F-OWN owner guard", () => {
 				["old-agent", { id: "old-agent", index: 0, agent: "task", status: "completed", lastUpdate: 1 }],
 			]),
 		});
-		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "fresh" })));
+		const hydrationStarted = Promise.withResolvers<void>();
+		omp.rpc.getState.mockImplementation(async () => {
+			hydrationStarted.resolve();
+			return ok(serverState({ sessionId: "fresh" }));
+		});
 
-		await newSessionNow();
+		const replacing = newSessionNow();
+		await hydrationStarted.promise;
 
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
+		await replacing;
 		expect(useTodoStore.getState()).toMatchObject({ phases: [], history: [], historyHydrated: true });
 		expect(useSubagentsStore.getState().subagents.size).toBe(0);
 		expect(useSessionStore.getState().sessionId).toBe("fresh");
 	});
 
 	it("preserves the old surface when a new-session hook cancels the transition", async () => {
+		selectSubagentTarget();
 		useTodoStore.getState().setPhases([{ name: "old phase", tasks: [] }]);
 		useSubagentsStore.setState({
 			subagents: new Map([
@@ -195,24 +210,68 @@ describe("switchSessionNow F-OWN owner guard", () => {
 
 		expect(useTodoStore.getState().phases).toHaveLength(1);
 		expect(useSubagentsStore.getState().subagents.has("old-agent")).toBe(true);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "old-agent" });
 		expect(omp.rpc.getState).not.toHaveBeenCalled();
 	});
 
-	it("clears the attached task before projecting its replacement after deletion", async () => {
+	it("preserves the selected target when the new-session replacement rejects", async () => {
+		selectSubagentTarget();
+		omp.rpc.newSession.mockRejectedValue(new Error("new session rejected"));
+
+		await expect(newSessionNow()).rejects.toThrow("new session rejected");
+
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "old-agent" });
+		expect(omp.rpc.getState).not.toHaveBeenCalled();
+	});
+
+	it("selects Main before a successful drop begins replacement hydration", async () => {
+		selectSubagentTarget();
 		useMessagesStore.setState({ messages: [{ id: "old-message", role: "user", content: "old" }] });
 		useSubagentsStore.setState({
 			subagents: new Map([
 				["old-agent", { id: "old-agent", index: 0, agent: "task", status: "completed", lastUpdate: 1 }],
 			]),
 		});
-		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "replacement" })));
+		const hydrationStarted = Promise.withResolvers<void>();
+		omp.rpc.getState.mockImplementation(async () => {
+			hydrationStarted.resolve();
+			return ok(serverState({ sessionId: "replacement" }));
+		});
 
-		await dropSessionNow();
+		const replacing = dropSessionNow();
+		await hydrationStarted.promise;
 
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
+		await replacing;
 		expect(omp.rpc.dropSession).toHaveBeenCalledOnce();
 		expect(useMessagesStore.getState().messages).toEqual([]);
 		expect(useSubagentsStore.getState().subagents.size).toBe(0);
 		expect(useSessionStore.getState().sessionId).toBe("replacement");
+	});
+
+	it("preserves the selected target when the drop-session replacement fails", async () => {
+		selectSubagentTarget();
+		omp.rpc.dropSession.mockResolvedValue({
+			type: "response",
+			command: "drop_session",
+			success: false,
+			error: "drop failed",
+		});
+
+		await expect(dropSessionNow()).rejects.toThrow("drop failed");
+
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "old-agent" });
+		expect(omp.rpc.getState).not.toHaveBeenCalled();
+	});
+
+	it("preserves the selected target when the drop-session hook cancels replacement", async () => {
+		selectSubagentTarget();
+		omp.rpc.dropSession.mockResolvedValue(ok({ cancelled: true }));
+
+		await dropSessionNow();
+
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "old-agent" });
+		expect(omp.rpc.getState).not.toHaveBeenCalled();
 	});
 
 	it("routes to the owning tab in this window without issuing switch_session", async () => {
@@ -244,12 +303,21 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
 	});
 
-	it("switches in place when no tab owns the session", async () => {
+	it("selects Main before a successful in-place switch begins replacement hydration", async () => {
 		seedTabs();
+		selectSubagentTarget();
 		omp.tabs.getSessionOwner.mockResolvedValue(null);
+		const hydrationStarted = Promise.withResolvers<void>();
+		omp.rpc.getState.mockImplementation(async () => {
+			hydrationStarted.resolve();
+			return ok(serverState());
+		});
 
-		const result = await switchSessionNow(session("/sessions/x.jsonl"));
+		const switching = switchSessionNow(session("/sessions/x.jsonl"));
+		await hydrationStarted.promise;
 
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
+		const result = await switching;
 		expect(result).toBe(true);
 		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/sessions/x.jsonl");
 		// The existing flow hydrated after the switch.
@@ -364,6 +432,7 @@ describe("switchSessionNow F-OWN owner guard", () => {
 
 	it("keeps ordinary switch failures as error toasts", async () => {
 		seedTabs();
+		selectSubagentTarget();
 		omp.rpc.switchSession.mockResolvedValue({
 			type: "response",
 			command: "switch_session",
@@ -375,6 +444,19 @@ describe("switchSessionNow F-OWN owner guard", () => {
 
 		expect(result).toBe(false);
 		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "old-agent" });
+	});
+
+	it("preserves the selected target when an in-place switch is cancelled", async () => {
+		seedTabs();
+		selectSubagentTarget();
+		omp.rpc.switchSession.mockResolvedValue(ok({ cancelled: true }));
+
+		const result = await switchSessionNow(session("/sessions/x.jsonl"));
+
+		expect(result).toBe(false);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "old-agent" });
+		expect(omp.rpc.getState).not.toHaveBeenCalled();
 	});
 
 	it("keeps the outgoing transcript when switch_session fails", async () => {

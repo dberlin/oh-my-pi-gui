@@ -1,7 +1,13 @@
 import { promises as fsp } from "node:fs";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { IPC_COMMANDS, type SessionTarget } from "../shared/ipc-types";
-import { type IpcDeps, readRendererPreference, registerIpcHandlers, writeRendererPreference } from "./ipc";
+import {
+	type IpcDeps,
+	parsePersistedSubagentMessages,
+	readRendererPreference,
+	registerIpcHandlers,
+	writeRendererPreference,
+} from "./ipc";
 
 const ipcTestState = vi.hoisted(() => ({
 	handlers: new Map<string, (...args: unknown[]) => unknown>(),
@@ -440,5 +446,65 @@ describe("renderer side-channel response ownership", () => {
 		expect(fixture.routeSideChannel).not.toHaveBeenCalled();
 		expect(fixture.sidecarForWindow).not.toHaveBeenCalled();
 		expect(fixture.sendSideChannel).not.toHaveBeenCalled();
+	});
+});
+
+describe("persisted subagent transcripts", () => {
+	it("extracts message entries and ignores metadata plus an incomplete trailing row", () => {
+		const message = { role: "assistant", content: [{ type: "text", text: "finished" }], timestamp: 7 };
+		const content = [
+			JSON.stringify({ type: "session", id: "child" }),
+			JSON.stringify({ type: "message", message }),
+			'{"type":"message","message":',
+		].join("\n");
+
+		expect(parsePersistedSubagentMessages(content)).toEqual([message]);
+	});
+
+	it("reads a child transcript from the active SSH host's session store", async () => {
+		const sender = {};
+		const win = { webContents: { id: 71 } };
+		const sessionFile = "/home/build/.omp/agent/sessions/project/parent/Scout.jsonl";
+		const message = { role: "assistant", content: [{ type: "text", text: "remote result" }], timestamp: 8 };
+		const data = new TextEncoder().encode(JSON.stringify({ type: "message", message }));
+		const resolveRuntime = vi.fn(async () => ({
+			ok: true as const,
+			target: SSH_TARGET,
+			runtime: {
+				home: "/home/build",
+				platform: "linux" as const,
+				shell: "/bin/sh",
+				executable: "/usr/bin/omp",
+				runtimePath: ["/usr/bin"],
+			},
+		}));
+		const readFile = vi.fn(async () => ({ ok: true as const, data, size: data.byteLength, truncated: false }));
+		const deps = {
+			sidecarPool: {
+				activeTabForWindow: vi.fn(() => "tab-1"),
+				tabsForWindow: vi.fn(() => [{ tabId: "tab-1", target: SSH_TARGET }]),
+			},
+			sessionIndex: {},
+			statsClient: {},
+			logWatcher: {},
+			windowManager: {},
+			spawnWindow: vi.fn(),
+			remoteSsh: { resolveRuntime, readFile },
+			remoteHostCatalog: {},
+			remoteAcp: {},
+		} as unknown as IpcDeps;
+		ipcTestState.fromWebContents.mockReturnValue(win);
+		registerIpcHandlers(deps);
+
+		const result = await invokeProjectHandler(
+			IPC_COMMANDS.SESSION_READ_SUBAGENT_TRANSCRIPT,
+			{ sender },
+			{
+				sessionFile,
+			},
+		);
+
+		expect(result).toEqual({ ok: true, messages: [message] });
+		expect(readFile).toHaveBeenCalledWith(SSH_TARGET, sessionFile, ["/home/build/.omp/agent/sessions"], 25_000_001);
 	});
 });

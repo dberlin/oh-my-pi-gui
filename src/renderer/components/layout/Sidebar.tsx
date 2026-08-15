@@ -993,7 +993,9 @@ export function Sidebar() {
 												<Server size={11} className="shrink-0 text-[var(--omp-accent)]" />
 												<span className="min-w-0 flex-1 truncate">{aliasLabel}</span>
 												{hostState.historyStatus === "ready" && (
-													<span className="shrink-0 tabular-nums font-normal">{remoteSessions.length}</span>
+													<span className="shrink-0 tabular-nums font-normal">
+														{remoteSessions.length}
+													</span>
 												)}
 											</button>
 											<button

@@ -3,12 +3,14 @@
  * run-settings portals. The latter protects option clicks from the parent
  * menu's outside-dismiss listener.
  */
-import { parseHTML } from "linkedom";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { InputArea } from "./InputArea";
+import { act } from "react";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import { createRoot, type Root } from "react-dom/client";
+import { parseHTML } from "linkedom";
+import { useAgentViewStore } from "../../stores/agent-view";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
@@ -17,7 +19,6 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { InputArea } from "./InputArea";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -156,6 +157,7 @@ async function mount(): Promise<void> {
 			setPlanMode,
 		},
 	};
+	useAgentViewStore.getState().selectMain();
 	useModelStore.setState({
 		thinkingLevel: "high",
 		thinkingConfigured: "high",
@@ -193,6 +195,7 @@ async function mount(): Promise<void> {
 afterEach(async () => {
 	await act(async () => root.unmount());
 	container.remove();
+	useAgentViewStore.getState().reset();
 	useSessionStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useModelStore.getState().reset();

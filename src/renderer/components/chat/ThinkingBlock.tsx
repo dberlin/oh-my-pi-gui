@@ -13,16 +13,17 @@ import {
 	THINKING_GLYPH_FRAMES,
 	thinkingGlyphFrameDelay,
 } from "../../lib/thinking";
-import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useSettingsStore } from "../../stores/settings";
 import { useUiStore } from "../../stores/ui";
 
 export interface ThinkingBlockProps {
-	/** Finalized thinking text (from a completed message). */
+	/** Finalized or live thinking text from the owning transcript projection. */
 	text?: string;
-	/** Render the live streamingThinking buffer instead of `text`. */
+	/** Apply live animation, throttling, and speed behavior to `text`. */
 	live?: boolean;
+	/** Whether reply text has started, which settles the hidden-thinking pulse. */
+	streamingTextStarted?: boolean;
 	/** Start/end (epoch ms or ISO) for the duration badge. */
 	startTime?: number | string;
 	endTime?: number | string;
@@ -58,12 +59,15 @@ const GAUGE_TICK_MS = 500;
  * thinking-level accent (--omp-thinking-*). Settings arrive via get_settings
  * (settings store) and re-render live on config_update.
  */
-export function ThinkingBlock({ text, live = false, startTime, endTime, level }: ThinkingBlockProps) {
+export function ThinkingBlock({
+	text = "",
+	live = false,
+	streamingTextStarted = false,
+	startTime,
+	endTime,
+	level,
+}: ThinkingBlockProps) {
 	const t = useT();
-	// Finalized blocks must not subscribe to the live buffer: every thinking
-	// delta would re-render every mounted history block in the window.
-	const streamingThinking = useMessagesStore(s => (live ? s.streamingThinking : ""));
-	const streamingTextStarted = useMessagesStore(s => s.streamingText.length > 0);
 	const storeLevel = useModelStore(s => s.thinkingLevel);
 	const tokensPerSecond = useModelStore(s => s.tokensPerSecond);
 	const hideThinkingBlock = useSettingsStore(s => s.hideThinkingBlock);
@@ -74,7 +78,7 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 	// chevron click then overrides until the pref changes again.
 	useEffect(() => setOpen(thinkingExpanded), [thinkingExpanded]);
 
-	const content = live ? streamingThinking : (text ?? "");
+	const content = text;
 	const isLive = live && content.length > 0;
 	// Raw length still drives the live speed gauge, but formatting, word/line
 	// counts, and Markdown parse share the same bounded cadence as reply text.
