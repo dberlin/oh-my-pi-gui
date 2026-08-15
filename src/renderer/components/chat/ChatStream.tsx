@@ -11,11 +11,7 @@ import { useTodoStore } from "../../stores/todo";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { SubagentTranscript } from "../panels/SubagentTranscript";
-import {
-	StreamingRows as ProjectedStreamingRows,
-	TranscriptViewport,
-	TurnStatusRow as ProjectedTurnStatusRow,
-} from "./TranscriptViewport";
+import { TranscriptViewport } from "./TranscriptViewport";
 import { messageTimestampMs } from "./chat-stream-utils";
 
 /** Selected-target canvas adapter. Main and projected transcripts share the same workspace slot. */
@@ -106,49 +102,6 @@ function MainTranscript() {
 	);
 }
 
-/**
- * Compatibility test seam for the active session. The shared implementation
- * remains in TranscriptViewport; this wrapper supplies only Main store state.
- */
-export function StreamingRows({
-	expanded,
-	onExpandedChange,
-}: {
-	expanded: boolean;
-	onExpandedChange: (expanded: boolean) => void;
-}) {
-	const streamingMessage = useMessagesStore(state => state.streamingMessage);
-	const streamingText = useMessagesStore(state => state.streamingText);
-	const streamingThinking = useMessagesStore(state => state.streamingThinking);
-	const activeTools = useToolsStore(state => state.activeTools);
-	const transcriptDetail = useUiStore(state => state.transcriptDetail);
-	return (
-		<ProjectedStreamingRows
-			activeTools={activeTools}
-			expanded={expanded}
-			isolateTools={false}
-			onExpandedChange={onExpandedChange}
-			streamingMessage={streamingMessage}
-			streamingText={streamingText}
-			streamingThinking={streamingThinking}
-			transcriptDetail={transcriptDetail}
-		/>
-	);
-}
-
-/** Compatibility test seam for Main's store-backed transient status row. */
-export function TurnStatusRow() {
-	const awaitingModelSince = useSessionStore(state => state.awaitingModelSince);
-	const compactionInfo = useSessionStore(state => state.compactionInfo);
-	const retryInfo = useSessionStore(state => state.retryInfo);
-	return (
-		<ProjectedTurnStatusRow
-			awaitingModelSince={awaitingModelSince}
-			compactionInfo={compactionInfo}
-			retryInfo={retryInfo}
-		/>
-	);
-}
 
 export type { HistoryRow, Row } from "./chat-stream-utils";
 // Re-export transcript helpers for consumers/tests that import them from ChatStream.

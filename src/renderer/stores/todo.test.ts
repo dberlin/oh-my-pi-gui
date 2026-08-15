@@ -26,6 +26,35 @@ describe("todo snapshot archive", () => {
 		expect(useTodoStore.getState().historyHydrated).toBe(true);
 	});
 
+	it("records and retains whether each normalized phase and task ID was generated or explicitly supplied", () => {
+		useTodoStore.getState().setPhases([
+			{
+				name: "Build",
+				tasks: [
+					{ content: "generated", status: "pending" },
+					{ id: "phase:0:Build:task:1", content: "explicit", status: "pending" } as never,
+				],
+			},
+			{ id: "phase:1:Explicit", name: "Explicit", tasks: [] } as never,
+		]);
+
+		expect(
+			useTodoStore.getState().phases[0]?.tasks.map(task => ({
+				generatedId: task.generatedId,
+				id: task.id,
+			})),
+		).toEqual([
+			{ generatedId: true, id: "phase:0:Build:task:0" },
+			{ generatedId: false, id: "phase:0:Build:task:1" },
+		]);
+		expect(useTodoStore.getState().phases.map(item => item.generatedId)).toEqual([true, false]);
+
+		const normalized = useTodoStore.getState().phases;
+		useTodoStore.getState().setPhases(normalized);
+		expect(useTodoStore.getState().phases[0]?.tasks.map(task => task.generatedId)).toEqual([true, false]);
+		expect(useTodoStore.getState().phases.map(item => item.generatedId)).toEqual([true, false]);
+	});
+
 	it("appends a snapshot only when the phases semantically change", () => {
 		const store = useTodoStore.getState();
 		store.setPhases([phase("Build", ["scaffold", "pending"])]);

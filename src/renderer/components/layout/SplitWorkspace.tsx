@@ -15,10 +15,10 @@ import { useT } from "../../lib/i18n";
 import { SessionRuntimeProvider } from "../../stores/session-runtime-context";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { type SplitAxis, type SplitPlacement, tabDisplayTitle, useTabsStore } from "../../stores/tabs";
-import { AgentViewTranscriptSlot } from "../chat/AgentViewContextBar";
+import { AgentViewContextBar } from "../chat/AgentViewContextBar";
 import { ChatCanvas } from "../chat/ChatStream";
-import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { InputArea } from "./InputArea";
+import { WorkspaceCanvas } from "./WorkspaceCanvas";
 
 const DIVIDER_SIZE = 5;
 const RATIO_STEP = 0.05;
@@ -111,16 +111,12 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 						</button>
 					</header>
 				)}
-				<div className="relative flex min-h-0 flex-1 flex-col">
-					<AgentViewTranscriptSlot>
+				<AgentViewContextBar />
+				<WorkspaceCanvas>
+					<div className="flex min-h-0 min-w-0 flex-1" data-chat-canvas>
 						<ChatCanvas />
-					</AgentViewTranscriptSlot>
-					<div className="omp-composer-region relative shrink-0 bg-transparent pt-2">
-						<div className="omp-composer-shell relative w-full">
-							<WorkspaceDock />
-						</div>
 					</div>
-				</div>
+				</WorkspaceCanvas>
 				<InputArea />
 			</section>
 		</SessionRuntimeProvider>

@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { useSessionStore } from "../stores/session";
 import { useToastStore } from "../stores/toast";
+import { useTodoStore } from "../stores/todo";
 import { useUiStore } from "../stores/ui";
 import { buildCommandMenu, type CommandAffordance, type CommandRegistryContext } from "./command-registry";
 import { translate } from "./i18n";
@@ -52,7 +53,7 @@ const baseCtx: CommandRegistryContext = {
 	openHotkeys: () => {},
 	openImportDialog: () => {},
 	openProviderConfig: () => {},
-	focusDockCard: () => {},
+	focusActivitySection: () => {},
 	retryTurn: async () => {},
 	retryLastTurn: async () => {},
 	forkSession: async () => {},
@@ -84,6 +85,7 @@ let confirmMock: Mock;
 let dispatchMock: Mock;
 let sidecarRestart: Mock;
 let hydrateSession: Mock;
+let focusActivitySection: Mock;
 let ctx: CommandRegistryContext;
 
 beforeEach(() => {
@@ -102,7 +104,13 @@ beforeEach(() => {
 		dispatchEvent: dispatchMock,
 	};
 	hydrateSession = vi.fn(async () => {});
-	ctx = { ...baseCtx, hydrateSession, rpc: { ...baseCtx.rpc, setPrewalk: rpc.setPrewalk } };
+	focusActivitySection = vi.fn();
+	ctx = {
+		...baseCtx,
+		focusActivitySection,
+		hydrateSession,
+		rpc: { ...baseCtx.rpc, setPrewalk: rpc.setPrewalk },
+	};
 	useToastStore.setState({ toasts: [] });
 	useSessionStore.setState({ isStreaming: false, isCompacting: false, prewalkArmed: false });
 	useUiStore.setState({ forceToolOpen: false });
@@ -110,6 +118,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	delete (globalThis as Record<string, unknown>).window;
+	useTodoStore.getState().reset();
 });
 
 const wired = (name: string): CommandAffordance => {

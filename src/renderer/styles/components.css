@@ -453,19 +453,19 @@
 	background: transparent;
 }
 
-.omp-transcript-editorial {
+.omp-editorial-transcript {
 	--omp-editorial-inset: var(--omp-column-pad);
 	--omp-editorial-edge: var(--omp-column-pad);
 }
 
-.omp-transcript-editorial .omp-transcript-content {
+.omp-editorial-transcript .omp-transcript-content {
 	flex: 1 1 0;
 	width: 100%;
 	min-width: 0;
 	max-width: 100%;
 }
 
-.omp-transcript-editorial .omp-transcript-scroll {
+.omp-editorial-transcript .omp-transcript-scroll {
 	scrollbar-gutter: stable;
 	/* TanStack Virtual owns transcript anchoring. Native browser anchoring can
 	   otherwise move the viewport a second time as the live row grows/swaps. */
@@ -627,7 +627,7 @@
 	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
 }
 
-.omp-transcript-editorial .omp-transcript-row {
+.omp-editorial-transcript .omp-transcript-row {
 	position: relative;
 	width: 100%;
 	min-width: 0;
@@ -635,16 +635,16 @@
 	margin-inline: auto;
 }
 
-.omp-transcript-editorial [data-transcript-kind] > .omp-transcript-row::before {
+.omp-editorial-transcript [data-transcript-kind] > .omp-transcript-row::before {
 	content: none;
 }
 
-.omp-transcript-editorial .omp-user-turn {
+.omp-editorial-transcript .omp-user-turn {
 	justify-content: flex-start;
 	padding: 18px var(--omp-editorial-edge) 12px var(--omp-editorial-inset) !important;
 }
 
-.omp-transcript-editorial .omp-user-bubble {
+.omp-editorial-transcript .omp-user-bubble {
 	border: 0;
 	border-left: 2px solid var(--omp-transcript-user-border);
 	border-radius: 0;
@@ -653,30 +653,30 @@
 	padding: 8px 0 8px 12px;
 }
 
-.omp-transcript-editorial .omp-user-bubble-layout {
+.omp-editorial-transcript .omp-user-bubble-layout {
 	display: grid;
 	grid-template-columns: 24px minmax(0, 1fr);
 	align-items: start;
 	gap: 10px;
 }
 
-.omp-transcript-editorial .omp-user-bubble-author {
+.omp-editorial-transcript .omp-user-bubble-author {
 	padding-top: 2px;
 	font-size: calc(var(--gui-font-size, 15px) * 12 / 15);
 	font-weight: 650;
 	color: var(--omp-text);
 }
 
-.omp-transcript-editorial .omp-user-bubble-content {
+.omp-editorial-transcript .omp-user-bubble-content {
 	min-width: 0;
 }
 
-.omp-transcript-editorial .omp-user-bubble-content .markdown-body p:first-child,
-.omp-transcript-editorial .omp-user-bubble-content .markdown-body p:last-child {
+.omp-editorial-transcript .omp-user-bubble-content .markdown-body p:first-child,
+.omp-editorial-transcript .omp-user-bubble-content .markdown-body p:last-child {
 	margin-block: 0;
 }
 
-.omp-transcript-editorial .omp-user-bubble-actions {
+.omp-editorial-transcript .omp-user-bubble-actions {
 	justify-content: flex-end;
 	margin-top: 8px;
 	opacity: 0;
@@ -684,21 +684,21 @@
 	transition: opacity var(--omp-motion-fast) var(--omp-ease);
 }
 
-.omp-transcript-editorial .omp-user-bubble:hover .omp-user-bubble-actions,
-.omp-transcript-editorial .omp-user-bubble:focus-within .omp-user-bubble-actions {
+.omp-editorial-transcript .omp-user-bubble:hover .omp-user-bubble-actions,
+.omp-editorial-transcript .omp-user-bubble:focus-within .omp-user-bubble-actions {
 	opacity: 1;
 	pointer-events: auto;
 }
 
-.omp-transcript-editorial .omp-assistant-turn {
+.omp-editorial-transcript .omp-assistant-turn {
 	padding: 8px var(--omp-editorial-edge) 12px var(--omp-editorial-inset) !important;
 }
 
-.omp-transcript-editorial .omp-assistant-turn--compact {
+.omp-editorial-transcript .omp-assistant-turn--compact {
 	padding: 1px var(--omp-editorial-edge) 1px var(--omp-editorial-inset) !important;
 }
 
-.omp-transcript-editorial .omp-process-group {
+.omp-editorial-transcript .omp-process-group {
 	position: relative;
 	padding-block: 1px 3px;
 }
@@ -725,11 +725,11 @@
 	padding: 0 0 2px 10px;
 }
 
-.omp-transcript-editorial .omp-execution-group-title {
+.omp-editorial-transcript .omp-execution-group-title {
 	display: none;
 }
 
-.omp-transcript-editorial .omp-execution-group-summary {
+.omp-editorial-transcript .omp-execution-group-summary {
 	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
 }
 
@@ -758,7 +758,7 @@
 	opacity: 0.55;
 }
 
-.omp-transcript-editorial .omp-tool-card {
+.omp-editorial-transcript .omp-tool-card {
 	margin: 0;
 	border: 0;
 	border-radius: 0;
@@ -766,37 +766,37 @@
 	box-shadow: none !important;
 }
 
-.omp-transcript-editorial .omp-tool-card > span[aria-hidden] {
+.omp-editorial-transcript .omp-tool-card > span[aria-hidden] {
 	display: none;
 }
 
-.omp-transcript-editorial .omp-tool-status-icon {
+.omp-editorial-transcript .omp-tool-status-icon {
 	display: none;
 }
 
-.omp-transcript-editorial .omp-tool-header {
+.omp-editorial-transcript .omp-tool-header {
 	min-height: 24px;
 	padding: 2px 0;
 	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
 }
 
-.omp-transcript-editorial .omp-tool-header:hover {
+.omp-editorial-transcript .omp-tool-header:hover {
 	background: color-mix(in srgb, var(--omp-selected-bg) 28%, transparent);
 }
 
-.omp-transcript-editorial .omp-tool-name {
+.omp-editorial-transcript .omp-tool-name {
 	min-width: 34px;
 	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
 	font-weight: 700;
 	letter-spacing: 0;
 }
 
-.omp-transcript-editorial .omp-tool-summary {
+.omp-editorial-transcript .omp-tool-summary {
 	font-size: calc(var(--gui-font-size, 15px) * 10 / 15);
 	color: var(--omp-muted);
 }
 
-.omp-transcript-editorial .omp-tool-duration {
+.omp-editorial-transcript .omp-tool-duration {
 	min-width: 44px;
 	border-radius: 0;
 	background: transparent;
@@ -806,16 +806,16 @@
 	color: var(--omp-muted);
 }
 
-.omp-transcript-editorial .omp-tool-chevron {
+.omp-editorial-transcript .omp-tool-chevron {
 	opacity: 0.58;
 }
 
-.omp-transcript-editorial .omp-tool-header:hover .omp-tool-chevron,
-.omp-transcript-editorial .omp-tool-header:focus-visible .omp-tool-chevron {
+.omp-editorial-transcript .omp-tool-header:hover .omp-tool-chevron,
+.omp-editorial-transcript .omp-tool-header:focus-visible .omp-tool-chevron {
 	opacity: 0.95;
 }
 
-.omp-transcript-editorial .omp-tool-body {
+.omp-editorial-transcript .omp-tool-body {
 	border-top: 0;
 	min-width: 0;
 	max-height: min(18rem, 34vh);
@@ -824,30 +824,30 @@
 	padding: 4px 0 7px 12px;
 }
 
-.omp-transcript-editorial .omp-execution-turn,
-.omp-transcript-editorial .omp-context-turn,
-.omp-transcript-editorial .omp-custom-turn,
-.omp-transcript-editorial .omp-status-turn {
+.omp-editorial-transcript .omp-execution-turn,
+.omp-editorial-transcript .omp-context-turn,
+.omp-editorial-transcript .omp-custom-turn,
+.omp-editorial-transcript .omp-status-turn {
 	padding: 12px var(--omp-editorial-edge) 16px var(--omp-editorial-inset) !important;
 }
 
-.omp-transcript-editorial .omp-execution-turn,
-.omp-transcript-editorial .omp-context-turn,
-.omp-transcript-editorial .omp-custom-turn {
+.omp-editorial-transcript .omp-execution-turn,
+.omp-editorial-transcript .omp-context-turn,
+.omp-editorial-transcript .omp-custom-turn {
 	display: flex;
 	justify-content: flex-start;
 }
 
-.omp-transcript-editorial .omp-history-expander {
+.omp-editorial-transcript .omp-history-expander {
 	margin: 8px var(--omp-editorial-edge) 8px var(--omp-editorial-inset) !important;
 }
 
-.omp-transcript-editorial .omp-read-group {
+.omp-editorial-transcript .omp-read-group {
 	position: relative;
 	padding: 4px var(--omp-editorial-edge) 6px var(--omp-editorial-inset) !important;
 }
 
-.omp-transcript-editorial .omp-read-group-header {
+.omp-editorial-transcript .omp-read-group-header {
 	min-height: 26px;
 	border: 0 !important;
 	border-radius: 0;
@@ -856,41 +856,41 @@
 	font-size: calc(var(--gui-font-size, 15px) * 11.5 / 15);
 }
 
-.omp-transcript-editorial .omp-read-group-header:hover {
+.omp-editorial-transcript .omp-read-group-header:hover {
 	background: transparent !important;
 }
 
-.omp-transcript-editorial .omp-read-group-body {
+.omp-editorial-transcript .omp-read-group-body {
 	margin-left: 16px;
 	margin-top: 2px;
 }
 
-.omp-transcript-editorial .omp-streaming-turn > * {
+.omp-editorial-transcript .omp-streaming-turn > * {
 	flex: 0 0 auto;
 	width: 100%;
 	min-width: 0;
 	max-width: 100%;
 }
 
-.omp-transcript-editorial .omp-thinking-block {
+.omp-editorial-transcript .omp-thinking-block {
 	margin: 3px 0 9px;
 	border: 0 !important;
 	border-radius: 0;
 	background: transparent !important;
 }
 
-.omp-transcript-editorial .omp-thinking-header {
+.omp-editorial-transcript .omp-thinking-header {
 	min-height: 24px;
 	padding: 2px 0;
 	font-size: calc(var(--gui-font-size, 15px) * 10.5 / 15);
 	letter-spacing: 0.01em;
 }
 
-.omp-transcript-editorial .omp-thinking-header:hover {
+.omp-editorial-transcript .omp-thinking-header:hover {
 	background: transparent;
 }
 
-.omp-transcript-editorial .omp-thinking-body {
+.omp-editorial-transcript .omp-thinking-body {
 	max-height: min(12rem, 30vh);
 	margin-left: 0;
 	border-left: 0;
@@ -899,101 +899,101 @@
 	line-height: 1.42;
 }
 
-.omp-transcript-editorial .omp-thinking-brain,
-.omp-transcript-editorial .omp-thinking-level,
-.omp-transcript-editorial .omp-thinking-gauge,
-.omp-transcript-editorial .omp-thinking-count,
-.omp-transcript-editorial .omp-thinking-duration {
+.omp-editorial-transcript .omp-thinking-brain,
+.omp-editorial-transcript .omp-thinking-level,
+.omp-editorial-transcript .omp-thinking-gauge,
+.omp-editorial-transcript .omp-thinking-count,
+.omp-editorial-transcript .omp-thinking-duration {
 	display: none;
 }
 
-.omp-transcript-editorial .omp-thinking-state,
-.omp-transcript-editorial .omp-thinking-fold-state {
+.omp-editorial-transcript .omp-thinking-state,
+.omp-editorial-transcript .omp-thinking-fold-state {
 	font-weight: 600;
 }
 
-.omp-transcript-editorial .omp-thinking-hint {
+.omp-editorial-transcript .omp-thinking-hint {
 	display: none;
 }
 
-.omp-transcript-editorial .omp-thinking-fold-state {
+.omp-editorial-transcript .omp-thinking-fold-state {
 	display: none;
 }
 
-.omp-transcript-editorial .omp-thinking-count {
+.omp-editorial-transcript .omp-thinking-count {
 	display: inline;
 	margin-left: 4px;
 	font-size: calc(var(--gui-font-size, 15px) * 9.5 / 15);
 	color: var(--omp-dim);
 }
 
-.omp-transcript-editorial .omp-thinking-block--pulse {
+.omp-editorial-transcript .omp-thinking-block--pulse {
 	padding-left: 12px;
 }
 
-.omp-transcript-editorial .omp-assistant-turn .markdown-body,
-.omp-transcript-editorial .omp-assistant-turn .omp-streaming-tail,
-.omp-transcript-editorial .omp-streaming-turn > .markdown-body {
+.omp-editorial-transcript .omp-assistant-turn .markdown-body,
+.omp-editorial-transcript .omp-assistant-turn .omp-streaming-tail,
+.omp-editorial-transcript .omp-streaming-turn > .markdown-body {
 	font-size: calc(var(--gui-font-size, 15px) * 13 / 15);
 	line-height: 1.52;
 	color: var(--omp-text);
 }
 
-.omp-transcript-editorial .omp-assistant-turn--compact > .min-w-0 > .markdown-body {
+.omp-editorial-transcript .omp-assistant-turn--compact > .min-w-0 > .markdown-body {
 	font-size: calc(var(--gui-font-size, 15px) * 11.5 / 15);
 	line-height: 1.4;
 }
 
 /* Reasoning stays visually subordinate to the assistant response. */
-.omp-transcript-editorial .omp-thinking-body .markdown-body {
+.omp-editorial-transcript .omp-thinking-body .markdown-body {
 	font-size: calc(var(--gui-font-size, 15px) * 10.5 / 15);
 	line-height: 1.42;
 	color: var(--omp-dim);
 }
 
-.omp-transcript-editorial .omp-thinking-body .markdown-body :is(h1, h2, h3, h4, h5, h6, strong) {
+.omp-editorial-transcript .omp-thinking-body .markdown-body :is(h1, h2, h3, h4, h5, h6, strong) {
 	color: var(--omp-dim);
 	font-weight: 400;
 }
 
-.omp-transcript-editorial .omp-thinking-body .markdown-body p {
+.omp-editorial-transcript .omp-thinking-body .markdown-body p {
 	margin: 0.42em 0;
 }
 
-.omp-transcript-editorial .omp-thinking-body .markdown-body :is(table, thead, tbody, tr, th, td) {
+.omp-editorial-transcript .omp-thinking-body .markdown-body :is(table, thead, tbody, tr, th, td) {
 	border: 0;
 	background: transparent;
 }
 
-.omp-transcript-editorial .omp-thinking-body .markdown-body :is(th, td) {
+.omp-editorial-transcript .omp-thinking-body .markdown-body :is(th, td) {
 	padding: 0.2em 0.45em;
 }
 
-.omp-transcript-editorial .markdown-body p {
+.omp-editorial-transcript .markdown-body p {
 	margin: 0.78em 0;
 }
 
-.omp-transcript-editorial .markdown-body h1 {
+.omp-editorial-transcript .markdown-body h1 {
 	padding-bottom: 0;
 	border-bottom: 0;
 	font-size: 1.28em;
 }
 
-.omp-transcript-editorial .markdown-body code {
+.omp-editorial-transcript .markdown-body code {
 	border: 0;
 	border-radius: 4px;
 	background: color-mix(in srgb, var(--omp-transcript-code-bg) 85%, var(--omp-text) 15%);
 }
 
-.omp-transcript-editorial .markdown-body pre code {
+.omp-editorial-transcript .markdown-body pre code {
 	background: transparent;
 }
 
-.omp-transcript-editorial .markdown-body a {
+.omp-editorial-transcript .markdown-body a {
 	border-bottom-color: color-mix(in srgb, var(--omp-md-link) 20%, transparent);
 }
 
-.omp-transcript-editorial .omp-message-error {
+.omp-editorial-transcript .omp-message-error {
 	margin-top: 12px;
 	border: 1px solid color-mix(in srgb, var(--omp-error) 24%, transparent);
 	border-radius: 8px;
@@ -1002,12 +1002,12 @@
 	font-size: calc(var(--gui-font-size, 15px) * 12 / 15);
 }
 
-.omp-transcript-editorial .omp-queued-turn {
+.omp-editorial-transcript .omp-queued-turn {
 	justify-content: flex-start;
 	padding: 10px var(--omp-editorial-edge) 10px var(--omp-editorial-inset) !important;
 }
 
-.omp-transcript-editorial .omp-queued-bubble {
+.omp-editorial-transcript .omp-queued-bubble {
 	border: 1px dashed var(--omp-transcript-rail);
 	border-radius: 8px;
 	background: transparent;
@@ -1017,8 +1017,8 @@
 /* The virtualizer recycles rows through the viewport, so an entrance keyed on
  * mounting would replay on every scroll. Per-row utilities stay off, and
  * ChatStream instead marks the rows whose content genuinely arrives. */
-.omp-transcript-editorial .omp-fade-up,
-.omp-transcript-editorial .omp-fade-in {
+.omp-editorial-transcript .omp-fade-up,
+.omp-editorial-transcript .omp-fade-in {
 	animation: none;
 	opacity: 1;
 	transform: none;
@@ -1027,7 +1027,7 @@
 /* Marked once per row key, so this never interrupts itself. The motion is on the
  * row rather than its virtual slot because the slot is positioned with an inline
  * transform the animation would overwrite. */
-.omp-transcript-editorial .omp-row-arrive > .omp-transcript-row {
+.omp-editorial-transcript .omp-row-arrive > .omp-transcript-row {
 	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
 }
 

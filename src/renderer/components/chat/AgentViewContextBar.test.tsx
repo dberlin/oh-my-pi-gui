@@ -7,8 +7,7 @@ import { I18nProvider } from "../../lib/i18n";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
-import { useUiStore } from "../../stores/ui";
-import { AgentViewContextBar, AgentViewTranscriptSlot } from "./AgentViewContextBar";
+import { AgentViewContextBar } from "./AgentViewContextBar";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -73,7 +72,6 @@ afterEach(async () => {
 	useAgentViewStore.getState().reset();
 	useSessionStore.getState().reset();
 	useSubagentsStore.getState().reset();
-	useUiStore.setState({ dockCollapsed: {}, dockFocus: null });
 });
 
 describe("AgentViewContextBar", () => {
@@ -141,26 +139,11 @@ describe("AgentViewContextBar", () => {
 		expect(bar?.querySelector('[data-agent-live="true"]')).toBeNull();
 	});
 
-	it("stays immediately above the canvas when the agents dock collapses", async () => {
-		await mount(
-			<AgentViewTranscriptSlot>
-				<section data-transcript-canvas />
-			</AgentViewTranscriptSlot>,
-		);
+	it("renders one standalone identity row without owning transcript content", async () => {
+		await mount();
 
-		const canvas = container.querySelector("[data-transcript-canvas]");
-		const expectPersistentBar = () => {
-			const bar = canvas?.previousElementSibling;
-			expect(bar?.className.split(/\s+/)).toContain("omp-agent-view-context-bar");
-			expect(bar?.className.split(/\s+/)).toContain("shrink-0");
-			expect(bar?.querySelector("button, select, input")).toBeNull();
-		};
-		expectPersistentBar();
-
-		await act(async () => {
-			useUiStore.getState().toggleDockCard("agents");
-		});
-		expect(useUiStore.getState().dockCollapsed.agents).toBe(true);
-		expectPersistentBar();
+		expect(container.querySelector(".omp-agent-view-context-bar")).not.toBeNull();
+		expect(container.querySelector("[data-chat-canvas]")).toBeNull();
+		expect((container as unknown as Element).children).toHaveLength(1);
 	});
 });
