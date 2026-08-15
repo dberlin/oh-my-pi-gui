@@ -25,6 +25,7 @@ import type {
 import { TurnStatusRow } from "../components/chat/ChatStream";
 import { I18nProvider } from "../lib/i18n";
 import { useMessagesStore } from "../stores/messages";
+import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { useTabsStore } from "../stores/tabs";
@@ -221,10 +222,39 @@ afterEach(async () => {
 	container?.remove();
 	useSessionStore.getState().reset();
 	useMessagesStore.getState().reset();
+	useModelStore.getState().reset();
 	useToolsStore.getState().reset();
 	useTodoStore.getState().reset();
 	useSettingsStore.getState().reset();
 	useTabsStore.getState().reset();
+});
+
+describe("useRpcEvents thinking selection sync", () => {
+	it("replaces a stale auto selector when an explicit level event omits configured", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		useModelStore.setState({ thinkingLevel: "low", thinkingConfigured: "auto" });
+
+		await act(async () => {
+			emitBatch([{ type: "thinking_level_changed", thinkingLevel: "high" }]);
+		});
+
+		expect(useModelStore.getState().thinkingLevel).toBe("high");
+		expect(useModelStore.getState().thinkingConfigured).toBe("high");
+	});
+
+	it("keeps auto selected while updating its effective resolved level", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		useModelStore.setState({ thinkingLevel: "medium", thinkingConfigured: "medium" });
+
+		await act(async () => {
+			emitBatch([{ type: "thinking_level_changed", thinkingLevel: "xhigh", configured: "auto" }]);
+		});
+
+		expect(useModelStore.getState().thinkingLevel).toBe("xhigh");
+		expect(useModelStore.getState().thinkingConfigured).toBe("auto");
+	});
 });
 
 describe("useRpcEvents awaiting-model marker", () => {

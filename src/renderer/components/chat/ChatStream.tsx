@@ -33,7 +33,7 @@ import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools"
 import { useUiStore } from "../../stores/ui";
 import { PiLogo } from "../common";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
-import { ToolCard } from "../tools/ToolCard";
+import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { ConversationNavigator } from "./ConversationNavigator";
 import {
 	buildConversationAnchors,
@@ -43,6 +43,7 @@ import {
 	findConversationAnchorIndex,
 	type HistoryRow,
 	hasStreamingTranscriptContent,
+	isTranscriptAtLiveEdge,
 	mergeTodoSnapshots,
 	messageTimestampMs,
 	type Row,
@@ -52,6 +53,10 @@ import { ExecutionGroup } from "./ExecutionGroup";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
+
+// TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
+// User intent is enforced separately by switching away from end anchoring.
+const LIVE_EDGE_THRESHOLD_PX = 1;
 
 /**
  * Virtual-scroll message list. Stays pinned to the bottom while streaming
@@ -143,13 +148,17 @@ export function ChatStream() {
 		}
 		nextRows.push(...historyRows);
 		nextMarkers.push(...historyMarkers);
-		if (hasStreamedContent) {
-			nextRows.push({ kind: "streaming" });
-			nextMarkers.push({ state: "running", toolIds: [] });
+		if (hasStreamedContent && streamingMessage) {
+			nextRows.push({ kind: "streaming", message: streamingMessage });
+			// Full detail has no execution-group header, so its timeline owns the
+			// one live spinner. Compact detail delegates that status to the group.
+			nextMarkers.push(transcriptDetail === "full" ? { state: "running", toolIds: [] } : null);
 		}
 		if (showStatusRow) {
 			nextRows.push({ kind: "pending" });
-			nextMarkers.push({ state: "running", toolIds: [] });
+			// TurnStatusRow owns the visible loader. A running timeline marker
+			// here would render a second adjacent spinner for the same wait.
+			nextMarkers.push(null);
 		}
 		for (const item of queued.steering) {
 			nextRows.push({ kind: "queued", item, lane: "steering" });
@@ -164,7 +173,17 @@ export function ChatStream() {
 			timelineMarkers: nextMarkers,
 			rowKeys: buildTranscriptRowKeys(nextRows),
 		};
-	}, [hiddenCount, historyRows, historyMarkers, hasStreamedContent, showStatusRow, queued.steering, queued.followUp]);
+	}, [
+		hiddenCount,
+		historyRows,
+		historyMarkers,
+		hasStreamedContent,
+		showStatusRow,
+		queued.steering,
+		queued.followUp,
+		streamingMessage,
+		transcriptDetail,
+	]);
 
 	const parentRef = useRef<HTMLDivElement>(null);
 	const sizeCacheRef = useRef(new Map<string | number, number>());
@@ -173,6 +192,7 @@ export function ChatStream() {
 		sizeCacheRef.current.clear();
 	}, [sessionId]);
 	const conversationAnchors = useMemo(() => buildConversationAnchors(rows, rowKeys), [rows, rowKeys]);
+	const tailRowKey = rowKeys.at(-1);
 	const activeConversationIndex = useMemo(
 		() => findConversationAnchorIndex(conversationAnchors, visibleRowIndex),
 		[conversationAnchors, visibleRowIndex],
@@ -205,9 +225,12 @@ export function ChatStream() {
 		// Chat is an end-anchored feed. Keep the live edge stable while measured
 		// row heights replace estimates, and follow newly appended rows only while
 		// the viewport is already at that edge.
-		anchorTo: "end",
-		followOnAppend: true,
-		scrollEndThreshold: 80,
+		anchorTo: pinned ? "end" : "start",
+		// Appends are followed by the explicit `pinned` effect below. Keeping the
+		// virtualizer's independent append follower enabled made a small manual
+		// scroll-up lose to streaming growth before React could unpin the view.
+		followOnAppend: false,
+		scrollEndThreshold: LIVE_EDGE_THRESHOLD_PX,
 		// Row measurements can arrive while React is committing hydrated history.
 		// Async rerenders avoid react-dom flushSync re-entry and the stale compositor
 		// layers it produced on large transcripts.
@@ -235,15 +258,16 @@ export function ChatStream() {
 		onChange: handleVirtualizerChange,
 	});
 
-	// Follow newly appended rows while pinned. In-row growth (streaming text)
-	// is handled by ResizeObserver below so token updates do not re-render
-	// the virtualizer owner.
+	// Follow appended rows and same-count tail replacements (notably the
+	// pending -> streaming transition) while pinned. In-row token growth is
+	// handled by the virtualizer's measured-row observer.
 	useEffect(() => {
 		if (!pinned || rows.length === 0) return;
 		void sessionId;
+		void tailRowKey;
 		const frame = requestAnimationFrame(() => virtualizer.scrollToEnd());
 		return () => cancelAnimationFrame(frame);
-	}, [virtualizer, rows.length, pinned, sessionId]);
+	}, [virtualizer, rows.length, tailRowKey, pinned, sessionId]);
 
 	useEffect(() => {
 		if (!pinned) return;
@@ -251,8 +275,7 @@ export function ChatStream() {
 		if (!el || typeof ResizeObserver === "undefined") return;
 		const observer = new ResizeObserver(() => {
 			if (userScrollIntentRef.current) return;
-			const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-			if (distance < 80) virtualizer.scrollToEnd();
+			if (isTranscriptAtLiveEdge(el)) virtualizer.scrollToEnd();
 		});
 		observer.observe(el);
 		return () => observer.disconnect();
@@ -262,26 +285,35 @@ export function ChatStream() {
 		if (!userScrollIntentRef.current) return;
 		const el = parentRef.current;
 		if (!el) return;
-		const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-		const nextPinned = distanceFromBottom < 80;
+		const nextPinned = isTranscriptAtLiveEdge(el);
 		setPinned(nextPinned);
 		// Once the user reaches the live edge, subsequent layout growth belongs to
 		// the pinning system again until another explicit scroll gesture.
 		if (nextPinned) userScrollIntentRef.current = false;
 	}, []);
 
-	const markUserScrollIntent = useCallback(() => {
+	const releaseTailPin = useCallback(() => {
 		userScrollIntentRef.current = true;
+		setPinned(false);
+	}, []);
+
+	const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+		userScrollIntentRef.current = true;
+		if (event.deltaY < 0) setPinned(false);
 	}, []);
 
 	const handleScrollPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
 		const right = event.currentTarget.getBoundingClientRect().right;
-		if (event.clientX >= right - 20) userScrollIntentRef.current = true;
+		if (event.clientX >= right - 20) {
+			userScrollIntentRef.current = true;
+			setPinned(false);
+		}
 	}, []);
 
 	const handleScrollKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
 		if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) {
 			userScrollIntentRef.current = true;
+			setPinned(false);
 		}
 	}, []);
 
@@ -308,15 +340,15 @@ export function ChatStream() {
 			<div
 				ref={parentRef}
 				onScroll={handleScroll}
-				onWheel={markUserScrollIntent}
-				onTouchMove={markUserScrollIntent}
+				onWheel={handleWheel}
+				onTouchMove={releaseTailPin}
 				onPointerDown={handleScrollPointerDown}
 				onKeyDown={handleScrollKeyDown}
 				className="omp-transcript-scroll h-full overflow-y-auto overscroll-contain"
 			>
 				{switchPending && (
 					<div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden">
-						<div className="h-full w-1/3 animate-pulse bg-[var(--omp-accent)]" />
+						<div className="omp-indeterminate-progress h-full bg-[var(--omp-accent)]" />
 					</div>
 				)}
 				{status === "starting" && rows.length === 0 && !switchPending && (
@@ -324,7 +356,7 @@ export function ChatStream() {
 						<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
 					</div>
 				)}
-				{rows.length === 0 && !isStreaming && !switchPending && (
+				{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && (
 					<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
 						<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)]">
 							<PiLogo size={22} />
@@ -381,11 +413,14 @@ export function ChatStream() {
 								}}
 							>
 								<div className="omp-transcript-row w-full">
-									<TimelineMarker seed={timelineMarkers[item.index] ?? null} />
+									<TimelineMarker
+										seed={timelineMarkers[item.index] ?? null}
+										runningIndicator={row.kind === "process" ? "dot" : "spinner"}
+									/>
 									{row.kind === "message" ? (
-										<MessageBubble message={row.message} />
+										<MessageBubble message={row.message} runningIndicator="dot" />
 									) : row.kind === "readGroup" ? (
-										<ReadGroupCard entries={row.entries} usage={row.usage} />
+										<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
 									) : row.kind === "process" ? (
 										<ProcessGroup row={row} />
 									) : row.kind === "streaming" ? (
@@ -432,7 +467,13 @@ export function ChatStream() {
 	);
 }
 
-function TimelineMarker({ seed }: { seed: TimelineMarkerSeed | null }) {
+function TimelineMarker({
+	seed,
+	runningIndicator,
+}: {
+	seed: TimelineMarkerSeed | null;
+	runningIndicator: RunningIndicator;
+}) {
 	const activeTools = useToolsStore(s => s.activeTools);
 	if (!seed) return null;
 	let state = seed.state;
@@ -452,8 +493,10 @@ function TimelineMarker({ seed }: { seed: TimelineMarkerSeed | null }) {
 	return (
 		<div aria-hidden className={cx("omp-timeline-marker", `omp-timeline-marker--${state}`)}>
 			<span className="omp-timeline-dot">
-				{state === "running" ? (
+				{state === "running" && runningIndicator === "spinner" ? (
 					<Loader2 className="animate-spin" size={11} />
+				) : state === "running" ? (
+					<span className="h-1.5 w-1.5 rounded-full bg-current" />
 				) : state === "error" ? (
 					<X size={11} />
 				) : state === "launch" ? (
@@ -481,6 +524,7 @@ function ProcessGroup({ row }: { row: Extract<HistoryRow, { kind: "process" }> }
 									: `${String(message.timestamp ?? "process")}-${index}`
 							}
 							message={message}
+							runningIndicator="dot"
 						/>
 					))}
 				</div>
@@ -561,13 +605,19 @@ function StreamingRows() {
 		if (!segments.some(segment => segment.type === "group")) return null;
 		return segments.map((segment, index) =>
 			segment.type === "group" ? (
-				<ReadGroupCard inset key={`rg-${segment.entries[0]?.callId ?? index}`} entries={segment.entries} />
+				<ReadGroupCard
+					inset
+					key={`rg-${segment.entries[0]?.callId ?? index}`}
+					entries={segment.entries}
+					runningIndicator="dot"
+				/>
 			) : (
 				<ToolCard
 					key={segment.card.id}
 					toolCallId={segment.card.id}
 					toolName={segment.card.name}
 					args={segment.card.args}
+					runningIndicator="dot"
 				/>
 			),
 		);
@@ -581,10 +631,11 @@ function StreamingRows() {
 					toolCallId={toolEntryKey(block)}
 					toolName={block.name}
 					args={block.arguments}
+					runningIndicator="dot"
 				/>
 			))}
 			{liveTools.map(({ id, entry }) => (
-				<ToolCard key={id} toolCallId={id} toolName={entry.toolName} args={entry.args} />
+				<ToolCard key={id} toolCallId={id} toolName={entry.toolName} args={entry.args} runningIndicator="dot" />
 			))}
 		</>
 	);
@@ -667,6 +718,7 @@ export function TurnStatusRow() {
 	let iconClass = "";
 	let text: string;
 	let detail: string | null = null;
+	let announcement: string;
 	let slow = false;
 	let stalled = false;
 
@@ -682,6 +734,7 @@ export function TurnStatusRow() {
 					})
 				: t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
 		detail = retryInfo.errorMessage || null;
+		announcement = t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
 	} else if (compactionInfo) {
 		const reason = compactionInfo.reason === "threshold" ? "" : t(`chat.compaction.reason.${compactionInfo.reason}`);
 		const actionKey =
@@ -694,17 +747,22 @@ export function TurnStatusRow() {
 						: "chat.compaction.action.default";
 		iconClass = "text-[var(--omp-accent)]";
 		text = `${reason}${t(actionKey)}…`;
+		announcement = text;
 	} else if (awaitingModelSince != null) {
 		const elapsedSeconds = Math.max(0, Math.floor((now - awaitingModelSince) / 1000));
 		slow = elapsedSeconds >= SLOW_RESPONSE_HINT_SECONDS;
 		stalled = elapsedSeconds >= STALLED_RESPONSE_HINT_SECONDS;
 		text = t("chat.awaitingModel", { seconds: elapsedSeconds });
+		announcement = t("chat.awaitingModel.announcement");
 	} else {
 		return null;
 	}
 
 	return (
 		<div className="omp-status-turn omp-fade-in flex flex-col gap-1 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-omp-lg text-[var(--omp-muted)]">
+			<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+				{announcement}
+			</span>
 			<div className="flex items-center gap-2.5">
 				<Loader2 size={14} className={cx("animate-spin shrink-0", iconClass)} />
 				<span>{text}</span>
@@ -806,7 +864,7 @@ function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
 				type="button"
 			>
 				<ChevronRight
-					className="shrink-0 text-[var(--omp-dim)] transition-transform duration-100"
+					className="omp-disclosure-chevron shrink-0 text-[var(--omp-dim)]"
 					size={11}
 					style={{ transform: expanded ? "rotate(90deg)" : undefined }}
 				/>
@@ -873,7 +931,9 @@ export {
 	buildHistoryRowKeys,
 	buildHistoryRows,
 	buildTimelineMarkers,
+	buildTranscriptRowKeys,
 	findConversationAnchorIndex,
 	hasStreamingTranscriptContent,
+	isTranscriptAtLiveEdge,
 	mergeTodoSnapshots,
 } from "./chat-stream-utils";

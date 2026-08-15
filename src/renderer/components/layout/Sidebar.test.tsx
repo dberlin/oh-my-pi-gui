@@ -11,6 +11,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { SessionInfo } from "../../../shared/ipc-types";
+import { useSidebarRecency } from "../../hooks/use-sidebar-recency";
 import { I18nProvider } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
@@ -197,7 +198,60 @@ function seedStores(): void {
 	});
 }
 
+function SidebarWithRecency() {
+	useSidebarRecency();
+	return <Sidebar />;
+}
+
 describe("Sidebar menus and pinned ordering", () => {
+	it("moves the most recently used session and its workspace to the front immediately", async () => {
+		const omp = installMockOmp(LIST);
+		useSessionStore.setState({ sessionId: "", cwd: "/neutral", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [{ id: "chat", cwd: "/neutral", status: "ready", kind: "chat", unreadDone: false }],
+			activeTabId: "chat",
+			bundles: new Map(),
+		});
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<SidebarWithRecency />);
+
+		const workspaceOrder = () =>
+			[...container.querySelectorAll("[data-workspace-group]")].map(element =>
+				(element as unknown as Element).getAttribute("data-workspace-group"),
+			);
+		const alphaSessionOrder = () =>
+			[...container.querySelectorAll('[data-session-group="/work/alpha"] .omp-sidebar-session-row')].map(
+				element => element.textContent ?? "",
+			);
+
+		expect(workspaceOrder()).toEqual(["/work/beta", "/work/alpha"]);
+		expect(alphaSessionOrder()[0]).toContain("Session /work/alpha/one");
+
+		await act(async () => {
+			useTabsStore.setState({
+				tabs: [{ id: "agent", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false }],
+				activeTabId: "agent",
+			});
+			useSessionStore.setState({
+				sessionId: "/work/alpha/two.jsonl",
+				sessionFile: "/work/alpha/two.jsonl",
+				cwd: "/work/alpha",
+			});
+		});
+		await flush();
+
+		expect(workspaceOrder()).toEqual(["/work/alpha", "/work/beta"]);
+		expect(alphaSessionOrder()[0]).toContain("Session /work/alpha/two");
+		expect(useSidebarPrefs.getState().sessionLastUsed["/work/alpha/two.jsonl"]).toBeGreaterThan(0);
+		expect(useSidebarPrefs.getState().workspaceLastUsed["/work/alpha"]).toBeGreaterThan(0);
+		expect(omp.prefs.set).toHaveBeenCalledWith(
+			"sidebar",
+			expect.objectContaining({
+				sessionLastUsed: expect.objectContaining({ "/work/alpha/two.jsonl": expect.any(Number) }),
+			}),
+		);
+	});
+
 	it("+ button opens the type dropdown with agent and chat entries", async () => {
 		installMockOmp(LIST);
 		seedStores();

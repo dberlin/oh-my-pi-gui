@@ -35,6 +35,15 @@ export interface ConversationAnchor {
 
 const CONVERSATION_PREVIEW_LIMIT = 180;
 
+/** True at the live edge, allowing only subpixel browser rounding. */
+export function isTranscriptAtLiveEdge(metrics: {
+	scrollHeight: number;
+	scrollTop: number;
+	clientHeight: number;
+}): boolean {
+	return metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight < 1;
+}
+
 export type HistoryRow =
 	| { kind: "message"; message: AgentMessage }
 	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] }
@@ -44,7 +53,7 @@ export type HistoryRow =
 /** Virtualized row: finalized history or one of the live streaming rows. */
 export type Row =
 	| HistoryRow
-	| { kind: "streaming" }
+	| { kind: "streaming"; message: AgentMessage }
 	| { kind: "pending" }
 	| { kind: "expander"; count: number }
 	| { kind: "queued"; item: RpcQueuedMessage; lane: QueueLane };
@@ -62,12 +71,20 @@ function transcriptRowBaseKey(row: Row): string {
 		case "message":
 			return `message-${messageKey(row.message)}`;
 		case "process":
-			return `process-${messageKey(row.messages[0]!)}`;
+			// Compact mode may replace one live assistant row with a process row,
+			// or split it into process + answer rows. Key the first finalized row
+			// by the same assistant identity so the viewport anchor survives both.
+			return `message-${messageKey(row.messages[0]!)}`;
 		case "readGroup":
 			return `read-${row.entries.map(entry => entry.toolKey).join("-")}`;
 		case "todoSnapshot":
 			return `todo-snapshot-${row.entry.id}`;
 		case "streaming":
+			// message_start and message_end carry the same assistant identity.
+			// Reusing it prevents the virtualizer from replacing one huge measured
+			// streaming row with a fresh 72px estimate, briefly clamping scrollTop
+			// to the end before the finalized row is measured.
+			return `message-${messageKey(row.message)}`;
 		case "pending":
 			return row.kind;
 		case "expander":
@@ -265,12 +282,10 @@ export function buildHistoryRows(messages: AgentMessage[], detail: TranscriptDet
 		const hasToolCall = message.content.some(block => block.type === "toolCall");
 		const hasImage = message.content.some(block => block.type === "image");
 		if (hasToolCall && !hasImage) {
-			// A narrated tool call is the semantic start of a new execution phase.
-			// Punctuation-only tool messages (".", "…") keep accruing to the
-			// current phase, matching the editorial timeline in both detail modes.
-			if (processMessages.length > 0 && hasProcessNarration(message)) flushProcess();
-			// Text accompanying a tool call is intermediate narration; the API
-			// delivers the final answer in a later assistant message.
+			// Text accompanying a tool call is intermediate narration. Keep every
+			// narrated phase in the same disclosure until the API delivers the final
+			// answer, so a long run leaves one activity summary instead of a stack of
+			// nearly identical completed rows.
 			processMessages.push(message);
 			continue;
 		}

@@ -20,9 +20,11 @@ import { SidecarManager } from "./sidecar";
 import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
+import { type PersistedTabLayout, sanitizePersistedTabLayout } from "./tab-layout";
 import { createTray, destroyTray } from "./tray";
 import { setupUpdater } from "./updater";
 import { WindowManager } from "./window";
+import { resolveWindowSpawnTarget } from "./window-spawn-target";
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -96,14 +98,27 @@ function resolveSourceCli(): string | null {
 interface MainPrefs {
 	lastProject?: string;
 	proxyUrl?: string;
+	tabLayout?: PersistedTabLayout;
 	[key: string]: unknown;
 }
 
-function resolveInitialCwd(): string {
-	const explicitCwd = process.argv[2];
-	if (explicitCwd && existsSync(explicitCwd)) return explicitCwd;
+let mainPrefsStore: Store<MainPrefs> | null = null;
 
-	const lastProject = new Store<MainPrefs>({ name: "prefs" }).get("lastProject");
+function prefsStore(): Store<MainPrefs> {
+	mainPrefsStore ??= new Store<MainPrefs>({ name: "prefs" });
+	return mainPrefsStore;
+}
+
+function resolveExplicitStartupCwd(): string | undefined {
+	const explicitCwd = process.argv[2];
+	return explicitCwd && existsSync(explicitCwd) ? explicitCwd : undefined;
+}
+
+function resolveInitialCwd(): string {
+	const explicitCwd = resolveExplicitStartupCwd();
+	if (explicitCwd) return explicitCwd;
+
+	const lastProject = prefsStore().get("lastProject");
 	if (lastProject && existsSync(lastProject)) return lastProject;
 
 	const launchCwd = process.cwd();
@@ -154,7 +169,7 @@ function parsePacResult(pac: string): string | undefined {
 const SYSTEM_PROXY_PROBE_URL = "https://chatgpt.com";
 
 async function resolveProxyEnvForSpawn(): Promise<Record<string, string>> {
-	const pref = new Store<MainPrefs>({ name: "prefs" }).get("proxyUrl");
+	const pref = prefsStore().get("proxyUrl");
 	if (typeof pref === "string" && pref.trim()) return proxyEnvVars(normalizeProxyUrl(pref));
 	if (
 		process.env.PI_PROXY ||
@@ -215,12 +230,31 @@ function installMainRuntimeLogging(): void {
 }
 
 /** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
- *  Empty `cwd` falls back to resolveInitialCwd() (lastProject → launch cwd),
- *  never a bare process.cwd() which is "/" for Finder-launched apps. */
+ *  With no target, create a fresh global chat; explicit workspace/session
+ *  requests retain their selected/fallback cwd and requested session kind. */
 function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKind): BrowserWindow | null {
-	const dir = cwd && cwd.length > 0 ? cwd : resolveInitialCwd();
-	const win = windowManager.createWindow({ cwd: dir, pendingSessionPath });
-	const sidecar = sidecarPool.acquire(dir, win, undefined, undefined, kind);
+	const restoreSavedLayout = cwd === undefined && pendingSessionPath === undefined && kind === undefined;
+	const savedLayout = restoreSavedLayout ? sanitizePersistedTabLayout(prefsStore().get("tabLayout")) : null;
+	if (savedLayout) {
+		const activeCwd = savedLayout.tabs[savedLayout.activeIndex]?.cwd ?? savedLayout.tabs[0]?.cwd;
+		if (activeCwd) {
+			const win = windowManager.createWindow({ cwd: activeCwd });
+			if (sidecarPool.restoreLayout(win, savedLayout) > 0) return win;
+			win.close();
+		}
+	}
+	const target = resolveWindowSpawnTarget(cwd, pendingSessionPath, kind, resolveInitialCwd(), homedir());
+	const win = windowManager.createWindow({ cwd: target.cwd, pendingSessionPath });
+	const sidecar = sidecarPool.acquire(
+		target.cwd,
+		win,
+		undefined,
+		undefined,
+		target.kind,
+		undefined,
+		target.fresh,
+		target.placeholder,
+	);
 	if (!sidecar) {
 		win.close();
 		return null;
@@ -233,6 +267,7 @@ app.whenReady().then(() => {
 	windowManager = new WindowManager();
 
 	const initialCwd = resolveInitialCwd();
+	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bundledOmp = resolveBundledOmp();
 	const sourceCli = resolveSourceCli();
 	sidecarPool = new SidecarPool((cwd, kind, fresh) => {
@@ -261,6 +296,11 @@ app.whenReady().then(() => {
 		});
 		return sc;
 	}, 10);
+	sidecarPool.onWindowTabsChanged = (win, layout) => {
+		if (windowManager.getMainWindow() !== win) return;
+		if (layout) prefsStore().set("tabLayout", layout);
+		else prefsStore().delete("tabLayout");
+	};
 	sessionIndex = new SessionIndex(undefined, initialCwd);
 	statsClient = new StatsClient();
 	// Built-in stats dashboard: spawned from the SAME bundled binary. No
@@ -302,11 +342,11 @@ app.whenReady().then(() => {
 			win.focus();
 			return;
 		}
-		spawnWindow(initialCwd);
+		spawnWindow();
 	});
 	sessionIndex.start();
 	logWatcher.start();
-	spawnWindow(initialCwd);
+	spawnWindow(explicitStartupCwd);
 
 	// Tray, menu, deep links, updater
 	createTray(windowManager, spawnWindow);
@@ -321,7 +361,7 @@ app.whenReady().then(() => {
 // macOS: re-create window on dock click
 app.on("activate", () => {
 	if (windowManager && windowManager.getAllWindows().length === 0) {
-		spawnWindow(resolveInitialCwd());
+		spawnWindow();
 	}
 });
 

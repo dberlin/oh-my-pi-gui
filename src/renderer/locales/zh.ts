@@ -1985,6 +1985,7 @@ export const zh: Record<string, string> = {
 	"chat.thinking.show": "显示推理过程",
 	"chat.thinking.hide": "收起推理过程",
 	"chat.awaitingModel": "正在等待模型响应… {seconds} 秒",
+	"chat.awaitingModel.announcement": "正在等待模型响应…",
 	"chat.awaitingModel.slow": "响应缓慢，网络可能不稳定",
 	"chat.awaitingModel.stalled": "仍无响应——很可能是网络问题。请求约 5 分钟后自动超时并重试；按 Esc 可立即中止。",
 	"chat.interruptHint": "（按 Esc 中断）",

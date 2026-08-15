@@ -1,4 +1,4 @@
-import { ArrowRightLeft, FilePlus2, Loader2, Pencil, Trash2 } from "lucide-react";
+import { ArrowRightLeft, Circle, FilePlus2, Pencil, Trash2 } from "lucide-react";
 import { DiffView } from "../../lib/diff";
 import { basename, cx, dirname } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -224,7 +224,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 				))}
 				{remaining > 0 && isPartial && (
 					<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-dim)]">
-						<Loader2 size={12} className="animate-spin text-[var(--omp-accent)]" />
+						<Circle aria-hidden size={7} className="fill-current text-[var(--omp-accent)]" />
 						{t("tools.edit.morePending", { count: remaining, plural: remaining === 1 ? "" : "s" })}
 					</div>
 				)}
@@ -403,7 +403,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 	if (isPartial) {
 		return (
 			<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-dim)]">
-				<Loader2 size={12} className="animate-spin text-[var(--omp-accent)]" />
+				<Circle aria-hidden size={7} className="fill-current text-[var(--omp-accent)]" />
 				{t("tools.edit.applying")}
 			</div>
 		);

@@ -1,4 +1,4 @@
-import { Brain, ChevronDown, ChevronRight } from "lucide-react";
+import { Brain, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThinkingLevel } from "../../../shared/rpc-types";
 import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
@@ -189,16 +189,12 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 				onClick={() => setOpen(v => !v)}
 				className="omp-thinking-header flex w-full items-center gap-1.5 px-2 py-1 text-left text-omp-sm text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-bg-tertiary)]"
 			>
-				{open ? (
-					<ChevronDown className="omp-thinking-chevron" size={12} />
-				) : (
-					<ChevronRight className="omp-thinking-chevron" size={12} />
-				)}
-				<Brain
+				<ChevronRight
+					aria-hidden
+					className={cx("omp-thinking-chevron omp-disclosure-chevron", open && "rotate-90")}
 					size={12}
-					className={cx("omp-thinking-brain", isLive && "omp-thinking-pulse")}
-					style={{ color: `var(--omp-thinking-${tokenLevel})` }}
 				/>
+				<Brain size={12} className="omp-thinking-brain" style={{ color: `var(--omp-thinking-${tokenLevel})` }} />
 				{isLive ? (
 					<span className="omp-thinking-state omp-thinking-shimmer font-medium">{t("chat.thinking.live")}</span>
 				) : (

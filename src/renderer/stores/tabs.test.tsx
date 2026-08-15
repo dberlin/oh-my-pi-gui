@@ -271,6 +271,29 @@ describe("tabs store boot reconciliation", () => {
 		expect(omp.tabs.setActive).toHaveBeenCalledWith("t1");
 	});
 
+	it("restores main's persisted active tab when renderer state is empty", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha"), { ...tabInfo("t1", "/beta"), active: true }]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1"]);
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		expect(omp.tabs.setActive).toHaveBeenCalledWith("t1");
+	});
+
+	it("retains the restored transcript path before session metadata arrives", async () => {
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("t0", "/alpha"), sessionPath: "/sessions/restored.jsonl", active: true },
+		]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(useTabsStore.getState().tabs[0]).toMatchObject({
+			id: "t0",
+			sessionPath: "/sessions/restored.jsonl",
+		});
+	});
+
 	it("invalidates a parked bundle when boot reconciliation observes a replacement session", async () => {
 		seedTabs();
 		fillLiveStores("old");
@@ -704,6 +727,27 @@ describe("tabs store applyTabStatus", () => {
 		expect(t1?.sessionId).toBe("s9");
 	});
 
+	it("clears a stale transcript path when main reports a fresh unsaved session", () => {
+		seedTabs();
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/alpha",
+			status: "ready",
+			sessionPath: "/sessions/old.jsonl",
+		});
+		expect(useTabsStore.getState().tabs[0]?.sessionPath).toBe("/sessions/old.jsonl");
+
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/alpha",
+			status: "ready",
+			sessionPath: null,
+		});
+		expect(useTabsStore.getState().tabs[0]?.sessionPath).toBeUndefined();
+	});
+
 	it("drops a parked bundle when the sidecar replaces its session", async () => {
 		seedTabs();
 		fillLiveStores("old");
@@ -777,6 +821,22 @@ describe("useSessionTabs hook", () => {
 		expect(omp.events.onTabStatus).toHaveBeenCalled();
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0"]);
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
+	});
+
+	it("hydrates the restored active tab when it was ready before renderer subscriptions", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha"), { ...tabInfo("t1", "/beta"), active: true }]);
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "restored", cwd: "/beta" })));
+
+		await mount();
+		await act(async () => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 0);
+			await promise;
+		});
+
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		expect(useSessionStore.getState()).toMatchObject({ sessionId: "restored", cwd: "/beta", status: "ready" });
+		expect(omp.rpc.getTranscript).toHaveBeenCalled();
 	});
 
 	it("hydrates an active fresh tab when ready only arrives on the light channel", async () => {
@@ -906,6 +966,7 @@ describe("useSessionTabs hook", () => {
 
 	it("subscribes subagent frames on a tab's ready only while it is active (F-HYDRATE)", async () => {
 		seedTabs();
+		useSessionStore.setState({ sessionId: "active" });
 		await mount();
 
 		// Background ready: renderer RPC routes through the ACTIVE tab, so a
@@ -936,6 +997,11 @@ describe("tabChipLabel (F-HYDRATE)", () => {
 		expect(tabChipLabel(chip("t2", ""), [])).toBe("New session");
 		// Empty-string titles (never-generated auto-title slot) fall through too.
 		expect(tabChipLabel(chip("t3", "/work/gamma", ""), [])).toBe("gamma");
+	});
+
+	it("keeps an untitled global chat unnamed instead of exposing its internal cwd as a workspace", () => {
+		const chat = { ...chip("chat-0", "/Users/tester"), kind: "chat" as const };
+		expect(tabChipLabel(chat, [chat])).toBe("New session");
 	});
 
 	it("suffixes identical untitled labels in tab order, first occurrence bare", () => {

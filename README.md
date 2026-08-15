@@ -135,7 +135,7 @@ bun run package:mac:arm64 # → dist/omp-<ver>-arm64.dmg (ships resources/omp)
 bun run package:mac:x64   # → dist/omp-<ver>.dmg       (ships resources/omp.x64)
 ```
 
-`build:omp` stages the matching `pi_natives` native addon automatically (downloading the published `@oh-my-pi/pi-natives-<platform>` package when missing, replacing stale-version addons), embeds it into the binary, and restores the natives tree afterwards — its errors name the missing piece and the fix. `package:mac:arm64` / `package:mac:x64` exist because the two architectures use different electron-builder configs (`electron-builder.yml` vs `electron-builder.x64.yml`); packaging Intel with the default config ships the wrong-arch sidecar.
+`build:omp` stages the matching `pi_natives` native addon automatically (downloading the published `@oh-my-pi/pi-natives-<platform>` package when missing, replacing stale-version addons), embeds it into the binary, and restores the natives tree afterwards — its errors name the missing piece and the fix. Every `package:*` script rebuilds the Electron app before packaging so a stale `out/` directory cannot produce an old GUI; run the matching `build:omp*` first whenever agent/sidecar source changed. `package:mac:arm64` / `package:mac:x64` exist because the two architectures use different electron-builder configs (`electron-builder.yml` vs `electron-builder.x64.yml`); packaging Intel with the default config ships the wrong-arch sidecar.
 
 **Without the monorepo** (e.g. CI artifact assembly): drop a prebuilt sidecar into `resources/omp` (arm64) and/or `resources/omp.x64` (Intel), run `bun run build` + the matching `package:mac:*` script, and skip `build:omp` entirely. The release apps already include the sidecar, so end users never need any of this.
 
@@ -289,7 +289,7 @@ bun run package:mac:arm64 # → dist/omp-<版本>-arm64.dmg（随包 resources/o
 bun run package:mac:x64   # → dist/omp-<版本>.dmg（随包 resources/omp.x64）
 ```
 
-`build:omp` 会自动准备匹配的 `pi_natives` 原生插件（缺失时从 npm 下载已发布的 `@oh-my-pi/pi-natives-<平台>` 包,版本不符时自动替换）,将其嵌入二进制,并在结束后还原 natives 目录——脚本报错会明确指出缺失的部分和修复方法。`package:mac:arm64` / `package:mac:x64` 之所以分开,是因为两种架构使用不同的 electron-builder 配置（`electron-builder.yml` 与 `electron-builder.x64.yml`）;用默认配置打 Intel 包会装入错误架构的 sidecar。
+`build:omp` 会自动准备匹配的 `pi_natives` 原生插件（缺失时从 npm 下载已发布的 `@oh-my-pi/pi-natives-<平台>` 包,版本不符时自动替换）,将其嵌入二进制,并在结束后还原 natives 目录——脚本报错会明确指出缺失的部分和修复方法。每个 `package:*` 脚本都会先重新构建 Electron 应用,避免残留的旧 `out/` 被再次封装；agent/sidecar 源码有改动时,仍需先运行匹配架构的 `build:omp*`。`package:mac:arm64` / `package:mac:x64` 之所以分开,是因为两种架构使用不同的 electron-builder 配置（`electron-builder.yml` 与 `electron-builder.x64.yml`）;用默认配置打 Intel 包会装入错误架构的 sidecar。
 
 **没有 monorepo 时**（如 CI 组装产物）：把预编译 sidecar 放入 `resources/omp`（arm64）和/或 `resources/omp.x64`（Intel）,执行 `bun run build` 加对应的 `package:mac:*` 脚本,完全跳过 `build:omp`。Release 应用已内置 sidecar,最终用户无需关心以上任何步骤。
 

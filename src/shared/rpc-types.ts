@@ -977,6 +977,12 @@ export interface RpcSessionState {
 	agentsPausedAt?: number;
 }
 
+/** Authoritative selector/effective pair returned after set_thinking_level. */
+export interface RpcThinkingLevelState {
+	thinkingLevel: ThinkingLevel | undefined;
+	thinkingConfigured: ThinkingLevel | "auto" | undefined;
+}
+
 export interface ToolDump {
 	name: string;
 	description: string;

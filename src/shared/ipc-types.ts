@@ -616,12 +616,18 @@ export interface IpcTabInfo {
 	tabId: string;
 	cwd: string;
 	status: TabStatus;
+	/** Present on GET_TABS for the tab main currently routes as active. */
+	active?: boolean;
 	/** True while automatic transcript compaction is mutating this session. */
 	compacting?: boolean;
 	/** Immutable session kind, fixed when the tab's sidecar was spawned. */
 	kind: SessionKind;
+	/** Disposable untargeted startup tab. Cleared permanently when its first run starts. */
+	placeholder?: boolean;
 	/** Present when the tab was spawned bound to a git worktree. */
 	worktree?: IpcTabWorktree;
+	/** Authoritative transcript attached to this tab, available before session_info_update; null clears it. */
+	sessionPath?: string | null;
 	/** Present once the tab's sidecar reported session_info_update. */
 	sessionId?: string;
 	/** Null explicitly clears the previous session's cached title. */

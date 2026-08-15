@@ -14,7 +14,6 @@ import {
 	GitBranch,
 	GitPullRequestClosed,
 	GitPullRequestDraft,
-	Loader2,
 	XCircle,
 } from "lucide-react";
 import { useState } from "react";
@@ -32,7 +31,7 @@ function checkIcon(conclusion: string | null, status: string) {
 	}
 	if (conclusion) return <XCircle size={12} className="shrink-0 text-(--omp-error)" />;
 	if (status === "IN_PROGRESS" || status === "QUEUED")
-		return <Loader2 size={12} className="shrink-0 animate-spin text-(--omp-warning)" />;
+		return <Circle size={9} className="shrink-0 fill-current text-(--omp-warning)" />;
 	return <Circle size={12} className="shrink-0 text-(--omp-dim)" />;
 }
 

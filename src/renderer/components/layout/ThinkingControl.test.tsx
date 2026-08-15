@@ -14,6 +14,8 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
+import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { ThinkingControl } from "./ThinkingControl";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -53,7 +55,13 @@ let setThinkingLevelMock: Mock<(level: string) => Promise<RpcResponse>>;
 
 function installMockOmp(): void {
 	setThinkingLevelMock = vi.fn(
-		async () => ({ type: "response", command: "set_thinking_level", success: true }) as RpcResponse,
+		async level =>
+			({
+				type: "response",
+				command: "set_thinking_level",
+				success: true,
+				data: { thinkingLevel: level === "auto" ? "medium" : level, thinkingConfigured: level },
+			}) as RpcResponse,
 	);
 	const ompWindow = window as unknown as { omp: { rpc: { setThinkingLevel: typeof setThinkingLevelMock } } };
 	ompWindow.omp = { rpc: { setThinkingLevel: setThinkingLevelMock } };
@@ -99,6 +107,8 @@ afterEach(async () => {
 	// The menu portals to document.body — sweep any leftovers between tests.
 	document.body.innerHTML = "";
 	useModelStore.getState().reset();
+	useSessionStore.getState().reset();
+	useTabsStore.getState().reset();
 });
 
 describe("ThinkingControl", () => {
@@ -126,7 +136,7 @@ describe("ThinkingControl", () => {
 		expect(body).not.toContain("minimal");
 	});
 
-	it("sends the explicitly picked value and applies the receipt", async () => {
+	it("sends the explicitly picked value and applies the authoritative receipt", async () => {
 		installMockOmp();
 		useModelStore.setState({
 			thinkingLevel: "medium",
@@ -150,6 +160,79 @@ describe("ThinkingControl", () => {
 
 		expect(setThinkingLevelMock).toHaveBeenCalledWith("high");
 		expect(useModelStore.getState().thinkingConfigured).toBe("high");
+		expect(useModelStore.getState().thinkingLevel).toBe("high");
+	});
+
+	it("shows the effective clamped level returned by the sidecar", async () => {
+		installMockOmp();
+		setThinkingLevelMock.mockResolvedValue({
+			type: "response",
+			command: "set_thinking_level",
+			success: true,
+			data: { thinkingLevel: "high", thinkingConfigured: "high" },
+		});
+		useModelStore.setState({
+			thinkingLevel: "medium",
+			thinkingConfigured: "medium",
+			availableThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
+		});
+		await mount(<ThinkingControl />);
+
+		const trigger = buttonWithMono("medium");
+		if (!trigger) throw new Error("trigger missing");
+		await act(async () => click(trigger));
+		const max = buttonWithMono("max");
+		if (!max) throw new Error("max option missing");
+		await act(async () => click(max));
+		await flush();
+
+		expect(setThinkingLevelMock).toHaveBeenCalledWith("max");
+		expect(useModelStore.getState().thinkingConfigured).toBe("high");
+		expect(useModelStore.getState().thinkingLevel).toBe("high");
+	});
+
+	it("does not apply a late receipt to a different tab", async () => {
+		installMockOmp();
+		const receipt = Promise.withResolvers<RpcResponse>();
+		setThinkingLevelMock.mockReturnValue(receipt.promise);
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/one", status: "ready", kind: "agent", unreadDone: false },
+				{ id: "t1", cwd: "/two", status: "ready", kind: "agent", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		useSessionStore.setState({ sessionId: "session-one" });
+		useModelStore.setState({
+			thinkingLevel: "medium",
+			thinkingConfigured: "medium",
+			availableThinkingLevels: ["medium", "high"],
+		});
+		await mount(<ThinkingControl />);
+
+		const trigger = buttonWithMono("medium");
+		if (!trigger) throw new Error("trigger missing");
+		await act(async () => click(trigger));
+		const high = buttonWithMono("high");
+		if (!high) throw new Error("high option missing");
+		await act(async () => click(high));
+
+		await act(async () => {
+			useTabsStore.setState({ activeTabId: "t1" });
+			useSessionStore.setState({ sessionId: "session-two" });
+			useModelStore.setState({ thinkingLevel: "low", thinkingConfigured: "low" });
+			receipt.resolve({
+				type: "response",
+				command: "set_thinking_level",
+				success: true,
+				data: { thinkingLevel: "high", thinkingConfigured: "high" },
+			});
+		});
+		await flush();
+
+		expect(useModelStore.getState().thinkingConfigured).toBe("low");
+		expect(useModelStore.getState().thinkingLevel).toBe("low");
 	});
 
 	it("offers auto as a first-class selector", async () => {
@@ -175,6 +258,8 @@ describe("ThinkingControl", () => {
 		await flush();
 
 		expect(setThinkingLevelMock).toHaveBeenCalledWith("auto");
+		expect(useModelStore.getState().thinkingConfigured).toBe("auto");
+		expect(useModelStore.getState().thinkingLevel).toBe("medium");
 	});
 
 	it("shows an honest note when the model does not reason", async () => {

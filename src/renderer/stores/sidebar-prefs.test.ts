@@ -1,6 +1,6 @@
 /**
- * sidebar-prefs store contract: pin toggles, workspace aliases, persistence
- * payloads, and hydrate-from-blob. Store-only harness (queue.test.ts shape).
+ * sidebar-prefs store contract: pin toggles, MRU access times, workspace
+ * aliases, persistence payloads, and hydrate-from-blob.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSidebarPrefs } from "./sidebar-prefs";
@@ -42,16 +42,42 @@ describe("sidebar-prefs store", () => {
 		expect(useSidebarPrefs.getState().groupAliases).toEqual({});
 	});
 
+	it("touches sessions and workspaces with one monotonic persisted MRU clock", () => {
+		useSidebarPrefs.setState({
+			workspaceLastUsed: { "/work/old": 20 },
+			sessionLastUsed: { "/sessions/old.jsonl": 30 },
+		});
+
+		useSidebarPrefs.getState().touchSession("/sessions/new.jsonl", "/work/new");
+		const sessionTimestamp = useSidebarPrefs.getState().sessionLastUsed["/sessions/new.jsonl"];
+		expect(sessionTimestamp).toBeGreaterThan(30);
+		expect(useSidebarPrefs.getState().workspaceLastUsed["/work/new"]).toBe(sessionTimestamp);
+		expect(set).toHaveBeenLastCalledWith(
+			"sidebar",
+			expect.objectContaining({
+				sessionLastUsed: expect.objectContaining({ "/sessions/new.jsonl": sessionTimestamp }),
+				workspaceLastUsed: expect.objectContaining({ "/work/new": sessionTimestamp }),
+			}),
+		);
+
+		useSidebarPrefs.getState().touchWorkspace("/work/old");
+		expect(useSidebarPrefs.getState().workspaceLastUsed["/work/old"]).toBeGreaterThan(sessionTimestamp ?? 0);
+	});
+
 	it("hydrates from the persisted blob once and tolerates missing prefs", async () => {
 		get.mockResolvedValueOnce({
 			pinnedGroups: ["/work/pinned"],
 			pinnedSessions: ["/s/p.jsonl"],
 			groupAliases: { "/work/a": "Alias" },
+			workspaceLastUsed: { "/work/a": 100, bad: "yesterday" },
+			sessionLastUsed: { "/s/p.jsonl": 200, bad: -1 },
 		});
 		await useSidebarPrefs.getState().hydrate();
 		expect(useSidebarPrefs.getState().pinnedGroups).toEqual(["/work/pinned"]);
 		expect(useSidebarPrefs.getState().pinnedSessions).toEqual(["/s/p.jsonl"]);
 		expect(useSidebarPrefs.getState().groupAliases).toEqual({ "/work/a": "Alias" });
+		expect(useSidebarPrefs.getState().workspaceLastUsed).toEqual({ "/work/a": 100 });
+		expect(useSidebarPrefs.getState().sessionLastUsed).toEqual({ "/s/p.jsonl": 200 });
 
 		// Second hydrate is a no-op (already hydrated).
 		const calls = get.mock.calls.length;

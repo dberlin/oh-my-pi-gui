@@ -194,11 +194,18 @@ kbd,
 	0%,
 	100% {
 		opacity: 1;
-		transform: scale(1);
 	}
 	50% {
-		opacity: 0.5;
-		transform: scale(0.8);
+		opacity: 0.45;
+	}
+}
+
+@keyframes omp-indeterminate-progress {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(334%);
 	}
 }
 
@@ -219,7 +226,20 @@ kbd,
 }
 
 .omp-pulse-dot {
-	animation: omp-pulse-dot 1.4s ease-in-out infinite; /* motion-ok: waiting signal */
+	animation: omp-pulse-dot 1.8s ease-in-out infinite; /* motion-ok: waiting signal */
+}
+
+.omp-indeterminate-progress {
+	width: 30%;
+	animation: omp-indeterminate-progress 1.1s cubic-bezier(0.65, 0, 0.35, 1) infinite; /* motion-ok: switching progress */
+}
+
+.omp-progress-width {
+	transition: width var(--omp-motion-med) var(--omp-ease);
+}
+
+.omp-disclosure-chevron {
+	transition: transform var(--omp-motion-fast) var(--omp-ease);
 }
 
 /* ============================================================================
@@ -616,6 +636,12 @@ kbd,
 
 	.omp-sidebar-action {
 		transition-delay: 0ms !important;
+	}
+
+	.omp-indeterminate-progress {
+		width: 100%;
+		transform: none;
+		opacity: 0.55;
 	}
 }
 

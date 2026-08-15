@@ -1,5 +1,4 @@
 import { Ban, Check, X } from "lucide-react";
-import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { resultBodyText, resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
@@ -83,11 +82,7 @@ export function ResolveRenderer({ args, result, isError, isPartial, partialResul
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-center gap-1.5 text-omp-sm">
-				<Icon
-					size={12}
-					className={cx("shrink-0", pending && "animate-pulse")}
-					style={{ color: `var(--omp-${tone})` }}
-				/>
+				<Icon size={12} className="shrink-0" style={{ color: `var(--omp-${tone})` }} />
 				<span className="font-semibold" style={{ color: `var(--omp-${tone})` }}>
 					{verb}
 				</span>

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
+import { Check, ChevronRight, Loader2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cx, durationBetween } from "../../lib/format";
 import { useToolsStore } from "../../stores/tools";
@@ -19,14 +19,18 @@ export interface ToolCardProps {
 	args: Record<string, unknown>;
 	/** One-line summary for the collapsed header (path, command, pattern…). */
 	summary?: string;
+	/** A parent activity indicator can own animation for a live tool group. */
+	runningIndicator?: RunningIndicator;
 }
+
+export type RunningIndicator = "spinner" | "dot";
 
 /**
  * Chrome around every tool invocation: status rail, name, summary, duration,
  * expand/collapse. The body comes from the tool registry; the tool_result
  * arrives via the tools store keyed by toolCallId.
  */
-export function ToolCard({ toolCallId, toolName, args, summary }: ToolCardProps) {
+export function ToolCard({ toolCallId, toolName, args, summary, runningIndicator = "spinner" }: ToolCardProps) {
 	const entry = useToolsStore(s => s.activeTools.get(toolCallId));
 	const expandAll = useUiStore(s => s.toolsExpandAll);
 	const [expanded, setExpanded] = useState(expandAll.expanded);
@@ -91,8 +95,12 @@ export function ToolCard({ toolCallId, toolName, args, summary }: ToolCardProps)
 				onClick={() => setExpanded(v => !v)}
 				className="omp-tool-header flex w-full items-center gap-2 py-2 pl-3.5 pr-2.5 text-left transition-colors duration-150 hover:bg-[var(--omp-selected-bg)]/40"
 			>
-				{status === "running" ? (
+				{status === "running" && runningIndicator === "spinner" ? (
 					<Loader2 size={12} className="omp-tool-status-icon shrink-0 animate-spin text-[var(--omp-accent)]" />
+				) : status === "running" ? (
+					<span aria-hidden className="omp-tool-status-icon flex h-3 w-3 shrink-0 items-center justify-center">
+						<span className="h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
+					</span>
 				) : isError ? (
 					<X size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-error)]" />
 				) : (
@@ -114,17 +122,13 @@ export function ToolCard({ toolCallId, toolName, args, summary }: ToolCardProps)
 						{duration}
 					</span>
 				)}
-				{expanded ? (
-					<ChevronDown
-						size={13}
-						className="omp-tool-chevron shrink-0 text-[var(--omp-dim)] transition-transform duration-150"
-					/>
-				) : (
-					<ChevronRight
-						size={13}
-						className="omp-tool-chevron shrink-0 text-[var(--omp-dim)] transition-transform duration-150"
-					/>
-				)}
+				<ChevronRight
+					size={13}
+					className={cx(
+						"omp-tool-chevron omp-disclosure-chevron shrink-0 text-[var(--omp-dim)]",
+						expanded && "rotate-90",
+					)}
+				/>
 			</button>
 			{expanded && (
 				<div className="omp-tool-body omp-fade-in border-t border-[var(--omp-border-muted)]/70 px-3.5 py-2.5">

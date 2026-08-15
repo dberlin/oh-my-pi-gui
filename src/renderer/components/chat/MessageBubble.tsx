@@ -9,7 +9,7 @@ import { branchSessionFromEntry, isRenderableMessageText } from "../../lib/messa
 import { toast } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { editArgumentSummary } from "../tools/edit-args";
-import { ToolCard } from "../tools/ToolCard";
+import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { UsageRow } from "./UsageRow";
@@ -18,6 +18,8 @@ export interface MessageBubbleProps {
 	message: AgentMessage;
 	/** Suppress per-message footer/padding inside an expanded Process group. */
 	compact?: boolean;
+	/** The timeline or process group can own the one animated running state. */
+	runningIndicator?: RunningIndicator;
 }
 
 function messageEntryId(message: AgentMessage): string | undefined {
@@ -78,13 +80,14 @@ function InlineImage({ image }: { image: ImageContent }) {
 }
 
 /** ToolCard subscribes to the tools store itself, so the tool result lands inline. */
-function ToolCardWithResult({ call }: { call: ToolCallContent }) {
+function ToolCardWithResult({ call, runningIndicator }: { call: ToolCallContent; runningIndicator: RunningIndicator }) {
 	return (
 		<ToolCard
 			toolCallId={toolEntryKey(call)}
 			toolName={call.name}
 			args={call.arguments}
 			summary={toolSummary(call.name, call.arguments)}
+			runningIndicator={runningIndicator}
 		/>
 	);
 }
@@ -118,10 +121,7 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 						{python ? t("chat.exec.python") : t("chat.exec.shell")}
 					</span>
 					<span
-						className={cx(
-							"ml-auto rounded-full px-2 py-0.5 font-mono text-omp-xxs font-medium tracking-wide",
-							running && "animate-pulse",
-						)}
+						className="ml-auto rounded-full px-2 py-0.5 font-mono text-omp-xxs font-medium tracking-wide"
 						style={{
 							background: running
 								? "var(--omp-info-dim)"
@@ -214,7 +214,11 @@ function ContextBubble({ message }: { message: AgentMessage }) {
  * render text, thinking, images, and tool cards. Standalone toolResult messages
  * are folded into their matching card through the tools store.
  */
-export const MessageBubble = memo(function MessageBubble({ message, compact = false }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({
+	message,
+	compact = false,
+	runningIndicator = "spinner",
+}: MessageBubbleProps) {
 	const t = useT();
 	const [copied, setCopied] = useState(false);
 	const [branching, setBranching] = useState(false);
@@ -353,7 +357,9 @@ export const MessageBubble = memo(function MessageBubble({ message, compact = fa
 				break;
 			}
 			case "toolCall": {
-				blocks.push(<ToolCardWithResult key={toolEntryKey(block)} call={block} />);
+				blocks.push(
+					<ToolCardWithResult key={toolEntryKey(block)} call={block} runningIndicator={runningIndicator} />,
+				);
 				break;
 			}
 			case "image": {

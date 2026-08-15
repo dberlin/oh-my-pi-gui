@@ -1,5 +1,5 @@
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, ListTodo, LoaderCircle } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, ChevronRight, LoaderCircle } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useToolsStore } from "../../stores/tools";
@@ -13,9 +13,9 @@ interface ExecutionGroupProps {
 }
 
 /**
- * One compact disclosure for a reasoning/tool phase. Completed history stays
- * on a single line until requested; live and failed work opens itself so the
- * user never loses current progress or an actionable error.
+ * One quiet disclosure for a reasoning/tool phase. Work opens while it is
+ * active, then returns to a single summary line regardless of its outcome.
+ * Errors remain called out in the summary and can be inspected on demand.
  */
 export function ExecutionGroup({ children, className, live = false, stepCount, toolCallIds }: ExecutionGroupProps) {
 	const t = useT();
@@ -30,12 +30,17 @@ export function ExecutionGroup({ children, className, live = false, stepCount, t
 		}
 		return { failed, running };
 	}, [activeTools, toolCallIds]);
-	const forcedOpen = live || status.running > 0 || status.failed > 0;
-	const [expanded, setExpanded] = useState(forcedOpen);
+	const active = live || status.running > 0;
+	const state = active ? "running" : status.failed > 0 ? "failed" : "complete";
+	const [expanded, setExpanded] = useState(active);
+	const wasActiveRef = useRef(active);
 
 	useEffect(() => {
-		if (forcedOpen) setExpanded(true);
-	}, [forcedOpen]);
+		const wasActive = wasActiveRef.current;
+		if (active && !wasActive) setExpanded(true);
+		else if (!active && wasActive) setExpanded(false);
+		wasActiveRef.current = active;
+	}, [active]);
 
 	const summary =
 		status.failed > 0
@@ -45,28 +50,33 @@ export function ExecutionGroup({ children, className, live = false, stepCount, t
 				: t("chat.process.statusComplete", { total: stepCount });
 
 	return (
-		<section className={cx("omp-execution-group", className)} data-live={forcedOpen || undefined}>
+		<section className={cx("omp-execution-group", className)} data-state={state}>
 			<button
 				aria-expanded={expanded}
 				className="omp-execution-group-header omp-pressable flex w-full min-w-0 items-center gap-2 text-left"
 				onClick={() => setExpanded(value => !value)}
 				type="button"
 			>
-				<ListTodo aria-hidden="true" className="shrink-0 text-[var(--omp-muted)]" size={16} />
-				<span className="shrink-0 text-omp-lg font-semibold text-[var(--omp-text)]">{t("chat.process.title")}</span>
-				<span className="min-w-0 flex-1 truncate text-omp-lg text-[var(--omp-muted)]">{summary}</span>
-				{status.running > 0 || live ? (
-					<LoaderCircle aria-hidden="true" className="shrink-0 animate-spin text-[var(--omp-link)]" size={15} />
+				{active ? (
+					<LoaderCircle aria-hidden="true" className="shrink-0 animate-spin text-[var(--omp-link)]" size={14} />
 				) : status.failed > 0 ? (
-					<AlertCircle aria-hidden="true" className="shrink-0 text-[var(--omp-error)]" size={15} />
+					<AlertCircle aria-hidden="true" className="shrink-0 text-[var(--omp-error)]" size={14} />
 				) : (
-					<CheckCircle2 aria-hidden="true" className="shrink-0 text-[var(--omp-dim)]" size={15} />
+					<CheckCircle2 aria-hidden="true" className="shrink-0 text-[var(--omp-dim)]" size={14} />
 				)}
-				{expanded ? (
-					<ChevronDown aria-hidden="true" className="shrink-0 text-[var(--omp-dim)]" size={15} />
-				) : (
-					<ChevronRight aria-hidden="true" className="shrink-0 text-[var(--omp-dim)]" size={15} />
-				)}
+				<span
+					aria-atomic="true"
+					aria-live="polite"
+					className="min-w-0 flex-1 truncate text-omp-md font-medium text-[var(--omp-muted)]"
+					role="status"
+				>
+					{summary}
+				</span>
+				<ChevronRight
+					aria-hidden="true"
+					className={cx("omp-disclosure-chevron shrink-0 text-[var(--omp-dim)]", expanded && "rotate-90")}
+					size={14}
+				/>
 			</button>
 			{expanded && <div className="omp-execution-group-body">{children}</div>}
 		</section>

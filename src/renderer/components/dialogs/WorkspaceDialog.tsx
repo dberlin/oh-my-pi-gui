@@ -12,6 +12,7 @@ import { newSessionNow } from "../../hooks/use-session-switch";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
+import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { toast } from "../../stores/toast";
 import { Modal } from "../common";
 
@@ -36,6 +37,7 @@ export function WorkspaceDialog({
 	const t = useT();
 	const { sessions } = useSessionList("global");
 	const cwd = useSessionStore(s => s.cwd);
+	const workspaceLastUsed = useSidebarPrefs(s => s.workspaceLastUsed);
 
 	const workspaces = useMemo<WorkspaceRow[]>(() => {
 		const byCwd = new Map<string, WorkspaceRow>();
@@ -58,8 +60,11 @@ export function WorkspaceDialog({
 		if (cwd && !byCwd.has(cwd)) {
 			byCwd.set(cwd, { cwd, name: basename(cwd) || cwd, lastModified: 0, sessionCount: 0 });
 		}
+		for (const workspace of byCwd.values()) {
+			workspace.lastModified = Math.max(workspace.lastModified, workspaceLastUsed[workspace.cwd] ?? 0);
+		}
 		return [...byCwd.values()].sort((a, b) => b.lastModified - a.lastModified);
-	}, [sessions, cwd]);
+	}, [sessions, cwd, workspaceLastUsed]);
 
 	/**
 	 * Session-replacing actions (new session here, workspace jump, open

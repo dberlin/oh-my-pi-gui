@@ -44,6 +44,7 @@ import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { hydrateSession, useRpcEvents } from "./hooks/use-rpc-events";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
+import { useSidebarRecency } from "./hooks/use-sidebar-recency";
 import { useTraySync } from "./hooks/use-tray-sync";
 import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
@@ -104,6 +105,8 @@ export function App() {
 	useExtensionUi();
 	// Session tabs: GET_TABS boot reconciliation + TAB_STATUS subscription.
 	useSessionTabs();
+	// Keep sidebar MRU ordering current even while the sidebar is hidden.
+	useSidebarRecency();
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const panelVisible = useUiStore(s => s.panelVisible);
 	const theme = useUiStore(s => s.theme);

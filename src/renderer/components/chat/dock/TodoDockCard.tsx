@@ -31,7 +31,6 @@ import {
 	Circle,
 	GripVertical,
 	ListTodo,
-	LoaderCircle,
 	Pencil,
 	X,
 } from "lucide-react";
@@ -56,7 +55,7 @@ const STATUS_CYCLE: TodoTask["status"][] = ["pending", "in_progress", "completed
 
 function TodoStatusIcon({ status }: { status: TodoTask["status"] }) {
 	if (status === "in_progress") {
-		return <LoaderCircle aria-hidden="true" className="animate-spin text-[var(--omp-link)]" size={15} />;
+		return <span aria-hidden="true" className="h-2 w-2 rounded-full bg-[var(--omp-link)]" />;
 	}
 	if (status === "completed") {
 		return <CheckCircle2 aria-hidden="true" className="text-[var(--omp-muted)]" size={15} />;
@@ -229,7 +228,7 @@ function PhaseSection({
 					type="button"
 				>
 					<ChevronRight
-						className="shrink-0 text-(--omp-dim) transition-transform duration-100"
+						className="omp-disclosure-chevron shrink-0 text-(--omp-dim)"
 						size={12}
 						style={{ transform: collapsed ? undefined : "rotate(90deg)" }}
 					/>

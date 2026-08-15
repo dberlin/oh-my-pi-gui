@@ -9,7 +9,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { IpcSpawnTabPayload, IpcTabInfo, IpcTabStatusPayload } from "../../../shared/ipc-types";
+import type { IpcSpawnTabPayload, IpcTabInfo, IpcTabStatusPayload, SessionInfo } from "../../../shared/ipc-types";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useComposerStore } from "../../stores/composer";
@@ -47,7 +47,26 @@ function ok(data: unknown): RpcResponse {
 	return { type: "response", command: "test", success: true, data };
 }
 
+function listedSession(id: string, overrides: Partial<SessionInfo> = {}): SessionInfo {
+	return {
+		path: `/sessions/${id}.jsonl`,
+		id,
+		title: null,
+		cwd: "/work/infron",
+		created: "2026-08-16T00:00:00Z",
+		modified: "2026-08-16T00:00:00Z",
+		messageCount: 0,
+		size: 512,
+		status: "complete",
+		firstMessage: "",
+		...overrides,
+	};
+}
+
 interface MockOmp {
+	sessions: {
+		list: Mock<() => Promise<SessionInfo[]>>;
+	};
 	tabs: {
 		list: Mock<() => Promise<IpcTabInfo[]>>;
 		spawn: Mock<(payload: IpcSpawnTabPayload) => Promise<{ tabId: string } | null>>;
@@ -56,6 +75,7 @@ interface MockOmp {
 	};
 	events: {
 		onTabStatus: Mock<(callback: (payload: IpcTabStatusPayload) => void) => () => void>;
+		onSessionsChanged: Mock<(callback: () => void) => () => void>;
 	};
 	rpc: {
 		getState: Mock<() => Promise<RpcResponse>>;
@@ -71,13 +91,17 @@ interface MockOmp {
 
 function installMockOmp(): MockOmp {
 	const omp: MockOmp = {
+		sessions: { list: vi.fn(async () => []) },
 		tabs: {
 			list: vi.fn(async () => []),
 			spawn: vi.fn(async () => ({ tabId: "t9" })),
 			close: vi.fn(async () => true),
 			setActive: vi.fn(async () => true),
 		},
-		events: { onTabStatus: vi.fn(() => () => {}) },
+		events: {
+			onTabStatus: vi.fn(() => () => {}),
+			onSessionsChanged: vi.fn(() => () => {}),
+		},
 		rpc: {
 			getState: vi.fn(async () =>
 				ok({
@@ -170,6 +194,108 @@ afterEach(async () => {
 omp = installMockOmp();
 
 describe("TabBar", () => {
+	it("uses the restored session path before session_info arrives and matches the sidebar title", async () => {
+		const firstMessage = "当前本地已修改代码,是否可以合并到 main 分支并完成全部验证";
+		omp.sessions.list.mockResolvedValue([listedSession("s-infron", { firstMessage, messageCount: 2 })]);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					// Exact restore race: GET_TABS already knows the transcript path,
+					// but session_info_update has not supplied sessionId/title yet.
+					sessionPath: "/sessions/s-infron.jsonl",
+					cwd: "/work/infron",
+					status: "ready",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+
+		await mount(<TabBar />);
+
+		expect(chips()[0]?.textContent).toContain(firstMessage);
+		expect(chips()[0]?.getAttribute("title")).toBe(firstMessage);
+		expect(chips()[0]?.querySelector(".truncate")).not.toBeNull();
+	});
+
+	it("removes a truly empty startup placeholder after a real session tab exists", async () => {
+		omp.sessions.list.mockResolvedValue([
+			listedSession("s-empty"),
+			listedSession("s-real", { firstMessage: "Real work", messageCount: 2 }),
+		]);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "chat",
+					id: "t-empty",
+					sessionId: "s-empty",
+					cwd: "/neutral",
+					status: "ready",
+					placeholder: true,
+					unreadDone: false,
+				},
+				{
+					kind: "agent",
+					id: "t-real",
+					sessionId: "s-real",
+					cwd: "/work/infron",
+					status: "ready",
+					placeholder: false,
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t-real",
+			bundles: new Map(),
+		});
+
+		await mount(<TabBar />);
+		await flush();
+
+		expect(omp.tabs.close).toHaveBeenCalledWith("t-empty");
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-real"]);
+	});
+
+	it("keeps an empty startup tab when it contains an unsent draft", async () => {
+		omp.sessions.list.mockResolvedValue([
+			listedSession("s-empty"),
+			listedSession("s-real", { firstMessage: "Real work", messageCount: 2 }),
+		]);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "chat",
+					id: "t-empty",
+					sessionId: "s-empty",
+					cwd: "/neutral",
+					status: "ready",
+					placeholder: true,
+					unreadDone: false,
+				},
+				{
+					kind: "agent",
+					id: "t-real",
+					sessionId: "s-real",
+					cwd: "/work/infron",
+					status: "ready",
+					placeholder: false,
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t-empty",
+			bundles: new Map(),
+		});
+		useComposerStore.getState().setDraft("do not lose this");
+
+		await mount(<TabBar />);
+		await flush();
+
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-empty", "t-real"]);
+	});
+
 	it("renders one chip per tab with title or cwd basename and marks the active tab", async () => {
 		useTabsStore.setState({
 			tabs: [
@@ -209,11 +335,11 @@ describe("TabBar", () => {
 		expect(container.querySelectorAll('[role="tab"] button').length).toBeGreaterThan(0);
 	});
 
-	it("renders the running dot and the unreadDone badge", async () => {
+	it("animates only background running tabs and preserves the unreadDone badge", async () => {
 		useTabsStore.setState({
 			tabs: [
 				{ kind: "agent", id: "t0", cwd: "/alpha", status: "running", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: true },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "running", unreadDone: true },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -221,7 +347,8 @@ describe("TabBar", () => {
 		await mount(<TabBar />);
 
 		const rendered = chips();
-		expect(rendered[0]?.querySelector(".animate-pulse")).not.toBeNull();
+		expect(rendered[0]?.querySelector(".omp-pulse-dot")).toBeNull();
+		expect(rendered[1]?.querySelector(".omp-pulse-dot")).not.toBeNull();
 		// The done badge carries the localized label as its aria-label.
 		expect(rendered[1]?.querySelector('[aria-label="Run completed"]')).not.toBeNull();
 		expect(rendered[0]?.querySelector('[aria-label="Run completed"]')).toBeNull();

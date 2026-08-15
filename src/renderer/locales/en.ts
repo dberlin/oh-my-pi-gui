@@ -2017,6 +2017,7 @@ export const en: Record<string, string> = {
 	"chat.thinking.show": "Show reasoning",
 	"chat.thinking.hide": "Hide reasoning",
 	"chat.awaitingModel": "Waiting for model response… {seconds}s",
+	"chat.awaitingModel.announcement": "Waiting for model response…",
 	"chat.awaitingModel.slow": "Slow response — the network may be unstable",
 	"chat.awaitingModel.stalled":
 		"Still nothing — likely the network. The request auto-times-out (~5 min) and retries; Esc aborts now.",

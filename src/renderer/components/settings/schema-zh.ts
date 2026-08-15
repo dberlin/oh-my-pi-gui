@@ -156,7 +156,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"task.agentAdvisor": {
 		label: "子代理顾问（按 agent）",
 		description:
-			"按 agent 名称配置顾问模型（取代已移除的 advisor.subagents），例如 { task: \"on\" } 表示对 task 子代理启用默认顾问。",
+			'按 agent 名称配置顾问模型（取代已移除的 advisor.subagents），例如 { task: "on" } 表示对 task 子代理启用默认顾问。',
 	},
 	"advisor.syncBacklog": {
 		label: "顾问同步积压",

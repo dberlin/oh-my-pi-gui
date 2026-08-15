@@ -74,6 +74,8 @@ export interface SessionTab {
 	compacting?: boolean;
 	/** Immutable session kind, fixed when this tab's sidecar was spawned. */
 	kind: SessionKind;
+	/** Untargeted startup tab that may be replaced while still truly empty. */
+	placeholder?: boolean;
 	/**
 	 * Git-worktree binding (plan/20), immutable from spawn. Drives the chip's
 	 * GitBranch marker, the untitled label (worktree name over the hash-suffixed
@@ -82,6 +84,8 @@ export interface SessionTab {
 	worktree?: IpcTabWorktree;
 	/** Session title when known (session_info_update via TAB_STATUS). */
 	title?: string;
+	/** Main-owned transcript identity, available even before session_info_update. */
+	sessionPath?: string;
 	sessionId?: string;
 	/** A run completed while this tab was in the background. */
 	unreadDone: boolean;
@@ -302,12 +306,18 @@ export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): stri
 	// `||` everywhere: empty-string titles (never-generated auto-title slot)
 	// fall through like null. Worktree tabs label by their worktree NAME — the
 	// cwd basename is the hash-suffixed dir (gui-<name>-<hash7>), unreadable.
-	const base = tab.title || tab.worktree?.name || basename(tab.cwd) || translate("sidebar.newSession");
+	// Untitled chats are global: their internal process cwd must never masquerade
+	// as a selected workspace in the tab strip.
+	const untitledBase = (entry: SessionTab) =>
+		entry.kind === "chat"
+			? translate("sidebar.newSession")
+			: entry.worktree?.name || basename(entry.cwd) || translate("sidebar.newSession");
+	const base = tab.title || untitledBase(tab);
 	if (tab.title) return base;
 	let occurrence = 0;
 	for (const entry of tabs) {
 		if (entry.title) continue;
-		if ((entry.worktree?.name || basename(entry.cwd) || translate("sidebar.newSession")) !== base) continue;
+		if (untitledBase(entry) !== base) continue;
 		occurrence += 1;
 		if (entry.id === tab.id) break;
 	}
@@ -375,9 +385,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				const existing = leftovers.get(info.tabId);
 				leftovers.delete(info.tabId);
 				const sessionChanged =
-					existing?.sessionId !== undefined &&
-					info.sessionId !== undefined &&
-					existing.sessionId !== info.sessionId;
+					(existing?.sessionId !== undefined &&
+						info.sessionId !== undefined &&
+						existing.sessionId !== info.sessionId) ||
+					(existing?.sessionPath !== undefined &&
+						info.sessionPath !== undefined &&
+						existing.sessionPath !== info.sessionPath);
 				if (sessionChanged) bundles.delete(info.tabId);
 				return {
 					id: info.tabId,
@@ -385,9 +398,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					status: info.status,
 					compacting: info.compacting ?? existing?.compacting ?? false,
 					kind: info.kind ?? existing?.kind ?? "agent",
+					placeholder: info.placeholder ?? existing?.placeholder,
 					worktree: info.worktree ?? existing?.worktree,
 					title:
 						info.title === undefined ? (sessionChanged ? undefined : existing?.title) : (info.title ?? undefined),
+					sessionPath: info.sessionPath === undefined ? existing?.sessionPath : (info.sessionPath ?? undefined),
 					sessionId: info.sessionId ?? existing?.sessionId,
 					unreadDone: sessionChanged ? false : (existing?.unreadDone ?? false),
 					pendingSessionPath: existing?.pendingSessionPath,
@@ -396,14 +411,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			// Entries the reply doesn't know (a spawn reply raced this reconcile)
 			// survive appended at the end.
 			const tabs = [...merged, ...leftovers.values()];
+			const mainActiveTabId = list.find(info => info.active)?.tabId;
 			const activeTabId =
 				state.activeTabId && tabs.some(tab => tab.id === state.activeTabId)
 					? state.activeTabId
-					: (tabs[0]?.id ?? null);
+					: mainActiveTabId && tabs.some(tab => tab.id === mainActiveTabId)
+						? mainActiveTabId
+						: (tabs[0]?.id ?? null);
 			return { tabs, activeTabId, bundles };
 		});
 		// After a renderer reload with multiple tabs, re-converge main's active
-		// tab with the renderer's pick (main defaults to the oldest).
+		// tab with the renderer's pick. GET_TABS carries main's persisted choice
+		// when the renderer has no surviving in-memory selection.
 		const activeTabId = get().activeTabId;
 		const needsRoute = get().tabs.length > 1 && activeTabId !== null;
 		reconcileTabRoute(activeTabId, !needsRoute);
@@ -471,7 +490,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			if (existing) {
 				if (!args?.sessionPath || existing.pendingSessionPath === args.sessionPath) return state;
 				return {
-					tabs: state.tabs.map(tab => (tab.id === tabId ? { ...tab, pendingSessionPath: args.sessionPath } : tab)),
+					tabs: state.tabs.map(tab =>
+						tab.id === tabId
+							? { ...tab, sessionPath: args.sessionPath, pendingSessionPath: args.sessionPath }
+							: tab,
+					),
 				};
 			}
 			const tab: SessionTab = {
@@ -479,8 +502,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				cwd,
 				status: "starting",
 				kind,
+				placeholder: false,
 				worktree: args?.worktree,
 				unreadDone: false,
+				sessionPath: args?.sessionPath,
 				pendingSessionPath: args?.sessionPath,
 			};
 			return { tabs: [...state.tabs, tab] };
@@ -590,9 +615,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			const index = state.tabs.findIndex(tab => tab.id === payload.tabId);
 			const previous = index >= 0 ? state.tabs[index] : undefined;
 			const sessionChanged =
-				previous?.sessionId !== undefined &&
-				payload.sessionId !== undefined &&
-				previous.sessionId !== payload.sessionId;
+				(previous?.sessionId !== undefined &&
+					payload.sessionId !== undefined &&
+					previous.sessionId !== payload.sessionId) ||
+				(previous?.sessionPath !== undefined &&
+					payload.sessionPath !== undefined &&
+					previous.sessionPath !== payload.sessionPath);
 			// A background tab's run settled → done badge until the user visits.
 			const completedInBackground =
 				payload.tabId !== state.activeTabId && previous?.status === "running" && payload.status === "ready";
@@ -602,6 +630,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				status: payload.status,
 				compacting: payload.compacting ?? previous?.compacting ?? false,
 				kind: payload.kind ?? previous?.kind ?? "agent",
+				placeholder: payload.placeholder ?? previous?.placeholder,
 				worktree: payload.worktree ?? previous?.worktree,
 				title:
 					payload.title === undefined
@@ -609,6 +638,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 							? undefined
 							: previous?.title
 						: (payload.title ?? undefined),
+				sessionPath: payload.sessionPath === undefined ? previous?.sessionPath : (payload.sessionPath ?? undefined),
 				sessionId: payload.sessionId ?? previous?.sessionId,
 				unreadDone: sessionChanged ? false : completedInBackground ? true : (previous?.unreadDone ?? false),
 				pendingSessionPath: previous?.pendingSessionPath,
@@ -746,7 +776,25 @@ export function settleTabPlanApproval(
  */
 export function useSessionTabs(): void {
 	useEffect(() => {
-		void useTabsStore.getState().reconcileTabs();
+		void useTabsStore
+			.getState()
+			.reconcileTabs()
+			.then(converged => {
+				if (!converged) return;
+				// A restored sidecar can already be ready before either renderer
+				// subscription attaches. GET_TABS is the durable boot snapshot, so
+				// use it as the final hydration fallback after the active route has
+				// converged. The next task gives the normal status handler first pick.
+				setTimeout(() => {
+					if (!acceptsActiveTabEvents()) return;
+					const state = useTabsStore.getState();
+					const tab = state.tabs.find(entry => entry.id === state.activeTabId);
+					if (!tab || (tab.status !== "ready" && tab.status !== "running")) return;
+					if (useSessionStore.getState().sessionId) return;
+					useSessionStore.getState().setStatus("ready", tab.cwd);
+					void hydrateSession();
+				}, 0);
+			});
 		const subscribe = window.omp.events.onTabStatus;
 		if (typeof subscribe !== "function") return;
 		return subscribe.call(window.omp.events, payload => {

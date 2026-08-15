@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Native macOS menu-bar mark**: the generic colored status dot is replaced by a crisp Retina π template icon that automatically follows light, dark and selected menu-bar states.
+- **Recent-first navigation**: sidebar sessions and workspace groups now move dynamically by last use, persist that MRU order across restarts and package updates, retain pinned-first priority, and preserve relevance ordering while searching.
+- **Quieter execution history**: each reasoning/tool run now folds into one lightweight inline activity summary instead of a stack of nested cards and scroll boxes; active work opens for progress, then both successful and failed runs collapse to an outcome summary with full details available on demand.
+
+### Fixed
+
+- **Clean, consistent tabs**: the disposable empty startup chat now disappears after a real tab opens (including layouts saved by older builds), while drafts and genuine sessions remain protected; restored tabs carry their transcript path before delayed session metadata arrives, so labels reliably use the same renamed-title/first-message fallback as the sidebar and truncate long text with the full title available on hover.
+- **Persistent tab workspace**: the open top-tab order and active session now survive app restarts and package replacement; stale workspaces are discarded and missing transcripts fall back safely instead of reopening a random project.
+- **Single waiting indicator**: model-response, retry, and compaction waiting rows now show one loading animation instead of duplicating it in the transcript timeline.
+- **Single execution indicator**: each active turn or execution phase now owns at most one loading animation; timeline groups, expanded tools, read previews, todo rows, PR checks, the title bar, and the active tab use static status dots instead of stacking duplicate spinners and pulses.
+- **Thinking level selection**: nested effort options now dispatch before the parent runtime-settings menu dismisses them, and explicit picker/cycle changes synchronize both the configured selector and effective effort from the authoritative RPC receipt instead of leaving stale state behind.
+- **Fresh local packages**: every packaging command now rebuilds the Electron app first instead of silently reusing an old `out/` directory.
+- **Default startup tab**: untargeted launches and new windows now open a fresh, unnamed global chat without inheriting a random recent workspace or auto-resuming its session; the chat's internal process cwd is no longer presented as a selected workspace.
+- **Streaming transcript reading position**: any manual scroll-up releases tail following immediately; live-row growth no longer competes with native browser anchoring, and finalizing a streamed response preserves the virtual row identity instead of snapping an unpinned reader to the bottom.
+
 ## [0.8.0] - 2026-08-14
 
 ### Changed

@@ -16,6 +16,7 @@ import { useSessionList } from "../../hooks/use-session-list";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
+import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
@@ -35,6 +36,7 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 	const cwd = useSessionStore(s => s.cwd);
 	const status = useSessionStore(s => s.status);
 	const isStreaming = useSessionStore(s => s.isStreaming);
+	const isChat = useActiveTabKind() === "chat";
 
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
@@ -48,7 +50,7 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 	const openPrCenter = useUiStore(s => s.openPrCenter);
 	const openAgentHub = useUiStore(s => s.openAgentHub);
 	const { sessions } = useSessionList("local");
-	const projectName = cwd ? basename(cwd) : t("titlebar.openProject");
+	const projectName = !isChat && cwd ? basename(cwd) : t("titlebar.openProject");
 
 	const [editingName, setEditingName] = useState(false);
 	const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -155,7 +157,7 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 					className={cx(
 						"h-2 w-2 rounded-full",
 						isStreaming
-							? "animate-pulse bg-[var(--omp-accent)]"
+							? "bg-[var(--omp-accent)]"
 							: status === "ready"
 								? "bg-[var(--omp-success)]"
 								: "bg-[var(--omp-warning)]",

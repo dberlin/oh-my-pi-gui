@@ -91,4 +91,13 @@ describe("ThinkingBlock", () => {
 		expect(container.querySelector(".markdown-body")).toBeNull();
 		expect(container.querySelector(".omp-thinking-body")).toBeNull();
 	});
+
+	it("uses only the streaming caret as motion while visible reasoning grows", async () => {
+		useUiStore.getState().setThinkingExpanded(true);
+		useMessagesStore.setState({ streamingThinking: HEADLINED_THINKING });
+		await mount(<ThinkingBlock live />);
+
+		expect(container.querySelector(".omp-caret")).not.toBeNull();
+		expect(container.querySelector(".omp-thinking-pulse")).toBeNull();
+	});
 });

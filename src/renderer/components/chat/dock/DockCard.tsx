@@ -90,7 +90,7 @@ export function DockCard({ id, icon: Icon, title, badge, actions, children }: Do
 					{badge}
 					<span className="min-w-1 flex-1" />
 					<ChevronRight
-						className="shrink-0 text-[var(--omp-dim)] transition-transform duration-100"
+						className="omp-disclosure-chevron shrink-0 text-[var(--omp-dim)]"
 						size={14}
 						style={{ transform: expanded ? "rotate(90deg)" : undefined }}
 					/>

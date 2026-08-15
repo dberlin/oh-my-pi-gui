@@ -207,3 +207,59 @@ final result: passed
 - Source and live implementation were judged together in `tmp/context-usage-comparison.png`.
 
 final result: passed
+
+---
+
+# Execution History Redesign QA
+
+## Comparison target
+
+- Source visual truth:
+  - `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-dbe19c9b-c97a-488b-8c25-e9f05c7491b6.png`
+  - `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-aa486474-a8e0-4f2d-9215-1d5a8d6f09d4.png`
+- Implementation screenshots:
+  - Collapsed answer-first state: `/tmp/omp-execution-redesign-final.png`
+  - Expanded activity state: `/tmp/omp-execution-redesign-expanded.png`
+- Full-view comparison: `/tmp/omp-execution-redesign-comparison.png`
+- Focused activity comparison: `/tmp/omp-execution-redesign-focused-comparison.png`
+- Viewport: implementation Electron window captured at 1224 x 768 logical pixels.
+- Pixel dimensions: source 3600 x 2260; implementation 1224 x 768; comparison 2448 x 768.
+- CSS size and density normalization: the attached source screenshot does not expose its CSS viewport or device scale. It was proportionally normalized from 3600 x 2260 to 1224 x 768. The Computer Use implementation capture was exported at its 1224 x 768 logical window size. The two captures have the same aspect ratio, so normalization required no crop.
+- State: completed coding run, with the assistant answer primary and execution history available in collapsed and manually expanded states.
+
+## Required fidelity surfaces
+
+- Fonts and typography: retained omp's established UI and monospace families, reduced activity summaries to the secondary `text-omp-md` scale, and removed the competing bold `任务` label. The result matches the reference hierarchy without importing foreign typography.
+- Spacing and layout rhythm: activity chrome is a 30px disclosure row; the 42px card header, 16px card radius, nested padding, minimum timeline height, and inner 320px viewport were removed. Expanded rows now flow in the transcript's single scroll owner.
+- Colors and visual tokens: activity uses existing muted, accent, error, and success tokens. Container fills, status rails, and the continuous timeline rule were removed; semantic state remains in small icons.
+- Image quality and asset fidelity: no raster, logo, illustration, or custom image asset is part of this component. Existing Lucide icons remain vector-sharp and consistent with the product.
+- Copy and content: completed and failed counts remain explicit; the redundant generic `任务` title is gone. Tool names, commands, paths, durations, reasoning, and errors remain available after expansion.
+
+## Comparison history
+
+### Iteration 1
+
+- [P2] Multiple narrated phases still left a stack of nearly identical completed summary rows.
+  - Evidence: `/tmp/omp-execution-redesign-implementation-v3.png` and the hydrated accessibility tree exposed eight consecutive completed disclosures before the final answer.
+  - Impact: the large cards were gone, but the remaining repeated rows still consumed attention and did not match the reference's one activity summary per run.
+  - Fix: compact transcript construction now keeps narrated tool phases in one process group until the final assistant answer; background/custom transcript records remain legitimate boundaries.
+
+### Iteration 2
+
+- Post-fix evidence: `/tmp/omp-execution-redesign-final.png` keeps the answer visually primary; `/tmp/omp-execution-redesign-expanded.png` shows the full tool history without a nested card or inner scrollbar. The same hydrated transcript now exposes three activity summaries, separated by real background-task records, rather than eight phase summaries.
+- No actionable P0, P1, or P2 mismatch remains in the requested execution-history surface.
+
+## Interaction checks
+
+- Completed groups hydrate collapsed.
+- Failed groups hydrate collapsed with an error count and can be expanded.
+- Active groups open automatically and collapse when execution settles.
+- Manual expansion reveals the complete history in the main transcript scroll owner.
+- Long runs do not create an internal vertical scrollbar.
+
+## Residual scope notes
+
+- The persistent Todo dock and background-task result cards are separate product surfaces and were not restyled as part of this execution-history request.
+- The source and implementation contain different conversation content, so copy wrapping and document length were evaluated as hierarchy and density rather than literal line-for-line fidelity.
+
+final result: passed

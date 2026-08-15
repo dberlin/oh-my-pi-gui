@@ -15,10 +15,12 @@
 import { Brain, Check, ChevronDown } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { THINKING_LEVEL_VALUES, type ThinkingLevel } from "../../../shared/rpc-types";
+import { type RpcThinkingLevelState, THINKING_LEVEL_VALUES, type ThinkingLevel } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
+import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 
 type ThinkingSelector = ThinkingLevel | "auto";
@@ -64,15 +66,33 @@ export function ThinkingControl() {
 
 	const select = (level: ThinkingSelector) => {
 		setOpen(false);
-		void window.omp.rpc.setThinkingLevel(level).then(res => {
-			if (res.success) {
-				// thinking_level_changed follows on the wire; apply the receipt now
-				// so the chip reflects the pick within the same frame.
-				useModelStore.setState({ thinkingConfigured: level });
-			} else {
-				toast({ variant: "error", title: t("input.thinking.failed"), message: res.error });
-			}
-		});
+		const requestTabId = useTabsStore.getState().activeTabId;
+		const requestSessionId = useSessionStore.getState().sessionId;
+		void window.omp.rpc
+			.setThinkingLevel(level)
+			.then(res => {
+				if (!res.success) {
+					toast({ variant: "error", title: t("input.thinking.failed"), message: res.error });
+					return;
+				}
+				// The receipt is authoritative after model support / session-ceiling
+				// clamps. Apply it directly so a missed/batched event cannot leave the
+				// selector visually stuck on its previous value.
+				const state = res.data as RpcThinkingLevelState | undefined;
+				if (!state) return;
+				if (
+					useTabsStore.getState().activeTabId !== requestTabId ||
+					useSessionStore.getState().sessionId !== requestSessionId
+				)
+					return;
+				useModelStore.setState({
+					thinkingLevel: state.thinkingLevel,
+					thinkingConfigured: state.thinkingConfigured,
+				});
+			})
+			.catch(error => {
+				toast({ variant: "error", title: t("input.thinking.failed"), message: String(error) });
+			});
 	};
 
 	return (

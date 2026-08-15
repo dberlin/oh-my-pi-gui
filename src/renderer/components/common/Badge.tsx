@@ -40,13 +40,10 @@ export function Badge({ variant = "default", dot, pulse, className, children }: 
 			className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-px text-omp-xs font-medium leading-4 tracking-wide whitespace-nowrap ${VARIANT_CLASSES[variant]} ${className ?? ""}`.trim()}
 		>
 			{dot && (
-				<span className="relative flex size-1.5">
-					{pulse && (
-						<span
-							className={`absolute inline-flex size-full animate-ping rounded-full opacity-60 ${DOT_CLASSES[variant]}`}
-						/>
-					)}
-					<span className={`relative inline-flex size-1.5 rounded-full ${DOT_CLASSES[variant]}`} />
+				<span aria-hidden className="relative flex size-1.5">
+					<span
+						className={`relative inline-flex size-1.5 rounded-full ${pulse ? "omp-pulse-dot" : ""} ${DOT_CLASSES[variant]}`}
+					/>
 				</span>
 			)}
 			{children}

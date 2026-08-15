@@ -124,10 +124,14 @@ export function InputArea() {
 		const onKey = (event: globalThis.KeyboardEvent) => {
 			if (event.key === "Escape") setRunSettingsOpen(false);
 		};
-		document.addEventListener("pointerdown", onDown);
+		// Close on click rather than pointerdown. The controls inside this menu
+		// open their own body-level portals; closing on the nested option's
+		// pointerdown unmounted its React handler before the following click could
+		// dispatch the selected value.
+		document.addEventListener("click", onDown);
 		document.addEventListener("keydown", onKey);
 		return () => {
-			document.removeEventListener("pointerdown", onDown);
+			document.removeEventListener("click", onDown);
 			document.removeEventListener("keydown", onKey);
 		};
 	}, [runSettingsOpen]);

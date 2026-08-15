@@ -14,7 +14,6 @@ import {
 	type RpcVibeModeState,
 	type SessionInfoUpdateFrame,
 	type SubagentSnapshot,
-	type ThinkingLevel,
 	type TodoPhase,
 } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
@@ -557,16 +556,18 @@ export function useRpcEvents(): void {
 						break;
 					}
 					case "thinking_level_changed": {
-						const patch: Partial<{ thinkingLevel: ThinkingLevel; thinkingConfigured: ThinkingLevel | "auto" }> =
-							{};
-						if (event.thinkingLevel !== undefined) patch.thinkingLevel = event.thinkingLevel;
-						if (
+						const configured =
 							typeof event.configured === "string" &&
 							(event.configured === "auto" || isThinkingLevel(event.configured))
-						) {
-							patch.thinkingConfigured = event.configured;
-						}
-						if (Object.keys(patch).length > 0) useModelStore.setState(patch);
+								? event.configured
+								: event.thinkingLevel;
+						// Explicit changes omit `configured` because it equals the effective
+						// level. Treat that omission as data, not as "keep the old selector";
+						// otherwise cycle/hotkey changes leave a stale checked menu item.
+						useModelStore.setState({
+							thinkingLevel: event.thinkingLevel,
+							thinkingConfigured: configured,
+						});
 						break;
 					}
 					case "model_changed": {

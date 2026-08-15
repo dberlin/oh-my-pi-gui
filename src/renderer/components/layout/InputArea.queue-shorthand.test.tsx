@@ -1,9 +1,7 @@
 /**
- * InputArea `->` / `=>` queue-shorthand submit contract: the prefix parse
- * runs BEFORE the streaming→steer fallback, so the shorthand always routes
- * to the followUp lane with the prefix stripped — even mid-stream (where a
- * plain message would steer). Covers the single-item form, the enumerated
- * list split, and the idle start-immediately variant.
+ * InputArea interaction contracts: queue shorthand routing and nested
+ * run-settings portals. The latter protects option clicks from the parent
+ * menu's outside-dismiss listener.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
@@ -13,8 +11,10 @@ import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
+import { useModelStore } from "../../stores/model";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
+import { useSettingsStore } from "../../stores/settings";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { InputArea } from "./InputArea";
@@ -33,6 +33,19 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
 if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
+elementPrototype.getBoundingClientRect = () => ({
+	bottom: 0,
+	height: 0,
+	left: 0,
+	right: 0,
+	top: 0,
+	width: 0,
+	x: 0,
+	y: 0,
+	toJSON: () => ({}),
+});
+Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
 
 interface TestElement {
 	textContent: string | null;
@@ -47,6 +60,9 @@ let root: Root;
 let followUp: Mock;
 let steer: Mock;
 let prompt: Mock;
+let setThinkingLevel: Mock;
+let setSetting: Mock;
+let setPlanMode: Mock;
 
 async function flush(): Promise<void> {
 	await act(async () => {
@@ -90,6 +106,23 @@ async function pressEnter(element: TestElement): Promise<void> {
 	);
 }
 
+async function click(element: TestElement): Promise<void> {
+	await act(async () => {
+		element.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+	});
+}
+
+async function pointerDown(element: TestElement): Promise<void> {
+	await act(async () => {
+		element.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+	});
+}
+
+function buttonWithText(text: string): TestElement | undefined {
+	const buttons = Array.from(document.querySelectorAll("button")) as unknown as TestElement[];
+	return buttons.find(button => button.textContent?.trim().startsWith(text));
+}
+
 function findTextarea(): TestElement {
 	const textarea = document.querySelector("textarea") as unknown as TestElement | null;
 	if (!textarea) throw new Error("composer textarea not found");
@@ -100,6 +133,9 @@ async function mount(): Promise<void> {
 	followUp = vi.fn(async () => ok());
 	steer = vi.fn(async () => ok());
 	prompt = vi.fn(async () => ok());
+	setThinkingLevel = vi.fn(async (level: string) => ok({ thinkingLevel: level, thinkingConfigured: level }));
+	setSetting = vi.fn(async () => ok());
+	setPlanMode = vi.fn(async (enabled: boolean) => ok({ enabled }));
 	(window as unknown as Record<string, unknown>).omp = {
 		fs: { list: vi.fn(async () => ({ entries: [] })) },
 		events: { onCommandsUpdate: vi.fn(() => () => {}) },
@@ -111,8 +147,16 @@ async function mount(): Promise<void> {
 			steer,
 			prompt,
 			abort: vi.fn(async () => ok()),
+			setThinkingLevel,
+			setSetting,
+			setPlanMode,
 		},
 	};
+	useModelStore.setState({
+		thinkingLevel: "high",
+		thinkingConfigured: "high",
+		availableThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
+	});
 	useSessionStore.setState({
 		status: "ready",
 		isStreaming: true,
@@ -147,8 +191,10 @@ afterEach(async () => {
 	container.remove();
 	useSessionStore.getState().reset();
 	useMessagesStore.getState().reset();
+	useModelStore.getState().reset();
 	useComposerStore.getState().reset();
 	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
+	useSettingsStore.getState().reset();
 	useTabsStore.getState().reset();
 	useUiStore.getState().closeComposerEditor();
 	vi.restoreAllMocks();
@@ -269,5 +315,67 @@ describe("InputArea queue shorthand submit", () => {
 		await flush();
 
 		expect(followUp).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("InputArea run settings", () => {
+	async function openRunSettings(): Promise<void> {
+		const more = document.querySelector('button[aria-haspopup="menu"]') as unknown as TestElement | null;
+		if (!more) throw new Error("run settings trigger missing");
+		await click(more);
+	}
+
+	it("lets a nested thinking portal dispatch before the parent menu dismisses", async () => {
+		await mount();
+		await openRunSettings();
+
+		const thinking = buttonWithText("high");
+		if (!thinking) throw new Error("thinking trigger missing");
+		await click(thinking);
+
+		const max = buttonWithText("max");
+		if (!max) throw new Error("max option missing");
+		// Browser ordering is pointerdown → pointerup → click. The regression
+		// closed the parent on the first event and unmounted this handler before
+		// the final click.
+		await pointerDown(max);
+		await click(max);
+		await flush();
+
+		expect(setThinkingLevel).toHaveBeenCalledWith("max");
+		expect(useModelStore.getState().thinkingConfigured).toBe("max");
+	});
+
+	it("lets the nested approval portal persist its selected mode", async () => {
+		await mount();
+		await openRunSettings();
+		const approval = buttonWithText("Full access");
+		if (!approval) throw new Error("approval trigger missing");
+		await click(approval);
+
+		const ask = buttonWithText("Ask every time");
+		if (!ask) throw new Error("approval option missing");
+		await pointerDown(ask);
+		await click(ask);
+
+		expect(setSetting).toHaveBeenCalledWith("tools.approvalMode", "always-ask");
+		expect(useSettingsStore.getState().approvalMode).toBe("always-ask");
+	});
+
+	it("lets the nested modes portal dispatch its selected action", async () => {
+		await mount();
+		await openRunSettings();
+		const modes = buttonWithText("Modes");
+		if (!modes) throw new Error("modes trigger missing");
+		await click(modes);
+
+		const plan = buttonWithText("Plan");
+		if (!plan) throw new Error("plan option missing");
+		await pointerDown(plan);
+		await click(plan);
+		await flush();
+
+		expect(setPlanMode).toHaveBeenCalledWith(true);
+		expect(useSessionStore.getState().planModeEnabled).toBe(true);
 	});
 });

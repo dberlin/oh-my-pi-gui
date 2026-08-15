@@ -251,5 +251,8 @@ describe("StatusFooter mode badges", () => {
 		}
 		// Pause is transport-level, not a tool mode — it survives in chat tabs.
 		expect(text).toContain("Paused");
+		// A chat sidecar still needs an internal cwd, but it is not a selected
+		// workspace and must not leak into the status footer.
+		expect(text).not.toContain("/tmp/project");
 	});
 });

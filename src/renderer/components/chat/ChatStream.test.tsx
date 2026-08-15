@@ -6,8 +6,10 @@ import {
 	buildHistoryRowKeys,
 	buildHistoryRows,
 	buildTimelineMarkers,
+	buildTranscriptRowKeys,
 	findConversationAnchorIndex,
 	hasStreamingTranscriptContent,
+	isTranscriptAtLiveEdge,
 	mergeTodoSnapshots,
 } from "./ChatStream";
 
@@ -89,7 +91,7 @@ describe("compact transcript rows", () => {
 		).toEqual([]);
 	});
 
-	it("starts a new process phase at meaningful narration and keeps filler tool calls in that phase", () => {
+	it("folds narrated phases and filler tool calls into one activity summary before the final answer", () => {
 		const rows = buildHistoryRows(
 			[
 				assistant([
@@ -113,12 +115,11 @@ describe("compact transcript rows", () => {
 			"compact",
 		);
 
-		expect(rows.map(row => row.kind)).toEqual(["process", "process"]);
-		const first = rows[0];
-		const second = rows[1];
-		if (first?.kind !== "process" || second?.kind !== "process") throw new Error("process phases missing");
-		expect(first.toolNames).toEqual(["bash", "bash"]);
-		expect(second.toolNames).toEqual(["bash", "hub"]);
+		expect(rows.map(row => row.kind)).toEqual(["process"]);
+		const process = rows[0];
+		if (process?.kind !== "process") throw new Error("process row missing");
+		expect(process.stepCount).toBe(5);
+		expect(process.toolNames).toEqual(["bash", "bash", "bash", "hub"]);
 	});
 });
 
@@ -203,6 +204,52 @@ describe("streaming transcript visibility", () => {
 });
 
 describe("virtual transcript identity", () => {
+	it("releases tail following after even a nearby one-pixel manual scroll", () => {
+		expect(isTranscriptAtLiveEdge({ scrollHeight: 1000, scrollTop: 800, clientHeight: 200 })).toBe(true);
+		expect(isTranscriptAtLiveEdge({ scrollHeight: 1000, scrollTop: 799.5, clientHeight: 200 })).toBe(true);
+		expect(isTranscriptAtLiveEdge({ scrollHeight: 1000, scrollTop: 799, clientHeight: 200 })).toBe(false);
+	});
+
+	it("keeps the live assistant row identity when message_end finalizes it", () => {
+		const message: AgentMessage = {
+			id: "assistant-live",
+			role: "assistant",
+			content: [{ type: "text", text: "Finalized answer" }],
+			timestamp: at,
+		};
+
+		const liveKey = buildTranscriptRowKeys([{ kind: "streaming", message }]);
+		const finalizedKey = buildHistoryRowKeys(buildHistoryRows([message], "full"));
+
+		expect(liveKey).toEqual(finalizedKey);
+	});
+
+	it("anchors compact finalization to the first row produced from the live assistant", () => {
+		const cases: AgentMessage[] = [
+			{
+				id: "assistant-thinking",
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "Inspect the boundary." },
+					{ type: "text", text: "Final answer" },
+				],
+				timestamp: at,
+			},
+			{
+				id: "assistant-tool",
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-compact", name: "read", arguments: { path: "src/a.ts" } }],
+				timestamp: at,
+			},
+		];
+
+		for (const message of cases) {
+			const [liveKey] = buildTranscriptRowKeys([{ kind: "streaming", message }]);
+			const [firstFinalizedKey] = buildHistoryRowKeys(buildHistoryRows([message], "compact"));
+			expect(firstFinalizedKey).toBe(liveKey);
+		}
+	});
+
 	it("keeps existing row keys stable when a new message is inserted before them", () => {
 		const existingRows = buildHistoryRows(
 			[assistant([{ type: "text", text: "First" }]), assistant([{ type: "text", text: "Second" }])],

@@ -209,7 +209,7 @@ export function StatusFooter() {
 					</span>
 				)}
 
-				{!minimal && cwd && (
+				{!minimal && !isChat && cwd && (
 					<>
 						{modeBadges.length > 0 && <Sep />}
 						<span
@@ -223,7 +223,7 @@ export function StatusFooter() {
 					</>
 				)}
 
-				{!minimal && git?.isRepo && git.branch && (
+				{!minimal && !isChat && git?.isRepo && git.branch && (
 					<>
 						<Sep />
 						<button

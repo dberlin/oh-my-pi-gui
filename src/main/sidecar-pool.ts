@@ -55,6 +55,7 @@ import type {
 } from "../shared/rpc-types";
 import type { SidecarManager } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
+import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
 
 export type SidecarFactory = (cwd: string, kind: "agent" | "chat", fresh: boolean) => SidecarManager;
 
@@ -78,6 +79,8 @@ interface PoolEntry {
 	/** Last status this tab's sidecar reported (TAB_STATUS / GET_TABS). */
 	/** Session kind: "agent" (default) or "chat" (tool-free). Immutable; set at acquire. */
 	kind: "agent" | "chat";
+	/** Untargeted startup tab; disposed when the user opens an explicit tab. */
+	placeholder: boolean;
 	/**
 	 * Git-worktree binding (plan/20). Immutable, set at acquire from the spawn
 	 * payload; surfaced via tabStatusPayload so the chip and close flow know
@@ -130,6 +133,8 @@ export class SidecarPool {
 	#reserved = 0;
 	readonly #max: number;
 	readonly #factory: SidecarFactory;
+	/** Suppress partial snapshots while a saved layout is being reconstructed. */
+	#restoringWindows = new Set<number>();
 	/**
 	 * Host-tool dispatch needs the main-process executor (ipc.ts), which the
 	 * pool cannot import without a cycle. Set once at startup; the pool routes
@@ -139,6 +144,8 @@ export class SidecarPool {
 	 */
 	hostToolExecutor: ((sidecar: SidecarManager, request: HostToolCallRequest, win: BrowserWindow) => boolean) | null =
 		null;
+	/** Main-process persistence hook. The primary window installs this at startup. */
+	onWindowTabsChanged: ((win: BrowserWindow, layout: PersistedTabLayout | null) => void) | null = null;
 
 	constructor(factory: SidecarFactory, max = 10) {
 		this.#factory = factory;
@@ -171,6 +178,7 @@ export class SidecarPool {
 		kind: "agent" | "chat" = "agent",
 		worktree?: IpcTabWorktree,
 		fresh = false,
+		placeholder = false,
 	): SidecarManager | null {
 		if (this.atCap) return null;
 		this.#reserved++;
@@ -182,6 +190,7 @@ export class SidecarPool {
 				win,
 				winId: win.webContents.id,
 				kind,
+				placeholder,
 				worktree,
 				status: sidecar.status,
 				running: false,
@@ -204,6 +213,7 @@ export class SidecarPool {
 			// start() carrying --session.
 			if (sessionPath) sidecar.restart(undefined, sessionPath);
 			else sidecar.start();
+			this.#notifyWindowTabsChanged(win);
 			return sidecar;
 		} catch {
 			return null;
@@ -246,16 +256,20 @@ export class SidecarPool {
 		// re-fires at run end), so background tabs report running → ready too.
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
 			const wasBusy = entry.running || entry.compacting === true;
+			const wasPlaceholder = entry.placeholder;
 			for (const event of events) {
-				if (event.type === "agent_start") entry.running = true;
-				else if (event.type === "agent_end") entry.running = false;
+				if (event.type === "agent_start") {
+					entry.running = true;
+					entry.placeholder = false;
+				} else if (event.type === "agent_end") entry.running = false;
 				else if (event.type === "auto_compaction_start") entry.compacting = true;
 				else if (event.type === "auto_compaction_end") entry.compacting = false;
 			}
 			const busy = entry.running || entry.compacting === true;
-			if (busy !== wasBusy) {
+			if (busy !== wasBusy || entry.placeholder !== wasPlaceholder) {
 				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
+			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
 		});
 	}
 
@@ -403,7 +417,9 @@ export class SidecarPool {
 	setActiveTab(win: BrowserWindow, tabId: string): boolean {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry || entry.win !== win) return false;
+		const changed = this.#activeByWindow.get(entry.winId) !== entry.tabId;
 		this.#setActive(entry);
+		if (changed) this.#notifyWindowTabsChanged(win);
 		return true;
 	}
 
@@ -412,6 +428,7 @@ export class SidecarPool {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry) return false;
 		this.#releaseEntry(entry);
+		this.#notifyWindowTabsChanged(entry.win);
 		return true;
 	}
 
@@ -446,8 +463,13 @@ export class SidecarPool {
 	noteSessionFile(tabId: string, sessionFile: string | null): void {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry) return;
+		const previous = entry.sessionFile;
 		if (sessionFile) this.#registerSessionFile(entry, sessionFile);
 		else this.#unregisterSessionFile(entry);
+		if (entry.sessionFile !== previous) {
+			forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			this.#notifyWindowTabsChanged(entry.win);
+		}
 	}
 
 	/**
@@ -463,6 +485,7 @@ export class SidecarPool {
 		if (!entry || !cwd) return false;
 		if (!entry.sidecar.adoptCwd(cwd)) return false;
 		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#notifyWindowTabsChanged(entry.win);
 		return true;
 	}
 
@@ -508,11 +531,78 @@ export class SidecarPool {
 	/** The window's tabs in acquisition order (GET_TABS boot reconciliation). */
 	tabsForWindow(win: BrowserWindow): IpcTabInfo[] {
 		const tabs: IpcTabInfo[] = [];
+		const activeTabId = this.#activeByWindow.get(win.webContents.id);
 		for (const entry of this.#entries) {
 			if (entry.win !== win) continue;
-			tabs.push(tabStatusPayload(entry));
+			const tab = tabStatusPayload(entry);
+			if (entry.tabId === activeTabId) tab.active = true;
+			tabs.push(tab);
 		}
 		return tabs;
+	}
+
+	/** Serializable layout for the window, excluding transient run/status data. */
+	tabLayoutForWindow(win: BrowserWindow): PersistedTabLayout | null {
+		const entries = [...this.#entries].filter(entry => entry.win === win);
+		if (entries.length === 0) return null;
+		const activeTabId = this.#activeByWindow.get(win.webContents.id);
+		const activeIndex = Math.max(
+			0,
+			entries.findIndex(entry => entry.tabId === activeTabId),
+		);
+		return {
+			version: TAB_LAYOUT_VERSION,
+			activeIndex,
+			tabs: entries.map(entry => {
+				const descriptor: PersistedTabDescriptor = { cwd: entry.sidecar.cwd, kind: entry.kind };
+				if (entry.sessionFile) descriptor.sessionPath = entry.sessionFile;
+				if (entry.worktree) descriptor.worktree = entry.worktree;
+				if (entry.placeholder) descriptor.placeholder = true;
+				return descriptor;
+			}),
+		};
+	}
+
+	/** Recreate saved tabs with fresh runtime ids, then restore their active index. */
+	restoreLayout(win: BrowserWindow, layout: PersistedTabLayout): number {
+		const winId = win.webContents.id;
+		this.#restoringWindows.add(winId);
+		let restoredCount = 0;
+		let firstRestoredTabId: string | undefined;
+		let activeRestoredTabId: string | undefined;
+		try {
+			for (const [index, tab] of layout.tabs.entries()) {
+				const tabId = nextSnowflake();
+				const sidecar = this.acquire(
+					tab.cwd,
+					win,
+					tabId,
+					tab.sessionPath,
+					tab.kind,
+					tab.worktree,
+					!tab.sessionPath,
+					tab.placeholder === true,
+				);
+				if (!sidecar) continue;
+				restoredCount++;
+				firstRestoredTabId ??= tabId;
+				if (index === layout.activeIndex) activeRestoredTabId = tabId;
+			}
+			const activeTabId = activeRestoredTabId ?? firstRestoredTabId;
+			if (activeTabId) {
+				const active = this.#byTabId.get(activeTabId);
+				if (active) this.#setActive(active);
+			}
+		} finally {
+			this.#restoringWindows.delete(winId);
+		}
+		this.#notifyWindowTabsChanged(win);
+		return restoredCount;
+	}
+
+	#notifyWindowTabsChanged(win: BrowserWindow): void {
+		if (!this.onWindowTabsChanged || this.#restoringWindows.has(win.webContents.id)) return;
+		this.onWindowTabsChanged(win, this.tabLayoutForWindow(win));
 	}
 
 	disposeAll(): void {
@@ -525,6 +615,7 @@ export class SidecarPool {
 		this.#activeByWindow.clear();
 		this.#sessionOwners.clear();
 		this.#requestOwners.clear();
+		this.#restoringWindows.clear();
 	}
 }
 
@@ -534,6 +625,8 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 		tabId: entry.tabId,
 		cwd: entry.sidecar.cwd,
 		kind: entry.kind,
+		placeholder: entry.placeholder,
+		sessionPath: entry.sessionFile ?? null,
 		// "running" only makes sense on a live connection — a restarting sidecar
 		// reports its connection state even with a dead in-flight run.
 		status: entry.running && entry.status === "ready" ? "running" : entry.status,

@@ -188,10 +188,7 @@ function ScreenCard({ screen, now, settledStatus }: { screen: VibeScreen; now: n
 	return (
 		<div className="overflow-hidden rounded-md border border-[var(--omp-border-muted)]">
 			<div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--omp-border-muted)]/70 px-2 py-1 font-mono text-omp-xs">
-				<span
-					className={cx("h-1.5 w-1.5 shrink-0 rounded-full", live && "animate-pulse")}
-					style={{ background: settledColor ?? stateColor }}
-				/>
+				<span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: settledColor ?? stateColor }} />
 				{screen.cli && <CliBadge cli={screen.cli} live={live} />}
 				<span className={cx("font-semibold", live ? "text-[var(--omp-accent)]" : "text-[var(--omp-text)]")}>
 					{screen.id}

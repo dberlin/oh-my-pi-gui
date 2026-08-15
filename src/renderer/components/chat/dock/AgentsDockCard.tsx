@@ -90,7 +90,7 @@ const SubagentRow = memo(function SubagentRow({
 					type="button"
 				>
 					<ChevronRight
-						className="mt-0.5 shrink-0 text-(--omp-dim) transition-transform duration-100"
+						className="omp-disclosure-chevron mt-0.5 shrink-0 text-(--omp-dim)"
 						size={12}
 						style={{ transform: expanded ? "rotate(90deg)" : undefined }}
 					/>

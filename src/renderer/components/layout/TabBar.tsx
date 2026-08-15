@@ -10,9 +10,14 @@
  */
 
 import { Check, GitBranch, GitBranchPlus, MessageCircle, MessageCirclePlus, Plus, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSessionList } from "../../hooks/use-session-list";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
+import { useComposerStore } from "../../stores/composer";
+import { useMessagesStore } from "../../stores/messages";
+import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
@@ -61,15 +66,20 @@ function TabChip({
 					void switchTab(tab.id);
 				}
 			}}
-			title={tab.worktree ? `${tab.worktree.branch} — ${tab.cwd}` : tab.cwd || label}
+			title={tab.worktree ? `${tab.worktree.branch} — ${tab.cwd}` : label}
 			className={cx(
-				"no-drag group flex h-7 min-w-0 max-w-44 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-omp-md select-none",
+				"no-drag group flex h-7 min-w-0 max-w-40 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-omp-md select-none",
 				active
 					? "bg-[var(--omp-selected-bg)] font-medium text-[var(--omp-text)]"
 					: "text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
 			)}
 		>
-			{running && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--omp-accent)]" />}
+			{running && (
+				<span
+					aria-hidden
+					className={cx("h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--omp-accent)]", !active && "omp-pulse-dot")}
+				/>
+			)}
 			{tab.worktree && (
 				<GitBranch size={11} className="shrink-0 text-[var(--omp-accent)]" aria-label={t("tabs.kind.worktree")} />
 			)}
@@ -147,9 +157,21 @@ function TabChip({
 
 export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?: number }) {
 	const t = useT();
+	const { sessions } = useSessionList("global");
 	const tabs = useTabsStore(s => s.tabs);
 	const activeTabId = useTabsStore(s => s.activeTabId);
+	const bundles = useTabsStore(s => s.bundles);
 	const closeTab = useTabsStore(s => s.closeTab);
+	const liveDraft = useComposerStore(s => s.draft);
+	const liveImageCount = useComposerStore(s => s.images.length);
+	const liveMessageCount = useSessionStore(s => s.messageCount);
+	const liveStreaming = useSessionStore(s => s.isStreaming);
+	const liveCompacting = useSessionStore(s => s.isCompacting);
+	const liveRenderedMessages = useMessagesStore(s => s.messages.length);
+	const liveQueuedMessages = useQueueStore(s => s.steering.length + s.followUp.length);
+	const pruningPlaceholderRef = useRef<string | null>(null);
+	const sessionsById = useMemo(() => new Map(sessions.map(session => [session.id, session])), [sessions]);
+	const sessionsByPath = useMemo(() => new Map(sessions.map(session => [session.path, session])), [sessions]);
 	// Inline close confirm for live tabs (AgentHub abort parity): the first
 	// click arms, the ✓ executes, ✕ or the timeout cancels. One arm at a time.
 	const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
@@ -160,6 +182,74 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 			window.clearTimeout(confirmTimerRef.current);
 		};
 	}, []);
+
+	// The untargeted startup chat is an idle landing surface, not a permanent
+	// tab. Replace it once an explicit tab exists, but only while it is truly
+	// empty; a typed draft, queued input, message, or live run makes it real.
+	// The first-chat fallback cleans up layouts saved before the placeholder bit
+	// existed, after SessionIndex confirms that transcript has no content.
+	useEffect(() => {
+		if (tabs.length <= 1 || pruningPlaceholderRef.current) return;
+		const candidate = tabs.find((tab, index) => {
+			const indexedSession =
+				(tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
+				(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined);
+			const legacyEmptyStartupChat =
+				index === 0 &&
+				tab.placeholder === undefined &&
+				tab.kind === "chat" &&
+				indexedSession !== undefined &&
+				!sessionHasContent(indexedSession);
+			if (tab.placeholder !== true && !legacyEmptyStartupChat) return false;
+			if (indexedSession && sessionHasContent(indexedSession)) return false;
+			if (tab.worktree || tab.pendingSessionPath || tab.status === "running" || tab.compacting) return false;
+			if (!tabs.some(other => other.id !== tab.id && other.placeholder !== true)) return false;
+
+			if (tab.id === activeTabId) {
+				return (
+					!liveStreaming &&
+					!liveCompacting &&
+					liveMessageCount === 0 &&
+					liveRenderedMessages === 0 &&
+					liveQueuedMessages === 0 &&
+					liveDraft.trim().length === 0 &&
+					liveImageCount === 0
+				);
+			}
+
+			const bundle = bundles.get(tab.id);
+			if (!bundle) return true;
+			return (
+				!bundle.session.isStreaming &&
+				!bundle.session.isCompacting &&
+				bundle.session.messageCount === 0 &&
+				bundle.messages.messages.length === 0 &&
+				bundle.queue.steering.length === 0 &&
+				bundle.queue.followUp.length === 0 &&
+				bundle.composer.draft.trim().length === 0 &&
+				bundle.composer.images.length === 0
+			);
+		});
+		if (!candidate) return;
+		pruningPlaceholderRef.current = candidate.id;
+		void closeTab(candidate.id).finally(() => {
+			pruningPlaceholderRef.current = null;
+		});
+	}, [
+		activeTabId,
+		bundles,
+		closeTab,
+		liveCompacting,
+		liveDraft,
+		liveImageCount,
+		liveMessageCount,
+		liveQueuedMessages,
+		liveRenderedMessages,
+		liveStreaming,
+		sessionsById,
+		sessionsByPath,
+		tabs,
+	]);
 
 	const cancelCloseConfirm = () => {
 		window.clearTimeout(confirmTimerRef.current);
@@ -194,18 +284,26 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 			aria-label={t("tabs.strip")}
 			className="drag-region flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--omp-border-muted)] bg-[var(--omp-titlebar-bg)] px-2"
 		>
-			{tabs.map(tab => (
-				<TabChip
-					key={tab.id}
-					tab={tab}
-					active={tab.id === activeTabId}
-					label={tabChipLabel(tab, tabs)}
-					confirmingClose={confirmCloseId === tab.id}
-					onArmClose={() => armCloseConfirm(tab.id)}
-					onConfirmClose={() => confirmClose(tab.id)}
-					onCancelClose={cancelCloseConfirm}
-				/>
-			))}
+			{tabs.map(tab => {
+				const indexedSession =
+					(tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
+					(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined);
+				const label = indexedSession
+					? sessionDisplayTitle(indexedSession, t("sidebar.untitled"))
+					: tabChipLabel(tab, tabs);
+				return (
+					<TabChip
+						key={tab.id}
+						tab={tab}
+						active={tab.id === activeTabId}
+						label={label}
+						confirmingClose={confirmCloseId === tab.id}
+						onArmClose={() => armCloseConfirm(tab.id)}
+						onConfirmClose={() => confirmClose(tab.id)}
+						onCancelClose={cancelCloseConfirm}
+					/>
+				);
+			})}
 			<NewTabMenu />
 		</div>
 	);

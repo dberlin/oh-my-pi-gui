@@ -174,7 +174,7 @@ export function TreeView({
 						{row.hasChildren ? (
 							<button
 								aria-label={row.isExpanded ? t("tree.collapse") : t("tree.expand")}
-								className="flex size-4 shrink-0 items-center justify-center rounded text-(--omp-dim) transition-transform duration-100 hover:text-(--omp-text)"
+								className="omp-disclosure-chevron flex size-4 shrink-0 items-center justify-center rounded text-(--omp-dim) hover:text-(--omp-text)"
 								onClick={event => {
 									event.stopPropagation();
 									toggle(row.node.id);

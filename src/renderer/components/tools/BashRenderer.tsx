@@ -153,9 +153,7 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult }
 					</span>
 				)}
 				{isPartial && parsed.exitCode == null && (
-					<span className="ml-1 shrink-0 animate-pulse text-omp-xs text-[var(--omp-accent)]">
-						{t("tools.bash.running")}
-					</span>
+					<span className="ml-1 shrink-0 text-omp-xs text-[var(--omp-accent)]">{t("tools.bash.running")}</span>
 				)}
 			</div>
 			{hasOutput && (

@@ -26,6 +26,7 @@ import { dropSessionNow } from "../../hooks/use-session-switch";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { mergeContentMatches, rankSessions } from "../../lib/session-search";
+import { sessionDisplayTitle } from "../../lib/session-title";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
@@ -49,6 +50,11 @@ interface WorkspaceGroup {
 	cwd: string;
 	name: string;
 	sessions: SessionInfo[];
+}
+
+function modifiedAt(session: SessionInfo): number {
+	const timestamp = Date.parse(session.modified);
+	return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function SidebarRowTitle({ className, title }: { className?: string; title: string }) {
@@ -117,13 +123,11 @@ export function Sidebar() {
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
+	const workspaceLastUsed = useSidebarPrefs(s => s.workspaceLastUsed);
+	const sessionLastUsed = useSidebarPrefs(s => s.sessionLastUsed);
+	const touchSession = useSidebarPrefs(s => s.touchSession);
 	const renameRef = useRef<HTMLInputElement>(null);
 	const { sessions, isLoading, deleteSession, renameSession } = useSessionList("global");
-
-	// Hydrate sidebar prefs (pins/aliases) once.
-	useEffect(() => {
-		void useSidebarPrefs.getState().hydrate();
-	}, []);
 	const sessionId = useSessionStore(s => s.sessionId);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
@@ -161,7 +165,14 @@ export function Sidebar() {
 		[sessions, query, contentPaths],
 	);
 
-	// Group Agent sessions by workspace (cwd), most-recently-modified first.
+	const browsingByRecency = query.trim().length === 0;
+	const recencyForSession = useCallback(
+		(session: SessionInfo) => sessionLastUsed[session.path] ?? modifiedAt(session),
+		[sessionLastUsed],
+	);
+
+	// Group Agent sessions by workspace. Normal browsing is MRU; search keeps
+	// relevance order. Pins remain a priority partition, with MRU inside it.
 	const groups = useMemo<WorkspaceGroup[]>(() => {
 		const byCwd = new Map<string, SessionInfo[]>();
 		for (const session of filteredSessions) {
@@ -174,28 +185,31 @@ export function Sidebar() {
 			cwd: groupCwd,
 			name: groupAliases[groupCwd] ?? (basename(groupCwd) || groupCwd),
 			sessions: [...groupSessions].sort((a, b) => {
-				// Pinned sessions first within a workspace; the rest keep rank order.
 				const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
 				const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
-				return aPinned - bPinned;
+				if (aPinned !== bPinned) return aPinned - bPinned;
+				return browsingByRecency ? recencyForSession(b) - recencyForSession(a) : 0;
 			}),
 		}));
 		result.sort((a, b) => {
-			// Pinned workspaces first (pin order), then most-recent activity.
-			const aPinned = pinnedGroups.indexOf(a.cwd);
-			const bPinned = pinnedGroups.indexOf(b.cwd);
-			if (aPinned !== -1 || bPinned !== -1) {
-				if (aPinned === -1) return 1;
-				if (bPinned === -1) return -1;
-				return aPinned - bPinned;
-			}
-			return (
-				Date.parse(b.sessions[0]?.modified ?? (0 as unknown as string)) -
-				Date.parse(a.sessions[0]?.modified ?? (0 as unknown as string))
-			);
+			const aPinned = pinnedGroups.includes(a.cwd) ? 0 : 1;
+			const bPinned = pinnedGroups.includes(b.cwd) ? 0 : 1;
+			if (aPinned !== bPinned) return aPinned - bPinned;
+			if (!browsingByRecency) return 0;
+			const aRecency = Math.max(workspaceLastUsed[a.cwd] ?? 0, ...a.sessions.map(recencyForSession));
+			const bRecency = Math.max(workspaceLastUsed[b.cwd] ?? 0, ...b.sessions.map(recencyForSession));
+			return bRecency - aRecency;
 		});
 		return result;
-	}, [filteredSessions, pinnedGroups, pinnedSessions, groupAliases]);
+	}, [
+		browsingByRecency,
+		filteredSessions,
+		groupAliases,
+		pinnedGroups,
+		pinnedSessions,
+		recencyForSession,
+		workspaceLastUsed,
+	]);
 
 	const chatSessions = useMemo(
 		() =>
@@ -204,9 +218,10 @@ export function Sidebar() {
 				.toSorted((a, b) => {
 					const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
 					const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
-					return aPinned - bPinned;
+					if (aPinned !== bPinned) return aPinned - bPinned;
+					return browsingByRecency ? recencyForSession(b) - recencyForSession(a) : 0;
 				}),
-		[filteredSessions, pinnedSessions],
+		[browsingByRecency, filteredSessions, pinnedSessions, recencyForSession],
 	);
 	const agentCount = useMemo(() => groups.reduce((n, group) => n + group.sessions.length, 0), [groups]);
 	const totalCount = agentCount + chatSessions.length;
@@ -238,7 +253,9 @@ export function Sidebar() {
 		const ok = await window.omp.sessions.openInNewWindow({ sessionPath: session.path, cwd: session.cwd });
 		if (!ok) {
 			toast({ variant: "warning", message: t("sidebar.parallelCap") });
+			return;
 		}
+		touchSession(session.path, session.kind === "chat" ? undefined : session.cwd);
 	};
 
 	const startRename = (session: SessionInfo) => {
@@ -313,7 +330,7 @@ export function Sidebar() {
 			: isSessionRunning(session)
 				? "running"
 				: null;
-		const title = session.title ?? session.firstMessage ?? t("sidebar.untitled");
+		const title = sessionDisplayTitle(session, t("sidebar.untitled"));
 		const hasActions = signal == null || !active;
 		const actionsOpen = confirmingDeletePath === session.path || renamingSessionPath === session.path;
 		return (

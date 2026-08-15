@@ -48,34 +48,43 @@ function t(lang: TrayLang, key: keyof typeof L): string {
 	return L[key][lang];
 }
 
-function buildIcon(status: TrayStatus): Electron.NativeImage {
-	const size = 16;
-	const canvas = Buffer.alloc(size * size * 4, 0);
-	const [r, g, b] =
-		status === "streaming"
-			? [74, 222, 128]
-			: status === "waiting"
-				? [251, 191, 36]
-				: status === "error"
-					? [248, 113, 113]
-					: [148, 163, 184];
-	const cx = size / 2;
-	const cy = size / 2;
-	const radius = 6;
-	for (let y = 0; y < size; y++) {
-		for (let x = 0; x < size; x++) {
-			const dx = x - cx;
-			const dy = y - cy;
-			if (dx * dx + dy * dy <= radius * radius) {
-				const idx = (y * size + x) * 4;
-				canvas[idx] = r;
-				canvas[idx + 1] = g;
-				canvas[idx + 2] = b;
-				canvas[idx + 3] = 255;
+function buildIcon(_status: TrayStatus): Electron.NativeImage {
+	// macOS status items are template images: the system applies the correct
+	// foreground color for light/dark and selected menu-bar states. Render at
+	// 2× so the small π mark remains crisp on Retina displays. The run status
+	// stays available in the tray menu; changing it no longer turns the app mark
+	// into a large, visually noisy traffic-light dot.
+	const logicalSize = 18;
+	const scaleFactor = 2;
+	const pixelSize = logicalSize * scaleFactor;
+	const canvas = Buffer.alloc(pixelSize * pixelSize * 4, 0);
+	const fillRoundedRect = (left: number, top: number, right: number, bottom: number, radius: number) => {
+		for (let y = top; y < bottom; y++) {
+			for (let x = left; x < right; x++) {
+				const nearestX = Math.max(left + radius, Math.min(x + 0.5, right - radius));
+				const nearestY = Math.max(top + radius, Math.min(y + 0.5, bottom - radius));
+				const dx = x + 0.5 - nearestX;
+				const dy = y + 0.5 - nearestY;
+				if (dx * dx + dy * dy > radius * radius) continue;
+				const index = (y * pixelSize + x) * 4;
+				canvas[index + 3] = 255;
 			}
 		}
-	}
-	return nativeImage.createFromBuffer(canvas, { width: size, height: size });
+	};
+
+	// A compact filled π: one cap, two stems and a short inward foot.
+	fillRoundedRect(4, 6, 32, 12, 3);
+	fillRoundedRect(9, 9, 15, 31, 3);
+	fillRoundedRect(21, 9, 28, 27, 3);
+	fillRoundedRect(16, 23, 28, 30, 3);
+
+	const image = nativeImage.createFromBuffer(canvas, {
+		width: pixelSize,
+		height: pixelSize,
+		scaleFactor,
+	});
+	image.setTemplateImage(true);
+	return image;
 }
 
 function send(windowManager: WindowManager, action: MenuAction, payload?: MenuActionPayload): void {

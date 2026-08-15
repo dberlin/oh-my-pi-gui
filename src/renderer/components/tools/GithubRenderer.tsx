@@ -239,7 +239,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 				<span className="text-[var(--omp-muted)]">{opTitle}</span>
 				{entity.repo && <span className="truncate text-[var(--omp-status-path)]">{entity.repo}</span>}
 				{watch?.state === "watching" && (
-					<span className="ml-auto shrink-0 animate-pulse text-omp-xs text-[var(--omp-accent)]">
+					<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-accent)]">
 						{t("tools.github.watching")}
 					</span>
 				)}
