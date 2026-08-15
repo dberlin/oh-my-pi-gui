@@ -12,7 +12,7 @@ export default defineConfig({
 	test: {
 		server: {
 			deps: {
-				inline: ["react", "react-dom", "zustand", /^@dnd-kit\//],
+				inline: ["react", "react-dom", "zustand", "@tanstack/react-virtual", /^@dnd-kit\//],
 			},
 		},
 	},
