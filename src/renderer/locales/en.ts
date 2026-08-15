@@ -3081,6 +3081,20 @@ export const en: Record<string, string> = {
 		"Pages you open work now; the agent can use this browser once the session's core is running.",
 	"browser.loadFailed": "Couldn't load the page: {error}",
 
+	// Activity sidebar
+	"activitySidebar.title": "Activity",
+	"activitySidebar.collapse": "Collapse activity sidebar",
+	"activitySidebar.expand": "Expand activity sidebar",
+	"activitySidebar.resize": "Resize activity sidebar",
+	"activitySidebar.resizeTrees": "Resize Todo and Agents sections",
+	"activitySidebar.plan.off": "Off",
+	"activitySidebar.goal.empty": "No active goal",
+	"activitySidebar.collapseSection": "Collapse {section}",
+	"activitySidebar.expandSection": "Expand {section}",
+	"activitySidebar.agents.empty": "No subagents",
+	"activitySidebar.todo.empty": "No todos",
+	"activitySidebar.todo.label": "Todos",
+
 	// Center dock (above the composer)
 	"dock.collapse": "Collapse",
 	"dock.expand": "Expand",

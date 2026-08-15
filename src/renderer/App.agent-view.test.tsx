@@ -3,17 +3,31 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { MenuAction, MenuActionPayload } from "../shared/ipc-types";
-import { AppGlobalActions } from "./App";
+import { AppGlobalActions, AppWorkspace } from "./App";
 import { I18nProvider } from "./lib/i18n";
 import { resetTabRoute } from "./lib/tab-routing";
+import { useActivitySidebarStore } from "./stores/activity-sidebar";
 import { useAgentViewStore } from "./stores/agent-view";
+import { useMessagesStore } from "./stores/messages";
+import { useSessionStore } from "./stores/session";
+import { useSubagentsStore } from "./stores/subagents";
+import { useTabsStore } from "./stores/tabs";
+import { useTodoStore } from "./stores/todo";
 import { useUiStore } from "./stores/ui";
+import { useUpdaterStore } from "./stores/updater";
 
 const parsed = parseHTML("<html><body></body></html>");
 const testWindow = parsed.window;
 const testDocument = parsed.document;
 const globals = globalThis as Record<string, unknown>;
 const storage = new Map<string, string>();
+class TestResizeObserver {
+	constructor(_callback: ResizeObserverCallback) {}
+	disconnect(): void {}
+	observe(_target: Element): void {}
+	unobserve(_target: Element): void {}
+}
+
 Object.assign(globals, {
 	window: testWindow,
 	document: testDocument,
@@ -34,6 +48,7 @@ Object.assign(globals, {
 		removeItem: (key: string) => storage.delete(key),
 		setItem: (key: string, value: string) => storage.set(key, value),
 	},
+	ResizeObserver: TestResizeObserver,
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 
@@ -100,6 +115,62 @@ async function mountApp(): Promise<void> {
 	});
 	await flush();
 }
+async function mountWorkspace(): Promise<void> {
+	const rpc = {
+		getAvailableCommands: vi.fn(async () => ok({ commands: [] })),
+		getGitStatus: vi.fn(async () => ok()),
+		getPlanMode: vi.fn(async () => ok({ enabled: false, planFilePath: null })),
+		getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
+		getSettings: vi.fn(async () => ok({ values: {} })),
+	};
+	(testWindow as unknown as Record<string, unknown>).omp = {
+		events: {
+			onCommandsUpdate: subscribe,
+			onConfigUpdate: subscribe,
+		},
+		fs: {
+			readPlan: vi.fn(async () => ({ ok: true, path: null, content: null })),
+		},
+		prefs: {
+			get: vi.fn(async () => null),
+			set: vi.fn(async () => ({})),
+		},
+		rpc,
+	};
+	useSessionStore.setState({ cwd: "/work/a", sessionId: "session-a", status: "ready" });
+	useTabsStore.setState({
+		tabs: [
+			{
+				id: "tab-a",
+				cwd: "/work/a",
+				status: "ready",
+				kind: "agent",
+				target: { type: "local" },
+				unreadDone: false,
+			},
+		],
+		activeTabId: "tab-a",
+		bundles: new Map(),
+	});
+	useUiStore.setState({ sidecarError: "sidecar unavailable" });
+	useUpdaterStore.setState({
+		status: { state: "available", version: "9.9.9", mode: "automatic" },
+		dismissedVersion: undefined,
+	});
+
+	container = testDocument.createElement("div") as unknown as Element;
+	testDocument.body.appendChild(container as never);
+	const mountedRoot = createRoot(container);
+	root = mountedRoot;
+	await act(async () => {
+		mountedRoot.render(
+			<I18nProvider>
+				<AppWorkspace activeTabId="tab-a" />
+			</I18nProvider>,
+		);
+	});
+	await flush();
+}
 
 async function pressKey(init: KeyboardEventInit): Promise<void> {
 	const event = new testWindow.Event("keydown", { bubbles: true, cancelable: true });
@@ -127,6 +198,7 @@ function resetUiState(): void {
 		panelVisible: false,
 		settingsOpen: false,
 		sidebarVisible: false,
+		sidecarError: null,
 		toolsExpandAll: { expanded: false, seq: 0 },
 	});
 }
@@ -136,6 +208,13 @@ beforeEach(() => {
 	useAgentViewStore.getState().reset();
 	resetUiState();
 	composerFills = [];
+	useActivitySidebarStore.getState().reset();
+	useMessagesStore.getState().reset();
+	useSessionStore.getState().reset();
+	useSubagentsStore.getState().reset();
+	useTabsStore.getState().reset();
+	useTodoStore.getState().reset();
+	useUpdaterStore.setState({ status: { state: "idle" }, dismissedVersion: undefined });
 	testWindow.addEventListener("omp:fill-composer", captureComposerFill);
 });
 
@@ -151,7 +230,42 @@ afterEach(async () => {
 	resetTabRoute();
 	useAgentViewStore.getState().reset();
 	resetUiState();
+	useActivitySidebarStore.getState().reset();
+	useMessagesStore.getState().reset();
+	useSessionStore.getState().reset();
+	useSubagentsStore.getState().reset();
+	useTabsStore.getState().reset();
+	useTodoStore.getState().reset();
+	useUpdaterStore.setState({ status: { state: "idle" }, dismissedVersion: undefined });
 	vi.restoreAllMocks();
+});
+
+describe("App workspace composition", () => {
+	it("keeps banners, context, one canvas, composer, and footer in full-width DOM order", async () => {
+		await mountWorkspace();
+
+		const children = [...(container as Element).children] as HTMLElement[];
+		expect(children).toHaveLength(6);
+		expect(children[0]?.textContent).toContain("sidecar unavailable");
+		expect(children[1]?.textContent).toContain("9.9.9");
+		expect(children[2]?.getAttribute("data-agent-view")).toBe("main");
+		expect(children[3]?.hasAttribute("data-workspace-canvas")).toBe(true);
+		expect(children[4]?.querySelector("textarea")).not.toBeNull();
+		expect(children[5]?.tagName).toBe("FOOTER");
+		expect((container as Element).querySelectorAll("[data-chat-canvas]")).toHaveLength(1);
+		expect((container as Element).querySelector('[data-testid="workspace-dock-scroll"]')).toBeNull();
+	});
+
+	it("keeps the transcript and composer mounted when a complete activity section crashes", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		useTodoStore.setState({ phases: null as never });
+
+		await mountWorkspace();
+
+		expect((container as Element).querySelector("[data-chat-canvas]")).not.toBeNull();
+		expect((container as Element).querySelector("textarea")).not.toBeNull();
+		expect((container as Element).querySelector('[data-activity-section="agents"]')).not.toBeNull();
+	});
 });
 
 describe("App global actions in selected-subagent mode", () => {

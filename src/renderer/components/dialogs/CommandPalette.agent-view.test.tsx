@@ -3,9 +3,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { useActivitySidebarStore } from "../../stores/activity-sidebar";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
+import { useTodoStore } from "../../stores/todo";
 import { useUiStore } from "../../stores/ui";
 import { CommandPalette } from "./CommandPalette";
 
@@ -109,8 +112,6 @@ async function invokeReactClick(onClick: () => void): Promise<void> {
 function resetUi(): void {
 	useUiStore.setState({
 		agentHubOpen: false,
-		dockCollapsed: {},
-		dockFocus: null,
 		commandPaletteOpen: false,
 		modelPickerOpen: false,
 	});
@@ -119,11 +120,35 @@ function resetUi(): void {
 beforeEach(() => {
 	storage.clear();
 	useAgentViewStore.getState().reset();
+	useActivitySidebarStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useMessagesStore.setState({
 		messages: [{ role: "user", content: [{ type: "text", text: "Main resend payload" }], timestamp: 1 }],
 	});
 	useSessionStore.getState().reset();
+	useTabsStore.setState({
+		tabs: [
+			{
+				id: "tab-a",
+				cwd: "/work/a",
+				status: "ready",
+				kind: "agent",
+				target: { type: "local" },
+				unreadDone: false,
+			},
+			{
+				id: "tab-b",
+				cwd: "/work/b",
+				status: "ready",
+				kind: "agent",
+				target: { type: "local" },
+				unreadDone: false,
+			},
+		],
+		activeTabId: "tab-a",
+		bundles: new Map(),
+	});
+	useTodoStore.getState().reset();
 	resetUi();
 
 	prompt = vi.fn(async () => ok());
@@ -156,8 +181,11 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
 	useAgentViewStore.getState().reset();
+	useActivitySidebarStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useSessionStore.getState().reset();
+	useTabsStore.getState().reset();
+	useTodoStore.getState().reset();
 	resetUi();
 	vi.restoreAllMocks();
 });
@@ -216,14 +244,39 @@ describe("CommandPalette selected-subagent mode", () => {
 		expect(useUiStore.getState().modelPickerOpen).toBe(false);
 	});
 
-	it("preserves Agents navigation for a selected subagent", async () => {
+	it("reveals and focuses an empty Todo section through the real palette command path for the active tab", async () => {
+		useActivitySidebarStore.setState({
+			manualCollapsed: false,
+			treeCollapsed: { todo: true, agents: false },
+		});
+		await mountPalette();
+		await openPalette();
+
+		const todo = commandButton("Todo List");
+		if (!todo) throw new Error("Expected Todo List command");
+		await act(async () => todo.click());
+		const edit = commandButton("Edit Todos");
+		if (!edit) throw new Error("Expected Edit Todos command");
+		await act(async () => edit.click());
+		await flush();
+
+		expect(useActivitySidebarStore.getState()).toMatchObject({
+			manualCollapsed: false,
+			treeCollapsed: { todo: false, agents: false },
+			focusRequest: { id: "todo", seq: 1 },
+			narrowOverrideTabId: "tab-a",
+		});
+	});
+
+	it("reveals Agents in the activity sidebar for a selected subagent", async () => {
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: "sub-1" });
 		await mountPalette();
 
 		expect(await runIfPresent("Agents")).toBe(true);
-		expect(useUiStore.getState()).toMatchObject({
-			agentHubOpen: false,
-			dockFocus: { id: "agents", seq: 1 },
+		expect(useUiStore.getState().agentHubOpen).toBe(false);
+		expect(useActivitySidebarStore.getState()).toMatchObject({
+			focusRequest: { id: "agents", seq: 1 },
+			narrowOverrideTabId: "tab-a",
 		});
 		expect(prompt).not.toHaveBeenCalled();
 	});

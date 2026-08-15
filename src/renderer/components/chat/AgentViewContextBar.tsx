@@ -1,12 +1,11 @@
 import { Bot } from "lucide-react";
-import type { ReactNode } from "react";
 import type { SidecarStatus } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
 import { Badge, type BadgeVariant } from "../common";
-import { statusMeta, subagentPrimaryLabel } from "../panels/subagent-graph";
+import { statusMeta, subagentPrimaryLabel } from "./activity/agent-tree-model";
 
 interface SessionStatusPresentation {
 	labelKey: string;
@@ -75,15 +74,5 @@ export function AgentViewContextBar() {
 				</Badge>
 			</span>
 		</header>
-	);
-}
-
-/** Keeps active-agent chrome and its transcript as adjacent workspace slots. */
-export function AgentViewTranscriptSlot({ children }: { children: ReactNode }) {
-	return (
-		<>
-			<AgentViewContextBar />
-			{children}
-		</>
 	);
 }

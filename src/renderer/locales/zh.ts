@@ -3012,6 +3012,20 @@ export const zh: Record<string, string> = {
 	"browser.notLinkedHint": "你打开的页面现在即可使用；会话核心运行后，代理也能使用此浏览器。",
 	"browser.loadFailed": "无法加载页面：{error}",
 
+	// Activity sidebar
+	"activitySidebar.title": "活动",
+	"activitySidebar.collapse": "折叠活动侧栏",
+	"activitySidebar.expand": "展开活动侧栏",
+	"activitySidebar.resize": "调整活动侧栏大小",
+	"activitySidebar.resizeTrees": "调整待办和智能体区域大小",
+	"activitySidebar.plan.off": "关闭",
+	"activitySidebar.goal.empty": "无活动目标",
+	"activitySidebar.collapseSection": "折叠{section}",
+	"activitySidebar.expandSection": "展开{section}",
+	"activitySidebar.agents.empty": "暂无子智能体",
+	"activitySidebar.todo.empty": "暂无待办",
+	"activitySidebar.todo.label": "待办",
+
 	// Center dock (above the composer)
 	"dock.collapse": "折叠",
 	"dock.expand": "展开",

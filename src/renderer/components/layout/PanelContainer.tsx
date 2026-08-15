@@ -1,24 +1,19 @@
-import { Diff, FolderTree, Globe, SquareTerminal, X } from "lucide-react";
+import { Diff, FolderTree, ScrollText, X } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
-import { CHAT_PANEL_TABS, type PanelTab, useUiStore } from "../../stores/ui";
+import type { PanelTab } from "../../stores/ui";
+import { useUiStore } from "../../stores/ui";
 import { PanelErrorBoundary } from "../common";
-import { BrowserPanel } from "../panels/BrowserPanel";
 import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
-import { TerminalPanel } from "../panels/TerminalPanel";
+import { LogPanel } from "../panels/LogPanel";
 
 const MIN_WIDTH = 360;
 const MAX_WIDTH = 840;
-/** Web pages need room: the Browser view may take most of the window. */
-const BROWSER_MAX_WIDTH = 1600;
-/** Share of the window the drawer may cover while dragging (Browser / everything else). */
-const BROWSER_HOST_SHARE = 0.75;
-const HOST_SHARE = 0.55;
 const PANEL_WIDTH_PREF = "gui.panelWidth";
 /** Below this the inspector overlays instead of docking (see PanelContainer). */
 const COMPACT_QUERY = "(max-width: 1000px)";
@@ -31,16 +26,17 @@ function defaultPanelWidth(): number {
 const TABS: { id: PanelTab; labelKey: string; icon: typeof Diff }[] = [
 	{ id: "diff", labelKey: "panel.tabs.diff", icon: Diff },
 	{ id: "files", labelKey: "panel.tabs.files", icon: FolderTree },
-	{ id: "terminal", labelKey: "panel.tabs.terminal", icon: SquareTerminal },
-	{ id: "browser", labelKey: "panel.tabs.browser", icon: Globe },
+	{ id: "logs", labelKey: "panel.tabs.logs", icon: ScrollText },
 ];
 
+/** Drawer tabs meaningful in a tool-free chat tab (no diffs without tools). */
+const CHAT_TAB_IDS: ReadonlySet<PanelTab> = new Set(["files", "logs"]);
+
 /**
- * Review drawer: what the agent changed and the files it touched. Hidden by
- * default and opened from where the question arises — the title bar's change
- * count, a run's "Review" link in the transcript, a file link. Live execution
- * state (todos, plan, subagents, queue) renders in the center dock above the
- * composer, and application logs live in their own dialog.
+ * Contextual workspace drawer. Hidden by default; opened explicitly for
+ * diffs, files, or logs without shrinking the core chat. Live execution
+ * state (todos, plan, goals, and subagents) lives in the activity sidebar;
+ * queued work stays attached to the composer.
  */
 export function PanelContainer() {
 	const t = useT();
@@ -63,13 +59,10 @@ export function PanelContainer() {
 		media.addEventListener("change", onChange);
 		return () => media.removeEventListener("change", onChange);
 	}, []);
-	/** Chat tabs only expose files — diffs, shells, and agent browsing need tools. */
+	/** Chat tabs only expose files + logs — diffs can't exist without tools. */
 	const isChat = useActiveTabKind() === "chat";
-	const visibleTabs = isChat ? TABS.filter(tab => CHAT_PANEL_TABS.has(tab.id)) : TABS;
-	const visiblePanelTab = isChat && !CHAT_PANEL_TABS.has(panelTab) ? "files" : panelTab;
-	const browsing = visiblePanelTab === "browser";
-	const maxWidth = browsing ? BROWSER_MAX_WIDTH : MAX_WIDTH;
-	const hostShare = browsing ? BROWSER_HOST_SHARE : HOST_SHARE;
+	const visibleTabs = isChat ? TABS.filter(tab => CHAT_TAB_IDS.has(tab.id)) : TABS;
+	const visiblePanelTab = isChat && !CHAT_TAB_IDS.has(panelTab) ? "files" : panelTab;
 
 	const [width, setWidth] = useState(defaultPanelWidth);
 	const [widthHydrated, setWidthHydrated] = useState(false);
@@ -88,7 +81,7 @@ export function PanelContainer() {
 				if (cancelled) return;
 				const saved = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : null;
 				if (saved !== null) {
-					const viewportLimit = Math.max(MIN_WIDTH, Math.min(BROWSER_MAX_WIDTH, window.innerWidth - 56));
+					const viewportLimit = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - 56));
 					setWidth(Math.min(viewportLimit, Math.max(MIN_WIDTH, saved)));
 				}
 				setWidthHydrated(true);
@@ -111,7 +104,7 @@ export function PanelContainer() {
 
 	useEffect(() => {
 		const clampToViewport = () => {
-			const viewportLimit = Math.max(MIN_WIDTH, Math.min(BROWSER_MAX_WIDTH, window.innerWidth - 56));
+			const viewportLimit = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - 56));
 			setWidth(current => Math.min(current, viewportLimit));
 		};
 		window.addEventListener("resize", clampToViewport);
@@ -123,16 +116,13 @@ export function PanelContainer() {
 		e.currentTarget.setPointerCapture(e.pointerId);
 	}, []);
 
-	const onDrag = useCallback(
-		(e: ReactPointerEvent<HTMLDivElement>) => {
-			if (!dragging.current) return;
-			// Panel is right-anchored: dragging left grows it.
-			const hostLimit = Math.min(maxWidth, Math.round(window.innerWidth * hostShare));
-			const next = Math.min(hostLimit, Math.max(MIN_WIDTH, window.innerWidth - e.clientX));
-			setWidth(next);
-		},
-		[maxWidth, hostShare],
-	);
+	const onDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+		if (!dragging.current) return;
+		// Panel is right-anchored: dragging left grows it.
+		const hostLimit = Math.min(MAX_WIDTH, Math.round(window.innerWidth * 0.55));
+		const next = Math.min(hostLimit, Math.max(MIN_WIDTH, window.innerWidth - e.clientX));
+		setWidth(next);
+	}, []);
 
 	const endDrag = useCallback(() => {
 		dragging.current = false;
@@ -146,16 +136,26 @@ export function PanelContainer() {
 				compact || split ? "absolute inset-y-0 right-0 z-30 shadow-[var(--omp-shadow-lg)]" : "shrink-0",
 				!routeReady && "pointer-events-none",
 			)}
-			// One saved width; views other than Browser cap it at their own maximum.
-			style={{ width: Math.min(width, maxWidth) }}
+			style={{ width }}
 		>
-			{/* One header row: the view switcher and the close control. The panel's
-			    name is announced, not printed — the tabs already say what it holds. */}
-			<div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-[var(--omp-border-muted)] pl-3 pr-2">
-				<h2 className="sr-only">
-					{t("panel.title")} — {t("panel.subtitle")}
-				</h2>
-				<div className="omp-segmented">
+			<div className="flex h-[52px] shrink-0 items-center border-b border-[var(--omp-border-muted)] px-4">
+				<div>
+					<div className="text-omp-lg font-semibold text-[var(--omp-text)]">{t("panel.title")}</div>
+					<div className="text-omp-md text-[var(--omp-dim)]">{t("panel.subtitle")}</div>
+				</div>
+				<button
+					type="button"
+					onClick={togglePanel}
+					title={t("panel.close")}
+					className="omp-pressable ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+				>
+					<X size={17} />
+				</button>
+			</div>
+			<div className="flex h-11 shrink-0 items-center overflow-x-auto border-b border-[var(--omp-border-muted)] px-3">
+				<div
+					className="flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--omp-bg-secondary)] p-0.5" // surface-ok: segmented tab track is panel chrome
+				>
 					{visibleTabs.map(({ id, labelKey, icon: Icon }) => {
 						const active = visiblePanelTab === id;
 						return (
@@ -166,7 +166,12 @@ export function PanelContainer() {
 								aria-pressed={active}
 								type="button"
 								onClick={() => setPanelTab(id)}
-								className="relative flex h-7 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap px-2.5 text-omp-md font-medium"
+								className={cx(
+									"omp-pressable relative flex h-7 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-omp-md font-medium",
+									active
+										? "bg-[var(--omp-bg-elevated)] text-[var(--omp-text)] shadow-(--omp-shadow-sm)"
+										: "text-[var(--omp-muted)] hover:text-[var(--omp-text)]",
+								)}
 							>
 								<Icon size={14} />
 								<span className="omp-inspector-tab-label">{t(labelKey)}</span>
@@ -174,29 +179,20 @@ export function PanelContainer() {
 						);
 					})}
 				</div>
-				<button
-					type="button"
-					onClick={togglePanel}
-					title={t("panel.close")}
-					className="omp-pressable ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-				>
-					<X size={16} />
-				</button>
 			</div>
 			<div className="min-h-0 flex-1 overflow-hidden">
 				<PanelErrorBoundary key={`${activeTabId ?? "no-tab"}:${visiblePanelTab}`}>
 					{visiblePanelTab === "diff" && <DiffPanel />}
 					{visiblePanelTab === "files" && <FilesPanel />}
-					{visiblePanelTab === "terminal" && <TerminalPanel />}
-					{visiblePanelTab === "browser" && <BrowserPanel />}
+					{visiblePanelTab === "logs" && <LogPanel />}
 				</PanelErrorBoundary>
 			</div>
 			<div
 				role="separator"
 				aria-orientation="vertical"
 				aria-valuemin={MIN_WIDTH}
-				aria-valuemax={maxWidth}
-				aria-valuenow={Math.round(Math.min(width, maxWidth))}
+				aria-valuemax={MAX_WIDTH}
+				aria-valuenow={Math.round(width)}
 				tabIndex={0}
 				onPointerDown={startDrag}
 				onPointerMove={onDrag}
@@ -204,8 +200,8 @@ export function PanelContainer() {
 				onKeyDown={event => {
 					if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
 					event.preventDefault();
-					const viewportLimit = Math.max(MIN_WIDTH, Math.min(maxWidth, window.innerWidth - 56));
-					const max = Math.min(maxWidth, viewportLimit);
+					const viewportLimit = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - 56));
+					const max = Math.min(MAX_WIDTH, viewportLimit);
 					setWidth(current =>
 						event.key === "Home"
 							? MIN_WIDTH

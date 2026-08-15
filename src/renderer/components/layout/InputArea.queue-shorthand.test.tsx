@@ -3,10 +3,12 @@
  * run-settings portals. The latter protects option clicks from the parent
  * menu's outside-dismiss listener.
  */
-import type { AgentMessage, RpcResponse } from "../../../shared/rpc-types";
+import { parseHTML } from "linkedom";
+import type { AgentMessage, RpcQueuedMessage, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { InputArea } from "./InputArea";
-import { act } from "react";
+import { QueueComposerChip } from "./QueueComposerChip";
+import { act, type ReactElement } from "react";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { pasteMarkerText, storePaste } from "../../lib/paste-blobs";
@@ -69,6 +71,9 @@ let root: Root;
 let followUp: Mock;
 let steer: Mock;
 let prompt: Mock;
+let queueMove: Mock;
+let queueRemove: Mock;
+let queueClear: Mock;
 let setThinkingLevel: Mock;
 let setSetting: Mock;
 let setPlanMode: Mock;
@@ -80,7 +85,6 @@ async function flush(): Promise<void> {
 		await promise;
 	});
 }
-
 /** Set a controlled input's value and drive its React onChange contract. */
 async function typeInto(element: TestElement, value: string): Promise<void> {
 	const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value");
@@ -119,6 +123,11 @@ async function click(element: TestElement): Promise<void> {
 	await act(async () => {
 		element.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 	});
+	await flush();
+}
+
+function queued(id: string, text: string): RpcQueuedMessage {
+	return { id, text, editable: true, timestamp: 1 };
 }
 
 async function pointerDown(element: TestElement): Promise<void> {
@@ -132,17 +141,6 @@ function buttonWithText(text: string): TestElement | undefined {
 	return buttons.find(button => button.textContent?.trim().startsWith(text));
 }
 
-/** The composer's secondary inputs (attach, editor, history) live behind its "+" menu. */
-async function chooseFromAddMenu(label: string): Promise<void> {
-	const add = document.querySelector('button[aria-label="Add to message"]') as unknown as TestElement | null;
-	if (!add) throw new Error("add menu trigger missing");
-	await click(add);
-	const items = Array.from(document.querySelectorAll('[role="menuitem"]')) as unknown as TestElement[];
-	const item = items.find(candidate => candidate.textContent?.trim().startsWith(label));
-	if (!item) throw new Error(`add menu item missing: ${label}`);
-	await click(item);
-}
-
 function setWindowWidth(width: number): void {
 	Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
 }
@@ -153,21 +151,32 @@ function findTextarea(): TestElement {
 	return textarea;
 }
 
-async function mount(withRuntime = false): Promise<void> {
+async function mount(
+	elementOrRuntime: ReactElement | boolean = <InputArea />,
+	queue: { steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] } = { steering: [], followUp: [] },
+): Promise<void> {
+	const withRuntime = typeof elementOrRuntime === "boolean" ? elementOrRuntime : false;
+	const element = typeof elementOrRuntime === "boolean" ? <InputArea /> : elementOrRuntime;
 	followUp = vi.fn(async () => ok());
 	steer = vi.fn(async () => ok());
 	prompt = vi.fn(async () => ok());
+	queueMove = vi.fn(async () => ok({ lane: "followUp", index: 0 }));
+	queueRemove = vi.fn(async () => ok({ removed: true }));
+	queueClear = vi.fn(async () => ok({ removed: 0 }));
 	setThinkingLevel = vi.fn(async (level: string) => ok({ thinkingLevel: level, thinkingConfigured: level }));
 	setSetting = vi.fn(async (_path: string, value: unknown) => ok({ value, provenance: { layers: ["global"] } }));
 	setPlanMode = vi.fn(async (enabled: boolean) => ok({ enabled }));
 	(window as unknown as Record<string, unknown>).omp = {
 		fs: { list: vi.fn(async () => ({ entries: [] })) },
-		events: { onCommandsUpdate: vi.fn(() => () => {}), onConfigUpdate: vi.fn(() => () => {}) },
+		events: { onCommandsUpdate: vi.fn(() => () => {}) },
 		prefs: { set: vi.fn(async () => ({})), get: vi.fn(async () => []) },
 		rpc: {
 			getAvailableCommands: vi.fn(async () => ok({ commands: [] })),
-			getSettings: vi.fn(async () => ok({ values: {} })),
-			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
+			getQueue: vi.fn(async () => ok(queue)),
+			queueEdit: vi.fn(async () => ok({ updated: true })),
+			queueMove,
+			queueRemove,
+			queueClear,
 			followUp,
 			steer,
 			prompt,
@@ -225,19 +234,14 @@ async function mount(withRuntime = false): Promise<void> {
 			return ok({});
 		});
 	}
+	useQueueStore.getState().setFromFrame(queue);
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				{runtime ? (
-					<SessionRuntimeProvider runtime={runtime}>
-						<InputArea />
-					</SessionRuntimeProvider>
-				) : (
-					<InputArea />
-				)}
+				{runtime ? <SessionRuntimeProvider runtime={runtime}>{element}</SessionRuntimeProvider> : element}
 			</I18nProvider>,
 		);
 	});
@@ -261,6 +265,58 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 });
 
+describe("QueueComposerChip ownership", () => {
+	it("uses its count prop and delegates opening without owning a queue dialog", async () => {
+		const onOpen = vi.fn();
+		await mount(<QueueComposerChip count={2} onOpen={onOpen} />, {
+			steering: [],
+			followUp: [queued("ignored", "store-owned count must be ignored")],
+		});
+
+		const button = document.querySelector(
+			'button[aria-label="Manage queued messages: 2"]',
+		) as unknown as TestElement | null;
+		expect(button).not.toBeNull();
+		if (!button) throw new Error("Queue composer chip button not found");
+		await click(button);
+
+		expect(onOpen).toHaveBeenCalledTimes(1);
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+	});
+});
+
+describe("InputArea queue manager", () => {
+	it("opens from the Main toolbar and preserves reorder, remove, and clear mutations", async () => {
+		const first = queued("f1", "first queued message");
+		const second = queued("f2", "second queued message");
+		await mount(<InputArea />, { steering: [], followUp: [first, second] });
+
+		const button = document.querySelector(
+			'.omp-composer-toolbar button[aria-label="Manage queued messages: 2"]',
+		) as unknown as TestElement | null;
+		expect(button).not.toBeNull();
+		if (!button) throw new Error("Main toolbar queue button not found");
+		await click(button);
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+		const moveDown = document.querySelectorAll('button[aria-label="Move down"]')[0] as unknown as TestElement;
+		await click(moveDown);
+		expect(queueMove).toHaveBeenCalledWith("f1", 1);
+		expect(useQueueStore.getState().followUp.map(item => item.id)).toEqual(["f2", "f1"]);
+
+		const remove = document.querySelectorAll('button[aria-label="Remove"]')[0] as unknown as TestElement;
+		await click(remove);
+		expect(queueRemove).toHaveBeenCalledWith("f2");
+		expect(useQueueStore.getState().followUp.map(item => item.id)).toEqual(["f1"]);
+
+		const clear = document.querySelector('button[aria-label="Clear"]') as unknown as TestElement | null;
+		expect(clear).not.toBeNull();
+		if (!clear) throw new Error("Clear queue lane button not found");
+		await click(clear);
+		expect(queueClear).toHaveBeenCalledWith("followUp");
+		expect(useQueueStore.getState().followUp).toEqual([]);
+	});
+});
 describe("InputArea queue shorthand submit", () => {
 	it("restores an unacknowledged send after process recovery and blocks duplicate submission", async () => {
 		await mount(true);
@@ -546,9 +602,11 @@ describe("InputArea prompt history", () => {
 		expect(useInputHistoryStore.getState().entries).toEqual([]);
 	});
 
-	it("opens history search from the composer's add menu", async () => {
+	it("opens history search from the visible composer toolbar", async () => {
 		await mount();
-		await chooseFromAddMenu("History");
+		const history = document.querySelector('button[aria-label="History"]') as unknown as TestElement | null;
+		expect(history).not.toBeNull();
+		await click(history as TestElement);
 		expect(document.querySelector('[role="dialog"][aria-label="History"]')).not.toBeNull();
 	});
 });
@@ -557,6 +615,11 @@ describe("InputArea draft editor", () => {
 	// ⌃G alone was undiscoverable: the full-screen editor had no visible entry
 	// point, and both entries must hand it the expanded draft — a marker pasted
 	// into the editor would come back as literal "[Paste #1…]" text.
+	function draftEditorButton(): TestElement {
+		const button = document.querySelector("button[data-draft-editor-trigger]") as unknown as TestElement | null;
+		if (!button) throw new Error("draft editor trigger missing");
+		return button;
+	}
 
 	async function pressCtrlG(): Promise<void> {
 		const textarea = findTextarea();
@@ -580,11 +643,11 @@ describe("InputArea draft editor", () => {
 		);
 	}
 
-	it("opens the editor from the add menu with paste markers resolved", async () => {
+	it("opens the editor from the toolbar with paste markers resolved", async () => {
 		await mount();
 		const blob = storePaste("alpha\nbravo");
 		await typeInto(findTextarea(), `summary ${pasteMarkerText(blob.id, blob.content)}`);
-		await chooseFromAddMenu(translate("editor.title"));
+		await click(draftEditorButton());
 
 		expect(useUiStore.getState().composerEditorOpen).toBe(true);
 		expect(useUiStore.getState().composerEditorInitial).toBe("summary alpha\nbravo");
@@ -611,7 +674,7 @@ describe("InputArea run settings", () => {
 	}
 
 	async function mountCompact(): Promise<void> {
-		setWindowWidth(500);
+		setWindowWidth(600);
 		await mount();
 	}
 

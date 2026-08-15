@@ -34,6 +34,7 @@ import { useAgentViewStore } from "../../stores/agent-view";
 import { useComposerStore } from "../../stores/composer";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useModelStore } from "../../stores/model";
+import { useQueuedMessages } from "../../stores/queue";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useSettingsStore } from "../../stores/settings";
@@ -41,12 +42,15 @@ import { useSubagentsStore } from "../../stores/subagents";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { subagentPrimaryLabel } from "../panels/subagent-graph";
+import { subagentPrimaryLabel } from "../chat/activity/agent-tree-model";
+import { Modal } from "../common";
+import { QueuePanel } from "../panels/QueuePanel";
 import { ApprovalControl } from "./ApprovalControl";
 import { ComposerModes } from "./ComposerModes";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
+import { QueueComposerChip } from "./QueueComposerChip";
 import { ThinkingControl } from "./ThinkingControl";
 import { type CompletionItem, type CompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerSubmit } from "./use-composer-submit";
@@ -142,6 +146,8 @@ function MainInputArea() {
 	const pasteMenuThreshold = useDisplayPreference("pasteMenuThreshold");
 	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
+	const { steering: queuedSteering, followUp: queuedFollowUp } = useQueuedMessages();
+	const queueTotal = queuedSteering.length + queuedFollowUp.length;
 
 	// Draft lives in the composer store (not local state) so session-tab
 	// switches snapshot/restore it per tab. Value + updater-form setter are
@@ -159,6 +165,7 @@ function MainInputArea() {
 	const setSubmissionUncertain = useComposerStore(state => state.setSubmissionUncertain);
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
+	const [queueOpen, setQueueOpen] = useState(false);
 	const [recording, setRecording] = useState(false);
 	/** Pending large-paste choice: the paste already happened, this picks the form. */
 	const [pasteMenu, setPasteMenu] = useState<{ content: string; lineCount: number } | null>(null);
@@ -753,6 +760,23 @@ function MainInputArea() {
 
 	return (
 		<>
+			<Modal
+				bodyClassName="p-0"
+				onClose={() => setQueueOpen(false)}
+				open={queueOpen}
+				size="lg"
+				title={
+					<span className="flex items-center gap-2">
+						{t("queuePanel.title")}
+						<span className="text-omp-md font-normal tabular-nums text-[var(--omp-dim)]">{queueTotal}</span>
+					</span>
+				}
+			>
+				<div className="max-h-[70vh] overflow-y-auto">
+					<QueuePanel />
+				</div>
+			</Modal>
+
 				{queueBody !== undefined && (
 					<div
 						className="absolute -top-2 right-5 z-10 flex items-center gap-1.5 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-omp-xs font-semibold text-[var(--omp-warning)]"
@@ -1128,6 +1152,8 @@ function MainInputArea() {
 									{!isChat && <ComposerModes />}
 								</div>
 							)}
+
+							{queueTotal > 0 && <QueueComposerChip count={queueTotal} onOpen={() => setQueueOpen(true)} />}
 
 							<div className="flex-1" />
 

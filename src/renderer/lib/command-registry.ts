@@ -26,15 +26,14 @@ import type { SessionKind } from "../../shared/ipc-types";
 import type { AvailableCommand, CopyTarget, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../hooks/use-rpc-events";
 import { newSessionNow } from "../hooks/use-session-switch";
+import { type ActivitySectionId, useActivitySidebarStore } from "../stores/activity-sidebar";
 import { openHandoffDialog } from "../stores/fork-handoff";
 import { useModelStore } from "../stores/model";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { activeTabKind, useTabsStore } from "../stores/tabs";
 import { toast } from "../stores/toast";
-import { useTodoStore } from "../stores/todo";
-import type { MemoryTabId } from "../stores/ui";
-import { type DockCardId, useUiStore } from "../stores/ui";
+import { useUiStore } from "../stores/ui";
 import { isCommandAvailable } from "./command-availability";
 import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
@@ -127,13 +126,12 @@ export interface CommandRegistryContext {
 	openThemePicker: () => void;
 	openModes: (tab?: "vibe" | "goal" | "loop") => void;
 	openAgentHub: (tab?: "definitions" | "hub") => void;
-	openMemory: (tab?: MemoryTabId) => void;
 	openPrCenter: () => void;
 	openHotkeys: () => void;
 	openImportDialog: () => void;
 	openProviderConfig: () => void;
-	/** Deep-link a center-dock card (todo/plan/agents): expand + flash. */
-	focusDockCard: (id: DockCardId) => void;
+	/** Reveal and focus an activity-sidebar section for the active workspace. */
+	focusActivitySection: (id: ActivitySectionId) => void;
 	/** Retry the last failed turn server-side (retry RPC). */
 	retryTurn: () => Promise<unknown>;
 	/** Re-send the most recent user message (abortAndPrompt while streaming). */
@@ -468,15 +466,6 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.resume.desc"),
 		category: "session",
 		affordance: { kind: "picker", open: ctx.openSessionPicker },
-	});
-	add({
-		name: "search",
-		label: t("cmd.search"),
-		description: t("cmd.search.desc"),
-		category: "session",
-		shortcut: "⇧⌘F",
-		aliases: ["find", "conversations"],
-		affordance: { kind: "window", open: () => useUiStore.getState().openConversationSearch() },
 	});
 	add({
 		name: "import",
@@ -878,15 +867,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: {
 			kind: "submenu",
 			items: [
-				subAction("todo edit", () => {
-					// The dock card self-hides with no todos — say so instead of no-oping.
-					const hasTodos = useTodoStore.getState().phases.some(phase => phase.tasks.length > 0);
-					if (!hasTodos) {
-						toast({ variant: "info", message: translate("todoPanel.empty") });
-						return;
-					}
-					ctx.focusDockCard("todo");
-				}),
+				subAction("todo edit", () => ctx.focusActivitySection("todo")),
 				subAction("todo copy", () => copyTodosToClipboard()),
 				subAction("todo export", () => exportTodos()),
 				subAction("todo import", () => importTodosFromFile()),
@@ -1082,10 +1063,10 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.memory.panel"),
 					description: t("cmd.memory.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openMemory() },
+					affordance: { kind: "window", open: () => ctx.openSettings("resources:memory") },
 				},
-				subWindow("memory view", () => ctx.openMemory("knowledge")),
-				// The Inventory memory tab covers backend stats/diagnose natively.
+				// The Inventory memory tab covers view/stats/diagnose natively.
+				subWindow("memory view", () => ctx.openSettings("resources:memory")),
 				subWindow("memory stats", () => ctx.openSettings("resources:memory")),
 				subWindow("memory diagnose", () => ctx.openSettings("resources:memory")),
 				sub("memory clear", "/memory clear"),
@@ -1409,13 +1390,6 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: { kind: "window", open: () => useUiStore.getState().openDebug() },
 	});
 	add({
-		name: "logs",
-		label: t("cmd.logs"),
-		description: t("cmd.logs.desc"),
-		category: "other",
-		affordance: { kind: "window", open: () => useUiStore.getState().openLogs() },
-	});
-	add({
 		name: "live",
 		label: t("cmd.live"),
 		description: t("cmd.live.desc"),
@@ -1446,12 +1420,10 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: {
 			kind: "action",
 			run: () => {
-				// The dock card only renders while plan mode is on — point at the toggle otherwise.
+				ctx.focusActivitySection("plan");
 				if (!useSessionStore.getState().planModeEnabled) {
 					toast({ variant: "info", message: translate("planPanel.statusOff") });
-					return;
 				}
-				ctx.focusDockCard("plan");
 			},
 		},
 	});
@@ -1782,12 +1754,12 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 		openThemePicker: ui.openThemePicker,
 		openModes: ui.openModes,
 		openAgentHub: ui.openAgentHub,
-		openMemory: ui.openMemory,
 		openPrCenter: ui.openPrCenter,
 		openHotkeys: ui.openHotkeys,
 		openImportDialog: ui.openImportDialog,
 		openProviderConfig: ui.openProviderConfig,
-		focusDockCard: ui.focusDockCard,
+		focusActivitySection: id =>
+			useActivitySidebarStore.getState().revealSection(id, useTabsStore.getState().activeTabId ?? "no-tab"),
 		retryTurn: retryFailedTurn,
 		retryLastTurn: () =>
 			retryLastTurnShared(() =>

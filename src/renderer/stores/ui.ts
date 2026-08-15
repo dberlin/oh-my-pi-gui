@@ -7,16 +7,7 @@ import { useTabsStore } from "./tabs";
 
 export type { ThemeMode };
 
-export type PanelTab = "diff" | "files" | "terminal" | "browser";
-
-/** Memory window tabs. */
-export type MemoryTabId = "knowledge" | "skills" | "sources";
-/** Drawer tabs that exist in a tool-free chat tab: no diffs, shells, or agent browsing without tools. */
-export const CHAT_PANEL_TABS: ReadonlySet<PanelTab> = new Set(["files"]);
-/** What the Changes view compares: the checkout, this session's edits, their timeline, or virtual artifacts. */
-export type DiffScope = "repository" | "current" | "timeline" | "artifacts";
-/** Center-dock card identifiers: todo/plan/agents render as live cards above the composer. */
-export type DockCardId = "todo" | "plan" | "agents";
+export type PanelTab = "diff" | "files" | "logs";
 export type TranscriptDetail = "compact" | "full";
 
 export interface GuiDisplayPreferences {
@@ -36,9 +27,6 @@ interface UiStore {
 	sidebarVisible: boolean;
 	panelVisible: boolean;
 	panelTab: PanelTab;
-	diffScope: DiffScope;
-	/** Application log viewer (moved out of the drawer: logs are diagnostics, not workspace). */
-	logsOpen: boolean;
 	/** Local file currently shown in the Files drawer. */
 	filePreviewPath: string | null;
 	commandPaletteOpen: boolean;
@@ -60,8 +48,6 @@ interface UiStore {
 	modesTab: "vibe" | "goal" | "loop";
 	agentHubOpen: boolean;
 	agentHubTab: "definitions" | "hub";
-	memoryOpen: boolean;
-	memoryTab: MemoryTabId;
 	hotkeysOpen: boolean;
 	importDialogOpen: boolean;
 	copySelectorOpen: boolean;
@@ -93,8 +79,6 @@ interface UiStore {
 	armedCloseTab: { tabId: string } | null;
 	/** PR Center fullscreen panel (plan/21). */
 	prCenterOpen: boolean;
-	/** Search over what was said in sessions (⇧⌘F). */
-	conversationSearchOpen: boolean;
 	sessionPickerOpen: boolean;
 	branchPickerOpen: boolean;
 	sessionTreeOpen: boolean;
@@ -103,9 +87,6 @@ interface UiStore {
 	 * (streaming/compacting). Non-null shows the SessionSwitchDialog offering
 	 * a parallel new tab (recommended) / new window vs abort-and-switch. */
 	sessionSwitchPrompt: SessionInfo | null;
-	/** Session whose saved model could not be restored on switch; non-null shows
-	 * the ModelRestoreDialog offering to open it with the current model. */
-	modelRestorePrompt: { session: SessionInfo; missingModel: string } | null;
 	sidecarError: string | null;
 	/** Crash-loop progress carried by the status behind `sidecarError`: non-null
 	 * while the sidecar is respawning itself, and on the terminal error once the
@@ -132,19 +113,8 @@ interface UiStore {
 	togglePanel: () => void;
 	toggleToolsExpandAll: () => void;
 	setPanelTab: (tab: PanelTab) => void;
-	setDiffScope: (scope: DiffScope) => void;
-	/** Open the drawer on Changes at a given scope (the transcript's "Review" entry). */
-	openChanges: (scope: DiffScope) => void;
-	openLogs: () => void;
-	closeLogs: () => void;
 	openFilePreview: (path: string) => void;
 	closeFilePreview: () => void;
-	/** Per-card collapse overrides for the center dock (absent = expanded). */
-	dockCollapsed: Partial<Record<DockCardId, boolean>>;
-	toggleDockCard: (id: DockCardId) => void;
-	/** Focus signal: bumps seq so the target card expands and flashes (command-palette deep links). */
-	dockFocus: { id: DockCardId; seq: number } | null;
-	focusDockCard: (id: DockCardId) => void;
 	openCommandPalette: () => void;
 	closeCommandPalette: () => void;
 	openModelPicker: () => void;
@@ -177,9 +147,6 @@ interface UiStore {
 	openModes: (tab?: "vibe" | "goal" | "loop") => void;
 	closeModes: () => void;
 	openAgentHub: (tab?: "definitions" | "hub") => void;
-	/** The Memory window; reopening without a tab keeps the last one. */
-	openMemory: (tab?: MemoryTabId) => void;
-	closeMemory: () => void;
 	closeAgentHub: () => void;
 	openHotkeys: () => void;
 	closeHotkeys: () => void;
@@ -223,8 +190,6 @@ interface UiStore {
 	cancelCloseTab: () => void;
 	openPrCenter: () => void;
 	closePrCenter: () => void;
-	openConversationSearch: () => void;
-	closeConversationSearch: () => void;
 	openSessionPicker: () => void;
 	closeSessionPicker: () => void;
 	openBranchPicker: () => void;
@@ -235,8 +200,6 @@ interface UiStore {
 	closeSessionInfo: () => void;
 	requestSessionSwitch: (session: SessionInfo) => void;
 	closeSessionSwitch: () => void;
-	requestModelRestore: (prompt: { session: SessionInfo; missingModel: string }) => void;
-	closeModelRestore: () => void;
 	/** Close UI whose data or actions belong to the outgoing tab. */
 	closeSessionOverlays: () => void;
 	/** In-flight sidebar/picker session switch: keep the outgoing transcript painted. */
@@ -267,8 +230,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	sidebarVisible: true,
 	panelVisible: false,
 	panelTab: "diff",
-	diffScope: "repository",
-	logsOpen: false,
 	filePreviewPath: null,
 	commandPaletteOpen: false,
 	modelPickerOpen: false,
@@ -288,9 +249,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	toggleToolsExpandAll: () =>
 		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
 	setPanelTab: tab => {
-		// Chat tabs are tool-free: only files can exist there, so a force-open
-		// of any other drawer tab is a no-op.
-		if (!CHAT_PANEL_TABS.has(tab)) {
+		// Chat tabs are tool-free: only files + logs can exist there, so a
+		// force-open of the diff tab is a no-op.
+		if (tab === "diff") {
 			const activeKind = useTabsStore
 				.getState()
 				.tabs.find(t2 => t2.id === useTabsStore.getState().activeTabId)?.kind;
@@ -298,38 +259,19 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		}
 		set({ panelTab: tab, panelVisible: true });
 	},
-	setDiffScope: scope => set({ diffScope: scope }),
-	openChanges: scope => {
-		get().setPanelTab("diff");
-		if (get().panelTab === "diff") set({ diffScope: scope });
-	},
-	openLogs: () => set({ logsOpen: true }),
-	closeLogs: () => set({ logsOpen: false }),
 	openFilePreview: path => set({ filePreviewPath: path, panelTab: "files", panelVisible: true }),
 	closeFilePreview: () => set({ filePreviewPath: null }),
-	dockCollapsed: {},
-	toggleDockCard: id =>
-		set({
-			dockCollapsed: { ...get().dockCollapsed, [id]: !(get().dockCollapsed[id] ?? false) },
-		}),
-	dockFocus: null,
-	focusDockCard: id =>
-		set({
-			dockCollapsed: { ...get().dockCollapsed, [id]: false },
-			dockFocus: { id, seq: (get().dockFocus?.seq ?? 0) + 1 },
-		}),
 	openCommandPalette: () => set({ commandPaletteOpen: true }),
 	closeCommandPalette: () => set({ commandPaletteOpen: false }),
 	openModelPicker: () => set({ modelPickerOpen: true }),
 	closeModelPicker: () => set({ modelPickerOpen: false }),
 	// Without an explicit target, a window that is already open stays on its
 	// page: ⌘, pressed again must not bounce the user back to the first tab (and
-	// wipe the search they typed). A cold open lands on the GUI preferences page
-	// (`GUI_TAB_ID`); the capabilities overview has its own navigation entry.
+	// wipe the search they typed).
 	openSettings: tab =>
 		set(state => ({
 			settingsOpen: true,
-			settingsTab: tab ?? (state.settingsOpen ? state.settingsTab : "gui"),
+			settingsTab: tab ?? (state.settingsOpen ? state.settingsTab : "capabilities"),
 		})),
 	closeSettings: () => set({ settingsOpen: false }),
 	usageOpen: false,
@@ -373,10 +315,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	agentHubTab: "definitions" as const,
 	openAgentHub: tab => set({ agentHubOpen: true, agentHubTab: tab ?? "definitions" }),
 	closeAgentHub: () => set({ agentHubOpen: false }),
-	memoryOpen: false,
-	memoryTab: "knowledge" as MemoryTabId,
-	openMemory: tab => set(state => ({ memoryOpen: true, memoryTab: tab ?? state.memoryTab })),
-	closeMemory: () => set({ memoryOpen: false }),
 	hotkeysOpen: false,
 	openHotkeys: () => set({ hotkeysOpen: true }),
 	closeHotkeys: () => set({ hotkeysOpen: false }),
@@ -443,9 +381,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	prCenterOpen: false,
 	openPrCenter: () => set({ prCenterOpen: true }),
 	closePrCenter: () => set({ prCenterOpen: false }),
-	conversationSearchOpen: false,
-	openConversationSearch: () => set({ conversationSearchOpen: true }),
-	closeConversationSearch: () => set({ conversationSearchOpen: false }),
 	sessionPickerOpen: false,
 	openSessionPicker: () => set({ sessionPickerOpen: true }),
 	closeSessionPicker: () => set({ sessionPickerOpen: false }),
@@ -461,9 +396,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	sessionSwitchPrompt: null as SessionInfo | null,
 	requestSessionSwitch: session => set({ sessionSwitchPrompt: session }),
 	closeSessionSwitch: () => set({ sessionSwitchPrompt: null }),
-	modelRestorePrompt: null as { session: SessionInfo; missingModel: string } | null,
-	requestModelRestore: prompt => set({ modelRestorePrompt: prompt }),
-	closeModelRestore: () => set({ modelRestorePrompt: null }),
 	closeSessionOverlays: () =>
 		set({
 			commandPaletteOpen: false,
@@ -473,7 +405,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			inventoryOpen: false,
 			modesOpen: false,
 			agentHubOpen: false,
-			memoryOpen: false,
 			importDialogOpen: false,
 			copySelectorOpen: false,
 			contextReportOpen: false,
@@ -494,14 +425,12 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			worktreeClosePrompt: null,
 			armedCloseTab: null,
 			prCenterOpen: false,
-			conversationSearchOpen: false,
 			filePreviewPath: null,
 			sessionPickerOpen: false,
 			branchPickerOpen: false,
 			sessionTreeOpen: false,
 			sessionInfoOpen: false,
 			sessionSwitchPrompt: null,
-			modelRestorePrompt: null,
 		}),
 	sidecarError: null as string | null,
 	sidecarRestart: null as SidecarRestartProgress | null,
