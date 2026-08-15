@@ -1,11 +1,13 @@
 import { parseHTML } from "linkedom";
-import { act } from "react";
+import { act, Profiler } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentMessage } from "../../../shared/rpc-types";
+import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
-import { useToolsStore } from "../../stores/tools";
+import { groupReadRows } from "../../lib/read-group";
+import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { ReadGroupCard } from "../tools/ReadGroupCard";
 
 import { MessageBubble } from "./MessageBubble";
 
@@ -40,6 +42,20 @@ const toolResultMessage: AgentMessage = {
 	isError: false,
 	timestamp: "2026-08-02T12:00:01.000Z",
 };
+
+function completedToolEntry(result: string): ToolEntry {
+	return {
+		toolName: "read",
+		args: {},
+		status: "done",
+		partialResult: null,
+		streamingArgs: "",
+		result,
+		isError: false,
+		startTime: 1,
+		endTime: 2,
+	};
+}
 
 afterEach(() => {
 	useToolsStore.getState().reset();
@@ -151,6 +167,250 @@ describe("MessageBubble tool messages", () => {
 			expect(firstNode.textContent).not.toContain("SECOND_RESULT");
 			expect(secondNode.textContent).toContain("SECOND_RESULT");
 			expect(secondNode.textContent).not.toContain("FIRST_RESULT");
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+		}
+	});
+
+	it("keeps explicit repeated-id occurrences paired through rerenders", async () => {
+		const firstCall: ToolCallContent = {
+			type: "toolCall",
+			id: "projection-read:0",
+			name: "read",
+			arguments: { path: "first.txt" },
+		};
+		const secondCall: ToolCallContent = {
+			type: "toolCall",
+			id: "projection-read:0",
+			name: "read",
+			arguments: { path: "second.txt" },
+		};
+		const projection = new WeakMap<ToolCallContent, { key: string; entry: ToolEntry }>([
+			[firstCall, { key: "projection-read:0#1", entry: completedToolEntry("FIRST_PROJECTED_RESULT") }],
+			[secondCall, { key: "projection-read:0#2", entry: completedToolEntry("SECOND_PROJECTED_RESULT") }],
+		]);
+		const resolveToolCall = (call: ToolCallContent) =>
+			projection.get(call) ?? { key: call.id, entry: completedToolEntry("UNEXPECTED_RESULT") };
+		const projectedMessage = (content: ToolCallContent[]): AgentMessage => ({
+			role: "assistant",
+			content,
+			timestamp: "2026-08-02T12:00:06.000Z",
+		});
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		try {
+			await act(async () => {
+				root.render(
+					<I18nProvider>
+						<MessageBubble
+							message={projectedMessage([firstCall, secondCall])}
+							resolveToolCall={resolveToolCall}
+						/>
+					</I18nProvider>,
+				);
+			});
+			const buttons = container.querySelectorAll(".omp-tool-header");
+			const secondButton = buttons.item(1);
+			if (!secondButton) throw new Error("second projected tool card did not render");
+			await act(async () => secondButton.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+			expect(container.textContent).toContain("SECOND_PROJECTED_RESULT");
+
+			await act(async () => {
+				root.render(
+					<I18nProvider>
+						<MessageBubble message={projectedMessage([secondCall])} resolveToolCall={resolveToolCall} />
+					</I18nProvider>,
+				);
+			});
+			expect(container.textContent).toContain("SECOND_PROJECTED_RESULT");
+			expect(container.textContent).not.toContain("FIRST_PROJECTED_RESULT");
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+		}
+	});
+
+	it("does not subscribe projected tool cards to Main tool updates", async () => {
+		const call: ToolCallContent = {
+			type: "toolCall",
+			id: "isolated-read:0",
+			name: "read",
+			arguments: { path: "isolated.txt" },
+		};
+		const projected = completedToolEntry("ISOLATED_RESULT");
+		const resolveToolCall = () => ({ key: "isolated-read:0#projected", entry: projected });
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		let commits = 0;
+		try {
+			await act(async () => {
+				root.render(
+					<I18nProvider>
+						<Profiler id="projected-tool" onRender={() => commits++}>
+							<MessageBubble
+								message={{ ...assistantMessage, content: [call] }}
+								resolveToolCall={resolveToolCall}
+							/>
+						</Profiler>
+					</I18nProvider>,
+				);
+			});
+			const commitsBeforeMainUpdate = commits;
+
+			await act(async () => {
+				useToolsStore.setState({
+					activeTools: new Map([["isolated-read:0#projected", { ...projected, status: "error", isError: true }]]),
+				});
+			});
+
+			expect(commits).toBe(commitsBeforeMainUpdate);
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+		}
+	});
+
+	it("does not fall back to a conflicting Main entry when an ungrouped projection entry is missing", async () => {
+		const call: ToolCallContent = {
+			type: "toolCall",
+			id: "missing-projected-read",
+			name: "read",
+			arguments: { path: "projected-only.ts" },
+		};
+		useToolsStore.setState({
+			activeTools: new Map([[call.id, completedToolEntry("MAIN_UNGROUPED_RESULT")]]),
+		});
+		const resolveToolCall = () => ({ key: call.id, entry: undefined });
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		try {
+			await act(async () => {
+				root.render(
+					<I18nProvider>
+						<MessageBubble message={{ ...assistantMessage, content: [call] }} resolveToolCall={resolveToolCall} />
+					</I18nProvider>,
+				);
+			});
+			expect(container.querySelector('.omp-tool-card[data-tool-status="running"]')).not.toBeNull();
+			const header = container.querySelector(".omp-tool-header");
+			if (!header) throw new Error("projected tool card did not render");
+			await act(async () => header.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+			expect(container.textContent).not.toContain("MAIN_UNGROUPED_RESULT");
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+		}
+	});
+
+	it("renders grouped read results from the supplied projection instead of Main", async () => {
+		const firstCall: ToolCallContent = {
+			type: "toolCall",
+			id: "group-read:0",
+			name: "read",
+			arguments: { path: "first.ts" },
+		};
+		const secondCall: ToolCallContent = {
+			type: "toolCall",
+			id: "group-read:0",
+			name: "read",
+			arguments: { path: "second.ts" },
+		};
+		const projection = new WeakMap<ToolCallContent, { key: string; entry: ToolEntry }>([
+			[firstCall, { key: "group-read:0#1", entry: completedToolEntry("FIRST_GROUP_RESULT") }],
+			[secondCall, { key: "group-read:0#2", entry: completedToolEntry("SECOND_GROUP_RESULT") }],
+		]);
+		const resolveToolCall = (call: ToolCallContent) =>
+			projection.get(call) ?? { key: call.id, entry: completedToolEntry("UNEXPECTED_RESULT") };
+		const grouped = groupReadRows(
+			[
+				{ kind: "message" as const, message: { ...assistantMessage, content: [firstCall] } },
+				{ kind: "message" as const, message: { ...assistantMessage, content: [secondCall] } },
+			],
+			resolveToolCall,
+		);
+		const group = grouped[0];
+		if (group?.kind !== "readGroup") throw new Error("projected read group did not render");
+
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		try {
+			await act(async () => {
+				root.render(
+					<I18nProvider>
+						<ReadGroupCard entries={group.entries} resolveToolCall={resolveToolCall} />
+					</I18nProvider>,
+				);
+			});
+			const header = container.querySelector(".omp-read-group-header");
+			if (!header) throw new Error("read group header did not render");
+			await act(async () => header.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+			for (const button of container.querySelectorAll(".omp-tool-header")) {
+				await act(async () => button.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+			}
+			expect(container.textContent).toContain("FIRST_GROUP_RESULT");
+			expect(container.textContent).toContain("SECOND_GROUP_RESULT");
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+		}
+	});
+
+	it("does not fall back to conflicting Main entries when grouped projection entries are missing", async () => {
+		const firstCall: ToolCallContent = {
+			type: "toolCall",
+			id: "missing-group-read-1",
+			name: "read",
+			arguments: { path: "first-projected.ts" },
+		};
+		const secondCall: ToolCallContent = {
+			type: "toolCall",
+			id: "missing-group-read-2",
+			name: "read",
+			arguments: { path: "second-projected.ts" },
+		};
+		useToolsStore.setState({
+			activeTools: new Map([
+				[firstCall.id, completedToolEntry("MAIN_FIRST_GROUP_RESULT")],
+				[secondCall.id, completedToolEntry("MAIN_SECOND_GROUP_RESULT")],
+			]),
+		});
+		const resolveToolCall = (call: ToolCallContent) => ({ key: call.id, entry: undefined });
+		const grouped = groupReadRows(
+			[
+				{ kind: "message" as const, message: { ...assistantMessage, content: [firstCall] } },
+				{ kind: "message" as const, message: { ...assistantMessage, content: [secondCall] } },
+			],
+			resolveToolCall,
+		);
+		const group = grouped[0];
+		if (group?.kind !== "readGroup") throw new Error("missing-entry read group did not render");
+		const projectedTools = new Map<string, ToolEntry>();
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		try {
+			await act(async () => {
+				root.render(
+					<I18nProvider>
+						<ReadGroupCard
+							activeTools={projectedTools}
+							entries={group.entries}
+							resolveToolCall={resolveToolCall}
+						/>
+					</I18nProvider>,
+				);
+			});
+			const header = container.querySelector(".omp-read-group-header");
+			if (!header) throw new Error("missing-entry read group header did not render");
+			await act(async () => header.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+			expect(container.querySelectorAll('.omp-tool-card[data-tool-status="running"]')).toHaveLength(2);
+			expect(container.textContent).not.toContain("MAIN_FIRST_GROUP_RESULT");
+			expect(container.textContent).not.toContain("MAIN_SECOND_GROUP_RESULT");
 		} finally {
 			await act(async () => root.unmount());
 			container.remove();

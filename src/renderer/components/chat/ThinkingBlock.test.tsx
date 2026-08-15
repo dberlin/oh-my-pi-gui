@@ -86,8 +86,7 @@ describe("ThinkingBlock", () => {
 
 	it("does not mount markdown while the live block is collapsed", async () => {
 		useUiStore.getState().setThinkingExpanded(false);
-		useMessagesStore.setState({ streamingThinking: HEADLINED_THINKING });
-		await mount(<ThinkingBlock live />);
+		await mount(<ThinkingBlock live text={HEADLINED_THINKING} />);
 		expect(container.querySelector(".markdown-body")).toBeNull();
 		expect(container.querySelector(".omp-thinking-body")).toBeNull();
 	});

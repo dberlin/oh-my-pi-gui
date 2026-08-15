@@ -13,15 +13,26 @@
  * StreamingRows path groups its read cards with the same predicate.
  */
 
-import type { AgentMessage, MessageContent } from "../../shared/rpc-types";
-import { toolEntryKey } from "../stores/tools";
+import type { AgentMessage, MessageContent, ToolCallContent } from "../../shared/rpc-types";
+import { type ResolvedToolCall, toolEntryKey, useToolsStore } from "../stores/tools";
 import { isRenderableMessageText } from "./messages";
+
+/** Resolve one transcript occurrence to both its stable key and projected result. */
+export type ResolveToolCall = (call: ToolCallContent) => ResolvedToolCall;
+
+/** Default resolver for the active Main transcript. */
+export const resolveMainToolCall: ResolveToolCall = call => {
+	const key = toolEntryKey(call);
+	return { key, entry: useToolsStore.getState().activeTools.get(key) };
+};
 
 /** One read call inside a group. Result/status resolution happens in the card. */
 export interface ReadGroupEntry {
 	callId: string;
 	/** Occurrence-specific key; raw provider ids may repeat across turns. */
 	toolKey: string;
+	/** Original occurrence object used by transcript-local projection resolvers. */
+	call?: ToolCallContent;
 	path: string;
 	/** Selector suffix split from the path (`1-5,7,20-25`). */
 	selector?: string;
@@ -95,7 +106,10 @@ interface ReadGroupableRow {
  * assistant messages into `readGroup` rows that accrete across messages.
  * Messages left with remaining visible content keep rendering (trimmed).
  */
-export function groupReadRows<R extends ReadGroupableRow>(rows: R[]): Array<R | ReadGroupRow> {
+export function groupReadRows<R extends ReadGroupableRow>(
+	rows: R[],
+	resolveToolCall: ResolveToolCall = resolveMainToolCall,
+): Array<R | ReadGroupRow> {
 	const out: Array<R | ReadGroupRow> = [];
 	let run: ReadGroupEntry[] = [];
 	let runUsage: ReadGroupUsage[] = [];
@@ -126,9 +140,11 @@ export function groupReadRows<R extends ReadGroupableRow>(rows: R[]): Array<R | 
 			if (block.type === "toolCall" && block.name === "read") {
 				const read = collapsibleReadTarget(block.arguments);
 				if (read) {
+					const resolved = resolveToolCall(block);
 					run.push({
 						callId: block.id,
-						toolKey: toolEntryKey(block),
+						toolKey: resolved.key,
+						call: block,
 						...read,
 						args: block.arguments as Record<string, unknown>,
 					});

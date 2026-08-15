@@ -1,14 +1,66 @@
 import { createStore } from "zustand/vanilla";
-import type { SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
+import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
+import { useAgentViewStore } from "./agent-view";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
 
 export type SubagentNode = SubagentSnapshot;
+/** Recover inspectable terminal agents after the live registry has released them. */
+export function historicalSubagentsFromMessages(
+	messages: AgentMessage[],
+	parentSessionFile?: string | null,
+): SubagentNode[] {
+	const sessionDirectory = parentSessionFile?.endsWith(".jsonl") ? parentSessionFile.slice(0, -".jsonl".length) : null;
+	const snapshots: SubagentNode[] = [];
+	const seen = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (block.type !== "toolCall" || block.name !== "task") continue;
+			const taskValues = Array.isArray(block.arguments.tasks) ? block.arguments.tasks : [];
+			for (const taskValue of taskValues) {
+				if (taskValue === null || typeof taskValue !== "object" || Array.isArray(taskValue)) continue;
+				const task = taskValue as Record<string, unknown>;
+				const name = typeof task.name === "string" ? task.name.trim() : "";
+				if (!name || seen.has(name)) continue;
+				// Persisted task payloads are transcript data, not trusted path
+				// components. Keep the display/id intact, but never synthesize a
+				// child transcript locator from a traversal-shaped name.
+				const sessionLeaf = name !== "." && name !== ".." && !/[\/\\\0]/.test(name) ? name : null;
+				seen.add(name);
+				const assignment = typeof task.task === "string" ? task.task : undefined;
+				const timestamp =
+					typeof message.timestamp === "number"
+						? message.timestamp
+						: typeof message.timestamp === "string"
+							? Date.parse(message.timestamp)
+							: Number.NaN;
+				snapshots.push({
+					id: name,
+					index: snapshots.length,
+					agent: typeof task.agent === "string" && task.agent ? task.agent : "task",
+					status: "unknown",
+					task: assignment,
+					assignment,
+					description: name,
+					sessionFile: sessionDirectory && sessionLeaf ? `${sessionDirectory}/${sessionLeaf}.jsonl` : undefined,
+					lastUpdate: Number.isFinite(timestamp) ? timestamp : Date.now(),
+					parentToolCallId: block.id,
+					kind: "sub",
+				});
+			}
+		}
+	}
+	return snapshots;
+}
 
 export interface SubagentsStore {
 	subagents: Map<string, SubagentNode>;
 	/** Why the roster could not be read. Rows stay on screen when set; an empty
 	    roster plus an error is "couldn't load", never "nothing spawned". */
 	error: string | null;
+	/** Maps a `task` tool call id to the id of the subagent whose transcript contains it. */
+	toolCallOwners: Map<string, string>;
+	registerToolCallOwners: (agentId: string, toolCallIds: string[]) => void;
 	applyFrame: (frame: SubagentFrame) => void;
 	setSnapshots: (snapshots: SubagentNode[]) => void;
 	/**
@@ -20,6 +72,7 @@ export interface SubagentsStore {
 	 * failed fetch leaves frame-driven state untouched.
 	 */
 	refresh: (options?: { expect?: () => boolean }) => Promise<void>;
+	invalidateRefresh: () => void;
 	reset: () => void;
 }
 
@@ -63,15 +116,24 @@ function mergeFetchedSnapshot(fresh: SubagentNode, prev: SubagentNode): Subagent
 }
 
 export const createSubagentsStore = (command: TabCommand = activeTabCommand) => {
-	let refreshVersion = 0;
+	let refreshRevision = 0;
 	return createStore<SubagentsStore>()((set, get) => ({
 		subagents: new Map(),
 		error: null,
+		toolCallOwners: new Map(),
+		registerToolCallOwners: (agentId, toolCallIds) => {
+			const current = get().toolCallOwners;
+			let next: Map<string, string> | null = null;
+			for (const id of toolCallIds) {
+				if (current.get(id) === agentId) continue;
+				if (!next) next = new Map(current);
+				next.set(id, agentId);
+			}
+			if (next) set({ toolCallOwners: next });
+		},
 		applyFrame: frame => {
-			// Copy-on-first-write: frames that match no known subagent leave the
-			// map untouched and must not trigger a re-render.
+			refreshRevision += 1;
 			let subagents: Map<string, SubagentNode> | null = null;
-
 			switch (frame.type) {
 				case "subagent_lifecycle": {
 					const p = frame.payload;
@@ -96,9 +158,6 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 					break;
 				}
 				case "subagent_progress": {
-					// Attribute by stable id, not the per-batch index. A progress
-					// frame can be the first frame observed after a late subscription,
-					// so materialize the row instead of silently dropping it.
 					const progress = frame.payload.progress;
 					if (!progress?.id) break;
 					const existing = get().subagents.get(progress.id);
@@ -131,27 +190,34 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 					break;
 				}
 			}
-
-			if (subagents) set({ subagents });
+			if (subagents) {
+				set({ subagents });
+				const view = useAgentViewStore.getState();
+				if (view.target.kind === "subagent") {
+					const selected = subagents.get(view.target.id);
+					if (selected) view.updateSnapshot(selected);
+				}
+			}
 		},
 		setSnapshots: snapshots => {
-			refreshVersion++;
+			refreshRevision += 1;
 			const subagents = new Map<string, SubagentNode>();
 			for (const snap of snapshots) {
 				const normalized = normalizeSnapshot(snap);
 				subagents.set(normalized.id, normalized);
 			}
 			set({ subagents });
+			useAgentViewStore.getState().reconcileRoster(subagents.values());
 		},
 		refresh: async options => {
-			const version = ++refreshVersion;
+			const revision = ++refreshRevision;
 			const before = get().subagents;
 			try {
 				const res = await command({ type: "get_subagents" });
 				// Post-await guard: the poll may have been sent for a tab/session
 				// that is no longer foreground — its snapshots must not merge into
-				// the new session's store.
-				if (version !== refreshVersion || (options?.expect && !options.expect())) return;
+				// the new session's store or overwrite newer lifecycle frames.
+				if (revision !== refreshRevision || (options?.expect && !options.expect())) return;
 				if (!res.success) {
 					set({ error: res.error });
 					return;
@@ -177,23 +243,25 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 								: normalized,
 					);
 				}
-				// Terminal rows the server has forgotten survive the merge — see the
-				// refresh docstring (RPC registry deletes completed/failed agents).
 				for (const [id, node] of current) {
 					if (!fetched.has(id) && (!LIVE_STATUSES[node.status] || node !== before.get(id)))
 						subagents.set(id, node);
 				}
 				set({ subagents, error: null });
+				useAgentViewStore.getState().reconcileRoster(subagents.values());
 			} catch (cause) {
 				// Best-effort poll: frames + hydration remain authoritative. The
 				// failure is still recorded so the empty roster can name it.
-				if (version !== refreshVersion || (options?.expect && !options.expect())) return;
+				if (revision !== refreshRevision || (options?.expect && !options.expect())) return;
 				set({ error: cause instanceof Error ? cause.message : String(cause) });
 			}
 		},
+		invalidateRefresh: () => {
+			refreshRevision += 1;
+		},
 		reset: () => {
-			refreshVersion++;
-			set({ subagents: new Map(), error: null });
+			refreshRevision += 1;
+			set({ subagents: new Map(), error: null, toolCallOwners: new Map() });
 		},
 	}));
 };

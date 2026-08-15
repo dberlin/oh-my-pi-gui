@@ -23,6 +23,7 @@ import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
 import { parseModelRestoreFailure, type SessionModelOverride } from "../../shared/model-restore";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
+import { useAgentViewStore } from "../stores/agent-view";
 import { useComposerStore } from "../stores/composer";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useForkHandoffStore } from "../stores/fork-handoff";
@@ -78,12 +79,17 @@ export function resetSessionSurface(closeOverlays = true): void {
 	});
 }
 
+function selectMainForSessionReplacement(): void {
+	useAgentViewStore.getState().selectMain();
+}
+
 /** Start a new in-place session and remove the previous surface at the commit boundary. */
 export async function newSessionNow(): Promise<RpcResponse> {
 	const runtime = focusedSessionRuntime();
 	const response = await (runtime ? createTabRpc(runtime.command) : window.omp.rpc).newSession();
 	if (!response.success) throw new Error(response.error);
 	if ((response.data as { cancelled?: boolean } | undefined)?.cancelled) return response;
+	selectMainForSessionReplacement();
 	if (runtime) {
 		if (sessionRuntime(runtime.tabId) !== runtime) return response;
 		withSessionRuntime(runtime.tabId, () =>
@@ -103,6 +109,7 @@ export async function dropSessionNow(): Promise<RpcResponse> {
 	const response = await (runtime ? createTabRpc(runtime.command) : window.omp.rpc).dropSession();
 	if (!response.success) throw new Error(response.error);
 	if ((response.data as { cancelled?: boolean } | undefined)?.cancelled) return response;
+	selectMainForSessionReplacement();
 	if (runtime) {
 		if (sessionRuntime(runtime.tabId) !== runtime) return response;
 		withSessionRuntime(runtime.tabId, () =>
@@ -225,6 +232,7 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 			clearPending();
 			return true;
 		}
+		selectMainForSessionReplacement();
 		// Keep the outgoing transcript painted until hydrate commits the next
 		// session. Events for the target sidecar are dropped while pending.
 		if (runtime) await hydrateTabSession(runtime.tabId, session.title || session.firstMessage);

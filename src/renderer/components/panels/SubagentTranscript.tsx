@@ -1,163 +1,139 @@
-import { useTabRpc } from "../../lib/tab-rpc";
-import { useRuntimeTabId, withSessionRuntime } from "../../stores/session-runtime-context";
-/**
- * Lazily loaded subagent transcript (byte pagination), shared by the list
- * rows and the DAG detail pane. Loaded pages also feed the graph's tool-call
- * ownership registry so nested spawn edges resolve progressively.
- */
-
 import { RefreshCw } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentMessage, SubagentSnapshot, ToolCallContent } from "../../../shared/rpc-types";
+import { memo, type ReactNode, useCallback, useEffect } from "react";
+import type { ToolCallContent } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
-import { toast } from "../../stores/toast";
-import { buildTranscriptToolEntries } from "../../stores/tools";
-import { MessageBubble } from "../chat/MessageBubble";
-import { Button, Spinner } from "../common";
+import { isRenderableMessageText } from "../../lib/messages";
+import { useAgentViewStore } from "../../stores/agent-view";
+import { resolveProjectionToolCall } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
+import { TranscriptViewport } from "../chat/TranscriptViewport";
+import { Spinner } from "../common";
 import { registerTranscriptToolCalls } from "./subagent-graph";
 
-interface TranscriptState {
-	loading: boolean;
-	messages: AgentMessage[];
-	nextByte: number;
-	hasMore: boolean;
-}
-
-export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { agent: SubagentSnapshot }) {
+/**
+ * Full-canvas adapter for the selected subagent projection.
+ */
+export const SubagentTranscript = memo(function SubagentTranscript() {
 	const t = useT();
-	const rpc = useTabRpc();
-	const tabId = useRuntimeTabId();
-	const generation = useRef(0);
-	const [error, setError] = useState<string | null>(null);
-	const [state, setState] = useState<TranscriptState>({
-		loading: true,
-		messages: [],
-		nextByte: 0,
-		hasMore: true,
-	});
-	const loadingRef = useRef(false);
-	// `agent.status` changes arrive via prop updates after `load` has memoized —
-	// track it in a ref so a running agent keeps a refresh affordance without
-	// recreating `load` (which would re-run load(0) and duplicate messages).
-	const statusRef = useRef(agent.status);
-	useEffect(() => {
-		statusRef.current = agent.status;
-	}, [agent.status]);
-	const toolEntries = useMemo(
-		() => buildTranscriptToolEntries(state.messages, { turnIsLive: agent.status === "started" }),
-		[state.messages, agent.status],
-	);
-	const resolveToolEntry = useCallback((call: ToolCallContent) => toolEntries.get(call), [toolEntries]);
+	const target = useAgentViewStore(state => state.target);
+	const generation = useAgentViewStore(state => state.generation);
+	const loadState = useAgentViewStore(state => state.loadState);
+	const error = useAgentViewStore(state => state.error);
+	const selectedMessages = useAgentViewStore(state => state.messages);
+	const selectedTools = useAgentViewStore(state => state.tools);
+	const reloadSelected = useAgentViewStore(state => state.reloadSelected);
+	const transcriptDetail = useUiStore(state => state.transcriptDetail);
 
-	const load = useCallback(
-		async (fromByte: number) => {
-			if (loadingRef.current) return;
-			loadingRef.current = true;
-			const version = generation.current;
-			setError(null);
-			setState(prev => ({ ...prev, loading: true }));
-			try {
-				const response = await rpc.getSubagentMessages(agent.id, agent.sessionFile, fromByte);
-				if (version !== generation.current) return;
-				if (!response.success) {
-					setError(response.error);
-					toast({ variant: "error", title: t("subagent.transcriptFailed"), message: response.error });
-					setState(prev => ({ ...prev, loading: false, hasMore: false }));
-					return;
-				}
-				const data = response.data as {
-					messages?: AgentMessage[];
-					nextByte?: number;
-					reset?: boolean;
-				};
-				const incoming = data.messages ?? [];
-				if (tabId) withSessionRuntime(tabId, () => registerTranscriptToolCalls(agent.id, incoming));
-				else registerTranscriptToolCalls(agent.id, incoming);
-				setState(prev => ({
-					loading: false,
-					messages: data.reset || fromByte === 0 ? incoming : [...prev.messages, ...incoming],
-					nextByte: data.nextByte ?? fromByte,
-					// A still-running agent keeps its load-more affordance even when
-					// caught up (0 new messages) — it doubles as the refresh button.
-					hasMore: incoming.length > 0 || statusRef.current === "started",
-				}));
-			} catch (cause) {
-				if (version === generation.current) {
-					setError(String(cause));
-					setState(previous => ({ ...previous, loading: false }));
-				}
-			} finally {
-				if (version === generation.current) loadingRef.current = false;
-			}
-		},
-		[agent.id, agent.sessionFile, t, rpc.getSubagentMessages, tabId],
+	const resolveToolCall = useCallback(
+		(call: ToolCallContent) => resolveProjectionToolCall(selectedTools, call),
+		[selectedTools],
 	);
 
+	const selectedAgentId = target.kind === "subagent" ? target.id : null;
 	useEffect(() => {
-		generation.current++;
-		loadingRef.current = false;
-		setState({ loading: true, messages: [], nextByte: 0, hasMore: true });
-		void load(0);
-		return () => {
-			generation.current++;
-		};
-	}, [load]);
+		if (!selectedAgentId) return;
+		const current = useAgentViewStore.getState();
+		if (
+			current.generation !== generation ||
+			current.target.kind !== "subagent" ||
+			current.target.id !== selectedAgentId
+		) {
+			return;
+		}
+		const transcriptMessages = selectedMessages.streamingMessage
+			? [...selectedMessages.messages, selectedMessages.streamingMessage]
+			: selectedMessages.messages;
+		registerTranscriptToolCalls(selectedAgentId, transcriptMessages);
+	}, [generation, selectedAgentId, selectedMessages.messages, selectedMessages.streamingMessage]);
 
-	if (state.loading && state.messages.length === 0) {
+	if (target.kind !== "subagent") return null;
+
+	const agentId = target.id;
+	const hasProjection =
+		selectedMessages.messages.length > 0 ||
+		isRenderableMessageText(selectedMessages.streamingText) ||
+		isRenderableMessageText(selectedMessages.streamingThinking) ||
+		selectedTools.activeTools.size > 0;
+
+	if (loadState === "loading" && !hasProjection) {
 		return (
-			<div className="flex items-center gap-2 px-2 py-3">
+			<TranscriptState agentId={agentId}>
 				<Spinner size="sm" />
-				<span className="text-omp-sm text-(--omp-dim)">{t("subagent.loadingTranscript")}</span>
-			</div>
+				<span>{t("subagent.loadingTranscript")}</span>
+			</TranscriptState>
+		);
+	}
+
+	if (loadState === "error" && !hasProjection) {
+		return (
+			<TranscriptState agentId={agentId}>
+				<strong className="font-semibold text-[var(--omp-text)]">{t("subagent.transcriptFailed")}</strong>
+				{error && <span className="max-w-lg text-center text-[var(--omp-dim)]">{error}</span>}
+				<button
+					type="button"
+					onClick={() => void reloadSelected()}
+					className="omp-pressable mt-1 flex items-center gap-1.5 rounded-lg border border-[var(--omp-border)] px-3 py-1.5 font-medium text-[var(--omp-link)] hover:bg-[var(--omp-selected-bg)]"
+				>
+					<RefreshCw size={12} />
+					{t("common.retry")}
+				</button>
+			</TranscriptState>
+		);
+	}
+
+	if (!hasProjection) {
+		return (
+			<TranscriptState agentId={agentId}>
+				<span className="italic">{t("subagent.noEntries")}</span>
+			</TranscriptState>
 		);
 	}
 
 	return (
-		<div className="omp-transcript-editorial bg-transparent py-2">
-			<div className="omp-transcript-canvas">
-				{error &&
-					(state.messages.length === 0 ? (
-						<div className="flex flex-col items-start gap-2 px-6 py-2">
-							<p role="alert" className="text-omp-sm text-(--omp-error)">
-								{error}
-							</p>
-							<Button icon={<RefreshCw size={12} />} onClick={() => void load(0)} size="sm" variant="secondary">
-								{t("common.retry")}
-							</Button>
-						</div>
-					) : (
-						<p role="alert" className="px-6 py-2 text-omp-sm text-(--omp-error)">
-							{error}
-						</p>
-					))}
-				{!error && state.messages.length === 0 && (
-					<div className="px-6 py-2 text-omp-sm text-(--omp-dim) italic">{t("subagent.noEntries")}</div>
-				)}
-				{state.messages.map((message, index) => (
-					<div
-						className="omp-transcript-row"
-						data-transcript-kind="message"
-						key={
-							typeof message.id === "string" ? message.id : `${String(message.timestamp ?? "subagent")}-${index}`
-						}
-					>
-						<MessageBubble message={message} readOnly resolveToolEntry={resolveToolEntry} />
-					</div>
-				))}
-			</div>
-			{state.hasMore && (
-				<div className="px-6 py-2">
+		<div className="relative flex min-h-0 flex-1 flex-col" data-agent-view-id={agentId}>
+			{loadState === "error" && (
+				<div
+					className="flex shrink-0 items-center gap-2 border-b border-[var(--omp-border-muted)] px-4 py-2 text-omp-sm text-[var(--omp-error)]"
+					role="alert"
+				>
+					<span className="min-w-0 flex-1 truncate">{error ?? t("subagent.transcriptFailed")}</span>
 					<button
-						className="flex items-center gap-1.5 text-omp-sm text-(--omp-link) transition-colors hover:brightness-125 disabled:opacity-50"
-						disabled={state.loading}
-						onClick={() => void load(state.nextByte)}
+						className="omp-pressable flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--omp-border)] px-2 py-1 font-medium text-[var(--omp-link)] hover:bg-[var(--omp-selected-bg)]"
+						onClick={() => void reloadSelected()}
 						type="button"
 					>
-						{state.loading ? <Spinner size="sm" /> : <RefreshCw size={10} />}
-						{t("subagent.loadMore")}
+						<RefreshCw size={12} />
+						{t("common.retry")}
 					</button>
 				</div>
 			)}
+			<TranscriptViewport
+				mode="subagent"
+				projection={{
+					transcriptId: agentId,
+					messages: selectedMessages.messages,
+					streamingMessage: selectedMessages.streamingMessage,
+					streamingText: selectedMessages.streamingText,
+					streamingThinking: selectedMessages.streamingThinking,
+					activeTools: selectedTools.activeTools,
+					resolveToolCall,
+					transcriptDetail,
+				}}
+			/>
 		</div>
 	);
 });
+
+function TranscriptState({ agentId, children }: { agentId: string; children: ReactNode }) {
+	return (
+		<div
+			aria-live="polite"
+			className="omp-transcript-editorial relative flex min-h-0 flex-1 items-center justify-center bg-transparent"
+			data-agent-view-id={agentId}
+		>
+			<div className="flex max-w-xl flex-col items-center gap-2 px-6 py-8 text-omp-sm text-[var(--omp-dim)]">
+				{children}
+			</div>
+		</div>
+	);
+}

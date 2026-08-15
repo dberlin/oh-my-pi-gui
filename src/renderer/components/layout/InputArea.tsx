@@ -1,19 +1,5 @@
-import {
-	ArrowUp,
-	Box,
-	ChevronDown,
-	History,
-	Loader2,
-	Mic,
-	Paperclip,
-	Plus,
-	SlidersHorizontal,
-	Square,
-	SquarePen,
-	X,
-	Zap,
-} from "lucide-react";
-import type { ClipboardEvent, KeyboardEvent } from "react";
+import { ArrowUp, ChevronDown, History, Mic, MoreHorizontal, Paperclip, Square, SquarePen, X, Zap } from "lucide-react";
+import type { ClipboardEvent, KeyboardEvent, ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
@@ -37,37 +23,100 @@ import {
 } from "../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../lib/queue-input";
 import { useTabRpc } from "../../lib/tab-rpc";
+import {
+	cancelVoiceRecording,
+	evaluateSttSubmitTrigger,
+	readSttSubmitTrigger,
+	recordAndTranscribe,
+	stopVoiceRecording,
+} from "../../lib/voice";
+import { useAgentViewStore } from "../../stores/agent-view";
 import { useComposerStore } from "../../stores/composer";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useModelStore } from "../../stores/model";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useSettingsStore } from "../../stores/settings";
+import { useSubagentsStore } from "../../stores/subagents";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
+import { subagentPrimaryLabel } from "../panels/subagent-graph";
 import { ApprovalControl } from "./ApprovalControl";
 import { ComposerModes } from "./ComposerModes";
-import { ContextStrategyBar } from "./ContextStrategyBar";
-import { DictationStrip } from "./DictationStrip";
+import { ContextUsagePopover } from "./ContextUsagePopover";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
 import { ThinkingControl } from "./ThinkingControl";
 import { type CompletionItem, type CompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerSubmit } from "./use-composer-submit";
-import { useDictation } from "./use-dictation";
 
 type SendMode = "prompt" | "steer" | "followUp";
 
 const MENTION_FS_DEBOUNCE_MS = 150;
 
 /**
+ * Top-level composer target gate: Main keeps the full interactive composer,
+ * while selected subagents never mount its input and submission handlers.
+ */
+export function InputArea() {
+	const target = useAgentViewStore(state => state.target);
+	return (
+		<ComposerRegion>
+			{target.kind === "main" ? <MainInputArea /> : <SubagentReadOnlyInputArea subagentId={target.id} />}
+		</ComposerRegion>
+	);
+}
+
+function ComposerRegion({ children }: { children: ReactNode }) {
+	return (
+		<div className="omp-composer-region relative shrink-0 bg-transparent pb-1">
+			<div className="omp-composer-shell relative w-full">{children}</div>
+		</div>
+	);
+}
+
+function SubagentReadOnlyInputArea({ subagentId }: { subagentId: string }) {
+	const t = useT();
+	const snapshot = useSubagentsStore(state => state.subagents.get(subagentId));
+	const agentName = snapshot ? subagentPrimaryLabel(snapshot) : subagentId;
+	const selectMain = useAgentViewStore(state => state.selectMain);
+
+	return (
+		<div data-agent-view-composer="subagent">
+			<div
+				aria-label={t("input.agentView.readOnly", { agent: agentName })}
+				className="overflow-hidden rounded-lg border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)]"
+			>
+				<div className="flex min-h-[60px] items-center px-3.5 py-2.5">
+					<div className="min-w-0">
+						<div className="truncate text-omp-lg font-medium text-[var(--omp-text)]">
+							{t("input.agentView.readOnly", { agent: agentName })}
+						</div>
+					</div>
+				</div>
+				<div className="omp-composer-toolbar flex min-h-10 items-center border-t border-[var(--omp-border-muted)] px-2 py-1.5">
+					<div className="flex-1" />
+					<button
+						type="button"
+						onClick={selectMain}
+						className="omp-pressable h-8 rounded-lg bg-[var(--omp-btn-primary-bg)] px-3 text-omp-md font-medium text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110"
+					>
+						{t("input.agentView.selectMain")}
+					</button>
+				</div>
+			</div>
+			<div className="mt-2 text-center text-omp-sm text-[var(--omp-dim)]">{t("input.agentView.selectMainHint")}</div>
+		</div>
+	);
+}
+
+/**
  * Composer: auto-growing textarea, Enter to send / Shift+Enter for newline,
  * image paste, @file mentions, /command completion, steering-mode selector,
  * and an abort button while the agent streams.
  */
-export function InputArea() {
+function MainInputArea() {
 	const collabReadOnly = useSessionStore(state => state.collab?.readOnly === true);
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const t = useT();
@@ -110,7 +159,7 @@ export function InputArea() {
 	const setSubmissionUncertain = useComposerStore(state => state.setSubmissionUncertain);
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
-	const [addMenu, setAddMenu] = useState<ContextMenuAnchor | null>(null);
+	const [recording, setRecording] = useState(false);
 	/** Pending large-paste choice: the paste already happened, this picks the form. */
 	const [pasteMenu, setPasteMenu] = useState<{ content: string; lineCount: number } | null>(null);
 	const pasteMenuRef = useRef<HTMLDivElement>(null);
@@ -128,10 +177,7 @@ export function InputArea() {
 	useLayoutEffect(() => {
 		const toolbar = composerToolbarRef.current;
 		if (!toolbar) return;
-		// Below 780px the control labels collapse to icons (components.css), so
-		// the full row fits in ~540px. Folding earlier hid the run state (model,
-		// thinking, approval) whenever the workspace panel was open.
-		const inlineMinWidth = isChat ? 420 : 560;
+		const inlineMinWidth = isChat ? 560 : 820;
 		const measure = () => {
 			const measured = toolbar.getBoundingClientRect().width;
 			const width = Number.isFinite(measured) && measured > 0 ? measured : window.innerWidth;
@@ -188,6 +234,7 @@ export function InputArea() {
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const mountedRef = useRef(true);
 
 	// A large-paste choice stays reversible until the user explicitly chooses a
 	// representation. Outside click cancels it instead of silently inserting
@@ -202,6 +249,15 @@ export function InputArea() {
 		document.addEventListener("pointerdown", onPointerDown);
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [pasteMenu]);
+
+	// An in-flight dictation is cancelled (never transcribed) if the composer unmounts.
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+			cancelVoiceRecording();
+		};
+	}, []);
 
 	// Load persisted prompt history once (prefs IPC).
 	useEffect(() => {
@@ -294,9 +350,6 @@ export function InputArea() {
 		const paneHeight = el.closest<HTMLElement>(".omp-session-pane")?.clientHeight ?? window.innerHeight;
 		const maxHeight = text.length === 0 ? 24 : paneHeight * 0.4;
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-		// An empty composer is one line tall. In a narrow pane the placeholder
-		// wraps past it, which would otherwise surface a scrollbar in an empty box.
-		el.style.overflowY = text.length === 0 ? "hidden" : "";
 	}, [text]);
 
 	useCompletionMenu({
@@ -521,12 +574,52 @@ export function InputArea() {
 		setSending,
 	});
 
-	// Mic dictation (stt.enabled): words appear while the user speaks and land at the
-	// caret as each phrase ends. Like the TUI composer mic, sending waits until the
-	// capture is over, unless stt.submitTrigger sends a spoken message itself.
-	const dictation = useDictation({ rpc, tabId: runtimeTabId, textareaRef, send: draft => send(draft) });
-	const dictating = dictation.view !== null;
-	const dictationPhase = dictation.view?.phase;
+	// Mic dictation (stt.enabled): click starts capture, click again stops and
+	// transcribes; the transcript inserts at the textarea caret. The
+	// stt.submitTrigger setting can auto-submit the utterance (TUI parity).
+	const handleMicClick = useCallback(() => {
+		if (recording) {
+			stopVoiceRecording();
+			return;
+		}
+		setRecording(true);
+		void recordAndTranscribe().then(async result => {
+			if (!mountedRef.current) return;
+			setRecording(false);
+			if ("error" in result) {
+				if (result.error) toast({ variant: "error", title: t("voice.mic.failed"), message: result.error });
+				return;
+			}
+			const utterance = result.text.trim();
+			if (!utterance) return;
+			const trigger = await readSttSubmitTrigger();
+			const evaluation = evaluateSttSubmitTrigger(utterance, trigger);
+			const insert = (
+				evaluation.trimTrailing > 0 ? utterance.slice(0, utterance.length - evaluation.trimTrailing) : utterance
+			).trimEnd();
+			if (!insert || !mountedRef.current) return;
+			// Read the live DOM value/caret: the user may have typed mid-recording.
+			const el = textareaRef.current;
+			const current = el?.value ?? "";
+			const start = el?.selectionStart ?? current.length;
+			const end = el?.selectionEnd ?? start;
+			const before = current.slice(0, start);
+			const after = current.slice(end);
+			const prefix = before.length > 0 && !before.endsWith(" ") ? " " : "";
+			const suffix = after.length === 0 ? " " : "";
+			const insertedText = `${prefix}${insert}${suffix}`;
+			const next = `${before}${insertedText}${after}`;
+			setText(next);
+			requestAnimationFrame(() => {
+				const target = textareaRef.current;
+				if (!target) return;
+				target.focus();
+				const caret = start + insertedText.length;
+				target.setSelectionRange(caret, caret);
+			});
+			if (evaluation.submit) send(next);
+		});
+	}, [recording, send, t, setText]);
 
 	/**
 	 * Fullscreen editor dialog (TUI app.editor.external parity, GUI-native form).
@@ -618,12 +711,6 @@ export function InputArea() {
 		}
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
-			// While dictating, Enter finishes the capture for review instead of sending; before
-			// recording begins (or while finishing) there is nothing to finish yet.
-			if (dictating) {
-				if (dictationPhase === "recording") dictation.stop();
-				return;
-			}
 			// ⌃Enter — send as follow-up, queueing behind the current yield (TUI
 			// app.message.followUp). Idle sessions start immediately either way.
 			send(undefined, e.ctrlKey && !e.metaKey && !e.altKey ? "followUp" : undefined);
@@ -663,11 +750,9 @@ export function InputArea() {
 			: t("input.steer")
 		: t("input.sendLabel");
 	const modeTitle = isStreaming ? t("input.streamingTitle", { mode: steeringMode }) : t("input.sendPrompt");
-	const hasDraft = text.trim().length > 0 || images.length > 0;
 
 	return (
-		<div className="omp-composer-region relative shrink-0 bg-transparent pb-1">
-			<div className="omp-composer-shell relative w-full">
+		<>
 				{queueBody !== undefined && (
 					<div
 						className="absolute -top-2 right-5 z-10 flex items-center gap-1.5 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-omp-xs font-semibold text-[var(--omp-warning)]"
@@ -798,10 +883,10 @@ export function InputArea() {
 						/>
 					)}
 					<div
-						className="omp-composer-box overflow-hidden"
+						className="overflow-hidden rounded-xl border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--omp-input-focus-border)] focus-within:shadow-[var(--omp-shadow-glow)]"
 						style={modeColor ? { borderColor: modeColor } : undefined}
 					>
-						<div className="px-4 pb-1 pt-3">
+						<div className="px-3.5 pb-1.5 pt-2.5">
 							{submissionUncertain && (
 								<div
 									role="alert"
@@ -900,10 +985,6 @@ export function InputArea() {
 							/>
 						</div>
 
-						{dictation.view && (
-							<DictationStrip view={dictation.view} onDone={dictation.stop} onCancel={dictation.cancel} />
-						)}
-
 						{argHint && (
 							<div className="px-3.5 pb-1 font-mono text-omp-sm text-[var(--omp-dim)]">💡 {argHint}</div>
 						)}
@@ -911,223 +992,199 @@ export function InputArea() {
 						<div
 							ref={composerToolbarRef}
 							aria-busy={!routeReady}
-							className="omp-composer-toolbar flex h-11 min-w-0 items-center gap-1 px-2 pb-2 pt-1"
+							className="omp-composer-toolbar flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5"
 							inert={!routeReady}
 						>
-							{/* Left: what goes into the message and how the run is configured.
-							    It is the only side that ever gives up room. */}
-							<div className="omp-composer-controls flex min-w-0 flex-1 items-center gap-0.5">
+							<button
+								type="button"
+								disabled={collabReadOnly}
+								onClick={() => fileInputRef.current?.click()}
+								title={t("input.attach")}
+								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							>
+								<Paperclip size={16} />
+							</button>
+							<input
+								ref={fileInputRef}
+								type="file"
+								accept="image/*"
+								multiple
+								className="hidden"
+								onChange={event => {
+									const files = Array.from(event.target.files ?? []);
+									if (files.length > 0) {
+										void Promise.all(files.map(fileToImage)).then(pasted =>
+											setImages(previous => [...previous, ...pasted]),
+										);
+									}
+									event.target.value = "";
+								}}
+							/>
+
+							<button
+								type="button"
+								data-draft-editor-trigger
+								disabled={collabReadOnly}
+								onClick={openDraftEditor}
+								title={t("editor.title")}
+								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							>
+								<SquarePen size={16} />
+							</button>
+							<button
+								type="button"
+								disabled={collabReadOnly}
+								aria-label={t("input.history.title")}
+								title={t("input.history.title")}
+								onClick={() => setHistorySearchOpen(true)}
+								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							>
+								<History aria-hidden="true" size={16} />
+							</button>
+
+							{sttEnabled && (
 								<button
 									type="button"
-									disabled={collabReadOnly}
-									aria-label={t("input.add")}
-									aria-haspopup="menu"
-									aria-expanded={addMenu !== null}
-									title={t("input.add")}
-									onClick={event => {
-										const rect = event.currentTarget.getBoundingClientRect();
-										setAddMenu({
-											x: Number.isFinite(rect.left) ? rect.left : 8,
-											y: Number.isFinite(rect.top) ? rect.top - 4 : 8,
-										});
-									}}
+									onClick={handleMicClick}
+									disabled={collabReadOnly && !recording}
+									title={recording ? t("voice.mic.stop") : t("voice.mic.start")}
 									className={cx(
-										"omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
-										addMenu && "bg-[var(--omp-selected-bg)] text-[var(--omp-text)]",
+										"omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+										recording
+											? "bg-[var(--omp-error-dim)] text-[var(--omp-error)]"
+											: "text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
 									)}
 								>
-									<Plus size={17} />
+									{recording ? (
+										<Square size={12} fill="currentColor" className="omp-pulse-dot" />
+									) : (
+										<Mic size={16} />
+									)}
 								</button>
-								<input
-									ref={fileInputRef}
-									type="file"
-									accept="image/*"
-									multiple
-									className="hidden"
-									onChange={event => {
-										const files = Array.from(event.target.files ?? []);
-										if (files.length > 0) {
-											void Promise.all(files.map(fileToImage)).then(pasted =>
-												setImages(previous => [...previous, ...pasted]),
-											);
-										}
-										event.target.value = "";
-									}}
-								/>
-								{addMenu && (
-									<ContextMenu
-										x={addMenu.x}
-										y={addMenu.y}
-										placement="above"
-										onClose={() => setAddMenu(null)}
-										items={[
-											{
-												id: "composer-attach",
-												label: t("input.attach"),
-												icon: Paperclip,
-												onSelect: () => {
-													setAddMenu(null);
-													fileInputRef.current?.click();
-												},
-											},
-											{
-												id: "composer-editor",
-												label: t("editor.title"),
-												icon: SquarePen,
-												hint: "⌃G",
-												onSelect: () => {
-													setAddMenu(null);
-													openDraftEditor();
-												},
-											},
-											{
-												id: "composer-history",
-												label: t("input.history.title"),
-												icon: History,
-												hint: "⌃R",
-												onSelect: () => {
-													setAddMenu(null);
-													setHistorySearchOpen(true);
-												},
-											},
-										]}
-									/>
-								)}
+							)}
 
-								{(sttEnabled || dictating) && (
+							<button
+								type="button"
+								onClick={openModelPicker}
+								disabled={collabReadOnly}
+								title={t("input.model")}
+								className="omp-pressable flex h-8 min-w-0 max-w-52 items-center gap-2 rounded-lg px-2.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+							>
+								<span className="h-2 w-2 shrink-0 rounded-full bg-[var(--omp-status-model)]" />
+								<span className="omp-composer-model-label truncate">{model?.id ?? t("input.chooseModel")}</span>
+								<ChevronDown size={13} className="shrink-0 text-[var(--omp-dim)]" />
+							</button>
+
+							{compactRunSettings ? (
+								<div className="relative">
 									<button
+										ref={runSettingsTriggerRef}
 										type="button"
-										onClick={dictation.toggle}
-										disabled={
-											dictationPhase === "transcribing" || (!dictating && (collabReadOnly || !routeReady))
-										}
-										aria-pressed={dictating}
-										title={
-											dictationPhase === "recording"
-												? t("voice.mic.stop")
-												: dictationPhase === "transcribing"
-													? t("voice.dictation.finishing")
-													: dictating
-														? t("voice.mic.cancelStart")
-														: t("voice.mic.start")
-										}
-										aria-label={dictating ? t("voice.mic.stop") : t("voice.mic.start")}
-										className={cx(
-											"omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-											dictationPhase === "recording"
-												? "bg-[var(--omp-error-dim)] text-[var(--omp-error)]"
-												: dictating
-													? "bg-[var(--omp-selected-bg)] text-[var(--omp-text)]"
-													: "text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
-										)}
+										aria-expanded={runSettingsOpen}
+										aria-haspopup="menu"
+										data-run-settings-overflow-trigger
+										disabled={collabReadOnly}
+										title={t("input.moreModes")}
+										aria-label={t("input.moreModes")}
+										onClick={() => setRunSettingsOpen(open => !open)}
+										className="omp-pressable relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 									>
-										{dictationPhase === "recording" ? (
-											<Square size={12} fill="currentColor" />
-										) : dictating ? (
-											<Loader2 size={15} className="animate-spin" />
-										) : (
-											<Mic size={16} />
+										<MoreHorizontal size={16} />
+										{runSettingsActive && (
+											<span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
 										)}
 									</button>
-								)}
-
-								<button
-									type="button"
-									onClick={openModelPicker}
-									disabled={collabReadOnly}
-									aria-label={`${t("input.model")}: ${model?.id ?? t("input.chooseModel")}`}
-									title={`${t("input.model")}: ${model?.id ?? t("input.chooseModel")}`}
-									className="omp-composer-model omp-pressable flex h-8 min-w-0 max-w-52 items-center gap-1.5 rounded-full px-2.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+									{runSettingsMounted &&
+										runSettingsPos &&
+										createPortal(
+											<div
+												ref={runSettingsMenuRef}
+												role="menu"
+												data-run-settings-menu
+												aria-hidden={runSettingsClosing || undefined}
+												inert={collabReadOnly || runSettingsClosing}
+												style={{ left: runSettingsPos.left, bottom: runSettingsPos.bottom }}
+												className={`fixed z-[100] flex min-w-56 flex-col gap-1 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1.5 shadow-[var(--omp-shadow-md)] ${
+													runSettingsClosing ? "omp-scale-out pointer-events-none" : "omp-pop-in"
+												}`}
+											>
+												<ThinkingControl />
+												<FastModeControl menuItem />
+												{!isChat && <ApprovalControl />}
+												{!isChat && <ComposerModes />}
+											</div>,
+											document.body,
+										)}
+								</div>
+							) : (
+								<div
+									data-run-settings-inline
+									inert={collabReadOnly}
+									className="flex shrink-0 items-center gap-0.5"
 								>
-									<Box aria-hidden="true" size={14} className="omp-composer-model-icon shrink-0" />
-									<span className="omp-composer-model-label min-w-0 truncate">
-										{model?.id ?? t("input.chooseModel")}
-									</span>
-									<ChevronDown aria-hidden="true" size={13} className="shrink-0 text-[var(--omp-dim)]" />
-								</button>
+									<ThinkingControl />
+									<FastModeControl />
+									{!isChat && <ApprovalControl />}
+									{!isChat && <ComposerModes />}
+								</div>
+							)}
 
-								{compactRunSettings ? (
-									<div className="relative shrink-0">
+							<div className="flex-1" />
+
+							{queueSplitCount > 1 && (
+								<span className="mr-1 shrink-0 rounded-md border border-[var(--omp-warning)] px-2 py-1 text-omp-sm font-medium text-[var(--omp-warning)]">
+									{t("input.queue.split", { count: queueSplitCount })}
+								</span>
+							)}
+
+							{collabReadOnly && (
+								<span role="status" className="text-omp-sm text-(--omp-warning)">
+									{t("collab.readOnlyInput")}
+								</span>
+							)}
+							<div className="omp-composer-send-cluster ml-1 flex shrink-0 items-center gap-2.5">
+								<ContextUsagePopover />
+
+								{isStreaming ? (
+									<div className="flex shrink-0 items-center gap-1.5">
 										<button
-											ref={runSettingsTriggerRef}
 											type="button"
-											aria-expanded={runSettingsOpen}
-											aria-haspopup="menu"
-											data-run-settings-overflow-trigger
-											disabled={collabReadOnly}
-											title={t("input.moreModes")}
-											aria-label={t("input.moreModes")}
-											onClick={() => setRunSettingsOpen(open => !open)}
-											className="omp-pressable relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+											disabled={!routeReady || collabReadOnly}
+											onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
+											title={modeTitle}
+											className="omp-pressable h-7 rounded-md border border-[var(--omp-border)] px-2.5 text-omp-sm font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
 										>
-											<SlidersHorizontal size={15} />
-											{runSettingsActive && (
-												<span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
-											)}
+											{modeLabel}
 										</button>
-										{runSettingsMounted &&
-											runSettingsPos &&
-											createPortal(
-												<div
-													ref={runSettingsMenuRef}
-													role="menu"
-													data-run-settings-menu
-													aria-hidden={runSettingsClosing || undefined}
-													inert={collabReadOnly || runSettingsClosing}
-													style={{ left: runSettingsPos.left, bottom: runSettingsPos.bottom }}
-													className={`fixed z-[100] flex min-w-56 flex-col gap-1 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1.5 shadow-[var(--omp-shadow-md)] ${
-														runSettingsClosing ? "omp-scale-out pointer-events-none" : "omp-pop-in"
-													}`}
-												>
-													<ThinkingControl />
-													<FastModeControl menuItem />
-													{!isChat && <ApprovalControl />}
-													{!isChat && <ComposerModes />}
-												</div>,
-												document.body,
-											)}
+										<button
+											type="button"
+											onClick={() => send()}
+											disabled={
+												!routeReady ||
+												collabReadOnly ||
+												status !== "ready" ||
+												sending ||
+												submissionUncertain ||
+												(!text.trim() && images.length === 0)
+											}
+											aria-label={t("input.send")}
+											title={t("input.send")}
+											className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] disabled:opacity-40"
+										>
+											<ArrowUp size={14} />
+										</button>
+										<button
+											type="button"
+											disabled={!routeReady || collabReadOnly}
+											onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
+											aria-label={t("input.abort")}
+											title={t("input.abort")}
+											className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-error-dim)] text-[var(--omp-error)] hover:bg-[var(--omp-error)] hover:text-[var(--omp-btn-danger-text)]"
+										>
+											<Square size={10} fill="currentColor" />
+										</button>
 									</div>
 								) : (
-									<div
-										data-run-settings-inline
-										inert={collabReadOnly}
-										className="flex shrink-0 items-center gap-0.5"
-									>
-										<ThinkingControl />
-										<FastModeControl />
-										{!isChat && <ApprovalControl />}
-										{!isChat && <ComposerModes />}
-									</div>
-								)}
-							</div>
-
-							{/* Right: the send cluster. It never shrinks or wraps — at any
-							    width the primary action stays where the hand expects it. */}
-							<div className="omp-composer-send-cluster flex shrink-0 items-center gap-1.5">
-								{queueSplitCount > 1 && (
-									<span className="shrink-0 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-omp-xs font-medium text-[var(--omp-warning)]">
-										{t("input.queue.split", { count: queueSplitCount })}
-									</span>
-								)}
-
-								{collabReadOnly && (
-									<span role="status" className="truncate text-omp-sm text-(--omp-warning)">
-										{t("collab.readOnlyInput")}
-									</span>
-								)}
-
-								{isStreaming && hasDraft && (
-									<button
-										type="button"
-										disabled={!routeReady || collabReadOnly}
-										onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
-										title={modeTitle}
-										className="omp-pressable omp-fade-in h-7 shrink-0 rounded-full border border-[var(--omp-border)] px-2.5 text-omp-sm font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
-									>
-										{modeLabel}
-									</button>
-								)}
-								{(!isStreaming || hasDraft) && (
 									<button
 										type="button"
 										onClick={() => send()}
@@ -1137,35 +1194,21 @@ export function InputArea() {
 											status !== "ready" ||
 											sending ||
 											submissionUncertain ||
-											dictating ||
-											!hasDraft
+											(!text.trim() && images.length === 0)
 										}
 										aria-label={t("input.send")}
 										title={t("input.send")}
-										className="omp-send-button"
+										className="omp-pressable flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:brightness-100"
 									>
-										<ArrowUp size={16} strokeWidth={2.2} />
-									</button>
-								)}
-								{isStreaming && (
-									<button
-										type="button"
-										disabled={!routeReady || collabReadOnly}
-										onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
-										aria-label={t("input.abort")}
-										title={t("input.abort")}
-										className={cx("omp-send-button", hasDraft && "omp-send-button--secondary")}
-									>
-										<Square size={11} fill="currentColor" />
+										<ArrowUp size={14} strokeWidth={2.4} />
 									</button>
 								)}
 							</div>
 						</div>
 					</div>
 				</div>
-				<ContextStrategyBar />
 			</div>
-		</div>
+		</>
 	);
 }
 
@@ -1182,13 +1225,13 @@ function FastModeControl({ menuItem = false }: { menuItem?: boolean }) {
 			onClick={() => void toggleFastMode()}
 			title={`${enabled ? t("input.fast.on") : t("input.fast.off")}${active ? t("input.fast.active") : ""}`}
 			className={cx(
-				"omp-pressable flex h-8 items-center gap-1.5 rounded-full px-2.5 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
+				"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
 				menuItem && "w-full",
 				enabled ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
 			)}
 		>
 			<Zap size={14} fill={active ? "currentColor" : "none"} />
-			<span className="omp-composer-control-label">{t("input.fast.label")}</span>
+			<span>{t("input.fast.label")}</span>
 		</button>
 	);
 }

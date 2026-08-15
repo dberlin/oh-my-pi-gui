@@ -9,11 +9,12 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { forkSessionFromMessageInNewTab, isRenderableMessageText } from "../../lib/messages";
 import { extractModelMentions, type ModelMentionChip } from "../../lib/model-mentions";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
+import type { ResolveToolCall } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
-import { type ToolEntry, toolEntryKey } from "../../stores/tools";
+import { toolEntryKey } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
@@ -30,8 +31,8 @@ export interface MessageBubbleProps {
 	reaction?: string;
 	/** Secondary transcripts keep copy/expand interactions but cannot mutate the active session. */
 	readOnly?: boolean;
-	/** Resolves tool results from a transcript-local projection instead of the active session store. */
-	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
+	/** Resolves occurrence keys and results from a transcript-local projection. */
+	resolveToolCall?: ResolveToolCall;
 }
 
 const COMPACTION_METHOD_KEYS: Record<string, string> = {
@@ -57,21 +58,22 @@ function InlineImage({ image }: { image: ImageContent }) {
 /** ToolCard defaults to the active session store; secondary transcripts inject an isolated result. */
 function ToolCardWithResult({
 	call,
+	resolveToolCall,
 	runningIndicator,
-	resolveToolEntry,
 }: {
 	call: ToolCallContent;
+	resolveToolCall?: ResolveToolCall;
 	runningIndicator: RunningIndicator;
-	resolveToolEntry?: (call: ToolCallContent) => ToolEntry | undefined;
 }) {
-	const isolated = resolveToolEntry !== undefined;
+	const resolved = resolveToolCall?.(call);
+	const key = resolved?.key ?? toolEntryKey(call);
 	return (
 		<ToolCard
 			args={call.arguments}
-			entry={isolated ? (resolveToolEntry(call) ?? null) : undefined}
-			toolCallId={isolated ? call.id : toolEntryKey(call)}
-			toolName={call.name}
+			entry={resolveToolCall ? (resolved?.entry ?? null) : undefined}
 			runningIndicator={runningIndicator}
+			toolCallId={key}
+			toolName={call.name}
 		/>
 	);
 }
@@ -251,7 +253,7 @@ export const MessageBubble = memo(function MessageBubble({
 	reaction,
 	runningIndicator = "spinner",
 	readOnly = false,
-	resolveToolEntry,
+	resolveToolCall,
 }: MessageBubbleProps) {
 	const t = useT();
 	const rpc = useTabRpc();
@@ -432,11 +434,13 @@ export const MessageBubble = memo(function MessageBubble({
 				break;
 			}
 			case "toolCall": {
+				const resolved = resolveToolCall?.(block);
+				const key = resolved?.key ?? toolEntryKey(block);
 				blocks.push(
 					<ToolCardWithResult
 						call={block}
-						key={resolveToolEntry ? blocks.length : toolEntryKey(block)}
-						resolveToolEntry={resolveToolEntry}
+						key={key}
+						resolveToolCall={resolveToolCall}
 						runningIndicator={runningIndicator}
 					/>,
 				);
