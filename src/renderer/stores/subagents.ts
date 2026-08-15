@@ -138,7 +138,7 @@ interface SubagentsStore {
 
 /**
  * Live (non-terminal) wire statuses, mirror of statusMeta().live in
- * components/panels/subagent-graph (component layer — not importable here).
+ * components/chat/activity/agent-tree-model (component layer — not importable here).
  * Rows absent from a refresh fetch are dropped when live (released) but kept
  * when terminal (the server forgets them; the user is still looking at them).
  */

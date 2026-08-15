@@ -13,9 +13,9 @@ import { useSubagentsStore } from "../../stores/subagents";
 import { useTodoStore } from "../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import { buildSubagentList } from "../chat/activity/agent-tree-model";
 import { ChatCanvas } from "../chat/ChatStream";
 import { SubagentTranscript } from "./SubagentTranscript";
-import { buildSubagentList } from "./subagent-graph";
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML(
 	"<!doctype html><html><body></body></html>",

@@ -24,15 +24,15 @@ import { abortActiveTurn } from "../../lib/messages";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { useSubagentsStore } from "../../stores/subagents";
 import { toast } from "../../stores/toast";
-import { Badge, Button, Input, Modal, Spinner, type TabItem, Tabs } from "../common";
-import { type AgentSettingsRpc, type AgentSettingsState, useAgentSettings } from "./agent-hub-settings";
 import {
 	formatElapsed,
 	isLiveSubagentStatus,
 	statusMeta,
 	subagentElapsedMs,
 	subagentPrimaryLabel,
-} from "./subagent-graph";
+} from "../chat/activity/agent-tree-model";
+import { Badge, Button, Input, Modal, Spinner, type TabItem, Tabs } from "../common";
+import { type AgentSettingsRpc, type AgentSettingsState, useAgentSettings } from "./agent-hub-settings";
 
 export interface AgentHubWindowProps {
 	open: boolean;

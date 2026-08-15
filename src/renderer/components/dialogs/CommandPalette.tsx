@@ -18,11 +18,13 @@ import {
 } from "../../lib/command-registry";
 import { useT } from "../../lib/i18n";
 import { retryLastTurn as retryLastTurnShared } from "../../lib/messages";
+import { type ActivitySectionId, useActivitySidebarStore } from "../../stores/activity-sidebar";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { openHandoffDialog } from "../../stores/fork-handoff";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
+import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Spinner } from "../common";
@@ -182,7 +184,9 @@ export function CommandPalette() {
 	const openHotkeys = useUiStore(state => state.openHotkeys);
 	const openImportDialog = useUiStore(state => state.openImportDialog);
 	const openProviderConfig = useUiStore(state => state.openProviderConfig);
-	const focusDockCard = useUiStore(state => state.focusDockCard);
+	const focusActivitySection = useCallback((id: ActivitySectionId) => {
+		useActivitySidebarStore.getState().revealSection(id, useTabsStore.getState().activeTabId ?? "no-tab");
+	}, []);
 
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const fastModeEnabled = useModelStore(s => s.fastModeEnabled);
@@ -319,13 +323,13 @@ export function CommandPalette() {
 				openModes,
 				openAgentHub: tab => {
 					if (useAgentViewStore.getState().target.kind === "main") openAgentHub(tab);
-					else focusDockCard("agents");
+					else focusActivitySection("agents");
 				},
 				openPrCenter,
 				openHotkeys,
 				openImportDialog,
 				openProviderConfig,
-				focusDockCard,
+				focusActivitySection,
 				openCommandPalette: () => {},
 				retryTurn,
 				retryLastTurn,
@@ -375,7 +379,7 @@ export function CommandPalette() {
 			retryTurn,
 			openModes,
 			openProviderConfig,
-			focusDockCard,
+			focusActivitySection,
 			openModelCompare,
 			openAgentHub,
 			openPrCenter,

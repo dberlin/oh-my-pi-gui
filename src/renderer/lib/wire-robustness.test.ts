@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { isLiveSubagentStatus, statusMeta } from "../components/panels/subagent-graph";
+import { isLiveSubagentStatus, statusMeta } from "../components/chat/activity/agent-tree-model";
 import { formatCost, formatPercent } from "./format";
 
 /** Statuses the agent actually emits, beyond the four the wire type declares. */

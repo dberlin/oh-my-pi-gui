@@ -7,8 +7,6 @@ import { useTabsStore } from "./tabs";
 export type { ThemeMode };
 
 export type PanelTab = "diff" | "files" | "logs";
-/** Center-dock card identifiers: todo/plan/agents render as live cards above the composer. */
-export type DockCardId = "todo" | "plan" | "agents";
 export type TranscriptDetail = "compact" | "full";
 
 interface UiStore {
@@ -88,12 +86,6 @@ interface UiStore {
 	setPanelTab: (tab: PanelTab) => void;
 	openFilePreview: (path: string) => void;
 	closeFilePreview: () => void;
-	/** Per-card collapse overrides for the center dock (absent = expanded). */
-	dockCollapsed: Partial<Record<DockCardId, boolean>>;
-	toggleDockCard: (id: DockCardId) => void;
-	/** Focus signal: bumps seq so the target card expands and flashes (command-palette deep links). */
-	dockFocus: { id: DockCardId; seq: number } | null;
-	focusDockCard: (id: DockCardId) => void;
 	openCommandPalette: () => void;
 	closeCommandPalette: () => void;
 	openModelPicker: () => void;
@@ -230,17 +222,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	},
 	openFilePreview: path => set({ filePreviewPath: path, panelTab: "files", panelVisible: true }),
 	closeFilePreview: () => set({ filePreviewPath: null }),
-	dockCollapsed: {},
-	toggleDockCard: id =>
-		set({
-			dockCollapsed: { ...get().dockCollapsed, [id]: !(get().dockCollapsed[id] ?? false) },
-		}),
-	dockFocus: null,
-	focusDockCard: id =>
-		set({
-			dockCollapsed: { ...get().dockCollapsed, [id]: false },
-			dockFocus: { id, seq: (get().dockFocus?.seq ?? 0) + 1 },
-		}),
 	openCommandPalette: () => set({ commandPaletteOpen: true }),
 	closeCommandPalette: () => set({ commandPaletteOpen: false }),
 	openModelPicker: () => set({ modelPickerOpen: true }),

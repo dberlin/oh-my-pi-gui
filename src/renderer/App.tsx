@@ -1,12 +1,10 @@
-import { lazy, Suspense, useEffect, useMemo } from "react";
 import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
-import { AgentViewTranscriptSlot } from "./components/chat/AgentViewContextBar";
-import { ChatCanvas } from "./components/chat/ChatStream";
-import { ToastStack } from "./components/common";
 import { ActiveToolsDialog } from "./components/dialogs/ActiveToolsDialog";
+import { AgentViewContextBar } from "./components/chat/AgentViewContextBar";
 import { BranchPickerDialog } from "./components/dialogs/BranchPickerDialog";
 import { BtwDialog } from "./components/dialogs/BtwDialog";
 import { ChangelogDialog } from "./components/dialogs/ChangelogDialog";
+import { ChatCanvas } from "./components/chat/ChatStream";
 import { CollabDialog } from "./components/dialogs/CollabDialog";
 import { CommandPalette } from "./components/dialogs/CommandPalette";
 import { ComposerEditorDialog } from "./components/dialogs/ComposerEditorDialog";
@@ -19,9 +17,11 @@ import { ForceToolDialog } from "./components/dialogs/ForceToolDialog";
 import { HandoffDialog } from "./components/dialogs/HandoffDialog";
 import { HotkeysDialog } from "./components/dialogs/HotkeysDialog";
 import { ImportForeignDialog } from "./components/dialogs/ImportForeignDialog";
+import { InputArea } from "./components/layout/InputArea";
 import { JobsDialog } from "./components/dialogs/JobsDialog";
 import { LiveVoiceDialog } from "./components/dialogs/LiveVoiceDialog";
 import { ModelPicker } from "./components/dialogs/ModelPicker";
+import { PanelContainer } from "./components/layout/PanelContainer";
 import { PlanApprovalDialog } from "./components/dialogs/PlanApprovalDialog";
 import { RenameSessionDialog } from "./components/dialogs/RenameSessionDialog";
 import { SessionInfoDialog } from "./components/dialogs/SessionInfoDialog";
@@ -29,40 +29,41 @@ import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
 import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
 import { SessionTreeDialog } from "./components/dialogs/SessionTreeDialog";
 import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
-import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
-import { WorkspaceDirsDialog } from "./components/dialogs/WorkspaceDirsDialog";
-import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
-import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
-import { InputArea } from "./components/layout/InputArea";
-import { PanelContainer } from "./components/layout/PanelContainer";
 import { Sidebar } from "./components/layout/Sidebar";
 import { SidecarBanner } from "./components/layout/SidecarBanner";
 import { TabBar } from "./components/layout/TabBar";
+import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
 import { TitleBar } from "./components/layout/TitleBar";
+import { ToastStack } from "./components/common";
 import { UpdateBanner } from "./components/layout/UpdateBanner";
-import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
-import { useExtensionUi } from "./hooks/use-extension-ui";
-import { hydrateSession, useRpcEvents } from "./hooks/use-rpc-events";
-import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
-import { useSidebarRecency } from "./hooks/use-sidebar-recency";
-import { useTraySync } from "./hooks/use-tray-sync";
-import { exportSessionHtml } from "./lib/export-session";
-import { useLang, useT } from "./lib/i18n";
-import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
-import { abortActiveTurn, restoreQueuedMessages } from "./lib/messages";
-import { watchPluginActivation } from "./lib/plugin-activation";
+import { WorkspaceCanvas } from "./components/layout/WorkspaceCanvas";
+import { WorkspaceDirsDialog } from "./components/dialogs/WorkspaceDirsDialog";
+import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
+import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "./lib/tab-routing";
 import { applyFontSize, applyTheme, watchSystemTheme } from "./lib/theme";
 import { applyThemeByName, getPersistedThemeSelection, initAgentThemeSync, refreshPluginThemes } from "./lib/themes";
+import { watchPluginActivation } from "./lib/plugin-activation";
+import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
+import { exportSessionHtml } from "./lib/export-session";
+import { hydrateSession, useRpcEvents } from "./hooks/use-rpc-events";
+import { lazy, Suspense, useEffect, useMemo } from "react";
+import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
+import { abortActiveTurn, restoreQueuedMessages } from "./lib/messages";
 import { startVoiceAutoSpeak } from "./lib/voice";
-import { useAgentViewStore } from "./stores/agent-view";
-import { useModelStore } from "./stores/model";
-import { useSessionStore } from "./stores/session";
-import { useSettingsStore } from "./stores/settings";
-import { useSessionTabs, useTabsStore } from "./stores/tabs";
+import { subscribeUpdaterStatus } from "./stores/updater";
 import { toast } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
-import { subscribeUpdaterStatus } from "./stores/updater";
+import { useAgentViewStore } from "./stores/agent-view";
+import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
+import { useExtensionUi } from "./hooks/use-extension-ui";
+import { useLang, useT } from "./lib/i18n";
+import { useModelStore } from "./stores/model";
+import { useSessionStore } from "./stores/session";
+import { useSessionTabs, useTabsStore } from "./stores/tabs";
+import { useSettingsStore } from "./stores/settings";
+import { useSidebarRecency } from "./hooks/use-sidebar-recency";
+import { useTraySync } from "./hooks/use-tray-sync";
 
 const MAIN_MUTATING_KEYMAP_ACTIONS: Partial<Record<KeymapActionId, true>> = {
 	"model.cycleForward": true,
@@ -417,6 +418,22 @@ export function AppGlobalActions() {
 	return null;
 }
 
+export function AppWorkspace({ activeTabId }: { activeTabId: string | null }) {
+	return (
+		<>
+			<SidecarBanner />
+			<UpdateBanner />
+			<AgentViewContextBar />
+			<WorkspaceCanvas>
+				<div className="flex min-h-0 min-w-0 flex-1" data-chat-canvas>
+					<ChatCanvas />
+				</div>
+			</WorkspaceCanvas>
+			<InputArea key={activeTabId ?? "no-tab"} />
+			<StatusFooter />
+		</>
+	);
+}
 /**
  * Shell: Sidebar | (TitleBar / ChatStream / InputArea) | PanelContainer,
  * with command palette, extension dialogs, and the model picker overlaid.
@@ -641,12 +658,7 @@ export function App() {
 			<main className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">
 				<TitleBar />
 				<TabBar />
-				<SidecarBanner />
-				<UpdateBanner />
-				<AgentViewTranscriptSlot>
-					<ChatCanvas />
-				</AgentViewTranscriptSlot>
-				<InputArea key={activeTabId ?? "no-tab"} />
+				<AppWorkspace activeTabId={activeTabId} />
 			</main>
 
 			{panelVisible && <PanelContainer />}

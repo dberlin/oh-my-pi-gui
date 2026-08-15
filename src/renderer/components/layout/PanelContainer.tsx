@@ -34,8 +34,8 @@ const CHAT_TAB_IDS: ReadonlySet<PanelTab> = new Set(["files", "logs"]);
 /**
  * Contextual workspace drawer. Hidden by default; opened explicitly for
  * diffs, files, or logs without shrinking the core chat. Live execution
- * state (todos, plan, subagents, queue) renders in the center dock above
- * the composer instead — see chat/dock/WorkspaceDock.
+ * state (todos, plan, goals, and subagents) lives in the activity sidebar;
+ * queued work stays attached to the composer.
  */
 export function PanelContainer() {
 	const t = useT();

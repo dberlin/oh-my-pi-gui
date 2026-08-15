@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { useSessionStore } from "../stores/session";
 import { useToastStore } from "../stores/toast";
+import { useTodoStore } from "../stores/todo";
 import { useUiStore } from "../stores/ui";
 import { buildCommandMenu, type CommandAffordance, type CommandRegistryContext } from "./command-registry";
 import { translate } from "./i18n";
@@ -49,7 +50,7 @@ const baseCtx: CommandRegistryContext = {
 	openHotkeys: () => {},
 	openImportDialog: () => {},
 	openProviderConfig: () => {},
-	focusDockCard: () => {},
+	focusActivitySection: () => {},
 	retryTurn: async () => {},
 	retryLastTurn: async () => {},
 	forkSession: async () => {},
@@ -80,6 +81,7 @@ let rpc: Record<string, Mock>;
 let confirmMock: Mock;
 let dispatchMock: Mock;
 let hydrateSession: Mock;
+let focusActivitySection: Mock;
 let ctx: CommandRegistryContext;
 
 beforeEach(() => {
@@ -97,7 +99,13 @@ beforeEach(() => {
 		dispatchEvent: dispatchMock,
 	};
 	hydrateSession = vi.fn(async () => {});
-	ctx = { ...baseCtx, hydrateSession, rpc: { ...baseCtx.rpc, setPrewalk: rpc.setPrewalk } };
+	focusActivitySection = vi.fn();
+	ctx = {
+		...baseCtx,
+		focusActivitySection,
+		hydrateSession,
+		rpc: { ...baseCtx.rpc, setPrewalk: rpc.setPrewalk },
+	};
 	useToastStore.setState({ toasts: [] });
 	useSessionStore.setState({ isStreaming: false, isCompacting: false, prewalkArmed: false });
 	useUiStore.setState({ forceToolOpen: false });
@@ -105,6 +113,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	delete (globalThis as Record<string, unknown>).window;
+	useTodoStore.getState().reset();
 });
 
 const wired = (name: string): CommandAffordance => {
@@ -218,5 +227,25 @@ describe("one-shot action wiring", () => {
 		if (affordance.kind !== "picker") throw new Error("expected picker");
 		affordance.open();
 		expect(useUiStore.getState().forceToolOpen).toBe(true);
+	});
+
+	it("todo edit reveals the empty Todo activity section through the command-facing callback", () => {
+		const affordance = wired("todo edit");
+		if (affordance.kind !== "action") throw new Error("expected action");
+
+		affordance.run();
+
+		expect(focusActivitySection).toHaveBeenCalledWith("todo");
+	});
+
+	it("plan-review reveals the persistent Plan section even while plan mode is off", () => {
+		useSessionStore.setState({ planModeEnabled: false });
+		const affordance = wired("plan-review");
+		if (affordance.kind !== "action") throw new Error("expected action");
+
+		affordance.run();
+
+		expect(focusActivitySection).toHaveBeenCalledWith("plan");
+		expect(lastToast()?.message).toBe(translate("planPanel.statusOff"));
 	});
 });

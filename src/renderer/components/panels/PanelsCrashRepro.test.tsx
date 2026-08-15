@@ -12,7 +12,7 @@ import { useAgentViewStore } from "../../stores/agent-view";
 import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useToolsStore } from "../../stores/tools";
-import { AgentsDockCard } from "../chat/dock/AgentsDockCard";
+import { AgentTree } from "../chat/activity/AgentTree";
 import { DiffPanel } from "./DiffPanel";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -154,7 +154,7 @@ describe("panels under running state", () => {
 		expect(document.body.textContent).toContain("src/a.ts");
 	});
 
-	it("AgentsDockCard activates the selected transcript without embedding it and switches to graph view", async () => {
+	it("AgentTree activates the selected transcript without embedding it or exposing graph navigation", async () => {
 		const snapshot: SubagentSnapshot = {
 			id: "sub-1",
 			agent: "scout",
@@ -174,31 +174,27 @@ describe("panels under running state", () => {
 			},
 		});
 		useSubagentsStore.getState().setSnapshots([snapshot]);
-		await mount(<AgentsDockCard />);
+		await mount(<AgentTree />);
+		expect(document.body.textContent).toContain("Main");
 		expect(document.body.textContent).toContain("Read-only research");
 		expect(document.body.textContent).not.toContain("# Target");
 
-		const row = Array.from(document.querySelectorAll<HTMLElement>('[role="treeitem"]')).find(item =>
+		const agentRow = Array.from(document.querySelectorAll<HTMLElement>('[role="treeitem"]')).find(item =>
 			item.textContent?.includes("scout"),
 		);
-		expect(row).toBeDefined();
-		if (!row) return;
+		expect(agentRow).toBeDefined();
+		if (!agentRow) return;
 		await act(async () => {
-			row.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
+			agentRow.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
 		});
 		await flush();
 		expect(getSubagentMessages).toHaveBeenCalledWith("sub-1", "/tmp/sub-1.jsonl", 0);
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "sub-1" });
 		expect(useAgentViewStore.getState().messages.messages[0]?.content).toBe("Transcript loaded");
 		expect(document.querySelector("[data-agent-view-id]")).toBeNull();
-
-		const graphButton = Array.from(document.querySelectorAll('button[aria-pressed="false"]')).at(-1);
-		expect(graphButton).toBeDefined();
-		if (!graphButton) return;
-		await act(async () => {
-			graphButton.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
-		});
-		expect(graphButton.getAttribute("aria-pressed")).toBe("true");
-		expect(document.querySelector('[data-subagent-dag="true"]')).not.toBeNull();
+		expect(document.querySelector('[data-subagent-dag="true"]')).toBeNull();
+		expect(
+			Array.from(document.querySelectorAll("button")).some(button => /graph/i.test(button.textContent ?? "")),
+		).toBe(false);
 	});
 });

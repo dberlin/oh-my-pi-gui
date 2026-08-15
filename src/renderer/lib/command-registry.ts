@@ -16,14 +16,14 @@
 import type { AvailableCommand, CopyTarget, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession } from "../hooks/use-rpc-events";
 import { newSessionNow } from "../hooks/use-session-switch";
+import { type ActivitySectionId, useActivitySidebarStore } from "../stores/activity-sidebar";
 import { openHandoffDialog } from "../stores/fork-handoff";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { useTabsStore } from "../stores/tabs";
 import { toast } from "../stores/toast";
-import { useTodoStore } from "../stores/todo";
-import { type DockCardId, useUiStore } from "../stores/ui";
+import { useUiStore } from "../stores/ui";
 import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
@@ -107,8 +107,8 @@ export interface CommandRegistryContext {
 	openHotkeys: () => void;
 	openImportDialog: () => void;
 	openProviderConfig: () => void;
-	/** Deep-link a center-dock card (todo/plan/agents): expand + flash. */
-	focusDockCard: (id: DockCardId) => void;
+	/** Reveal and focus an activity-sidebar section for the active workspace. */
+	focusActivitySection: (id: ActivitySectionId) => void;
 	/** Retry the last failed turn server-side (retry RPC). */
 	retryTurn: () => Promise<unknown>;
 	/** Re-send the most recent user message (abortAndPrompt while streaming). */
@@ -783,15 +783,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: {
 			kind: "submenu",
 			items: [
-				subAction("todo edit", () => {
-					// The dock card self-hides with no todos — say so instead of no-oping.
-					const hasTodos = useTodoStore.getState().phases.some(phase => phase.tasks.length > 0);
-					if (!hasTodos) {
-						toast({ variant: "info", message: translate("todoPanel.empty") });
-						return;
-					}
-					ctx.focusDockCard("todo");
-				}),
+				subAction("todo edit", () => ctx.focusActivitySection("todo")),
 				subAction("todo copy", () => copyTodosToClipboard()),
 				subAction("todo export", () => exportTodos()),
 				subAction("todo import", () => importTodosFromFile()),
@@ -1317,12 +1309,10 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: {
 			kind: "action",
 			run: () => {
-				// The dock card only renders while plan mode is on — point at the toggle otherwise.
+				ctx.focusActivitySection("plan");
 				if (!useSessionStore.getState().planModeEnabled) {
 					toast({ variant: "info", message: translate("planPanel.statusOff") });
-					return;
 				}
-				ctx.focusDockCard("plan");
 			},
 		},
 	});
@@ -1603,7 +1593,8 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 		openHotkeys: ui.openHotkeys,
 		openImportDialog: ui.openImportDialog,
 		openProviderConfig: ui.openProviderConfig,
-		focusDockCard: ui.focusDockCard,
+		focusActivitySection: id =>
+			useActivitySidebarStore.getState().revealSection(id, useTabsStore.getState().activeTabId ?? "no-tab"),
 		retryTurn: retryFailedTurn,
 		retryLastTurn: () =>
 			retryLastTurnShared(() =>

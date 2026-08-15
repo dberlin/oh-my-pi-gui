@@ -3,10 +3,11 @@
  * run-settings portals. The latter protects option clicks from the parent
  * menu's outside-dismiss listener.
  */
-import type { RpcResponse } from "../../../shared/rpc-types";
+import type { RpcQueuedMessage, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { InputArea } from "./InputArea";
-import { act } from "react";
+import { QueueComposerChip } from "./QueueComposerChip";
+import { act, type ReactElement } from "react";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -61,6 +62,9 @@ let root: Root;
 let followUp: Mock;
 let steer: Mock;
 let prompt: Mock;
+let queueMove: Mock;
+let queueRemove: Mock;
+let queueClear: Mock;
 let setThinkingLevel: Mock;
 let setSetting: Mock;
 let setPlanMode: Mock;
@@ -72,7 +76,6 @@ async function flush(): Promise<void> {
 		await promise;
 	});
 }
-
 /** Set a controlled input's value and drive its React onChange contract. */
 async function typeInto(element: TestElement, value: string): Promise<void> {
 	const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value");
@@ -111,6 +114,11 @@ async function click(element: TestElement): Promise<void> {
 	await act(async () => {
 		element.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 	});
+	await flush();
+}
+
+function queued(id: string, text: string): RpcQueuedMessage {
+	return { id, text, editable: true, timestamp: 1 };
 }
 
 async function pointerDown(element: TestElement): Promise<void> {
@@ -134,10 +142,16 @@ function findTextarea(): TestElement {
 	return textarea;
 }
 
-async function mount(): Promise<void> {
+async function mount(
+	element: ReactElement = <InputArea />,
+	queue: { steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] } = { steering: [], followUp: [] },
+): Promise<void> {
 	followUp = vi.fn(async () => ok());
 	steer = vi.fn(async () => ok());
 	prompt = vi.fn(async () => ok());
+	queueMove = vi.fn(async () => ok({ lane: "followUp", index: 0 }));
+	queueRemove = vi.fn(async () => ok({ removed: true }));
+	queueClear = vi.fn(async () => ok({ removed: 0 }));
 	setThinkingLevel = vi.fn(async (level: string) => ok({ thinkingLevel: level, thinkingConfigured: level }));
 	setSetting = vi.fn(async () => ok());
 	setPlanMode = vi.fn(async (enabled: boolean) => ok({ enabled }));
@@ -147,7 +161,11 @@ async function mount(): Promise<void> {
 		prefs: { set: vi.fn(async () => ({})), get: vi.fn(async () => []) },
 		rpc: {
 			getAvailableCommands: vi.fn(async () => ok({ commands: [] })),
-			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
+			getQueue: vi.fn(async () => ok(queue)),
+			queueEdit: vi.fn(async () => ok({ updated: true })),
+			queueMove,
+			queueRemove,
+			queueClear,
 			followUp,
 			steer,
 			prompt,
@@ -179,15 +197,12 @@ async function mount(): Promise<void> {
 		activeTabId: "t0",
 		bundles: new Map(),
 	});
+	useQueueStore.getState().setFromFrame(queue);
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
-		root.render(
-			<I18nProvider>
-				<InputArea />
-			</I18nProvider>,
-		);
+		root.render(<I18nProvider>{element}</I18nProvider>);
 	});
 	await flush();
 }
@@ -208,6 +223,58 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 });
 
+describe("QueueComposerChip ownership", () => {
+	it("uses its count prop and delegates opening without owning a queue dialog", async () => {
+		const onOpen = vi.fn();
+		await mount(<QueueComposerChip count={2} onOpen={onOpen} />, {
+			steering: [],
+			followUp: [queued("ignored", "store-owned count must be ignored")],
+		});
+
+		const button = document.querySelector(
+			'button[aria-label="Manage queued messages: 2"]',
+		) as unknown as TestElement | null;
+		expect(button).not.toBeNull();
+		if (!button) throw new Error("Queue composer chip button not found");
+		await click(button);
+
+		expect(onOpen).toHaveBeenCalledTimes(1);
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+	});
+});
+
+describe("InputArea queue manager", () => {
+	it("opens from the Main toolbar and preserves reorder, remove, and clear mutations", async () => {
+		const first = queued("f1", "first queued message");
+		const second = queued("f2", "second queued message");
+		await mount(<InputArea />, { steering: [], followUp: [first, second] });
+
+		const button = document.querySelector(
+			'.omp-composer-toolbar button[aria-label="Manage queued messages: 2"]',
+		) as unknown as TestElement | null;
+		expect(button).not.toBeNull();
+		if (!button) throw new Error("Main toolbar queue button not found");
+		await click(button);
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+		const moveDown = document.querySelectorAll('button[aria-label="Move down"]')[0] as unknown as TestElement;
+		await click(moveDown);
+		expect(queueMove).toHaveBeenCalledWith("f1", 1);
+		expect(useQueueStore.getState().followUp.map(item => item.id)).toEqual(["f2", "f1"]);
+
+		const remove = document.querySelectorAll('button[aria-label="Remove"]')[0] as unknown as TestElement;
+		await click(remove);
+		expect(queueRemove).toHaveBeenCalledWith("f2");
+		expect(useQueueStore.getState().followUp.map(item => item.id)).toEqual(["f1"]);
+
+		const clear = document.querySelector('button[aria-label="Clear"]') as unknown as TestElement | null;
+		expect(clear).not.toBeNull();
+		if (!clear) throw new Error("Clear queue lane button not found");
+		await click(clear);
+		expect(queueClear).toHaveBeenCalledWith("followUp");
+		expect(useQueueStore.getState().followUp).toEqual([]);
+	});
+});
 describe("InputArea queue shorthand submit", () => {
 	it("routes `-> text` to followUp with the prefix stripped while streaming", async () => {
 		await mount();

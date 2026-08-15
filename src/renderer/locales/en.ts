@@ -2605,6 +2605,20 @@ export const en: Record<string, string> = {
 	"panel.tabs.files": "Files",
 	"panel.tabs.logs": "Logs",
 
+	// Activity sidebar
+	"activitySidebar.title": "Activity",
+	"activitySidebar.collapse": "Collapse activity sidebar",
+	"activitySidebar.expand": "Expand activity sidebar",
+	"activitySidebar.resize": "Resize activity sidebar",
+	"activitySidebar.resizeTrees": "Resize Todo and Agents sections",
+	"activitySidebar.plan.off": "Off",
+	"activitySidebar.goal.empty": "No active goal",
+	"activitySidebar.collapseSection": "Collapse {section}",
+	"activitySidebar.expandSection": "Expand {section}",
+	"activitySidebar.agents.empty": "No subagents",
+	"activitySidebar.todo.empty": "No todos",
+	"activitySidebar.todo.label": "Todos",
+
 	// Center dock (above the composer)
 	"dock.collapse": "Collapse",
 	"dock.expand": "Expand",

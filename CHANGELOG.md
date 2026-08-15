@@ -88,7 +88,7 @@
 - **Native macOS menu-bar mark**: the generic colored status dot is replaced by a crisp Retina π template icon that automatically follows light, dark and selected menu-bar states.
 - **Recent-first navigation**: sidebar sessions and workspace groups now move dynamically by last use, persist that MRU order across restarts and package updates, retain pinned-first priority, and preserve relevance ordering while searching.
 - **Quieter execution history**: each reasoning/tool run now folds into one lightweight inline activity summary instead of a stack of nested cards and scroll boxes; active work opens for progress, then both successful and failed runs collapse to an outcome summary with full details available on demand.
-- **Agent transcript navigation**: agent rows and graph/Hub actions now switch the main transcript canvas to a live read-only subagent view, keep the Agents dock available for returning to Main, and reconstruct completed agents from persisted task calls when browsing historical sessions.
+- **Agent transcript and activity navigation**: agent rows and Hub actions switch the single main transcript canvas to a live read-only subagent view; a persistent, resizable right activity sidebar keeps Plan, Goal, Todo, and Agents visible beside it, collapses to compact launchers on narrow canvases, and reconstructs completed agents from persisted task calls in historical sessions.
 - **Current package and build stack**: updated direct runtime and development dependencies to their current stable releases, replaced `electron-vite` with `vite-plugin-electron`, and moved the renderer, main, and preload builds to Vite 8 while preserving the packaged `out/` layout.
 
 ### Fixed

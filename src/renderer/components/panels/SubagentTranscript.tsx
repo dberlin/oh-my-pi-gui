@@ -6,9 +6,9 @@ import { isRenderableMessageText } from "../../lib/messages";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { resolveProjectionToolCall } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import { registerTranscriptToolCalls } from "../chat/activity/agent-tree-model";
 import { TranscriptViewport } from "../chat/TranscriptViewport";
 import { Spinner } from "../common";
-import { registerTranscriptToolCalls } from "./subagent-graph";
 
 /**
  * Full-canvas adapter for the selected subagent projection.

@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { SshSessionTarget } from "../../../../shared/ipc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { resetTabRoute } from "../../../lib/tab-routing";
+import { useActivitySidebarStore } from "../../../stores/activity-sidebar";
 import { useSessionStore } from "../../../stores/session";
 import { useTabsStore } from "../../../stores/tabs";
-import { useUiStore } from "../../../stores/ui";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, {
@@ -23,7 +23,7 @@ Object.assign(globalThis, {
 
 // React DOM computes DOM support at evaluation time, so the test harness must install linkedom first.
 const { createRoot } = await import("react-dom/client");
-const { PlanDockCard } = await import("./PlanDockCard");
+const { PlanActivitySection } = await import("./PlanActivitySection");
 
 interface TestElement {
 	remove(): void;
@@ -110,14 +110,14 @@ afterEach(async () => {
 	container?.remove();
 	container = undefined;
 	root = undefined;
+	useActivitySidebarStore.getState().reset();
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
-	useUiStore.setState({ dockCollapsed: {}, dockFocus: null });
 	resetTabRoute();
 	vi.restoreAllMocks();
 });
 
-describe("PlanDockCard remote preview", () => {
+describe("PlanActivitySection", () => {
 	it("keeps the SSH plan payload target-free so main resolves and bounds the remote file", async () => {
 		const omp = installOmp();
 		useSessionStore.setState({
@@ -126,6 +126,7 @@ describe("PlanDockCard remote preview", () => {
 			sessionFile: "/home/deploy/.omp/sessions/remote-session-7.jsonl",
 			isStreaming: false,
 		});
+		useActivitySidebarStore.setState({ expandedMeta: "plan" });
 		useTabsStore.setState({
 			tabs: [
 				{
@@ -140,9 +141,51 @@ describe("PlanDockCard remote preview", () => {
 			activeTabId: "remote-1",
 		});
 
-		await mount(<PlanDockCard />);
+		await mount(<PlanActivitySection maxDetailHeight={180} readOnly={false} />);
 
 		expect(omp.fs.readPlan).toHaveBeenCalledWith({ fsPath: "/srv/app/plan.md", localRoot: null });
 		expect(container?.textContent).toContain("Read the remote-only plan");
+	});
+
+	it("keeps an Off header mounted and omits Main controls when read-only", async () => {
+		installOmp();
+		await mount(<PlanActivitySection maxDetailHeight={180} readOnly />);
+
+		expect(container?.textContent).toContain("Plan");
+		expect(container?.textContent).toContain("Off");
+		expect(document.querySelector('[aria-label="Toggle plan mode"]')).toBeNull();
+	});
+
+	it("bounds and independently scrolls expanded plan details", async () => {
+		installOmp();
+		useSessionStore.setState({ planModeEnabled: true, cwd: "/srv/app", sessionFile: "/tmp/session.jsonl" });
+		useActivitySidebarStore.setState({ expandedMeta: "plan" });
+		await mount(<PlanActivitySection maxDetailHeight={123} readOnly={false} />);
+
+		const detail = document.querySelector<HTMLElement>("[data-activity-meta-detail='plan']");
+		expect(detail?.style.maxHeight).toBe("123px");
+		expect(detail?.className).toContain("overflow-y-auto");
+	});
+
+	it("clears an open Main step editor when the target becomes read-only", async () => {
+		installOmp();
+		useSessionStore.setState({ planModeEnabled: true, cwd: "/srv/app", sessionFile: "/tmp/session.jsonl" });
+		useActivitySidebarStore.setState({ expandedMeta: "plan" });
+		await mount(<PlanActivitySection maxDetailHeight={180} readOnly={false} />);
+		const feedback = document.querySelector<HTMLButtonElement>('[aria-label="Give feedback on step 1"]');
+		if (!feedback) throw new Error("Expected Main step feedback control");
+		await act(async () => feedback.click());
+		expect(document.querySelector("textarea")).not.toBeNull();
+
+		await act(async () => {
+			root?.render(
+				<I18nProvider>
+					<PlanActivitySection maxDetailHeight={180} readOnly />
+				</I18nProvider>,
+			);
+		});
+		expect(document.querySelector("textarea")).toBeNull();
+		expect(document.querySelector('[aria-label="Give feedback on step 1"]')).toBeNull();
+		expect(document.querySelector('[aria-label="Toggle plan mode"]')).toBeNull();
 	});
 });

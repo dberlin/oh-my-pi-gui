@@ -3,10 +3,12 @@ import type { TodoPhase, TodoTask } from "../../shared/rpc-types";
 
 export interface UiTodoTask extends TodoTask {
 	id: string;
+	generatedId: boolean;
 }
 
 export interface UiTodoPhase extends Omit<TodoPhase, "tasks"> {
 	id: string;
+	generatedId: boolean;
 	tasks: UiTodoTask[];
 }
 
@@ -52,14 +54,23 @@ const initialState = {
 function normalizePhases(phases: TodoPhase[]): UiTodoPhase[] {
 	return phases.map((phase, phaseIndex) => {
 		const existingPhaseId = "id" in phase && typeof phase.id === "string" ? phase.id : null;
+		const retainedGeneratedId =
+			"generatedId" in phase && typeof phase.generatedId === "boolean" ? phase.generatedId : null;
 		const phaseId = existingPhaseId ?? `phase:${phaseIndex}:${phase.name}`;
 		return {
 			...phase,
+			generatedId: retainedGeneratedId ?? existingPhaseId === null,
 			id: phaseId,
-			tasks: phase.tasks.map((task, taskIndex) => ({
-				...task,
-				id: "id" in task && typeof task.id === "string" ? task.id : `${phaseId}:task:${taskIndex}`,
-			})),
+			tasks: phase.tasks.map((task, taskIndex) => {
+				const existingTaskId = "id" in task && typeof task.id === "string" ? task.id : null;
+				const retainedGeneratedId =
+					"generatedId" in task && typeof task.generatedId === "boolean" ? task.generatedId : null;
+				return {
+					...task,
+					generatedId: retainedGeneratedId ?? existingTaskId === null,
+					id: existingTaskId ?? `${phaseId}:task:${taskIndex}`,
+				};
+			}),
 		};
 	});
 }

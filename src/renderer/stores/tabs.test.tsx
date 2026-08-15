@@ -34,7 +34,7 @@ import type {
 	SubagentSnapshot,
 	TodoPhase,
 } from "../../shared/rpc-types";
-import { buildSubagentList } from "../components/panels/subagent-graph";
+import { buildSubagentList } from "../components/chat/activity/agent-tree-model";
 import { recoverReadySession } from "../hooks/use-rpc-events";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useAgentViewStore } from "./agent-view";
