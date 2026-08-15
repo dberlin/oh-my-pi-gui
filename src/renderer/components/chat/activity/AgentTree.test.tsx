@@ -232,6 +232,7 @@ describe("AgentTree", () => {
 		await flush();
 		expect(row("child").getAttribute("aria-selected")).toBe("true");
 		expect(row("child").getAttribute("aria-current")).toBe("true");
+		expect(getSubagentMessages).toHaveBeenCalledWith("child", undefined, 0);
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "child" });
 
 		await click(row("Main"));
@@ -286,7 +287,7 @@ describe("AgentTree", () => {
 				snap({ id: "child", index: 1, agent: "child", parentSubagentId: "parent" }),
 			]);
 		await mount(<AgentTree />);
-		await doubleClick(row("child"));
+		await click(row("child"));
 		await focus(row("parent"));
 		await keyDown(row("parent"), "ArrowLeft");
 		expect(row("parent").getAttribute("aria-expanded")).toBe("false");
@@ -312,7 +313,7 @@ describe("AgentTree", () => {
 		];
 		useSubagentsStore.getState().setSnapshots(snapshots);
 		await mount(<AgentTree />);
-		await doubleClick(row("child"));
+		await click(row("child"));
 		await focus(row("parent"));
 		await keyDown(row("parent"), "ArrowLeft");
 		await keyDown(row("sibling"), " ");
@@ -622,7 +623,7 @@ describe("AgentTree", () => {
 			["aborted-agent", "aborted"],
 			["parked-agent", "parked"],
 		] as const) {
-			await doubleClick(row(label));
+			await click(row(label));
 			expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id });
 		}
 	});

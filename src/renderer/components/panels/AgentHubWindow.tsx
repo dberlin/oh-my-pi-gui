@@ -554,7 +554,7 @@ const HubRow = memo(function HubRow({
 		<div
 			className="rounded-lg border border-(--omp-border-muted) bg-transparent"
 			data-agent-id={agent.id}
-			onDoubleClick={onActivate}
+			onClick={onActivate}
 			onKeyDown={event => {
 				if (event.currentTarget !== event.target || event.key !== "Enter") return;
 				event.preventDefault();

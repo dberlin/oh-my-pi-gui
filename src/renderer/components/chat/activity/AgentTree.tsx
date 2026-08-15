@@ -102,7 +102,6 @@ const AgentRow = memo(function AgentRow({
 			aria-level={depth + 1}
 			aria-selected={selected}
 			onClick={() => onActivate(agent)}
-			onDoubleClick={() => onActivate(agent)}
 			onFocus={(event: FocusEvent<HTMLDivElement>) => {
 				if (event.currentTarget === event.target) onRowFocus(row);
 			}}
