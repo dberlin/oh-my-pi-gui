@@ -105,6 +105,7 @@
 - **Default startup tab**: untargeted launches and new windows now open a fresh, unnamed global chat without inheriting a random recent workspace or auto-resuming its session; the chat's internal process cwd is no longer presented as a selected workspace.
 - **Streaming transcript reading position**: any manual scroll-up releases tail following immediately; live-row growth no longer competes with native browser anchoring, and finalizing a streamed response preserves the virtual row identity instead of snapping an unpinned reader to the bottom.
 - **Bundled sidecar build**: stopped invoking the removed MuPDF-WASM generation scripts now that PDF inspection ships through the native addon, restoring `build:omp` after upstream omp 17.3.4.
+- **Agent transcript scrolling**: restored the constrained flex layout around the shared transcript viewport so mouse-wheel and scrollbar navigation work while the activity sidebar is visible.
 - **Subagent transcripts**: render Markdown, reasoning, images, usage, and completed tool cards with the main conversation presentation instead of plain truncated text.
 - **SSH host settings**: load and manage project/user host configuration in the local GUI process instead of sending unsupported RPC commands through the active sidecar, eliminating the 30-second host-list timeout.
 - **SSH host settings**: made session hydration preserve the tab working directory when older sidecars omit it, preventing the Settings window from crashing while SSH hosts load.

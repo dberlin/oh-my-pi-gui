@@ -379,7 +379,7 @@ export function WorkspaceCanvas({ children }: { children: ReactNode }) {
 	const displayedWidth = previewWidth ?? width;
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1" data-workspace-canvas ref={canvasRef}>
-			<div className="min-h-0 min-w-0 flex-1" data-workspace-transcript>
+			<div className="flex min-h-0 min-w-0 flex-1" data-workspace-transcript>
 				{children}
 			</div>
 			{!compact && (
