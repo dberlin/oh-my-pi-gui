@@ -1,11 +1,10 @@
 /**
  * Contract tests for composer submission policy (lib/composer-submit):
- * typed slash commands always route through the prompt RPC (the server
- * parses them even mid-stream; steer/followUp would inject the text as a
- * user steer), session-replacing commands (/new, /clear) are blocked while
- * a turn runs instead of silently killing it, and local-only resolutions
- * (agentInvoked:false, no agent events) trigger a rehydrate so the
- * transcript/context bar reflect the mutation.
+ * ordinary text always routes through prompt with its intended queue lane so
+ * the sidecar decides atomically whether to start or queue at a turn boundary;
+ * typed slash commands always route through prompt without becoming literal
+ * steers/follow-ups; session-replacing commands are blocked while a turn runs;
+ * and local-only resolutions trigger a rehydrate because no agent events fire.
  */
 
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
@@ -21,7 +20,9 @@ function success(data: unknown): RpcResponse {
 
 interface MockOmp {
 	rpc: {
-		prompt: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
+		prompt: Mock<
+			(message: string, images?: unknown[], streamingBehavior?: "steer" | "followUp") => Promise<RpcResponse>
+		>;
 		compact: Mock<() => Promise<RpcResponse>>;
 		steer: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
 		followUp: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
@@ -127,7 +128,7 @@ describe("planComposerSubmit", () => {
 		expect(omp.rpc.followUp).not.toHaveBeenCalled();
 	});
 
-	it("routes plain text through steer (or followUp) while streaming", async () => {
+	it("lets the sidecar decide whether plain text starts now or queues at the turn boundary", async () => {
 		const omp = installMockOmp();
 		const steerSubmit = planComposerSubmit({
 			message: "hello",
@@ -138,8 +139,8 @@ describe("planComposerSubmit", () => {
 		});
 		if (steerSubmit.kind !== "send") throw new Error("expected send");
 		await steerSubmit.request();
-		expect(omp.rpc.steer).toHaveBeenCalledWith("hello", []);
-		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("hello", [], "steer");
+		expect(omp.rpc.steer).not.toHaveBeenCalled();
 
 		const followUpSubmit = planComposerSubmit({
 			message: "again",
@@ -150,7 +151,8 @@ describe("planComposerSubmit", () => {
 		});
 		if (followUpSubmit.kind !== "send") throw new Error("expected send");
 		await followUpSubmit.request();
-		expect(omp.rpc.followUp).toHaveBeenCalledWith("again", []);
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("again", [], "followUp");
+		expect(omp.rpc.followUp).not.toHaveBeenCalled();
 	});
 
 	it("routes exact /clear to the native clear path when idle — never to the model", () => {

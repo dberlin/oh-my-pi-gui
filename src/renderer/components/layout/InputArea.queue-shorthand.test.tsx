@@ -3,14 +3,13 @@
  * run-settings portals. The latter protects option clicks from the parent
  * menu's outside-dismiss listener.
  */
+
+import { parseHTML } from "linkedom";
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcQueuedMessage, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
-import { InputArea } from "./InputArea";
-import { QueueComposerChip } from "./QueueComposerChip";
-import { act, type ReactElement } from "react";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
@@ -20,6 +19,8 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
+import { InputArea } from "./InputArea";
+import { QueueComposerChip } from "./QueueComposerChip";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -326,14 +327,15 @@ describe("InputArea queue shorthand submit", () => {
 		expect(steer).not.toHaveBeenCalled();
 	});
 
-	it("still steers a plain (non-shorthand) message while streaming", async () => {
+	it("lets the sidecar apply steer behavior to a plain message while streaming", async () => {
 		await mount();
 		await typeInto(findTextarea(), "plain guidance");
 		await pressEnter(findTextarea());
 		await flush();
 		await flush();
 
-		expect(steer).toHaveBeenCalledWith("plain guidance", []);
+		expect(prompt).toHaveBeenCalledWith("plain guidance", [], "steer");
+		expect(steer).not.toHaveBeenCalled();
 		expect(followUp).not.toHaveBeenCalled();
 	});
 

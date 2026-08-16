@@ -109,6 +109,7 @@
 - **Subagent transcripts**: render Markdown, reasoning, images, usage, and completed tool cards with the main conversation presentation instead of plain truncated text.
 - **SSH host settings**: load and manage project/user host configuration in the local GUI process instead of sending unsupported RPC commands through the active sidecar, eliminating the 30-second host-list timeout.
 - **SSH host settings**: made session hydration preserve the tab working directory when older sidecars omit it, preventing the Settings window from crashing while SSH hosts load.
+- **Composer turn-boundary sends**: route new text through the sidecar's authoritative run state so messages submitted as a turn finishes start immediately instead of remaining invisible until refresh.
 - **Nested-checkout React resolution**: added the missing `linkedom` test dependency and made Vitest use one React module graph across hoisted workspace dependencies, preventing invalid-hook failures after clean dependency installs.
 - **Electron packaging**: pinned the Electron toolchain version so `electron-builder` can resolve the platform binary from the nested GUI checkout, and restored dedicated arm64/x64 configs over one shared base so each package selects the correct sidecar and native companions.
 - **Signed sidecar startup**: packaged the matching `pi_natives` addon beside the bundled `omp` binary so electron-builder signs both with the same team, preventing hardened-runtime library validation from terminating RPC and stats sidecars at startup.

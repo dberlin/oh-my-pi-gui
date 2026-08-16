@@ -117,11 +117,14 @@ export function planComposerSubmit(input: {
 	}
 	const guiHandled = isSlashCommand ? runGuiOnlyBuiltin(message, commands) : undefined;
 	if (guiHandled !== undefined) return { kind: guiHandled ? "handled" : "blocked" };
-	if (!isSlashCommand && isStreaming) {
+	// The sidecar owns the authoritative run state. Passing the intended queue
+	// lane through prompt closes the turn-end race: idle starts immediately,
+	// while a genuinely active turn queues the same text as steer/follow-up.
+	if (!isSlashCommand) {
+		const streamingBehavior = mode === "followUp" ? "followUp" : "steer";
 		return {
 			kind: "send",
-			request: () =>
-				mode === "followUp" ? window.omp.rpc.followUp(message, images) : window.omp.rpc.steer(message, images),
+			request: () => window.omp.rpc.prompt(message, images, streamingBehavior),
 		};
 	}
 	return { kind: "send", request: () => window.omp.rpc.prompt(message, images) };
