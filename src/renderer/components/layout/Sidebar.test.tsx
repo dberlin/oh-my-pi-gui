@@ -12,15 +12,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type {
 	RemoteCatalogResult,
+	RemoteDirectoryListResult,
+	RemoteDirectoryValidationResult,
 	RemoteHistoryResult,
 	RemoteHistorySession,
 	RemoteHostCatalogEntry,
 	RemoteHostCatalogSnapshot,
+	RemotePreflightResult,
 	SessionInfo,
 	SshSessionTarget,
-	RemoteDirectoryValidationResult,
-	RemoteDirectoryListResult,
-	RemotePreflightResult,
 } from "../../../shared/ipc-types";
 import { useSidebarRecency } from "../../hooks/use-sidebar-recency";
 import { I18nProvider } from "../../lib/i18n";
@@ -325,7 +325,16 @@ describe("Sidebar menus and pinned ordering", () => {
 		const omp = installMockOmp(LIST);
 		useSessionStore.setState({ sessionId: "", cwd: "/neutral", isStreaming: false });
 		useTabsStore.setState({
-			tabs: [{ id: "chat", cwd: "/neutral", status: "ready", kind: "chat", unreadDone: false }],
+			tabs: [
+				{
+					id: "chat",
+					cwd: "/neutral",
+					target: { type: "local" },
+					status: "ready",
+					kind: "chat",
+					unreadDone: false,
+				},
+			],
 			activeTabId: "chat",
 			bundles: new Map(),
 		});
@@ -352,7 +361,16 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		await act(async () => {
 			useTabsStore.setState({
-				tabs: [{ id: "agent", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false }],
+				tabs: [
+					{
+						id: "agent",
+						cwd: "/work/alpha",
+						target: { type: "local" },
+						status: "ready",
+						kind: "agent",
+						unreadDone: false,
+					},
+				],
 				activeTabId: "agent",
 			});
 			useSessionStore.setState({

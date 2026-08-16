@@ -294,16 +294,25 @@ describe("compact transcript rows", () => {
 		});
 		const firstMessage = assistant([{ type: "text", text: "Inspect first." }, firstCall]);
 		const secondMessage = assistant([{ type: "text", text: "Inspect second." }, secondCall]);
-		const bothRows = buildHistoryRows([firstMessage, secondMessage], "compact", resolveToolCall);
+		const phaseBoundary: AgentMessage = {
+			...assistant([{ type: "text", text: "First inspection complete." }]),
+			id: "phase-boundary",
+		};
+		const bothRows = buildHistoryRows([firstMessage, phaseBoundary, secondMessage], "compact", resolveToolCall);
 		const remainingRows = buildHistoryRows([secondMessage], "compact", resolveToolCall);
 
-		expect(buildHistoryRowKeys(bothRows)).toEqual(["process-provider-process:0#1", "process-provider-process:0#2"]);
-		expect(buildHistoryRowKeys(remainingRows)).toEqual(["process-provider-process:0#2"]);
+		expect(buildHistoryRowKeys(bothRows)).toEqual([
+			"message-provider-process:0#1",
+			"message-phase-boundary",
+			"message-provider-process:0#2",
+		]);
+		expect(buildHistoryRowKeys(remainingRows)).toEqual(["message-provider-process:0#2"]);
 
-		const bothMessageRows = buildHistoryRows([firstMessage, secondMessage], "full", resolveToolCall);
+		const bothMessageRows = buildHistoryRows([firstMessage, phaseBoundary, secondMessage], "full", resolveToolCall);
 		const remainingMessageRows = buildHistoryRows([secondMessage], "full", resolveToolCall);
 		expect(buildHistoryRowKeys(bothMessageRows, resolveToolCall)).toEqual([
 			"message-provider-process:0#1",
+			"message-phase-boundary",
 			"message-provider-process:0#2",
 		]);
 		expect(buildHistoryRowKeys(remainingMessageRows, resolveToolCall)).toEqual(["message-provider-process:0#2"]);

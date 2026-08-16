@@ -22,7 +22,6 @@ const testDocument = parsed.document;
 const globals = globalThis as Record<string, unknown>;
 const storage = new Map<string, string>();
 class TestResizeObserver {
-	constructor(_callback: ResizeObserverCallback) {}
 	disconnect(): void {}
 	observe(_target: Element): void {}
 	unobserve(_target: Element): void {}
@@ -254,6 +253,24 @@ describe("App workspace composition", () => {
 		expect(children[5]?.tagName).toBe("FOOTER");
 		expect((container as Element).querySelectorAll("[data-chat-canvas]")).toHaveLength(1);
 		expect((container as Element).querySelector('[data-testid="workspace-dock-scroll"]')).toBeNull();
+	});
+
+	it("hides Main session mutation badges while a subagent transcript is selected", async () => {
+		useSessionStore.setState({
+			planModeEnabled: true,
+			goal: { objective: "Ship the activity dock" },
+			goalState: { status: "active" },
+			loopMode: { enabled: true, state: "waiting" },
+			vibeModeEnabled: true,
+			agentsPaused: true,
+		});
+		await selectSubagent();
+		await mountWorkspace();
+
+		const footerText = (container as Element).querySelector("footer")?.textContent ?? "";
+		for (const label of ["Plan", "Goal", "Loop", "Vibe", "Paused"]) {
+			expect(footerText).not.toContain(label);
+		}
 	});
 
 	it("keeps the transcript and composer mounted when a complete activity section crashes", async () => {

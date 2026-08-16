@@ -27,6 +27,7 @@ import { useMessagesStore } from "../../stores/messages";
 import { type QueueLane, useQueuedMessages, useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
+import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
@@ -625,8 +626,9 @@ export function StreamingRows({
 	onExpandedChange: (expanded: boolean) => void;
 }) {
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
+	const streamingText = useMessagesStore(s => s.streamingText);
 	const streamingThinking = useMessagesStore(s => s.streamingThinking);
-	const hasText = useMessagesStore(s => isRenderableMessageText(s.streamingText));
+	const hasText = isRenderableMessageText(streamingText);
 	// Full-map subscription is intentional here: this ONE live row legitimately
 	// watches the whole active set (it renders every pending/running card).
 	// Per-row isolation lives in TimelineMarker/ExecutionGroup/ToolCard.
@@ -735,12 +737,11 @@ export function StreamingRows({
 		return (
 			<div className={cx("omp-streaming-turn group flex px-6", turnClass)}>
 				<div className="omp-transcript-content min-w-0">
-					{/* streamingMessage.content only fills at message_end; mid-stream the
-				    thinking deltas accumulate in the streamingThinking buffer, which
-				    ThinkingBlock reads itself when live. */}
-					{hasThinking ? <ThinkingBlock live /> : null}
+					{/* Live deltas live in transcript buffers until message_end fills
+					    streamingMessage.content; pass those buffers explicitly. */}
+					{hasThinking ? <ThinkingBlock live streamingTextStarted={hasText} text={streamingThinking} /> : null}
 					{toolCards}
-					<StreamingText />
+					<StreamingText text={streamingText} />
 				</div>
 			</div>
 		);
@@ -758,13 +759,15 @@ export function StreamingRows({
 						toolCallIds={allCards.map(card => card.id)}
 					>
 						<div className="omp-process-group omp-process-group--live">
-							{hasThinking ? <ThinkingBlock live /> : null}
+							{hasThinking ? (
+								<ThinkingBlock live streamingTextStarted={hasText} text={streamingThinking} />
+							) : null}
 							{toolCalls.length + liveTools.length > 0 ? <div>{toolCards}</div> : null}
 						</div>
 					</ExecutionGroup>
 				) : null}
 				<div className={hasProcess ? "mt-1" : undefined}>
-					<StreamingText />
+					<StreamingText text={streamingText} />
 				</div>
 			</div>
 		</div>

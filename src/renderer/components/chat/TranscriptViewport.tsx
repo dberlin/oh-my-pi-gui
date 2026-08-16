@@ -197,13 +197,17 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 		}
 		nextRows.push(...historyRows);
 		nextMarkers.push(...historyMarkers);
-		if (hasStreamedContent) {
-			nextRows.push({ kind: "streaming" });
-			nextMarkers.push({ state: "running", toolIds: [] });
+		if (hasStreamedContent && streamingMessage) {
+			nextRows.push({ kind: "streaming", message: streamingMessage });
+			// Full detail has no execution-group header, so its timeline owns the
+			// one live spinner. Compact detail delegates that status to the group.
+			nextMarkers.push(transcriptDetail === "full" ? { state: "running", toolIds: [] } : null);
 		}
 		if (showStatusRow) {
 			nextRows.push({ kind: "pending" });
-			nextMarkers.push({ state: "running", toolIds: [] });
+			// TurnStatusRow owns the visible loader. A running timeline marker
+			// here would render a second adjacent spinner for the same wait.
+			nextMarkers.push(null);
 		}
 		for (const item of queued.steering) {
 			nextRows.push({ kind: "queued", item, lane: "steering" });
@@ -226,6 +230,8 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 		showStatusRow,
 		queued.steering,
 		queued.followUp,
+		streamingMessage,
+		transcriptDetail,
 		resolveToolCall,
 	]);
 

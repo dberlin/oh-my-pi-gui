@@ -185,7 +185,7 @@ describe("panels under running state", () => {
 		expect(agentRow).toBeDefined();
 		if (!agentRow) return;
 		await act(async () => {
-			agentRow.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
+			agentRow.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 		});
 		await flush();
 		expect(getSubagentMessages).toHaveBeenCalledWith("sub-1", "/tmp/sub-1.jsonl", 0);

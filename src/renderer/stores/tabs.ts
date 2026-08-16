@@ -939,6 +939,7 @@ export function consumePendingSession(tabId: string): Promise<boolean> {
 			return true;
 		} catch (error) {
 			restorePendingPath();
+			retryAfterRestore = canRetryRestoredPath();
 			toast({ variant: "error", title: translate("sidebar.openFailed"), message: String(error) });
 			return true;
 		}
@@ -1080,7 +1081,17 @@ export function useSessionTabs(): void {
 					if (!tab || (tab.status !== "ready" && tab.status !== "running")) return;
 					if (useSessionStore.getState().sessionId) return;
 					useSessionStore.getState().setStatus("ready", tab.cwd);
-					void hydrateSession();
+					void (async () => {
+						const fullPrelude = joinFullReadyPrelude(tab.id);
+						if (fullPrelude) {
+							await fullPrelude;
+							return;
+						}
+						const consumedPending = await consumePendingSession(tab.id);
+						if (!consumedPending && acceptsActiveTabEvents() && useTabsStore.getState().activeTabId === tab.id) {
+							await recoverReadySession(tab.id);
+						}
+					})();
 				}, 0);
 			});
 		const subscribe = window.omp.events.onTabStatus;

@@ -39,6 +39,8 @@ import type { IpcSidecarStatusPayload, IpcTabInfo, IpcTabStatusPayload } from ".
 import { TurnStatusRow } from "../components/chat/TranscriptViewport";
 import { useAgentViewStore } from "../stores/agent-view";
 import { useSubagentsStore } from "../stores/subagents";
+import { useSessionTabs, useTabsStore } from "../stores/tabs";
+import { hydrateSession, recoverReadySession, useRpcEvents } from "./use-rpc-events";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -1244,6 +1246,26 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
 	});
 
+	it("joins the full ready prelude before boot fallback recovery", async () => {
+		const { omp } = installMockOmp();
+		const tabs = Promise.withResolvers<IpcTabInfo[]>();
+		const pendingOpen = Promise.withResolvers<unknown>();
+		omp.tabs.list.mockReturnValue(tabs.promise);
+		omp.sidecar.getStatus.mockResolvedValue({ status: "ready", cwd: "/alpha" });
+		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
+		await mount(<RpcEventsAndTabsProbe />);
+		tabs.resolve([{ tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", kind: "agent" }]);
+		await flush();
+		await flush();
+
+		expect(omp.rpc.getMessages).not.toHaveBeenCalled();
+		pendingOpen.resolve("/boot-pending.jsonl");
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/boot-pending.jsonl");
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+	});
+
 	it("retries a stale pending consumer restored after an A-to-B-to-A route cycle", async () => {
 		const { omp, emitTabStatus } = installMockOmp();
 		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
@@ -1278,6 +1300,43 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 
 		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/aba.jsonl");
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+	});
+
+	it("retries a restored pending consumer when its stale reply rejects after an A-to-B-to-A route cycle", async () => {
+		const { omp, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+					pendingSessionPath: "/aba-rejected.jsonl",
+				},
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		const oldState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise);
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready" });
+		});
+		await flush();
+		await useTabsStore.getState().switchTab("t1");
+		await useTabsStore.getState().switchTab("t0");
+		omp.rpc.switchSession.mockClear();
+		oldState.reject(new Error("stale state unavailable"));
+		await flush();
+
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/aba-rejected.jsonl");
 		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
 	});
 
