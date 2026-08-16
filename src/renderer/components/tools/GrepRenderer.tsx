@@ -6,6 +6,7 @@ import { PathLink } from "./PathLink";
 import type { ToolRendererProps } from "./ToolCard";
 
 const MAX_MATCHES = GREP_PREVIEW_MATCHES;
+const PREVIEW_MATCHES = 2;
 
 // The grep tool result carries structured details (matches/files/truncated/
 // scope) plus a `displayContent` body in the shared grouped-file format:
@@ -147,7 +148,7 @@ function HighlightedContent({ content, pattern }: { content: string; pattern: st
 }
 
 /** Grep: match/file counts + truncation meta, grouped per-file match list. */
-export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRendererProps) {
+export function GrepRenderer({ args, result, isPartial, partialResult, view }: ToolRendererProps) {
 	const t = useT();
 	const pattern = typeof args.pattern === "string" ? args.pattern : "";
 	const effective = isPartial ? partialResult : result;
@@ -168,20 +169,21 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 	const truncated = details?.truncated === true || details?.truncation != null;
 	const scope = typeof details?.scopePath === "string" ? details.scopePath : undefined;
 
-	// Cap rendered rows — matches AND context/gap lines: a large context
-	// setting (or context-only groups) previously appended unbounded rows
-	// after the last budgeted match. Once the budget is spent, drop whole
-	// remaining groups rather than leaving orphaned context lines.
-	let budget = MAX_MATCHES;
+	// Cap rendered match lines; the truncation meta covers the rest. Once the
+	// budget is spent, drop whole remaining groups rather than leaving
+	// orphaned context lines.
+	let budget = view === "preview" ? PREVIEW_MATCHES : MAX_MATCHES;
 	let shown = 0;
 	const renderedGroups: FileGroup[] = [];
 	for (const group of groups) {
 		if (budget <= 0) break;
 		const lines: FrameLine[] = [];
 		for (const line of group.lines) {
-			if (budget <= 0) break;
-			if (line.kind === "match") shown++;
-			budget--;
+			if (line.kind === "match") {
+				if (budget <= 0) break;
+				budget--;
+				shown++;
+			}
 			lines.push(line);
 		}
 		if (lines.length > 0) renderedGroups.push({ ...group, lines });

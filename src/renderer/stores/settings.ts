@@ -45,6 +45,7 @@ interface SettingsStore {
 	pasteMenuThreshold: number;
 	/** Agent `emojiAutocomplete` setting: `:name:`/emoticon completion and expansion in the composer. */
 	emojiAutocomplete: boolean;
+	mcpRenderMarkdownResults: boolean;
 	setFromState: (state: RpcSessionState) => void;
 	setApprovalMode: (mode: ApprovalMode) => void;
 	/** Re-read the live display settings via get_settings. */
@@ -88,6 +89,7 @@ const initialState = {
 	pasteMenuThreshold: 100,
 	// Schema default (settings-schema.ts emojiAutocomplete): on.
 	emojiAutocomplete: true,
+	mcpRenderMarkdownResults: true,
 };
 
 /** Read the live tools.approvalMode config setting into the store. */
@@ -127,6 +129,7 @@ const DISPLAY_BOOL_MAP: Record<
 	| "tuiTight"
 	| "colorBlindMode"
 	| "emojiAutocomplete"
+	| "mcpRenderMarkdownResults"
 > = {
 	hideThinkingBlock: "hideThinkingBlock",
 	proseOnlyThinking: "proseOnlyThinking",
@@ -141,6 +144,7 @@ const DISPLAY_BOOL_MAP: Record<
 	"tui.tight": "tuiTight",
 	colorBlindMode: "colorBlindMode",
 	emojiAutocomplete: "emojiAutocomplete",
+	"mcp.renderMarkdownResults": "mcpRenderMarkdownResults",
 };
 const DISPLAY_SYNC_KEYS = Object.keys(DISPLAY_BOOL_MAP);
 

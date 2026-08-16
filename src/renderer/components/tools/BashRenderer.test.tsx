@@ -43,6 +43,7 @@ describe("BashRenderer", () => {
 	it("renders SGR-colored output as styled spans instead of raw escapes", async () => {
 		await mount(
 			<BashRenderer
+				view="expanded"
 				args={{ command: "vitest run" }}
 				result={bashResult("\x1b[32m✓ 12 passed\x1b[0m, \x1b[31m✗ 1 failed\x1b[0m")}
 			/>,
@@ -56,6 +57,7 @@ describe("BashRenderer", () => {
 	it("strips the exit-code trailer and restates it as a stats line", async () => {
 		await mount(
 			<BashRenderer
+				view="expanded"
 				args={{ command: "false" }}
 				result={bashResult("boom output\nCommand exited with code 1", { exitCode: 1, wallTimeMs: 420 })}
 				isError
@@ -70,6 +72,7 @@ describe("BashRenderer", () => {
 	it("strips the background-job trailer and restates the job id", async () => {
 		await mount(
 			<BashRenderer
+				view="expanded"
 				args={{ command: "npm run dev" }}
 				result={bashResult("server ready\nBackgrounded as job bg-7; result will be delivered automatically.", {
 					async: { state: "running", jobId: "bg-7" },
@@ -86,6 +89,7 @@ describe("BashRenderer", () => {
 		// sits mid-body — an end-anchored strip would leak it into the output.
 		await mount(
 			<BashRenderer
+				view="expanded"
 				args={{ command: "sleep 1" }}
 				result={bashResult(
 					"done\n\nWall time: 0.42 seconds\nTimeout clamped to 5s (requested 999s; allowed range 5-3600s).\n\nCommand exited with code 2",
@@ -106,6 +110,7 @@ describe("BashRenderer", () => {
 		// in details, so printed lookalikes remain ordinary command output.
 		await mount(
 			<BashRenderer
+				view="expanded"
 				args={{ command: "huge-output" }}
 				result={bashResult("tail of output\nCommand exited with code 1\n[raw output: artifact://42]", {
 					exitCode: 1,
@@ -123,7 +128,7 @@ describe("BashRenderer", () => {
 	});
 
 	it("keeps plain output as a single text node (no span explosion)", async () => {
-		await mount(<BashRenderer args={{ command: "ls" }} result={bashResult("a\nb\nc")} />);
+		await mount(<BashRenderer view="expanded" args={{ command: "ls" }} result={bashResult("a\nb\nc")} />);
 		expect(container.textContent).toContain("a\nb\nc");
 	});
 });

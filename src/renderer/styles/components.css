@@ -774,41 +774,105 @@
 	opacity: 0.55;
 }
 
-.omp-transcript-editorial .omp-tool-card {
-	margin: 0;
+.omp-tool-card[data-tool-shell] {
+	min-width: 0;
+	max-width: 100%;
+	color: var(--omp-text);
+	transition:
+		background-color var(--omp-motion-fast) var(--omp-ease),
+		border-color var(--omp-motion-fast) var(--omp-ease),
+		box-shadow var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-tool-card[data-tool-shell] .omp-tool-header {
+	min-width: 0;
+	cursor: pointer;
+	transition:
+		background-color var(--omp-motion-fast) var(--omp-ease),
+		color var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-tool-card[data-tool-shell] .omp-tool-header:focus-visible {
+	outline: 2px solid var(--omp-input-focus-border);
+	outline-offset: -2px;
+}
+
+.omp-tool-card[data-tool-shell] .omp-tool-summary {
+	min-width: 0;
+	flex: 1 1 12rem;
+	overflow-wrap: anywhere;
+	white-space: normal;
+}
+
+.omp-tool-card[data-tool-shell] .omp-tool-chevron {
+	opacity: 0.68;
+	transition:
+		color var(--omp-motion-fast) var(--omp-ease),
+		opacity var(--omp-motion-fast) var(--omp-ease),
+		transform var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-tool-card[data-tool-shell] .omp-tool-header:hover .omp-tool-chevron,
+.omp-tool-card[data-tool-shell] .omp-tool-header:focus-visible .omp-tool-chevron {
+	color: var(--omp-text);
+	opacity: 1;
+}
+
+.omp-tool-card[data-tool-shell][data-tool-status="running"] .omp-tool-name {
+	color: var(--omp-accent);
+}
+
+.omp-tool-card[data-tool-shell][data-tool-status="error"] .omp-tool-name,
+.omp-tool-card[data-tool-shell][data-tool-error="true"] .omp-tool-name {
+	color: var(--omp-error);
+}
+
+.omp-tool-card[data-tool-shell="compact"] {
+	margin-block: 2px;
+	overflow: visible;
 	border: 0;
 	border-radius: 0;
 	background: transparent !important;
 	box-shadow: none !important;
 }
 
-.omp-transcript-editorial .omp-tool-card > span[aria-hidden] {
-	display: none;
+.omp-tool-card[data-tool-shell="compact"] > span[aria-hidden] {
+	inset-block: 6px;
+	height: auto;
+	border-radius: 999px;
 }
 
-.omp-transcript-editorial .omp-tool-header {
+.omp-tool-card[data-tool-shell="compact"] .omp-tool-header {
 	min-height: 30px;
-	padding: 4px 0;
+	flex-wrap: wrap;
+	gap: 4px 8px;
+	border-radius: 7px;
+	padding: 4px 6px 4px 14px;
 	font-size: 12px;
 }
 
-.omp-transcript-editorial .omp-tool-header:hover {
-	background: color-mix(in srgb, var(--omp-selected-bg) 28%, transparent);
+.omp-tool-card[data-tool-shell="compact"] .omp-tool-header:hover {
+	background: color-mix(in srgb, var(--omp-selected-bg) 36%, transparent);
 }
 
-.omp-transcript-editorial .omp-tool-name {
+.omp-tool-card[data-tool-shell="compact"][data-tool-status="error"] .omp-tool-header:hover,
+.omp-tool-card[data-tool-shell="compact"][data-tool-error="true"] .omp-tool-header:hover {
+	background: color-mix(in srgb, var(--omp-tool-error-bg) 72%, transparent);
+}
+
+.omp-tool-card[data-tool-shell="compact"] .omp-tool-name {
 	min-width: 42px;
 	font-size: 12px;
 	font-weight: 700;
 	letter-spacing: 0;
 }
 
-.omp-transcript-editorial .omp-tool-summary {
+.omp-tool-card[data-tool-shell="compact"] .omp-tool-summary {
 	font-size: 11.5px;
 	color: var(--omp-muted);
 }
 
-.omp-transcript-editorial .omp-tool-duration {
+.omp-tool-card[data-tool-shell="compact"] .omp-tool-duration {
 	min-width: 44px;
 	border-radius: 0;
 	background: transparent;
@@ -818,20 +882,111 @@
 	color: var(--omp-muted);
 }
 
-.omp-transcript-editorial .omp-tool-chevron {
-	opacity: 0;
+.omp-tool-card[data-tool-shell="compact"] .omp-tool-body {
+	min-width: 0;
+	margin-left: 14px;
+	border: 0;
+	padding: 4px 6px 8px 12px;
 }
 
-.omp-transcript-editorial .omp-tool-header:hover .omp-tool-chevron,
-.omp-transcript-editorial .omp-tool-header:focus-visible .omp-tool-chevron {
-	opacity: 1;
+.omp-tool-card[data-tool-shell="compact"] .omp-tool-header[aria-expanded="false"] + .omp-tool-body {
+	max-height: 12rem;
+	overflow: auto;
+	overscroll-behavior: contain;
+	scrollbar-gutter: stable;
 }
 
-.omp-transcript-editorial .omp-tool-body {
-	border-top: 0;
+.omp-tool-card[data-tool-shell="compact"] .omp-tool-header[aria-expanded="true"] + .omp-tool-body {
+	max-height: none;
+	overflow: visible;
+}
+
+.omp-tool-card[data-tool-shell="framed"] {
+	overflow: hidden;
+	border: 1px solid var(--omp-border-muted);
+	border-radius: 10px;
+	background: var(--omp-tool-success-bg);
+	box-shadow: var(--omp-shadow-sm);
+}
+
+.omp-tool-card[data-tool-shell="framed"][data-tool-status="running"] {
+	border-color: var(--omp-border-accent);
+	background: var(--omp-tool-pending-bg);
+	box-shadow: var(--omp-shadow-glow);
+}
+
+.omp-tool-card[data-tool-shell="framed"][data-tool-status="error"],
+.omp-tool-card[data-tool-shell="framed"][data-tool-error="true"] {
+	border-color: color-mix(in srgb, var(--omp-error) 44%, var(--omp-border-muted));
+	background: var(--omp-tool-error-bg);
+}
+
+.omp-tool-card[data-tool-shell="framed"] .omp-tool-header {
+	min-height: 34px;
+	flex-wrap: wrap;
+	gap: 4px 8px;
+	padding: 8px 10px 8px 14px;
+}
+
+.omp-tool-card[data-tool-shell="framed"] .omp-tool-header:hover {
+	background: color-mix(in srgb, var(--omp-selected-bg) 48%, transparent);
+}
+
+.omp-tool-card[data-tool-shell="framed"] .omp-tool-body {
 	min-width: 0;
 	overflow-x: auto;
-	padding: 8px 0 12px 22px;
+	border-top: 1px solid color-mix(in srgb, var(--omp-border-muted) 70%, transparent);
+	padding: 10px 14px;
+}
+
+.omp-tool-card[data-tool-shell="domain"] {
+	overflow: visible;
+	border: 0;
+	border-radius: 0;
+	background: transparent !important;
+	box-shadow: none !important;
+}
+
+.omp-tool-card[data-tool-shell="domain"] > span[aria-hidden] {
+	inset-block: 6px auto;
+	height: 18px;
+	border-radius: 999px;
+}
+
+.omp-tool-card[data-tool-shell="domain"] .omp-tool-header {
+	min-height: 30px;
+	flex-wrap: wrap;
+	gap: 4px 8px;
+	border-radius: 7px;
+	padding: 4px 6px 4px 14px;
+}
+
+.omp-tool-card[data-tool-shell="domain"] .omp-tool-header:hover {
+	background: color-mix(in srgb, var(--omp-selected-bg) 36%, transparent);
+}
+
+.omp-tool-card[data-tool-shell="domain"] .omp-tool-body {
+	min-width: 0;
+	overflow: visible;
+	border: 0;
+	padding: 4px 0 0;
+}
+
+@media (max-width: 640px) {
+	.omp-tool-card[data-tool-shell] .omp-tool-summary {
+		order: 2;
+		flex-basis: calc(100% - 20px);
+		margin-left: 20px;
+	}
+
+	.omp-tool-card[data-tool-shell="compact"] .omp-tool-body {
+		margin-left: 10px;
+		padding-left: 10px;
+	}
+
+	.omp-tool-card[data-tool-shell="framed"] .omp-tool-body {
+		padding-inline: 10px;
+	}
 }
 
 .omp-transcript-editorial .omp-execution-turn,

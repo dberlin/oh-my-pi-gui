@@ -28,14 +28,17 @@ import type {
 } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
+	AgentSessionEvent,
 	ModelInfo,
 	RpcResponse,
 	RpcSessionState,
 	SubagentSnapshot,
 	TodoPhase,
+	ToolCallContent,
 } from "../../shared/rpc-types";
 import { buildSubagentList } from "../components/chat/activity/agent-tree-model";
 import { recoverReadySession } from "../hooks/use-rpc-events";
+import { resolveMainToolCall } from "../lib/read-group";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useAgentViewStore } from "./agent-view";
 import { useComposerStore } from "./composer";
@@ -650,6 +653,136 @@ describe("tabs store switch", () => {
 		expect(useComposerStore.getState().images[0]?.content.data).toBe("image-t1");
 		expect(usePlanApprovalStore.getState().pending?.planContent).toBe("plan-t1");
 		expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["ui-t1"]);
+	});
+
+	it("restores the current tool projection generation and repeated-id routing with its tab bundle", async () => {
+		seedTabs();
+		const historicalCall: ToolCallContent = {
+			type: "toolCall",
+			id: "read:0",
+			name: "read",
+			arguments: { path: "/history" },
+		};
+		const historicalMessages: AgentMessage[] = [
+			{ role: "assistant", content: [historicalCall], timestamp: 1 },
+			{
+				role: "toolResult",
+				toolCallId: historicalCall.id,
+				toolName: historicalCall.name,
+				content: [{ type: "text", text: "historical output" }],
+				isError: false,
+				timestamp: 2,
+			},
+		];
+		const liveCall: ToolCallContent = {
+			type: "toolCall",
+			id: historicalCall.id,
+			name: "read",
+			arguments: { path: "/live" },
+		};
+		const liveMessage: AgentMessage = { role: "assistant", content: [liveCall] };
+		const liveStart: AgentSessionEvent = { type: "message_start", message: liveMessage };
+		const liveEnd: AgentSessionEvent = { type: "message_end", message: liveMessage };
+		const deserializedAMessages = JSON.parse(JSON.stringify([...historicalMessages, liveMessage])) as AgentMessage[];
+
+		useMessagesStore.getState().reconcileFetched(historicalMessages);
+		useToolsStore.getState().hydrateMessages(historicalMessages);
+		useMessagesStore.getState().applyEvents([liveStart, liveEnd]);
+		useToolsStore.getState().applyEvents([liveStart, liveEnd]);
+		useSessionStore.setState({ isStreaming: true, status: "ready" });
+
+		omp.rpc.getState
+			.mockResolvedValueOnce(ok(serverState()))
+			.mockResolvedValueOnce(ok(serverState({ isStreaming: true })));
+		omp.rpc.getMessages
+			.mockResolvedValueOnce(ok({ messages: [] }))
+			.mockResolvedValueOnce(ok({ messages: deserializedAMessages }));
+		await useTabsStore.getState().switchTab("t1");
+		await useTabsStore.getState().switchTab("t0");
+
+		const restoredCalls = useMessagesStore
+			.getState()
+			.messages.flatMap(message =>
+				message.role === "assistant" && Array.isArray(message.content)
+					? message.content.filter((block): block is ToolCallContent => block.type === "toolCall")
+					: [],
+			);
+		const restoredHistoricalCall = restoredCalls.find(call => call.arguments.path === "/history");
+		const restoredLiveCall = restoredCalls.find(call => call.arguments.path === "/live");
+		expect(restoredHistoricalCall).toEqual(historicalCall);
+		expect(restoredHistoricalCall).not.toBe(historicalCall);
+		expect(restoredLiveCall).toEqual(liveCall);
+		expect(restoredLiveCall).not.toBe(liveCall);
+
+		const restoredTools = useToolsStore.getState();
+		const restoredHistorical = resolveMainToolCall(restoredHistoricalCall!);
+		const restoredLive = resolveMainToolCall(restoredLiveCall!);
+		expect(restoredTools.streamGeneration).toBe(1);
+		expect(restoredTools.activeTools).toHaveLength(2);
+		expect(restoredHistorical.entry).toMatchObject({
+			args: { path: "/history" },
+			status: "done",
+			streamGeneration: 0,
+			result: {
+				content: [{ type: "text", text: "historical output" }],
+				details: null,
+			},
+		});
+		expect(restoredHistorical.entry?.streamGeneration).not.toBe(restoredTools.streamGeneration);
+		expect(restoredLive.entry).toMatchObject({
+			args: { path: "/live" },
+			status: "pending",
+			streamGeneration: 1,
+		});
+		expect(restoredHistorical.key).not.toBe(restoredLive.key);
+
+		useToolsStore.getState().applyEvents([
+			{
+				type: "tool_execution_start",
+				toolCallId: restoredLiveCall!.id,
+				toolName: restoredLiveCall!.name,
+				args: restoredLiveCall!.arguments,
+			},
+			{
+				type: "tool_execution_update",
+				toolCallId: restoredLiveCall!.id,
+				toolName: restoredLiveCall!.name,
+				args: restoredLiveCall!.arguments,
+				partialResult: { bytes: 12 },
+			},
+			{
+				type: "tool_execution_end",
+				toolCallId: restoredLiveCall!.id,
+				toolName: restoredLiveCall!.name,
+				result: "live final output",
+				isError: false,
+			},
+		]);
+		const settledAfterRestore = useToolsStore.getState();
+		const settledHistorical = resolveMainToolCall(restoredHistoricalCall!);
+		const settledLive = resolveMainToolCall(restoredLiveCall!);
+
+		expect(settledAfterRestore.streamGeneration).toBe(1);
+		expect(settledAfterRestore.activeTools).toHaveLength(2);
+		expect(settledHistorical.key).toBe(restoredHistorical.key);
+		expect(settledHistorical.entry).toMatchObject({
+			args: { path: "/history" },
+			status: "done",
+			partialResult: null,
+			streamGeneration: 0,
+			result: {
+				content: [{ type: "text", text: "historical output" }],
+				details: null,
+			},
+		});
+		expect(settledLive.key).toBe(restoredLive.key);
+		expect(settledLive.entry).toMatchObject({
+			args: { path: "/live" },
+			status: "done",
+			partialResult: { bytes: 12 },
+			result: "live final output",
+			streamGeneration: 1,
+		});
 	});
 
 	it("isolates transcript tool-call ownership across tab switches with reused ids", async () => {

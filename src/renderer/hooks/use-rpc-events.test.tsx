@@ -12,6 +12,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { IpcSidecarStatusPayload, IpcTabInfo, IpcTabStatusPayload } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
 	AgentSessionEvent,
@@ -20,26 +21,25 @@ import type {
 	ModelCatalogUpdateFrame,
 	PromptResultFrame,
 	RpcResponse,
+	RpcSessionState,
 	SessionInfoUpdateFrame,
-	TodoPhase,
 	SubagentFrame,
 	SubagentSnapshot,
-	RpcSessionState,
+	TodoPhase,
+	ToolCallContent,
 } from "../../shared/rpc-types";
+import { TurnStatusRow } from "../components/chat/TranscriptViewport";
 import { I18nProvider } from "../lib/i18n";
+import { useAgentViewStore } from "../stores/agent-view";
 import { useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
-import { useToastStore } from "../stores/toast";
-import { useTodoStore } from "../stores/todo";
-import { useToolsStore } from "../stores/tools";
-
-import type { IpcSidecarStatusPayload, IpcTabInfo, IpcTabStatusPayload } from "../../shared/ipc-types";
-import { TurnStatusRow } from "../components/chat/TranscriptViewport";
-import { useAgentViewStore } from "../stores/agent-view";
 import { useSubagentsStore } from "../stores/subagents";
 import { useSessionTabs, useTabsStore } from "../stores/tabs";
+import { useToastStore } from "../stores/toast";
+import { useTodoStore } from "../stores/todo";
+import { toolEntryKey, useToolsStore } from "../stores/tools";
 import { hydrateSession, recoverReadySession, useRpcEvents } from "./use-rpc-events";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -101,7 +101,6 @@ type SidecarStatusHandler = (payload: IpcSidecarStatusPayload) => void;
 type SubagentFrameHandler = (frame: SubagentFrame) => void;
 type TabStatusHandler = (payload: IpcTabStatusPayload) => void;
 type ModelCatalogUpdateHandler = (frame: ModelCatalogUpdateFrame) => void;
-
 interface MockOmp {
 	tabs: {
 		list: Mock<() => Promise<IpcTabInfo[]>>;
@@ -1701,6 +1700,7 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		});
 	});
 });
+
 describe("useRpcEvents thinking selection sync", () => {
 	it("replaces a stale auto selector when an explicit level event omits configured", async () => {
 		const { emitBatch } = installMockOmp();
@@ -2360,5 +2360,335 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		expect(messages.streamingText).toBe("partial reply");
 		expect(messages.streamingThinking).toBe("partial thinking");
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
+	});
+
+	it("excludes restored completed repeated-id entries that merely share the live stream generation", async () => {
+		const { omp, emitBatch } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+
+		const callId = "read:restored-repeated";
+		const restoredOldCall: ToolCallContent = {
+			type: "toolCall",
+			id: callId,
+			name: "read",
+			arguments: { path: "/restored-old" },
+		};
+		const restoredStaleCall: ToolCallContent = {
+			type: "toolCall",
+			id: callId,
+			name: "read",
+			arguments: { path: "/restored-stale" },
+		};
+		await act(async () => {
+			emitBatch([
+				{ type: "message_start", message: { role: "assistant", content: [], timestamp: 1 } },
+				{
+					type: "message_end",
+					message: { role: "assistant", content: [restoredOldCall, restoredStaleCall], timestamp: 1 },
+				},
+				{
+					type: "tool_execution_start",
+					toolCallId: callId,
+					toolName: "read",
+					args: restoredOldCall.arguments,
+				},
+				{
+					type: "tool_execution_end",
+					toolCallId: callId,
+					toolName: "read",
+					result: "restored old result",
+					isError: false,
+				},
+				{
+					type: "tool_execution_start",
+					toolCallId: callId,
+					toolName: "read",
+					args: restoredStaleCall.arguments,
+				},
+				{
+					type: "tool_execution_end",
+					toolCallId: callId,
+					toolName: "read",
+					result: "restored stale result",
+					isError: false,
+				},
+			]);
+		});
+		expect(useToolsStore.getState().streamGeneration).toBe(1);
+
+		const messages = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockResolvedValue(success({ ...sessionState(), isStreaming: true, messageCount: 3 }));
+		omp.rpc.getMessages.mockReturnValue(messages.promise);
+		const freshOldCall: ToolCallContent = {
+			type: "toolCall",
+			id: callId,
+			name: "read",
+			arguments: { path: "/fresh-old" },
+		};
+		const liveEventCall: ToolCallContent = {
+			type: "toolCall",
+			id: callId,
+			name: "read",
+			arguments: { path: "/live" },
+		};
+		const freshLiveCall: ToolCallContent = {
+			type: "toolCall",
+			id: callId,
+			name: "read",
+			arguments: { path: "/live" },
+		};
+		const fetched: AgentMessage[] = [
+			{ role: "assistant", content: [freshOldCall], timestamp: 2 },
+			{
+				role: "toolResult",
+				toolCallId: callId,
+				toolName: "read",
+				content: [{ type: "text", text: "fresh old result" }],
+				isError: false,
+				timestamp: 3,
+			},
+			{ role: "assistant", content: [freshLiveCall], timestamp: 4 },
+		];
+
+		const hydration = hydrateSession();
+		await act(async () => {
+			emitBatch([
+				{
+					type: "message_end",
+					message: { role: "assistant", content: [liveEventCall], timestamp: 4 },
+				},
+				{
+					type: "tool_execution_start",
+					toolCallId: callId,
+					toolName: "read",
+					args: liveEventCall.arguments,
+				},
+			]);
+		});
+
+		messages.resolve(success({ messages: fetched }));
+		await hydration;
+
+		const oldKey = toolEntryKey(freshOldCall);
+		const liveKey = toolEntryKey(freshLiveCall);
+		expect(liveKey).not.toBe(oldKey);
+		expect(useToolsStore.getState().activeTools).toHaveLength(2);
+		expect(useToolsStore.getState().activeTools.get(oldKey)).toMatchObject({
+			args: { path: "/fresh-old" },
+			status: "done",
+			result: {
+				content: [{ type: "text", text: "fresh old result" }],
+				details: null,
+			},
+		});
+		expect(useToolsStore.getState().activeTools.get(liveKey)).toMatchObject({
+			args: { path: "/live" },
+			status: "running",
+			result: null,
+		});
+
+		await act(async () => {
+			emitBatch([
+				{
+					type: "tool_execution_update",
+					toolCallId: callId,
+					toolName: "read",
+					args: liveEventCall.arguments,
+					partialResult: { bytes: 17 },
+				},
+				{
+					type: "tool_execution_end",
+					toolCallId: callId,
+					toolName: "read",
+					result: { content: "exact live result" },
+					isError: false,
+				},
+			]);
+		});
+
+		expect(useToolsStore.getState().activeTools.get(oldKey)).toMatchObject({
+			args: { path: "/fresh-old" },
+			status: "done",
+		});
+		expect(useToolsStore.getState().activeTools.get(liveKey)).toMatchObject({
+			args: { path: "/live" },
+			status: "done",
+			partialResult: { bytes: 17 },
+			result: { content: "exact live result" },
+		});
+	});
+
+	it("keeps a generation-zero tool settled when all live events beat cold hydration", async () => {
+		const { omp, emitBatch } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+
+		const messages = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockResolvedValue(success({ ...sessionState(), isStreaming: true, messageCount: 1 }));
+		omp.rpc.getMessages.mockReturnValue(messages.promise);
+		const liveEventCall: ToolCallContent = {
+			type: "toolCall",
+			id: "read:cold-attach",
+			name: "read",
+			arguments: { path: "/cold-live" },
+		};
+		const freshLiveCall: ToolCallContent = {
+			type: "toolCall",
+			id: liveEventCall.id,
+			name: liveEventCall.name,
+			arguments: liveEventCall.arguments,
+		};
+
+		const hydration = hydrateSession();
+		await act(async () => {
+			emitBatch([
+				{
+					type: "message_end",
+					message: { role: "assistant", content: [liveEventCall], timestamp: 1 },
+				},
+				{
+					type: "tool_execution_start",
+					toolCallId: liveEventCall.id,
+					toolName: liveEventCall.name,
+					args: liveEventCall.arguments,
+				},
+				{
+					type: "tool_execution_end",
+					toolCallId: liveEventCall.id,
+					toolName: liveEventCall.name,
+					result: { content: "exact cold live result" },
+					isError: false,
+				},
+			]);
+		});
+		expect(useToolsStore.getState().streamGeneration).toBe(0);
+
+		messages.resolve(
+			success({
+				messages: [{ role: "assistant", content: [freshLiveCall], timestamp: 1 }],
+			}),
+		);
+		await hydration;
+
+		const liveKey = toolEntryKey(freshLiveCall);
+		expect(useToolsStore.getState().activeTools).toHaveLength(1);
+		expect(useToolsStore.getState().activeTools.get(liveKey)).toMatchObject({
+			args: { path: "/cold-live" },
+			status: "done",
+			result: { content: "exact cold live result" },
+			isError: false,
+		});
+	});
+
+	it("rebases an in-flight repeated tool occurrence onto freshly hydrated messages", async () => {
+		const { omp, emitBatch } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
+		await mount(<RpcEventsProbe />);
+
+		const messages = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockResolvedValue(success({ ...sessionState(), isStreaming: true, messageCount: 3 }));
+		omp.rpc.getMessages.mockReturnValue(messages.promise);
+
+		const historicalCall: ToolCallContent = {
+			type: "toolCall",
+			id: "read:repeated",
+			name: "read",
+			arguments: { path: "historical" },
+		};
+		const liveEventCall: ToolCallContent = {
+			type: "toolCall",
+			id: "read:repeated",
+			name: "read",
+			arguments: { path: "live" },
+		};
+		const freshLiveCall: ToolCallContent = {
+			type: "toolCall",
+			id: "read:repeated",
+			name: "read",
+			arguments: { path: "live" },
+		};
+		const fetched: AgentMessage[] = [
+			{ role: "assistant", content: [historicalCall], timestamp: 1 },
+			{
+				role: "toolResult",
+				toolCallId: "read:repeated",
+				toolName: "read",
+				content: [{ type: "text", text: "historical result" }],
+				isError: false,
+				timestamp: 2,
+			},
+			{ role: "assistant", content: [freshLiveCall], timestamp: 3 },
+		];
+
+		const hydration = hydrateSession();
+		await act(async () => {
+			emitBatch([
+				{ type: "message_start", message: { role: "assistant", content: [], timestamp: 3 } },
+				{ type: "message_end", message: { role: "assistant", content: [liveEventCall], timestamp: 3 } },
+				{
+					type: "tool_execution_start",
+					toolCallId: "read:repeated",
+					toolName: "read",
+					args: { path: "live" },
+				},
+			]);
+		});
+		expect(useToolsStore.getState().activeTools.get(toolEntryKey(liveEventCall))).toMatchObject({
+			status: "running",
+			args: { path: "live" },
+		});
+
+		messages.resolve(success({ messages: fetched }));
+		await hydration;
+
+		const historicalKey = toolEntryKey(historicalCall);
+		const liveKey = toolEntryKey(freshLiveCall);
+		expect(liveKey).not.toBe(historicalKey);
+		expect(useToolsStore.getState().activeTools).toHaveLength(2);
+		expect(useToolsStore.getState().activeTools.get(historicalKey)).toMatchObject({
+			status: "done",
+			result: {
+				content: [{ type: "text", text: "historical result" }],
+				details: null,
+			},
+		});
+		expect(useToolsStore.getState().activeTools.get(liveKey)).toMatchObject({
+			status: "running",
+			args: { path: "live" },
+			result: null,
+		});
+
+		await act(async () => {
+			emitBatch([
+				{
+					type: "tool_execution_update",
+					toolCallId: "read:repeated",
+					toolName: "read",
+					args: { path: "live" },
+					partialResult: { bytes: 12 },
+				},
+				{
+					type: "tool_execution_end",
+					toolCallId: "read:repeated",
+					toolName: "read",
+					result: { content: "live result" },
+					isError: false,
+				},
+			]);
+		});
+
+		expect(useToolsStore.getState().activeTools.get(historicalKey)).toMatchObject({
+			status: "done",
+			result: {
+				content: [{ type: "text", text: "historical result" }],
+				details: null,
+			},
+		});
+		expect(useToolsStore.getState().activeTools.get(liveKey)).toMatchObject({
+			status: "done",
+			partialResult: { bytes: 12 },
+			result: { content: "live result" },
+		});
 	});
 });

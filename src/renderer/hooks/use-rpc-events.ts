@@ -10,15 +10,17 @@ import {
 	type PromptResultFrame,
 	type RpcGoalState,
 	type RpcLoopModeState,
+	type RpcResponse,
 	type RpcSessionState,
 	type RpcVibeModeState,
 	type SessionInfoUpdateFrame,
 	type SubagentSnapshot,
 	type TodoPhase,
-	type RpcResponse,
 } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../lib/tab-routing";
+import { useAgentViewStore } from "../stores/agent-view";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { messageIdentityKey, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
@@ -26,16 +28,12 @@ import { usePlanApprovalStore } from "../stores/plan-approval";
 import { useQueueStore } from "../stores/queue";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
+import { historicalSubagentsFromMessages, useSubagentsStore } from "../stores/subagents";
+import { consumePendingSession, invalidatePendingSessionGeneration, useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
-
-import { useAgentViewStore } from "../stores/agent-view";
-
-import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../lib/tab-routing";
-import { historicalSubagentsFromMessages, useSubagentsStore } from "../stores/subagents";
-import { consumePendingSession, invalidatePendingSessionGeneration, useTabsStore } from "../stores/tabs";
 
 /**
  * Routine informational notice sources suppressed from the toast stack — they
@@ -325,7 +323,9 @@ async function hydrateSessionWithRoster(fallbackName?: string): Promise<boolean>
 	const beforeMessages = useMessagesStore.getState().messages;
 	const beforeRoster = useSubagentsStore.getState().subagents;
 	const beforeAgentViewGeneration = useAgentViewStore.getState().generation;
+	const hydrationStartToolEventRevision = useToolsStore.getState().snapshotProjection().toolEventRevision;
 	let hydratedMessages = beforeMessages;
+	let authoritativeStreaming = false;
 
 	const coreResult = Promise.allSettled([window.omp.rpc.getState(), window.omp.rpc.getMessages()]);
 	const subagentsResult = Promise.allSettled([window.omp.rpc.getSubagents()]);
@@ -353,6 +353,7 @@ async function hydrateSessionWithRoster(fallbackName?: string): Promise<boolean>
 
 	if (stateResult.status === "fulfilled" && stateResult.value.success && stateResult.value.data != null) {
 		const wire = stateResult.value.data as RpcSessionState;
+		authoritativeStreaming = wire.isStreaming;
 		applySessionState(wire, fallbackName);
 		// Mid-run attach (launch/reconnect/session switch while the agent is
 		// streaming) missed the agent_start that arms the status row — re-arm
@@ -402,7 +403,13 @@ async function hydrateSessionWithRoster(fallbackName?: string): Promise<boolean>
 				: fetched;
 		useMessagesStore.getState().reconcileFetched(merged);
 		hydratedMessages = useMessagesStore.getState().messages;
-		useToolsStore.getState().hydrateMessages(hydratedMessages);
+		const tools = useToolsStore.getState();
+		const currentToolEventRevision = tools.snapshotProjection().toolEventRevision;
+		if (authoritativeStreaming || currentToolEventRevision > hydrationStartToolEventRevision) {
+			tools.reconcileStreamingMessages(hydratedMessages, hydrationStartToolEventRevision, authoritativeStreaming);
+		} else {
+			tools.hydrateMessages(hydratedMessages);
+		}
 	}
 
 	// Subagents and secondary chips do not hold the transcript hostage. Their

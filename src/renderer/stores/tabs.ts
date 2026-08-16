@@ -20,20 +20,19 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import type {
+	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
 	IpcTabInfo,
 	IpcTabStatusPayload,
 	IpcTabWorktree,
 	SessionKind,
-	TabStatus,
 	SessionTarget,
-	IpcSpawnTabPayload,
+	TabStatus,
 } from "../../shared/ipc-types";
 import type {
 	ContextUsage,
 	ExtensionUIRequest,
 	ModelInfo,
-	ProviderDiscoveryState,
 	RpcLoopModeState,
 	RpcQueuedMessage,
 	RpcSessionState,
@@ -73,28 +72,8 @@ import { useSessionStore } from "./session";
 import { type SubagentNode, useSubagentsStore } from "./subagents";
 import { toast } from "./toast";
 import { type TodoSnapshot, type UiTodoPhase, useTodoStore } from "./todo";
-import { useToolsStore } from "./tools";
+import { type ToolProjection, useToolsStore } from "./tools";
 import { useUiStore } from "./ui";
-
-import { isSshSessionTarget, normalizeSessionTarget } from "../../shared/session-target";
-
-/**
- * Session tabs: in-window multi-session parallelism. Each tab owns a sidecar
- * in the main-process pool; every tab keeps running in the background while
- * exactly one is attached to this window's stores.
- *
- * Renderer-side pieces:
- * - The tab list (title/cwd/status/unreadDone) fed by GET_TABS boot
- *   unlike the full event channels which only forward the active tab's).
- * - switchTab: snapshot the current tab's session-scoped store slices into a
- *   SET_ACTIVE_TAB so main re-wires event routing, then hydrateSession for
- *   the authoritative pull. The bundle is what makes the switch instant and
- *   preserves the composer draft.
- *
- * Wire shapes (IpcTabInfo / IpcTabStatusPayload / IpcSpawnTabPayload) and the
- * main-process pool live in the main slice — this store only consumes
- * window.omp.tabs.* and window.omp.events.onTabStatus.
- */
 
 export interface SessionTab {
 	id: string;
@@ -158,15 +137,13 @@ interface ModelSlice {
 	fastModeActive: boolean;
 	tokensPerSecond: number | null;
 	availableModels: ModelInfo[];
-	discoveryStates: ProviderDiscoveryState[];
-	catalogRefreshPending: boolean;
-	catalogGeneration: number;
 }
 
 /** Per-tab bundle: every session-scoped store slice captured on switch-away. */
 interface SessionTabBundle {
 	session: SessionSlice;
 	messages: MessagesSnapshot;
+	tools: ToolProjection;
 	agentViewTarget: AgentViewTarget;
 	todos: {
 		phases: UiTodoPhase[];
@@ -195,9 +172,6 @@ const EMPTY_MODEL_SLICE: ModelSlice = {
 	fastModeActive: false,
 	tokensPerSecond: null,
 	availableModels: [],
-	discoveryStates: [],
-	catalogRefreshPending: false,
-	catalogGeneration: 0,
 };
 
 // IPC routing is window-global. Serialize switches so rapid tab clicks cannot
@@ -253,6 +227,7 @@ function captureBundle(): SessionTabBundle {
 			vibeModeEnabled: session.vibeModeEnabled,
 		},
 		messages: useMessagesStore.getState().snapshot(),
+		tools: useToolsStore.getState().snapshotProjection(),
 		agentViewTarget: useAgentViewStore.getState().target,
 		todos: {
 			phases: todos.phases,
@@ -275,9 +250,6 @@ function captureBundle(): SessionTabBundle {
 			fastModeActive: model.fastModeActive,
 			tokensPerSecond: model.tokensPerSecond,
 			availableModels: model.availableModels,
-			discoveryStates: model.discoveryStates,
-			catalogRefreshPending: model.catalogRefreshPending,
-			catalogGeneration: model.catalogGeneration,
 		},
 		composer: {
 			draft: composer.draft,
@@ -349,9 +321,7 @@ function restoreBundle(bundle: SessionTabBundle | null, tab: SessionTab | undefi
 		bundle?.planApproval ?? { pending: null, feedback: "", notice: null, submitting: null },
 	);
 	useExtensionUiStore.setState(bundle?.extensionUi ?? { pendingRequests: [], statusWidgets: {}, widgetPanels: {} });
-	// Tool cards derive from the transcript; rebuild them for the restored
-	// messages so the switch paints this tab's tools, not the previous tab's.
-	useToolsStore.getState().hydrateMessages(useMessagesStore.getState().messages);
+	useToolsStore.getState().restoreProjection(bundle?.tools ?? null);
 }
 const REMOTE_TAB_LABEL_COMPONENT_LIMIT = 64;
 

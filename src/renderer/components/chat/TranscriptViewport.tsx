@@ -40,6 +40,8 @@ import {
 	findConversationAnchorIndex,
 	type HistoryRow,
 	hasStreamingTranscriptContent,
+	isCurrentStreamToolEntry,
+	isTranscriptAtLiveEdge,
 	mergeTodoSnapshots,
 	messageTimestampMs,
 	type Row,
@@ -57,6 +59,7 @@ export interface TranscriptProjectionView {
 	streamingText: string;
 	streamingThinking: string;
 	activeTools: ReadonlyMap<string, ToolEntry>;
+	streamGeneration?: number;
 	resolveToolCall: ResolveToolCall;
 	transcriptDetail: TranscriptDetail;
 }
@@ -115,6 +118,7 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 		streamingMessage,
 		streamingText,
 		streamingThinking,
+		streamGeneration,
 		transcriptDetail,
 		transcriptId,
 	} = projection;
@@ -156,10 +160,7 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 			transcriptDetail,
 			resolveToolCall,
 		);
-		// Read-tool grouping (TUI parity) folds consecutive collapsible reads into
-		// one card — only in full mode; compact mode's ProcessGroup already folds
-		// ALL consecutive tool work, so a second fold would nest redundantly.
-		const grouped = transcriptDetail === "compact" ? built : (groupReadRows(built, resolveToolCall) as HistoryRow[]);
+		const grouped = groupReadRows(built, resolveToolCall) as HistoryRow[];
 		// Archived todo changes interleave by timestamp (Main transcript archive rows).
 		return isMain ? mergeTodoSnapshots(grouped, todoHistory) : grouped;
 	}, [messages, hiddenCount, transcriptDetail, todoHistory, resolveToolCall, isMain]);
@@ -172,6 +173,7 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 		hasStreamingText ? "x" : "",
 		hasStreamingThinking ? "x" : "",
 		activeTools,
+		streamGeneration,
 	);
 
 	// Main alone owns retry/compaction/model-wait status.
@@ -274,9 +276,9 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 		// Chat is an end-anchored feed. Keep the live edge stable while measured
 		// row heights replace estimates, and follow newly appended rows only while
 		// the viewport is already at that edge.
-		anchorTo: "end",
-		followOnAppend: true,
-		scrollEndThreshold: 80,
+		anchorTo: isMain ? (pinned ? "end" : "start") : "end",
+		followOnAppend: !isMain,
+		scrollEndThreshold: isMain ? 1 : 80,
 		// Row measurements can arrive while React is committing hydrated history.
 		// Async rerenders avoid react-dom flushSync re-entry and the stale compositor
 		// layers it produced on large transcripts.
@@ -320,24 +322,23 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 		if (!el || typeof ResizeObserver === "undefined") return;
 		const observer = new ResizeObserver(() => {
 			if (userScrollIntentRef.current) return;
-			const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-			if (distance < 80) virtualizer.scrollToEnd();
+			const atLiveEdge = isMain ? isTranscriptAtLiveEdge(el) : el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+			if (atLiveEdge) virtualizer.scrollToEnd();
 		});
 		observer.observe(el);
 		return () => observer.disconnect();
-	}, [pinned, virtualizer]);
+	}, [isMain, pinned, virtualizer]);
 
 	const handleScroll = useCallback(() => {
 		if (!userScrollIntentRef.current) return;
 		const el = parentRef.current;
 		if (!el) return;
-		const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-		const nextPinned = distanceFromBottom < 80;
+		const nextPinned = isMain ? isTranscriptAtLiveEdge(el) : el.scrollHeight - el.scrollTop - el.clientHeight < 80;
 		setPinned(nextPinned);
 		// Once the user reaches the live edge, subsequent layout growth belongs to
 		// the pinning system again until another explicit scroll gesture.
 		if (nextPinned) userScrollIntentRef.current = false;
-	}, []);
+	}, [isMain]);
 
 	const markUserScrollIntent = useCallback(() => {
 		userScrollIntentRef.current = true;
@@ -393,59 +394,63 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 						<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
 					</div>
 				)}
-				{main && rows.length === 0 && !isStreaming && !switchPending && (
-					<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
-						{remoteStartingTarget ? (
-							<div aria-live="polite">
-								<Loader2 size={28} className="mb-5 animate-spin text-[var(--omp-accent)]" />
-								<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
-									{t("remote.connection.connecting", { host: remoteStartingTarget.hostAlias })}
-								</h1>
-								<p className="mt-2 max-w-2xl font-mono text-omp-lg leading-relaxed text-[var(--omp-muted)]">
-									{remoteStartingTarget.cwd}
-								</p>
-							</div>
-						) : (
-							<>
-								<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)]">
-									<PiLogo size={22} />
+				{main &&
+					rows.length === 0 &&
+					!isStreaming &&
+					!switchPending &&
+					(status !== "starting" || remoteStartingTarget != null) && (
+						<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
+							{remoteStartingTarget ? (
+								<div aria-live="polite">
+									<Loader2 size={28} className="mb-5 animate-spin text-[var(--omp-accent)]" />
+									<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
+										{t("remote.connection.connecting", { host: remoteStartingTarget.hostAlias })}
+									</h1>
+									<p className="mt-2 max-w-2xl font-mono text-omp-lg leading-relaxed text-[var(--omp-muted)]">
+										{remoteStartingTarget.cwd}
+									</p>
 								</div>
-								<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
-									{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
-								</h1>
-								<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
-									{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
-								</p>
-								<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-									{starters.map(({ icon: Icon, title, prompt }) => (
-										<button
-											key={title}
-											type="button"
-											onClick={() =>
-												window.dispatchEvent(
-													new CustomEvent("omp:fill-composer", { detail: { text: prompt } }),
-												)
-											}
-											className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
-										>
-											<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
-												<Icon size={17} />
-											</span>
-											<span>
-												<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">
-													{title}
+							) : (
+								<>
+									<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)]">
+										<PiLogo size={22} />
+									</div>
+									<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
+										{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
+									</h1>
+									<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
+										{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
+									</p>
+									<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+										{starters.map(({ icon: Icon, title, prompt }) => (
+											<button
+												key={title}
+												type="button"
+												onClick={() =>
+													window.dispatchEvent(
+														new CustomEvent("omp:fill-composer", { detail: { text: prompt } }),
+													)
+												}
+												className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
+											>
+												<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
+													<Icon size={17} />
 												</span>
-												<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
-													{prompt}
+												<span>
+													<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">
+														{title}
+													</span>
+													<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
+														{prompt}
+													</span>
 												</span>
-											</span>
-										</button>
-									))}
-								</div>
-							</>
-						)}
-					</div>
-				)}
+											</button>
+										))}
+									</div>
+								</>
+							)}
+						</div>
+					)}
 				<div
 					className="omp-transcript-canvas"
 					style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}
@@ -483,15 +488,11 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 											usage={row.usage}
 										/>
 									) : row.kind === "process" ? (
-										<ProcessGroup
-											activeTools={activeTools}
-											readOnly={!isMain}
-											resolveToolCall={resolveToolCall}
-											row={row}
-										/>
+										<ProcessGroup readOnly={!isMain} resolveToolCall={resolveToolCall} row={row} />
 									) : row.kind === "streaming" ? (
 										<StreamingRows
 											activeTools={activeTools}
+											streamGeneration={streamGeneration}
 											resolveToolCall={resolveToolCall}
 											streamingMessage={streamingMessage}
 											streamingText={streamingText}
@@ -584,19 +585,17 @@ function TimelineMarker({
 	);
 }
 export function ProcessGroup({
-	activeTools,
 	readOnly = false,
 	resolveToolCall,
 	row,
 }: {
-	activeTools: ReadonlyMap<string, ToolEntry>;
 	readOnly?: boolean;
 	resolveToolCall?: ResolveToolCall;
 	row: Extract<HistoryRow, { kind: "process" }>;
 }) {
 	return (
 		<div className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
-			<ExecutionGroup activeTools={activeTools} stepCount={row.stepCount} toolCallIds={row.toolCallIds}>
+			<ExecutionGroup stepCount={row.stepCount}>
 				<div className="omp-process-group">
 					{row.messages.map((message, index) => (
 						<MessageBubble
@@ -628,9 +627,11 @@ export function StreamingRows({
 	streamingMessage,
 	streamingText,
 	streamingThinking,
+	streamGeneration,
 	transcriptDetail,
 }: {
 	activeTools: ReadonlyMap<string, ToolEntry>;
+	streamGeneration?: number;
 	resolveToolCall?: ResolveToolCall;
 	streamingMessage: AgentMessage | null;
 	streamingText: string;
@@ -645,8 +646,7 @@ export function StreamingRows({
 	// tool calls accumulate in the tools store (toolcall_delta → pending while
 	// args stream, tool_execution_start → running). Render those store entries
 	// as live cards; on message_end this row unmounts and MessageBubble takes
-	// over with the same toolCallIds. Entries from before this stream started
-	// (hydrated history that never finished) are excluded by start time.
+	// over with the same toolCallIds.
 	const streamStart = messageTimestampMs(streamingMessage);
 	const resolvedToolCalls = toolCalls.map(call => {
 		const resolved = resolveToolCall?.(call);
@@ -659,20 +659,15 @@ export function StreamingRows({
 		};
 	});
 	const contentIds = new Set(resolvedToolCalls.map(card => card.id));
-	const liveTools: Array<{ id: string; entry: ToolEntry }> = [];
+	const streamTools: Array<{ id: string; entry: ToolEntry }> = [];
 	for (const [id, entry] of activeTools) {
 		if (contentIds.has(id)) continue;
-		if (entry.status !== "pending" && entry.status !== "running") continue;
-		if (entry.startTime < streamStart) continue;
-		liveTools.push({ id, entry });
+		if (!isCurrentStreamToolEntry(entry, streamGeneration, streamStart)) continue;
+		streamTools.push({ id, entry });
 	}
 
 	const hasThinking = isRenderableMessageText(streamingThinking);
-	const hasProcess = hasThinking || toolCalls.length > 0 || liveTools.length > 0;
 
-	// Live read grouping (same predicate as the finalized path): consecutive
-	// collapsible reads fold into one ReadGroupCard even mid-turn. Compact
-	// detail keeps the same plain execution rows used by ProcessGroup.
 	const allCards: Array<{
 		id: string;
 		name: string;
@@ -681,15 +676,15 @@ export function StreamingRows({
 		entry?: ToolEntry;
 	}> = [
 		...resolvedToolCalls,
-		...liveTools.map(({ id, entry }) => ({
+		...streamTools.map(({ id, entry }) => ({
 			id,
 			name: entry.toolName,
 			args: entry.args as Record<string, unknown>,
 			entry,
 		})),
 	];
+	const hasToolCards = allCards.length > 0;
 	const groupedLiveCards = (() => {
-		if (transcriptDetail === "compact") return null;
 		const segments: Array<
 			{ type: "group"; entries: ReadGroupEntry[] } | { type: "card"; card: (typeof allCards)[number] }
 		> = [];
@@ -767,26 +762,19 @@ export function StreamingRows({
 
 	return (
 		<div className="omp-streaming-turn flex flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
-			{hasProcess ? (
-				<ExecutionGroup
-					activeTools={activeTools}
-					live
-					stepCount={toolCalls.length + liveTools.length + (hasThinking ? 1 : 0)}
-					toolCallIds={allCards.map(card => card.id)}
-				>
+			{hasThinking ? (
+				<ExecutionGroup live stepCount={1}>
 					<div className="omp-process-group omp-process-group--live">
-						{hasThinking ? (
-							<ThinkingBlock
-								live
-								streamingTextStarted={isRenderableMessageText(streamingText)}
-								text={streamingThinking}
-							/>
-						) : null}
-						{toolCalls.length + liveTools.length > 0 ? <div>{toolCards}</div> : null}
+						<ThinkingBlock
+							live
+							streamingTextStarted={isRenderableMessageText(streamingText)}
+							text={streamingThinking}
+						/>
 					</div>
 				</ExecutionGroup>
 			) : null}
-			<div className={hasProcess ? "mt-1" : undefined}>
+			{hasToolCards ? <div className={hasThinking ? "mt-1" : undefined}>{toolCards}</div> : null}
+			<div className={hasThinking || hasToolCards ? "mt-1" : undefined}>
 				<StreamingText text={streamingText} />
 			</div>
 		</div>
@@ -839,6 +827,7 @@ export function TurnStatusRow({
 
 	let iconClass = "";
 	let text: string;
+	let announcement: string;
 	let detail: string | null = null;
 	let slow = false;
 	let stalled = false;
@@ -854,6 +843,10 @@ export function TurnStatusRow({
 						seconds: remainingSeconds,
 					})
 				: t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
+		announcement = t("chat.retry.inflight", {
+			attempt: retryInfo.attempt,
+			maxAttempts: retryInfo.maxAttempts,
+		});
 		detail = retryInfo.errorMessage || null;
 	} else if (compactionInfo) {
 		const reason = compactionInfo.reason === "threshold" ? "" : t(`chat.compaction.reason.${compactionInfo.reason}`);
@@ -867,17 +860,22 @@ export function TurnStatusRow({
 						: "chat.compaction.action.default";
 		iconClass = "text-[var(--omp-accent)]";
 		text = `${reason}${t(actionKey)}…`;
+		announcement = text;
 	} else if (awaitingModelSince != null) {
 		const elapsedSeconds = Math.max(0, Math.floor((now - awaitingModelSince) / 1000));
 		slow = elapsedSeconds >= SLOW_RESPONSE_HINT_SECONDS;
 		stalled = elapsedSeconds >= STALLED_RESPONSE_HINT_SECONDS;
 		text = t("chat.awaitingModel", { seconds: elapsedSeconds });
+		announcement = t("chat.awaitingModel.announcement");
 	} else {
 		return null;
 	}
 
 	return (
 		<div className="omp-status-turn omp-fade-in flex flex-col gap-1 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-omp-lg text-[var(--omp-muted)]">
+			<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+				{announcement}
+			</span>
 			<div className="flex items-center gap-2.5">
 				<Loader2 size={14} className={cx("animate-spin shrink-0", iconClass)} />
 				<span>{text}</span>

@@ -193,7 +193,10 @@ export function applyMessageProjectionEvents(
 				break;
 			}
 			case "message_start": {
-				streamingStart = event.message;
+				streamingStart =
+					event.message.timestamp === undefined || event.message.timestamp === null
+						? { ...event.message, timestamp: Date.now() }
+						: event.message;
 				textAccum = "";
 				thinkAccum = "";
 				break;

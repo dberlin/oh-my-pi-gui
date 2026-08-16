@@ -11,7 +11,6 @@ import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import type { ResolveToolCall } from "../../lib/read-group";
 import { toast } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
-import { editArgumentSummary } from "../tools/edit-args";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -35,43 +34,6 @@ function messageEntryId(message: AgentMessage): string | undefined {
 		if (typeof v === "string" && v) return v;
 	}
 	return undefined;
-}
-
-function toolSummary(toolName: string, input: Record<string, unknown>): string {
-	const pick = (...keys: string[]): string | undefined => {
-		for (const k of keys) {
-			const v = input[k];
-			if (typeof v === "string" && v) return v;
-		}
-		return undefined;
-	};
-	switch (toolName) {
-		case "read":
-		case "write":
-			return pick("path", "file") ?? "";
-		case "edit":
-		case "apply_patch":
-			return editArgumentSummary(input);
-		case "bash":
-			return pick("command", "cmd") ?? "";
-		case "grep":
-			return pick("pattern") ?? "";
-		case "glob":
-			return pick("path", "pattern") ?? "";
-		case "task":
-			return pick("i", "name", "description") ?? "";
-		case "eval":
-			return pick("title", "language") ?? "";
-		case "goal":
-			return pick("objective", "op") ?? "";
-		case "resolve":
-		case "reject":
-			return pick("reason") ?? "";
-		case "web_search":
-			return pick("query", "i") ?? "";
-		default:
-			return pick("path", "name", "i") ?? "";
-	}
 }
 
 const COMPACTION_METHOD_KEYS: Record<string, string> = {
@@ -396,7 +358,6 @@ export const MessageBubble = memo(function MessageBubble({
 						args={block.arguments}
 						entry={resolveToolCall ? (resolved?.entry ?? null) : undefined}
 						key={key}
-						summary={toolSummary(block.name, block.arguments)}
 						toolCallId={key}
 						toolName={block.name}
 						runningIndicator={runningIndicator}

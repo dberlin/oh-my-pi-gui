@@ -3,7 +3,6 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
-import { useSessionStore } from "../../stores/session";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -17,7 +16,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { TurnStatusRow } = await import("./ChatStream");
+const { TurnStatusRow } = await import("./TranscriptViewport");
 
 let container: HTMLElement;
 let root: Root;
@@ -29,7 +28,7 @@ async function mount(): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<TurnStatusRow />
+				<TurnStatusRow awaitingModelSince={Date.now() - 5_000} compactionInfo={null} retryInfo={null} />
 			</I18nProvider>,
 		);
 	});
@@ -38,12 +37,10 @@ async function mount(): Promise<void> {
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
-	useSessionStore.getState().reset();
 });
 
 describe("TurnStatusRow", () => {
 	it("announces a stable waiting state without repeating the elapsed clock", async () => {
-		useSessionStore.setState({ awaitingModelSince: Date.now() - 5_000 });
 		await mount();
 
 		const status = container.querySelector('[role="status"]');

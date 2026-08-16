@@ -51,8 +51,8 @@ export function isTranscriptAtLiveEdge(metrics: {
 }
 
 export type HistoryRow =
-	| { kind: "message"; message: AgentMessage }
-	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] }
+	| { kind: "message"; message: AgentMessage; identityKey?: string }
+	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[]; identityKey?: string }
 	| ({ kind: "process"; messages: AgentMessage[] } & ProcessMeta)
 	| { kind: "todoSnapshot"; entry: TodoSnapshot };
 
@@ -75,14 +75,16 @@ function transcriptRowBaseKey(row: Row, resolveToolCall: ResolveToolCall): strin
 		case "queued":
 			return `queued-${row.item.id}`;
 		case "message":
-			return `message-${messageKey(row.message, resolveToolCall)}`;
+			return `message-${row.identityKey ?? messageKey(row.message, resolveToolCall)}`;
 		case "process":
 			// Compact mode may replace one live assistant row with a process row,
 			// or split it into process + answer rows. Key the first finalized row
 			// by the same assistant identity so the viewport anchor survives both.
 			return `message-${row.identityKey}`;
 		case "readGroup":
-			return `read-${row.entries.map(entry => entry.toolKey).join("-")}`;
+			return row.identityKey
+				? `message-${row.identityKey}`
+				: `read-${row.entries.map(entry => entry.toolKey).join("-")}`;
 		case "todoSnapshot":
 			return `todo-snapshot-${row.entry.id}`;
 		case "streaming":
@@ -228,19 +230,30 @@ export function messageTimestampMs(message: AgentMessage): number {
 	return 0;
 }
 
+export function isCurrentStreamToolEntry(
+	entry: ToolEntry,
+	streamGeneration: number | undefined,
+	streamStart: number,
+): boolean {
+	return entry.streamGeneration === undefined
+		? entry.startTime >= streamStart
+		: entry.streamGeneration === streamGeneration;
+}
+
 /** Whether the in-flight turn owns a real visible row right now. */
 export function hasStreamingTranscriptContent(
 	message: AgentMessage | null,
 	streamingText: string,
 	streamingThinking: string,
 	activeTools: ReadonlyMap<string, ToolEntry>,
+	streamGeneration?: number,
 ): boolean {
 	if (!message) return false;
 	if (isRenderableMessageText(streamingText) || isRenderableMessageText(streamingThinking)) return true;
 	if (isVisibleTranscriptMessage(message)) return true;
 	const streamStart = messageTimestampMs(message);
 	for (const entry of activeTools.values()) {
-		if ((entry.status === "pending" || entry.status === "running") && entry.startTime >= streamStart) return true;
+		if (isCurrentStreamToolEntry(entry, streamGeneration, streamStart)) return true;
 	}
 	return false;
 }
@@ -266,10 +279,9 @@ function summarizeProcess(messages: AgentMessage[], resolveToolCall: ResolveTool
 }
 
 /**
- * Build finalized transcript rows. Compact mode groups a run's reasoning and
- * tool-call messages into one visual phase while preserving the final answer.
- * A final assistant message containing both thinking and text is split: only
- * the thinking fragment joins the process row.
+ * Build finalized transcript rows. Compact mode groups only renderable
+ * reasoning into process rows while keeping narration and tool calls visible
+ * in chronological message rows.
  */
 export function buildHistoryRows(
 	messages: AgentMessage[],
@@ -288,6 +300,7 @@ export function buildHistoryRows(
 		// toolResult/display:false/empty-filler messages must not split a process
 		// run — they are invisible transport records, not transcript boundaries.
 		if (!isVisibleTranscriptMessage(message)) continue;
+		const identityKey = messageKey(message, resolveToolCall);
 		if (
 			detail !== "compact" ||
 			message.role !== "assistant" ||
@@ -296,39 +309,32 @@ export function buildHistoryRows(
 			!Array.isArray(message.content)
 		) {
 			flushProcess();
-			rows.push({ kind: "message", message });
-			continue;
-		}
-
-		const hasToolCall = message.content.some(block => block.type === "toolCall");
-		const hasImage = message.content.some(block => block.type === "image");
-		if (hasToolCall && !hasImage) {
-			// Text accompanying a tool call is intermediate narration. Keep every
-			// narrated phase in the same disclosure until the API delivers the final
-			// answer, so a long run leaves one activity summary instead of a stack of
-			// nearly identical completed rows.
-			processMessages.push(message);
+			rows.push({ kind: "message", message, identityKey });
 			continue;
 		}
 
 		const thinking = message.content.filter(
 			block => block.type === "thinking" && isRenderableMessageText(block.thinking),
 		);
-		if (thinking.length > 0) {
-			processMessages.push({ ...message, content: thinking });
-			const coreMessage: AgentMessage = {
-				...message,
-				content: message.content.filter(block => block.type !== "thinking"),
-			};
-			if (isVisibleTranscriptMessage(coreMessage)) {
-				flushProcess();
-				rows.push({ kind: "message", message: coreMessage });
-			}
-			continue;
-		}
+		const coreContent = message.content.filter(block => block.type !== "thinking");
+		const coreMessage: AgentMessage | undefined =
+			coreContent.length > 0 ? { ...message, content: coreContent } : undefined;
+		const hasVisibleCore = coreMessage !== undefined && isVisibleTranscriptMessage(coreMessage);
 
-		flushProcess();
-		rows.push({ kind: "message", message });
+		if (thinking.length > 0) {
+			const thinkingMessage: AgentMessage = { ...message, content: thinking };
+			if (hasVisibleCore) {
+				delete thinkingMessage.usage;
+				delete thinkingMessage.model;
+				delete thinkingMessage.duration;
+				delete thinkingMessage.ttft;
+			}
+			processMessages.push(thinkingMessage);
+		}
+		if (hasVisibleCore) {
+			flushProcess();
+			rows.push({ kind: "message", message: coreMessage, identityKey });
+		}
 	}
 	flushProcess();
 	return rows;

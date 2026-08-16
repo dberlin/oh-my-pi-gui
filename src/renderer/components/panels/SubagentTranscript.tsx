@@ -100,6 +100,7 @@ export const SubagentTranscript = memo(function SubagentTranscript() {
 					streamingText: selectedMessages.streamingText,
 					streamingThinking: selectedMessages.streamingThinking,
 					activeTools: selectedTools.activeTools,
+					streamGeneration: selectedTools.streamGeneration,
 					resolveToolCall,
 					transcriptDetail,
 				}}

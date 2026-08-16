@@ -4,6 +4,7 @@ import {
 	applyToolProjectionEvents,
 	createToolProjection,
 	hydrateToolProjection,
+	reconcileStreamingToolProjection,
 	resolveProjectionToolCall,
 	toolEntryKey,
 	useToolsStore,
@@ -177,6 +178,99 @@ describe("tool projections", () => {
 		expect(firstResolution.key).toBe(secondResolution.key);
 		expect(firstResolution.entry).toBe(secondResolution.entry);
 		expect(firstResolution.entry?.args).toEqual({ path: "second" });
+	});
+
+	it("rebases mixed restored and streaming same-id occurrences independently", () => {
+		const restoredCall = toolCall("restored-running");
+		let projection = hydrateToolProjection(createToolProjection(), [assistant(restoredCall, 1)]);
+		const streamingCall = toolCall("streaming");
+		const streamingMessage = assistant(streamingCall, 2);
+		projection = applyToolProjectionEvents(projection, [
+			{
+				type: "message_update",
+				message: streamingMessage,
+				assistantMessageEvent: {
+					type: "toolcall_delta",
+					contentIndex: 0,
+					delta: '{"path":',
+					partial: streamingMessage,
+				},
+			},
+		]);
+		const hydrationStartRevision = projection.toolEventRevision;
+		const fetchedCall = toolCall("restored-running");
+
+		projection = reconcileStreamingToolProjection(
+			projection,
+			[assistant(fetchedCall, 1)],
+			hydrationStartRevision,
+			true,
+		);
+
+		const fetched = resolveProjectionToolCall(projection, fetchedCall);
+		const streamed = resolveProjectionToolCall(projection, streamingCall);
+		expect(projection.activeTools).toHaveLength(2);
+		expect(fetched.key).toBe("read:0");
+		expect(streamed.key).not.toBe(fetched.key);
+		expect(fetched.entry).toMatchObject({
+			args: { path: "restored-running" },
+			status: "running",
+		});
+		expect(streamed.entry).toMatchObject({
+			status: "pending",
+			streamingArgs: '{"path":',
+		});
+
+		const finalCall = toolCall("streaming-final");
+		projection = applyToolProjectionEvents(projection, [
+			{ type: "message_end", message: assistant(finalCall, 3) },
+			{
+				type: "tool_execution_start",
+				toolCallId: finalCall.id,
+				toolName: finalCall.name,
+				args: finalCall.arguments,
+			},
+			{
+				type: "tool_execution_end",
+				toolCallId: finalCall.id,
+				toolName: finalCall.name,
+				result: "streaming result",
+				isError: false,
+			},
+		]);
+
+		expect(resolveProjectionToolCall(projection, fetchedCall).entry).toMatchObject({
+			args: { path: "restored-running" },
+			status: "running",
+		});
+		expect(resolveProjectionToolCall(projection, finalCall).entry).toMatchObject({
+			args: { path: "streaming-final" },
+			status: "done",
+			result: "streaming result",
+		});
+	});
+
+	it("trusts a fetched settled occurrence over an untouched restored running entry", () => {
+		const restoredCall = toolCall("restored-running");
+		const restored = hydrateToolProjection(createToolProjection(), [assistant(restoredCall, 1)]);
+		const hydrationStartRevision = restored.toolEventRevision;
+		const fetchedCall = toolCall("fetched-settled");
+
+		const reconciled = reconcileStreamingToolProjection(
+			restored,
+			[assistant(fetchedCall, 1), result("fetched result", 2)],
+			hydrationStartRevision,
+			true,
+		);
+
+		expect(resolveProjectionToolCall(reconciled, fetchedCall).entry).toMatchObject({
+			args: { path: "fetched-settled" },
+			status: "done",
+			result: {
+				content: [{ type: "text", text: "fetched result" }],
+				details: null,
+			},
+		});
 	});
 
 	it("does not copy active tools for batches without tool events", () => {

@@ -2,17 +2,21 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { groupReadRows } from "../../lib/read-group";
+import * as RuntimeErrors from "../../lib/runtime-errors";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
+import { useTabsStore } from "../../stores/tabs";
 import type { TodoSnapshot } from "../../stores/todo";
 import { useTodoStore } from "../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import * as ToolRegistry from "../tools";
 import { ChatStream } from "./ChatStream";
 import {
 	buildConversationAnchors,
@@ -25,7 +29,8 @@ import {
 	isTranscriptAtLiveEdge,
 	mergeTodoSnapshots,
 } from "./chat-stream-utils";
-import { ProcessGroup, StreamingRows } from "./TranscriptViewport";
+import { MessageBubble } from "./MessageBubble";
+import { StreamingRows } from "./TranscriptViewport";
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -123,9 +128,11 @@ afterEach(async () => {
 	useQueueStore.setState({ steering: [], followUp: [] });
 	useSessionStore.getState().reset();
 	useSettingsStore.getState().reset();
+	useTabsStore.getState().reset();
 	useTodoStore.getState().reset();
 	useToolsStore.getState().reset();
 	useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact", switchPending: null });
+	vi.restoreAllMocks();
 });
 const at = "2026-08-05T04:00:00.000Z";
 
@@ -156,27 +163,116 @@ const toolRun: AgentMessage[] = [
 ];
 
 describe("compact transcript rows", () => {
-	it("folds consecutive tool work into one process row and keeps the final answer visible", () => {
+	it("keeps completed read and write tool calls visible in compact history", () => {
 		const rows = buildHistoryRows(toolRun, "compact");
-		expect(rows.map(row => row.kind)).toEqual(["process", "message"]);
+		expect(rows.map(row => row.kind)).toEqual(["message", "message", "message"]);
 
-		const process = rows[0];
-		if (process?.kind !== "process") throw new Error("process row missing");
-		expect(process.stepCount).toBe(2);
-		expect(process.toolNames).toEqual(["read", "write"]);
-		expect(process.messages).toHaveLength(2);
-
-		const answer = rows[1];
-		if (answer?.kind !== "message") throw new Error("final answer row missing");
-		expect(answer.message.content).toEqual([{ type: "text", text: "Implemented and verified." }]);
+		const readRow = rows[0];
+		const writeRow = rows[1];
+		const answerRow = rows[2];
+		if (readRow?.kind !== "message" || writeRow?.kind !== "message" || answerRow?.kind !== "message") {
+			throw new Error("visible tool history rows missing");
+		}
+		expect(readRow.message.content).toEqual([
+			{ type: "text", text: "I will inspect the source." },
+			{ type: "toolCall", id: "call-read", name: "read", arguments: { path: "src/a.ts" } },
+		]);
+		expect(writeRow.message.content).toEqual([
+			{ type: "toolCall", id: "call-write", name: "write", arguments: { path: "src/a.ts" } },
+		]);
+		expect(answerRow.message.content).toEqual([{ type: "text", text: "Implemented and verified." }]);
 	});
 
-	it("splits final reasoning from final text so only the answer stays outside the process row", () => {
+	it("keeps narration on both sides of a grouped read in chronological order", () => {
+		const call: ToolCallContent = {
+			type: "toolCall",
+			id: "chronology-read:0",
+			name: "read",
+			arguments: { path: "src/chronology.ts" },
+		};
+		const completedEntry: ToolEntry = {
+			toolName: call.name,
+			args: call.arguments,
+			status: "done",
+			partialResult: null,
+			streamingArgs: "",
+			result: "completed read",
+			isError: false,
+			startTime: 1,
+			endTime: 2,
+		};
+		const resolveToolCall = (candidate: ToolCallContent) => ({
+			key: candidate === call ? "chronology-read:0#1" : candidate.id,
+			entry: candidate === call ? completedEntry : undefined,
+		});
+		const messages = [
+			{
+				...assistant([{ type: "text", text: "before" }, call, { type: "text", text: "after" }]),
+				usage: { input: 1200, output: 300, cacheRead: 40, cacheWrite: 20, cost: { total: 0.002 } },
+				model: "projection-model",
+				duration: 2400,
+				ttft: 350,
+			},
+			toolResult(call.id),
+		];
+
+		const rows = groupReadRows(buildHistoryRows(messages, "compact"), resolveToolCall);
+
+		expect(
+			rows.map(row => {
+				if (row.kind === "message") return { kind: row.kind, content: row.message.content };
+				if (row.kind === "readGroup") {
+					return { kind: row.kind, toolKeys: row.entries.map(entry => entry.toolKey) };
+				}
+				return { kind: row.kind };
+			}),
+		).toEqual([
+			{ kind: "message", content: [{ type: "text", text: "before" }] },
+			{ kind: "readGroup", toolKeys: ["chronology-read:0#1"] },
+			{ kind: "message", content: [{ type: "text", text: "after" }] },
+		]);
+
+		const [beforeRow, readGroup, afterRow] = rows;
+		if (beforeRow?.kind !== "message" || readGroup?.kind !== "readGroup" || afterRow?.kind !== "message") {
+			throw new Error("grouped read chronology rows missing");
+		}
+		expect([
+			{
+				usage: beforeRow.message.usage,
+				model: beforeRow.message.model,
+				duration: beforeRow.message.duration,
+				ttft: beforeRow.message.ttft,
+			},
+			{
+				usage: afterRow.message.usage,
+				model: afterRow.message.model,
+				duration: afterRow.message.duration,
+				ttft: afterRow.message.ttft,
+			},
+		]).toEqual([
+			{ usage: undefined, model: undefined, duration: undefined, ttft: undefined },
+			{
+				usage: { input: 1200, output: 300, cacheRead: 40, cacheWrite: 20, cost: { total: 0.002 } },
+				model: "projection-model",
+				duration: 2400,
+				ttft: 350,
+			},
+		]);
+		expect(readGroup.usage).toBeUndefined();
+	});
+
+	it("splits only thinking into process and keeps narration and tool visible in chronological order", () => {
 		const rows = buildHistoryRows(
 			[
 				assistant([
 					{ type: "thinking", thinking: "Check the boundary first." },
-					{ type: "text", text: "The public answer." },
+					{ type: "text", text: "Inspect the public surface." },
+					{
+						type: "toolCall",
+						id: "call-grep",
+						name: "grep",
+						arguments: { pattern: "public", path: "src/a.ts" },
+					},
 				]),
 			],
 			"compact",
@@ -184,11 +280,190 @@ describe("compact transcript rows", () => {
 		expect(rows.map(row => row.kind)).toEqual(["process", "message"]);
 
 		const process = rows[0];
-		const answer = rows[1];
-		if (process?.kind !== "process" || answer?.kind !== "message") throw new Error("split rows missing");
-		expect(process.stepCount).toBe(1);
+		const visible = rows[1];
+		if (process?.kind !== "process" || visible?.kind !== "message") throw new Error("split rows missing");
+		expect(process.messages).toHaveLength(1);
 		expect(process.messages[0]?.content).toEqual([{ type: "thinking", thinking: "Check the boundary first." }]);
-		expect(answer.message.content).toEqual([{ type: "text", text: "The public answer." }]);
+		expect(visible.message.content).toEqual([
+			{ type: "text", text: "Inspect the public surface." },
+			{
+				type: "toolCall",
+				id: "call-grep",
+				name: "grep",
+				arguments: { pattern: "public", path: "src/a.ts" },
+			},
+		]);
+	});
+
+	it("keeps response footer metadata only on the visible core after splitting renderable thinking", () => {
+		const usage = {
+			input: 2400,
+			output: 600,
+			cacheRead: 80,
+			cacheWrite: 40,
+			cost: { total: 0.004 },
+		};
+		const rows = buildHistoryRows(
+			[
+				{
+					...assistant([
+						{ type: "thinking", thinking: "Inspect the response boundary." },
+						{ type: "text", text: "The visible answer belongs after the process." },
+					]),
+					usage,
+					model: "split-projection-model",
+					duration: 4800,
+					ttft: 700,
+				},
+			],
+			"compact",
+		);
+
+		expect(rows.map(row => row.kind)).toEqual(["process", "message"]);
+		const actualRows = rows.map(row => {
+			if (row.kind === "todoSnapshot") throw new Error("unexpected todo snapshot row");
+			const message =
+				row.kind === "process"
+					? row.messages[row.messages.length - 1]
+					: row.kind === "message"
+						? row.message
+						: row.usage?.[row.usage.length - 1];
+			return {
+				kind: row.kind,
+				usage: message?.usage,
+				model: message?.model,
+				duration: message?.duration,
+				ttft: message?.ttft,
+			};
+		});
+		expect(actualRows.filter(row => row.usage !== undefined)).toHaveLength(1);
+		expect(actualRows).toEqual([
+			{ kind: "process", usage: undefined, model: undefined, duration: undefined, ttft: undefined },
+			{
+				kind: "message",
+				usage,
+				model: "split-projection-model",
+				duration: 4800,
+				ttft: 700,
+			},
+		]);
+
+		const thinkingOnlyUsage = {
+			input: 900,
+			output: 120,
+			cacheRead: 30,
+			cacheWrite: 10,
+			cost: { total: 0.001 },
+		};
+		const thinkingOnlyRows = buildHistoryRows(
+			[
+				{
+					...assistant([{ type: "thinking", thinking: "This response has no visible core." }]),
+					usage: thinkingOnlyUsage,
+					model: "thinking-only-model",
+					duration: 1600,
+					ttft: 250,
+				},
+			],
+			"compact",
+		);
+		const thinkingOnly = thinkingOnlyRows[0];
+		if (thinkingOnly?.kind !== "process") throw new Error("thinking-only process row missing");
+		expect(thinkingOnly.messages).toHaveLength(1);
+		expect({
+			usage: thinkingOnly.messages[0]?.usage,
+			model: thinkingOnly.messages[0]?.model,
+			duration: thinkingOnly.messages[0]?.duration,
+			ttft: thinkingOnly.messages[0]?.ttft,
+		}).toEqual({
+			usage: thinkingOnlyUsage,
+			model: "thinking-only-model",
+			duration: 1600,
+			ttft: 250,
+		});
+	});
+
+	it("moves footer metadata to a trailing read group after thinking and narration", () => {
+		const call: ToolCallContent = {
+			type: "toolCall",
+			id: "trailing-read:0",
+			name: "read",
+			arguments: { path: "src/trailing-read.ts:40-80" },
+		};
+		const completedEntry: ToolEntry = {
+			toolName: call.name,
+			args: call.arguments,
+			status: "done",
+			partialResult: null,
+			streamingArgs: "",
+			result: "export const trailingRead = true;",
+			isError: false,
+			startTime: 10,
+			endTime: 20,
+		};
+		const resolveToolCall = (candidate: ToolCallContent) => ({
+			key: candidate === call ? "trailing-read:0#1" : candidate.id,
+			entry: candidate === call ? completedEntry : undefined,
+		});
+		const usage = {
+			input: 3200,
+			output: 800,
+			cacheRead: 120,
+			cacheWrite: 60,
+			cost: { total: 0.006 },
+		};
+		const rows = groupReadRows(
+			buildHistoryRows(
+				[
+					{
+						...assistant([
+							{ type: "thinking", thinking: "Locate the relevant implementation." },
+							{ type: "text", text: "Read the final section before answering." },
+							call,
+						]),
+						usage,
+						model: "trailing-read-projection-model",
+						duration: 5200,
+						ttft: 750,
+					},
+					toolResult(call.id),
+				],
+				"compact",
+				resolveToolCall,
+			),
+			resolveToolCall,
+		);
+
+		expect(rows.map(row => row.kind)).toEqual(["process", "message", "readGroup"]);
+		const actualRowMetadata = rows.map(row => {
+			if (row.kind === "todoSnapshot") throw new Error("unexpected todo snapshot row");
+			if (row.kind === "readGroup") return { kind: row.kind, usage: row.usage };
+			const message = row.kind === "process" ? row.messages[row.messages.length - 1] : row.message;
+			return {
+				kind: row.kind,
+				usage: message?.usage,
+				model: message?.model,
+				duration: message?.duration,
+				ttft: message?.ttft,
+			};
+		});
+		expect(actualRowMetadata).toEqual([
+			{ kind: "process", usage: undefined, model: undefined, duration: undefined, ttft: undefined },
+			{ kind: "message", usage: undefined, model: undefined, duration: undefined, ttft: undefined },
+			{
+				kind: "readGroup",
+				usage: [
+					{
+						role: "assistant",
+						usage,
+						model: "trailing-read-projection-model",
+						duration: 5200,
+						ttft: 750,
+						timestamp: at,
+					},
+				],
+			},
+		]);
 	});
 
 	it("omits punctuation filler instead of allocating an invisible virtual row", () => {
@@ -205,26 +480,11 @@ describe("compact transcript rows", () => {
 		).toEqual([]);
 	});
 
-	it("folds narrated phases and filler tool calls into one activity summary before the final answer", () => {
+	it("may combine consecutive thinking-only messages into one process row", () => {
 		const rows = buildHistoryRows(
 			[
-				assistant([
-					{ type: "text", text: "Validate the updater." },
-					{ type: "toolCall", id: "call-check", name: "bash", arguments: { command: "bun check" } },
-				]),
-				assistant([
-					{ type: "text", text: "." },
-					{ type: "toolCall", id: "call-format", name: "bash", arguments: { command: "bun format" } },
-				]),
-				assistant([
-					{ type: "thinking", thinking: "The checks passed; launch the audit build." },
-					{ type: "text", text: "Launch the audit build." },
-					{ type: "toolCall", id: "call-build", name: "bash", arguments: { command: "bun run build" } },
-				]),
-				assistant([
-					{ type: "text", text: "." },
-					{ type: "toolCall", id: "call-launch", name: "hub", arguments: { name: "gui-final" } },
-				]),
+				assistant([{ type: "thinking", thinking: "Inspect the inputs." }]),
+				assistant([{ type: "thinking", thinking: "Compare the outputs." }]),
 			],
 			"compact",
 		);
@@ -232,11 +492,78 @@ describe("compact transcript rows", () => {
 		expect(rows.map(row => row.kind)).toEqual(["process"]);
 		const process = rows[0];
 		if (process?.kind !== "process") throw new Error("process row missing");
-		expect(process.stepCount).toBe(5);
-		expect(process.toolNames).toEqual(["bash", "bash", "bash", "hub"]);
+		expect(process.stepCount).toBe(2);
+		expect(process.messages.map(message => message.content)).toEqual([
+			[{ type: "thinking", thinking: "Inspect the inputs." }],
+			[{ type: "thinking", thinking: "Compare the outputs." }],
+		]);
 	});
 
-	it("keeps resolver occurrence keys in process rows and timeline markers", () => {
+	it("combines thinking across invisible core filler without emitting a blank message row", () => {
+		const rows = buildHistoryRows(
+			[
+				assistant([
+					{ type: "thinking", thinking: "Inspect the inputs." },
+					{ type: "text", text: " . \n\t " },
+				]),
+				assistant([{ type: "thinking", thinking: "Compare the outputs." }]),
+			],
+			"compact",
+		);
+
+		expect(rows.map(row => row.kind)).toEqual(["process"]);
+		expect(rows.filter(row => row.kind === "message")).toEqual([]);
+		const process = rows[0];
+		if (process?.kind !== "process") throw new Error("combined process row missing");
+		expect(
+			process.messages.flatMap(message =>
+				Array.isArray(message.content)
+					? message.content.flatMap(block => (block.type === "thinking" ? [block.thinking] : []))
+					: [],
+			),
+		).toEqual(["Inspect the inputs.", "Compare the outputs."]);
+	});
+
+	it("never places toolCall blocks inside a compact process row", () => {
+		const rows = buildHistoryRows(
+			[
+				assistant([{ type: "thinking", thinking: "Choose a search." }]),
+				assistant([
+					{
+						type: "toolCall",
+						id: "call-grep",
+						name: "grep",
+						arguments: { pattern: "toolCall", path: "src" },
+					},
+				]),
+				assistant([{ type: "thinking", thinking: "Interpret the match." }]),
+				assistant([{ type: "text", text: "The match is visible." }]),
+			],
+			"compact",
+		);
+
+		const processBlocks = rows.flatMap(row =>
+			row.kind === "process"
+				? row.messages.flatMap(message => (Array.isArray(message.content) ? message.content : []))
+				: [],
+		);
+		expect(processBlocks).toEqual([
+			{ type: "thinking", thinking: "Choose a search." },
+			{ type: "thinking", thinking: "Interpret the match." },
+		]);
+		expect(rows.map(row => row.kind)).toEqual(["process", "message", "process", "message"]);
+
+		const visibleToolNames = rows.flatMap(row =>
+			row.kind === "message" && Array.isArray(row.message.content)
+				? row.message.content
+						.filter((block): block is ToolCallContent => block.type === "toolCall")
+						.map(block => block.name)
+				: [],
+		);
+		expect(visibleToolNames).toEqual(["grep"]);
+	});
+
+	it("keeps resolver occurrence keys in compact message rows and timeline markers", () => {
 		const firstCall: ToolCallContent = {
 			type: "toolCall",
 			id: "provider-call:0",
@@ -263,8 +590,11 @@ describe("compact transcript rows", () => {
 		];
 
 		const compactRows = buildHistoryRows(messages, "compact", resolveToolCall);
-		if (compactRows[0]?.kind !== "process") throw new Error("process row missing");
-		expect(compactRows[0].toolCallIds).toEqual(["provider-call:0#1", "provider-call:0#2"]);
+		expect(compactRows.map(row => row.kind)).toEqual(["message", "message"]);
+		expect(buildHistoryRowKeys(compactRows, resolveToolCall)).toEqual([
+			"message-provider-call:0#1",
+			"message-provider-call:0#2",
+		]);
 
 		const fullRows = buildHistoryRows(messages, "full", resolveToolCall);
 		const markers = buildTimelineMarkers(fullRows, resolveToolCall);
@@ -301,12 +631,12 @@ describe("compact transcript rows", () => {
 		const bothRows = buildHistoryRows([firstMessage, phaseBoundary, secondMessage], "compact", resolveToolCall);
 		const remainingRows = buildHistoryRows([secondMessage], "compact", resolveToolCall);
 
-		expect(buildHistoryRowKeys(bothRows)).toEqual([
+		expect(buildHistoryRowKeys(bothRows, resolveToolCall)).toEqual([
 			"message-provider-process:0#1",
 			"message-phase-boundary",
 			"message-provider-process:0#2",
 		]);
-		expect(buildHistoryRowKeys(remainingRows)).toEqual(["message-provider-process:0#2"]);
+		expect(buildHistoryRowKeys(remainingRows, resolveToolCall)).toEqual(["message-provider-process:0#2"]);
 
 		const bothMessageRows = buildHistoryRows([firstMessage, phaseBoundary, secondMessage], "full", resolveToolCall);
 		const remainingMessageRows = buildHistoryRows([secondMessage], "full", resolveToolCall);
@@ -320,7 +650,7 @@ describe("compact transcript rows", () => {
 });
 
 describe("projected tool renderers", () => {
-	it("passes the projection through finalized process and streaming tool renderers", () => {
+	it("passes the projection through finalized visible messages and streaming tool renderers", () => {
 		const call: ToolCallContent = {
 			type: "toolCall",
 			id: "shared-provider:0",
@@ -359,11 +689,11 @@ describe("projected tool renderers", () => {
 			resolveToolCall,
 		);
 		const row = rows[0];
-		if (row?.kind !== "process") throw new Error("projected process row missing");
+		if (row?.kind !== "message") throw new Error("projected visible message row missing");
 
-		const processHtml = renderToStaticMarkup(
+		const finalizedHtml = renderToStaticMarkup(
 			<I18nProvider>
-				<ProcessGroup activeTools={projectedTools} resolveToolCall={resolveToolCall} row={row} />
+				<MessageBubble message={row.message} resolveToolCall={resolveToolCall} />
 			</I18nProvider>,
 		);
 		const streamingHtml = renderToStaticMarkup(
@@ -379,7 +709,7 @@ describe("projected tool renderers", () => {
 			</I18nProvider>,
 		);
 
-		for (const html of [processHtml, streamingHtml]) {
+		for (const html of [finalizedHtml, streamingHtml]) {
 			expect(html).toContain('data-tool-status="running"');
 			expect(html).not.toContain('data-tool-error="true"');
 		}
@@ -513,6 +843,33 @@ describe("virtual transcript identity", () => {
 		}
 	});
 
+	it("reuses the live assistant key when a pure read compact-finalizes into a read group", () => {
+		const call: ToolCallContent = {
+			type: "toolCall",
+			id: "call-pure-read",
+			name: "read",
+			arguments: { path: "src/pure-read.ts" },
+		};
+		const message: AgentMessage = {
+			id: "assistant-pure-read",
+			role: "assistant",
+			content: [call],
+			timestamp: at,
+		};
+		const resolveToolCall = (candidate: ToolCallContent) => ({
+			key: candidate === call ? "call-pure-read#1" : candidate.id,
+			entry: undefined,
+		});
+
+		const [liveKey] = buildTranscriptRowKeys([{ kind: "streaming", message }], resolveToolCall);
+		const finalizedRows = groupReadRows(buildHistoryRows([message], "compact", resolveToolCall), resolveToolCall);
+		const firstFinalizedRow = finalizedRows[0];
+		if (firstFinalizedRow?.kind !== "readGroup") throw new Error("pure read group missing");
+		const [finalizedKey] = buildHistoryRowKeys(finalizedRows, resolveToolCall);
+
+		expect(finalizedKey).toBe(liveKey);
+	});
+
 	it("keeps existing row keys stable when a new message is inserted before them", () => {
 		const existingRows = buildHistoryRows(
 			[assistant([{ type: "text", text: "First" }]), assistant([{ type: "text", text: "Second" }])],
@@ -613,6 +970,81 @@ describe("mergeTodoSnapshots", () => {
 });
 
 describe("Main ChatStream characterization", () => {
+	it("routes Main messages and occurrence-specific tools through the shared viewport", async () => {
+		useMessagesStore.setState({ messages: toolRun });
+		useSessionStore.setState({ sessionId: "main-session", status: "ready" });
+		await mount(<ChatStream />);
+
+		expect(container?.querySelector(".omp-transcript-editorial")).not.toBeNull();
+		expect(container?.textContent).toContain("Implemented and verified.");
+	});
+
+	it("shows a local starting loader without starter actions", async () => {
+		useSessionStore.setState({ sessionId: "main-starting", status: "starting", isStreaming: false });
+		await mount(<ChatStream />);
+
+		expect(container?.querySelector(".animate-spin")).not.toBeNull();
+		expect(container?.querySelector(".omp-starter-card")).toBeNull();
+	});
+
+	it("releases shared Main tail following after a one-pixel manual scroll", async () => {
+		useMessagesStore.setState({
+			messages: Array.from({ length: 12 }, (_, index) => ({
+				role: "user",
+				content: [{ type: "text", text: `History prompt ${index + 1}` }],
+				timestamp: index + 1,
+			})),
+		});
+		useSessionStore.setState({ sessionId: "main-scroll-release", status: "ready" });
+		await mount(<ChatStream />);
+
+		const { promise: settled, resolve: resolveSettled } = Promise.withResolvers<void>();
+		setTimeout(resolveSettled, 0);
+		await act(async () => {
+			await settled;
+		});
+
+		const scroll = container?.querySelector(".omp-transcript-scroll") as unknown as HTMLElement | null;
+		const canvas = container?.querySelector(".omp-transcript-canvas") as unknown as HTMLElement | null;
+		if (!scroll || !canvas) throw new Error("Main transcript scroll surface missing");
+		Object.defineProperty(scroll, "scrollHeight", {
+			configurable: true,
+			get: () => Number.parseFloat(canvas.style.height),
+		});
+
+		const beforeAppendBottom = scroll.scrollHeight - scroll.clientHeight;
+		expect(beforeAppendBottom).toBeGreaterThan(0);
+		scroll.scrollTop = beforeAppendBottom - 1;
+		await act(async () => {
+			const wheel = new Event("wheel", { bubbles: true, cancelable: true });
+			Object.defineProperty(wheel, "eventPhase", { value: 0, writable: true, configurable: true });
+			scroll.dispatchEvent(wheel);
+			const manualScroll = new Event("scroll", { bubbles: true, cancelable: true });
+			Object.defineProperty(manualScroll, "eventPhase", { value: 0, writable: true, configurable: true });
+			scroll.dispatchEvent(manualScroll);
+		});
+
+		const jump = container?.querySelector('button[aria-label="Jump to latest"]') as unknown as HTMLElement | null;
+		if (!jump) throw new Error("Jump to latest action missing");
+		expect(jump.classList.contains("opacity-100")).toBe(true);
+		expect(jump.classList.contains("opacity-0")).toBe(false);
+
+		const { promise: appended, resolve: resolveAppended } = Promise.withResolvers<void>();
+		setTimeout(resolveAppended, 0);
+		await act(async () => {
+			useMessagesStore.setState(state => ({
+				messages: [
+					...state.messages,
+					{ role: "user", content: [{ type: "text", text: "Appended prompt" }], timestamp: 13 },
+				],
+			}));
+			await appended;
+		});
+
+		expect(jump.classList.contains("opacity-100")).toBe(true);
+		expect(jump.classList.contains("opacity-0")).toBe(false);
+	});
+
 	it("keeps finalized, live, navigation, and Main-only rows on the shared scroll surface", async () => {
 		const streamStartedAt = Date.parse("2026-08-05T04:00:05.000Z");
 		const liveTool: ToolEntry = {
@@ -697,5 +1129,104 @@ describe("Main ChatStream characterization", () => {
 			useUiStore.setState({ transcriptDetail: "compact" });
 		});
 		expect(container.querySelector(".omp-process-group")).not.toBeNull();
+	});
+
+	it("isolates tool disclosure and renderer-boundary state between tabs sharing a session identity", async () => {
+		function ExplodingProjectionRenderer(): never {
+			throw new Error("tab A renderer failure");
+		}
+
+		const originalGetToolRenderer = ToolRegistry.getToolRenderer;
+		vi.spyOn(ToolRegistry, "getToolRenderer").mockImplementation(invocation =>
+			invocation.name === "grep" && invocation.args.path === "src/tab-a.ts"
+				? { component: ExplodingProjectionRenderer, shell: "compact" }
+				: originalGetToolRenderer(invocation),
+		);
+		vi.spyOn(RuntimeErrors, "reportRuntimeError").mockImplementation(() => undefined);
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+		const projectionMessages = (path: string, marker: string): AgentMessage[] =>
+			JSON.parse(
+				JSON.stringify([
+					{
+						id: "shared-message-occurrence",
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: "shared-tool-occurrence",
+								name: "grep",
+								arguments: { pattern: "TRANSCRIPT_MATCH", path },
+							},
+						],
+						timestamp: at,
+					},
+					{
+						role: "toolResult",
+						toolCallId: "shared-tool-occurrence",
+						toolName: "grep",
+						content: [{ type: "text", text: `${path}:7:${marker}` }],
+						isError: false,
+						timestamp: at,
+					},
+				]),
+			) as AgentMessage[];
+		const messagesA = projectionMessages("src/tab-a.ts", "TAB_A_MATCH");
+		const messagesB = projectionMessages("src/tab-b.ts", "TAB_B_MATCH");
+
+		useTabsStore.setState({
+			tabs: [
+				{
+					id: "tab-a",
+					cwd: "/work/a",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					sessionId: "shared-session",
+					unreadDone: false,
+				},
+				{
+					id: "tab-b",
+					cwd: "/work/b",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					sessionId: "shared-session",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "tab-a",
+			bundles: new Map(),
+		});
+		useSessionStore.setState({ sessionId: "shared-session", status: "ready" });
+		useMessagesStore.setState({ messages: messagesA });
+		useToolsStore.getState().hydrateMessages(messagesA);
+		await mount(<ChatStream />);
+
+		const cardA = container?.querySelector('[data-tool-name="grep"]') as unknown as HTMLElement | null;
+		const headerA = cardA?.querySelector(".omp-tool-header") as HTMLElement | null;
+		if (!cardA || !headerA) throw new Error("tab A tool card missing");
+		expect(headerA.getAttribute("aria-expanded")).toBe("false");
+		await act(async () => {
+			headerA.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		expect(headerA.getAttribute("aria-expanded")).toBe("true");
+		expect(cardA.querySelector(".omp-tool-body")?.textContent).toContain("TAB_A_MATCH");
+		expect(cardA.querySelector(".omp-tool-body")?.textContent).not.toContain("/TRANSCRIPT_MATCH/");
+
+		await act(async () => {
+			useTabsStore.setState({ activeTabId: "tab-b" });
+			useMessagesStore.setState({ messages: messagesB });
+			useToolsStore.getState().hydrateMessages(messagesB);
+		});
+
+		const cardB = container?.querySelector('[data-tool-name="grep"]') as unknown as HTMLElement | null;
+		const headerB = cardB?.querySelector(".omp-tool-header") as HTMLElement | null;
+		const bodyB = cardB?.querySelector(".omp-tool-body");
+		if (!cardB || !headerB || !bodyB) throw new Error("tab B tool card missing");
+		expect(headerB.getAttribute("aria-expanded")).toBe("false");
+		expect(bodyB.textContent).toContain("/TRANSCRIPT_MATCH/");
+		expect(bodyB.textContent).toContain("TAB_B_MATCH");
+		expect(bodyB.textContent).not.toContain("TAB_A_MATCH");
 	});
 });
