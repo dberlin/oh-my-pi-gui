@@ -3,7 +3,6 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
-import { useMessagesStore } from "../../stores/messages";
 import { useSettingsStore } from "../../stores/settings";
 import { useUiStore } from "../../stores/ui";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -54,7 +53,6 @@ afterEach(async () => {
 	});
 	container?.remove();
 	useSettingsStore.getState().reset();
-	useMessagesStore.getState().reset();
 	useUiStore.getState().setThinkingExpanded(false);
 });
 
@@ -93,10 +91,9 @@ describe("ThinkingBlock", () => {
 
 	it("uses only the streaming caret as motion while visible reasoning grows", async () => {
 		useUiStore.getState().setThinkingExpanded(true);
-		useMessagesStore.setState({ streamingThinking: HEADLINED_THINKING });
-		await mount(<ThinkingBlock live />);
+		await mount(<ThinkingBlock live text={HEADLINED_THINKING} />);
 
-		expect(container.querySelector(".omp-caret")).not.toBeNull();
+		expect(container.querySelectorAll(".omp-caret")).toHaveLength(1);
 		expect(container.querySelector(".omp-thinking-pulse")).toBeNull();
 	});
 });

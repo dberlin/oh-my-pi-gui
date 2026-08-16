@@ -202,8 +202,22 @@ describe("ThinkingControl", () => {
 		setThinkingLevelMock.mockReturnValue(receipt.promise);
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/one", status: "ready", kind: "agent", unreadDone: false },
-				{ id: "t1", cwd: "/two", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "t0",
+					cwd: "/one",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
+				{
+					id: "t1",
+					cwd: "/two",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
