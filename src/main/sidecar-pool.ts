@@ -694,11 +694,14 @@ export class SidecarPool {
 	/** The window's tabs in acquisition order (GET_TABS boot reconciliation). */
 	tabsForWindow(win: BrowserWindow): IpcTabInfo[] {
 		const tabs: IpcTabInfo[] = [];
-		const activeTabId = this.#activeByWindow.get(win.webContents.id);
-		const visibleTabIds = this.#visibleByWindow.get(win.webContents.id);
-		const split = this.#splitByWindow.get(win.webContents.id);
+		let activeTabId: string | undefined;
+		let visibleTabIds: Set<string> | undefined;
+		let split: WindowSplitView | undefined;
 		for (const entry of this.#entries) {
 			if (entry.win !== win) continue;
+			activeTabId ??= this.#activeByWindow.get(entry.winId);
+			visibleTabIds ??= this.#visibleByWindow.get(entry.winId);
+			split ??= this.#splitByWindow.get(entry.winId);
 			const tab = tabStatusPayload(entry);
 			if (entry.tabId === activeTabId) tab.active = true;
 			if (visibleTabIds?.has(entry.tabId)) tab.visible = true;
