@@ -14,7 +14,7 @@ import {
 	Sparkles,
 	X,
 } from "lucide-react";
-import { type ComponentProps, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SshSessionTarget } from "../../../shared/ipc-types";
 import type { AgentMessage, RpcQueuedMessage, SidecarStatus, ToolCallContent } from "../../../shared/rpc-types";
 import { cx, formatClock } from "../../lib/format";
@@ -26,7 +26,7 @@ import { type QueueLane, useQueueStore } from "../../stores/queue";
 import { toast } from "../../stores/toast";
 import type { TodoSnapshot } from "../../stores/todo";
 import type { TranscriptView } from "../../stores/session";
-import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
+import { type ToolEntry, toolEntryKey } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
 import { PiLogo } from "../common";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
@@ -42,6 +42,7 @@ import {
 	type GestureTowardTail,
 	type HistoryRow,
 	hasStreamingTranscriptContent,
+	isCurrentStreamToolEntry,
 	isTranscriptAtLiveEdge,
 	type MountedTranscriptRow,
 	mergeTodoSnapshots,
@@ -61,6 +62,7 @@ export interface TranscriptProjectionView {
 	streamingText: string;
 	streamingThinking: string;
 	activeTools: ReadonlyMap<string, ToolEntry>;
+	streamGeneration?: number;
 	resolveToolCall: ResolveToolCall;
 	transcriptDetail: TranscriptDetail;
 }
@@ -129,6 +131,7 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 		streamingMessage,
 		streamingText,
 		streamingThinking,
+		streamGeneration,
 		transcriptDetail,
 		transcriptId,
 	} = projection;
@@ -147,6 +150,7 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 	const [expandedProcessKeys, setExpandedProcessKeys] = useState<Set<string>>(
 		() => restoreView?.expandedProcessKeys ?? new Set(),
 	);
+	const [collapsedLiveProcessKeys, setCollapsedLiveProcessKeys] = useState<Set<string>>(() => new Set());
 	const [pinned, setPinned] = useState(restoreView?.pinned ?? true);
 	const [visibleRowIndex, setVisibleRowIndex] = useState(Number.MAX_SAFE_INTEGER);
 	// Virtualizer measurements and programmatic scrollToIndex both emit scroll
@@ -166,15 +170,12 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 			expandedProcessKeys,
 			resolveToolCall,
 		);
-		// Read-tool grouping (TUI parity) folds consecutive collapsible reads into
-		// one card — only in full mode; compact mode's ProcessGroup already folds
-		// ALL consecutive tool work, so a second fold would nest redundantly.
-		const grouped = transcriptDetail === "compact" ? built : (groupReadRows(built, resolveToolCall) as HistoryRow[]);
+		const grouped = groupReadRows(built, resolveToolCall) as HistoryRow[];
 		return isMain ? mergeTodoSnapshots(grouped, todoHistory) : grouped;
 	}, [messages, hiddenCount, transcriptDetail, todoHistory, resolveToolCall, isMain, expandedProcessKeys]);
 
 	const hasStreamedContent =
-		hasStreamingTranscriptContent(streamingMessage, streamingText, streamingThinking, activeTools) ||
+		hasStreamingTranscriptContent(streamingMessage, streamingText, streamingThinking, activeTools, streamGeneration) ||
 		Boolean(main?.hasLiveToolsForStream);
 
 	// Main alone owns retry/compaction/model-wait status.
@@ -471,6 +472,13 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 			else next.delete(key);
 			return next;
 		});
+		setCollapsedLiveProcessKeys(current => {
+			if (current.has(key) === !expanded) return current;
+			const next = new Set(current);
+			if (expanded) next.delete(key);
+			else next.add(key);
+			return next;
+		});
 	}, []);
 
 	return (
@@ -585,48 +593,37 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 												message={row.message}
 												reaction={row.reaction}
 												readOnly={!isMain}
-												resolveToolCall={isMain ? undefined : resolveToolCall}
+												resolveToolCall={resolveToolCall}
 												runningIndicator="dot"
 											/>
 										) : row.kind === "readGroup" ? (
 											<ReadGroupCard
-												activeTools={isMain ? undefined : activeTools}
+												activeTools={activeTools}
 												entries={row.entries}
-												resolveToolCall={isMain ? undefined : resolveToolCall}
+												resolveToolCall={resolveToolCall}
 												runningIndicator="dot"
 												usage={row.usage}
 											/>
 										) : row.kind === "process" ? (
 											<ProcessGroup
-												activeTools={isMain ? undefined : activeTools}
 												expanded={expandedProcessKeys.has(rowKey)}
 												onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
 												readOnly={!isMain}
-												resolveToolCall={isMain ? undefined : resolveToolCall}
+												resolveToolCall={resolveToolCall}
 												row={row}
 											/>
 										) : row.kind === "streaming" ? (
-											isMain ? (
-												<MainStreamingRows
-													expanded={expandedProcessKeys.has(rowKey)}
-													onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
-													streamingMessage={streamingMessage}
-													streamingText={streamingText}
-													streamingThinking={streamingThinking}
-													transcriptDetail={transcriptDetail}
-												/>
-											) : (
-												<StreamingRows
-													activeTools={activeTools}
-													expanded={expandedProcessKeys.has(rowKey)}
-													onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
-													resolveToolCall={resolveToolCall}
-													streamingMessage={streamingMessage}
-													streamingText={streamingText}
-													streamingThinking={streamingThinking}
-													transcriptDetail={transcriptDetail}
-												/>
-											)
+											<StreamingRows
+												activeTools={activeTools}
+												expanded={!collapsedLiveProcessKeys.has(rowKey)}
+												onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
+												resolveToolCall={resolveToolCall}
+												streamGeneration={streamGeneration}
+												streamingMessage={streamingMessage}
+												streamingText={streamingText}
+												streamingThinking={streamingThinking}
+												transcriptDetail={transcriptDetail}
+											/>
 										) : row.kind === "queued" ? (
 											<QueuedMessageBubble item={row.item} lane={row.lane} />
 										) : row.kind === "todoSnapshot" ? (
@@ -675,14 +672,12 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 }
 
 export function ProcessGroup({
-	activeTools,
 	expanded,
 	onExpandedChange,
 	readOnly = false,
 	resolveToolCall,
 	row,
 }: {
-	activeTools?: ReadonlyMap<string, ToolEntry>;
 	expanded: boolean;
 	onExpandedChange: (expanded: boolean) => void;
 	readOnly?: boolean;
@@ -692,12 +687,9 @@ export function ProcessGroup({
 	return (
 		<div className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
 			<ExecutionGroup
-				activeTools={activeTools}
 				expanded={expanded}
-				failureCount={row.failedEvents}
 				onExpandedChange={onExpandedChange}
 				stepCount={row.stepCount}
-				toolCallIds={row.toolCallIds}
 			>
 				<div className="omp-process-group">
 					{row.messages.map((message, index) => (
@@ -728,18 +720,18 @@ export function ProcessGroup({
 export function StreamingRows({
 	activeTools,
 	expanded,
-	isolateTools = true,
 	onExpandedChange,
 	resolveToolCall,
 	streamingMessage,
 	streamingText,
 	streamingThinking,
+	streamGeneration,
 	transcriptDetail,
 }: {
 	activeTools: ReadonlyMap<string, ToolEntry>;
 	expanded: boolean;
-	isolateTools?: boolean;
 	onExpandedChange: (expanded: boolean) => void;
+	streamGeneration?: number;
 	resolveToolCall?: ResolveToolCall;
 	streamingMessage: AgentMessage | null;
 	streamingText: string;
@@ -761,17 +753,15 @@ export function StreamingRows({
 		};
 	});
 	const contentIds = new Set(resolvedToolCalls.map(card => card.id));
-	const liveTools: Array<{ id: string; entry: ToolEntry }> = [];
+	const streamTools: Array<{ id: string; entry: ToolEntry }> = [];
 	for (const [id, entry] of activeTools) {
 		if (contentIds.has(id)) continue;
-		if (entry.status !== "pending" && entry.status !== "running") continue;
-		if (entry.startTime < streamStart) continue;
-		liveTools.push({ id, entry });
+		if (!isCurrentStreamToolEntry(entry, streamGeneration, streamStart)) continue;
+		streamTools.push({ id, entry });
 	}
 
 	const hasText = isRenderableMessageText(streamingText);
 	const hasThinking = isRenderableMessageText(streamingThinking);
-	const hasProcess = hasThinking || toolCalls.length > 0 || liveTools.length > 0;
 	const compactChrome = transcriptDetail === "compact" ? !hasText : !hasText && !hasThinking;
 	const turnClass = compactChrome ? "omp-assistant-turn--compact" : "omp-assistant-turn";
 
@@ -783,15 +773,15 @@ export function StreamingRows({
 		entry?: ToolEntry;
 	}> = [
 		...resolvedToolCalls,
-		...liveTools.map(({ id, entry }) => ({
+		...streamTools.map(({ id, entry }) => ({
 			id,
 			name: entry.toolName,
 			args: entry.args as Record<string, unknown>,
 			entry,
 		})),
 	];
+	const hasToolCards = allCards.length > 0;
 	const groupedLiveCards = (() => {
-		if (transcriptDetail === "compact") return null;
 		const segments: Array<
 			{ type: "group"; entries: ReadGroupEntry[] } | { type: "card"; card: (typeof allCards)[number] }
 		> = [];
@@ -815,19 +805,17 @@ export function StreamingRows({
 		return segments.map((segment, index) =>
 			segment.type === "group" ? (
 				<ReadGroupCard
-					activeTools={isolateTools ? activeTools : undefined}
+					activeTools={activeTools}
 					entries={segment.entries}
 					inset
 					key={`rg-${segment.entries[0]?.toolKey ?? index}`}
-					resolveToolCall={isolateTools ? resolveToolCall : undefined}
+					resolveToolCall={resolveToolCall}
 					runningIndicator="dot"
 				/>
 			) : (
 				<ToolCard
 					args={segment.card.args}
-					entry={
-						isolateTools ? (segment.card.entry ?? activeTools.get(segment.card.id) ?? null) : undefined
-					}
+					entry={segment.card.entry ?? activeTools.get(segment.card.id) ?? null}
 					key={segment.card.id}
 					runningIndicator="dot"
 					toolCallId={segment.card.id}
@@ -842,7 +830,7 @@ export function StreamingRows({
 		allCards.map(card => (
 			<ToolCard
 				args={card.args}
-				entry={isolateTools ? (card.entry ?? activeTools.get(card.id) ?? null) : undefined}
+				entry={card.entry ?? activeTools.get(card.id) ?? null}
 				key={card.id}
 				runningIndicator="dot"
 				toolCallId={card.id}
@@ -871,28 +859,15 @@ export function StreamingRows({
 	return (
 		<div className={cx("omp-streaming-turn group flex px-6", turnClass)}>
 			<div className="omp-transcript-content min-w-0">
-				{hasProcess ? (
-					<ExecutionGroup
-						activeTools={isolateTools ? activeTools : undefined}
-						expanded={expanded}
-						live
-						onExpandedChange={onExpandedChange}
-						stepCount={toolCalls.length + liveTools.length + (hasThinking ? 1 : 0)}
-						toolCallIds={allCards.map(card => card.id)}
-					>
+				{hasThinking ? (
+					<ExecutionGroup expanded={expanded} live onExpandedChange={onExpandedChange} stepCount={1}>
 						<div className="omp-process-group omp-process-group--live">
-							{hasThinking ? (
-								<ThinkingBlock
-									live
-									streamingTextStarted={hasText}
-									text={streamingThinking}
-								/>
-							) : null}
-							{toolCalls.length + liveTools.length > 0 ? <div>{toolCards}</div> : null}
+							<ThinkingBlock live streamingTextStarted={hasText} text={streamingThinking} />
 						</div>
 					</ExecutionGroup>
 				) : null}
-				<div className={hasProcess ? "mt-1" : undefined}>
+				{hasToolCards ? <div className={hasThinking ? "mt-1" : undefined}>{toolCards}</div> : null}
+				<div className={hasThinking || hasToolCards ? "mt-1" : undefined}>
 					<StreamingText text={streamingText} />
 				</div>
 			</div>
@@ -900,12 +875,6 @@ export function StreamingRows({
 	);
 }
 
-function MainStreamingRows(
-	props: Omit<ComponentProps<typeof StreamingRows>, "activeTools" | "isolateTools" | "resolveToolCall">,
-) {
-	const activeTools = useToolsStore(state => state.activeTools);
-	return <StreamingRows {...props} activeTools={activeTools} isolateTools={false} />;
-}
 
 /** Seconds past which the waiting row escalates to the slow-response hint. */
 const SLOW_RESPONSE_HINT_SECONDS = 30;
@@ -953,8 +922,8 @@ export function TurnStatusRow({
 
 	let iconClass = "";
 	let text: string;
-	let detail: string | null = null;
 	let announcement: string;
+	let detail: string | null = null;
 	let slow = false;
 	let stalled = false;
 
@@ -1004,7 +973,7 @@ export function TurnStatusRow({
 	}
 
 	return (
-		<div className="omp-status-turn omp-fade-in flex flex-col gap-1 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-omp-lg text-[var(--omp-muted)]">
+		<div className="omp-status-turn flex flex-col gap-1 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-omp-lg text-[var(--omp-muted)]">
 			<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
 				{announcement}
 			</span>

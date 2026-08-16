@@ -1,18 +1,18 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import type { ToolCallContent } from "../../../shared/rpc-types";
 import { useDisplayPreference } from "../../lib/display-preferences";
-import { resolveMainToolCall } from "../../lib/read-group";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueuedMessages } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
+import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
-import { useToolsStore } from "../../stores/tools";
+import { toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { SubagentTranscript } from "../panels/SubagentTranscript";
+import { hasStreamingTranscriptContent } from "./chat-stream-utils";
 import { TranscriptViewport } from "./TranscriptViewport";
-import { messageTimestampMs } from "./chat-stream-utils";
 
 /** Selected-target canvas adapter. Main and projected transcripts share the same workspace slot. */
 export function ChatCanvas() {
@@ -36,17 +36,16 @@ function MainTranscript() {
 	const streamingText = useMessagesStore(state => state.streamingText);
 	const streamingThinking = useMessagesStore(state => state.streamingThinking);
 	const lastAppended = useMessagesStore(state => state.lastAppended);
-	const hasLiveToolsForStream = useToolsStore(state => {
-		if (!streamingMessage) return false;
-		const streamStart = messageTimestampMs(streamingMessage);
-		for (const entry of state.activeTools.values()) {
-			if ((entry.status === "pending" || entry.status === "running") && entry.startTime >= streamStart) {
-				return true;
-			}
-		}
-		return false;
-	});
-	const activeTools = useToolsStore.getState().activeTools;
+	const activeTools = useToolsStore(state => state.activeTools);
+	const streamGeneration = useToolsStore(state => state.streamGeneration);
+	const resolveToolCall = useCallback(
+		(call: ToolCallContent) => {
+			const key = toolEntryKey(call);
+			return { key, entry: activeTools.get(key) };
+		},
+		[activeTools],
+	);
+	const hasLiveToolsForStream = hasStreamingTranscriptContent(streamingMessage, "", "", activeTools, streamGeneration);
 	const isStreaming = useSessionStore(state => state.isStreaming);
 	const awaitingModelSince = useSessionStore(state => state.awaitingModelSince);
 	const retryInfo = useSessionStore(state => state.retryInfo);
@@ -58,13 +57,12 @@ function MainTranscript() {
 	const saveTranscriptView = useSessionStore(state => state.saveTranscriptView);
 	const transcriptPinNonce = useSessionStore(state => state.transcriptPinNonce);
 	const activeTab = useTabsStore(state => state.tabs.find(tab => tab.id === tabId));
-	const remoteStartingTarget =
-		status === "starting" && activeTab?.target.type === "ssh" ? activeTab.target : undefined;
+	const remoteStartingTarget = status === "starting" && activeTab?.target.type === "ssh" ? activeTab.target : undefined;
 	const collapseCompacted = useDisplayPreference("collapseCompacted");
 	const transcriptDetail = useUiStore(state => state.transcriptDetail);
 	const todoHistory = useTodoStore(state => state.history);
 	const queued = useQueuedMessages();
-	const isChat = useActiveTabKind() === "chat";
+	const isChat = activeTab?.kind === "chat";
 
 	return (
 		<TranscriptViewport
@@ -76,7 +74,8 @@ function MainTranscript() {
 				streamingText,
 				streamingThinking,
 				activeTools,
-				resolveToolCall: resolveMainToolCall,
+				streamGeneration,
+				resolveToolCall,
 				transcriptDetail,
 			}}
 			main={{
@@ -91,7 +90,7 @@ function MainTranscript() {
 				todoHistory,
 				queued,
 				isChat,
-				tabId,
+				tabId: tabId ?? undefined,
 				hasLiveToolsForStream,
 				lastAppended,
 				transcriptPinNonce,
@@ -101,22 +100,3 @@ function MainTranscript() {
 		/>
 	);
 }
-
-
-export type { HistoryRow, Row } from "./chat-stream-utils";
-// Re-export transcript helpers for consumers/tests that import them from ChatStream.
-export {
-	buildConversationAnchors,
-	buildHistoryRowKeys,
-	buildHistoryRows,
-	buildTranscriptRowKeys,
-	claimRowEntrances,
-	createRowEntranceState,
-	findConversationAnchorIndex,
-	hasStreamingTranscriptContent,
-	isTranscriptAtLiveEdge,
-	LIVE_EDGE_SLACK_PX,
-	mergeTodoSnapshots,
-	ROW_ENTRANCE_TAIL_ROWS,
-	shouldRePinTranscript,
-} from "./chat-stream-utils";

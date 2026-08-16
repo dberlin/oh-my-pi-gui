@@ -41,8 +41,8 @@ export interface ReadGroupEntry {
 }
 
 export type ReadGroupRow =
-	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] }
-	| { kind: "message"; message: AgentMessage };
+	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[]; identityKey?: string }
+	| { kind: "message"; message: AgentMessage; identityKey?: string };
 
 /**
  * Usage fields carried from a fully-consumed assistant message onto a read
@@ -99,6 +99,7 @@ function isVisibleBlock(block: MessageContent): boolean {
 interface ReadGroupableRow {
 	kind: string;
 	message?: AgentMessage;
+	identityKey?: string;
 }
 
 /**
@@ -113,13 +114,16 @@ export function groupReadRows<R extends ReadGroupableRow>(
 	const out: Array<R | ReadGroupRow> = [];
 	let run: ReadGroupEntry[] = [];
 	let runUsage: ReadGroupUsage[] = [];
+	let runIdentityKey: string | undefined;
 	const flush = () => {
 		if (run.length === 0) return;
 		const row: ReadGroupRow = { kind: "readGroup", entries: run };
 		if (runUsage.length > 0) row.usage = runUsage;
+		if (runIdentityKey) row.identityKey = runIdentityKey;
 		out.push(row);
 		run = [];
 		runUsage = [];
+		runIdentityKey = undefined;
 	};
 
 	for (const row of rows) {
@@ -135,12 +139,31 @@ export function groupReadRows<R extends ReadGroupableRow>(
 			continue;
 		}
 
-		const kept: MessageContent[] = [];
+		let kept: MessageContent[] = [];
+		let keptVisible = false;
+		const emittedMessages: AgentMessage[] = [];
+		let trailingReadRun = run.length > 0;
+		const flushMessage = () => {
+			if (kept.length === 0) return;
+			if (keptVisible) {
+				const emittedMessage = { ...message, content: kept };
+				out.push({
+					kind: "message",
+					message: emittedMessage,
+					...(row.identityKey ? { identityKey: row.identityKey } : {}),
+				} as R);
+				emittedMessages.push(emittedMessage);
+			}
+			kept = [];
+			keptVisible = false;
+		};
 		for (const block of message.content) {
 			if (block.type === "toolCall" && block.name === "read") {
 				const read = collapsibleReadTarget(block.arguments);
 				if (read) {
+					flushMessage();
 					const resolved = resolveToolCall(block);
+					if (run.length === 0) runIdentityKey = row.identityKey;
 					run.push({
 						callId: block.id,
 						toolKey: resolved.key,
@@ -148,18 +171,28 @@ export function groupReadRows<R extends ReadGroupableRow>(
 						...read,
 						args: block.arguments as Record<string, unknown>,
 					});
+					trailingReadRun = true;
 					continue;
 				}
 			}
-			if (isVisibleBlock(block)) flush();
+			const visible = isVisibleBlock(block);
+			if (visible) {
+				flush();
+				trailingReadRun = false;
+				keptVisible = true;
+			}
 			kept.push(block);
 		}
-		if (kept.some(isVisibleBlock)) {
-			out.push({ kind: "message", message: { ...message, content: kept } } as R);
-		} else if (message.usage != null && typeof message.usage === "object") {
-			// The message was fully consumed into the run (no visible content
-			// left to render a bubble) — keep its usage so a pure-read turn
-			// still shows tokens/cost/duration on the group card.
+		flushMessage();
+		const strippedMessageCount = trailingReadRun ? emittedMessages.length : emittedMessages.length - 1;
+		for (let index = 0; index < strippedMessageCount; index++) {
+			const emittedMessage = emittedMessages[index]!;
+			delete emittedMessage.usage;
+			delete emittedMessage.model;
+			delete emittedMessage.duration;
+			delete emittedMessage.ttft;
+		}
+		if (trailingReadRun && message.usage != null && typeof message.usage === "object") {
 			runUsage.push({
 				role: "assistant",
 				usage: message.usage,

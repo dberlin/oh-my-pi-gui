@@ -6,6 +6,10 @@ import { openLink } from "../../lib/open-link";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
+const MAX_SOURCES = 8;
+const PREVIEW_SOURCES = 3;
+const PREVIEW_ANSWER_CHARACTERS = 2_400;
+
 /**
  * Web search wire shape: `{ content: [{ type: "text", text }], details }`
  * where `details` is `SearchRenderDetails`
@@ -92,13 +96,19 @@ function parseSearch(result: unknown): SearchParsed {
 }
 
 /** Web search: query header, markdown answer, sources with domain/age, provider metadata. */
-export function WebSearchRenderer({ args, result, isPartial }: ToolRendererProps) {
+export function WebSearchRenderer({ args, result, isPartial, view }: ToolRendererProps) {
 	const t = useT();
 	const parsed = parseSearch(isPartial ? undefined : result);
 	const query = typeof args.query === "string" && args.query.trim() ? args.query : parsed.query;
 	const answer = parsed.answer || resultText(isPartial ? undefined : result).trim();
+	const visibleAnswer =
+		view === "preview" && answer.length > PREVIEW_ANSWER_CHARACTERS
+			? `${answer.slice(0, PREVIEW_ANSWER_CHARACTERS)}…`
+			: answer;
 	const authShort = parsed.authMode === "oauth" ? "OAuth" : parsed.authMode === "api_key" ? "API" : parsed.authMode;
 	const providerInfo = parsed.model ? `${parsed.model} @ ${parsed.provider ?? "?"}` : parsed.provider;
+	const visibleSources = parsed.sources.slice(0, view === "preview" ? PREVIEW_SOURCES : MAX_SOURCES);
+	const omittedSources = parsed.sources.length - visibleSources.length;
 	const usageParts: string[] = [];
 	if (parsed.usage) {
 		const u = parsed.usage;
@@ -134,13 +144,13 @@ export function WebSearchRenderer({ args, result, isPartial }: ToolRendererProps
 
 			{!parsed.error && answer && (
 				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5 text-omp-sm [&_.markdown-body]:text-omp-sm">
-					<MarkdownRenderer content={answer} />
+					<MarkdownRenderer content={visibleAnswer} />
 				</div>
 			)}
 
 			{parsed.sources.length > 0 && (
 				<div className="flex flex-col gap-1">
-					{parsed.sources.slice(0, 8).map((item, i) => {
+					{visibleSources.map((item, i) => {
 						const age = formatAge(item.ageSeconds) || item.publishedDate || "";
 						const domain = domainOf(item.url);
 						return (
@@ -181,9 +191,9 @@ export function WebSearchRenderer({ args, result, isPartial }: ToolRendererProps
 							</div>
 						);
 					})}
-					{parsed.sources.length > 8 && (
+					{omittedSources > 0 && (
 						<div className="text-center text-omp-xs text-[var(--omp-dim)]">
-							{t("tools.websearch.more", { count: parsed.sources.length - 8 })}
+							{t("tools.websearch.more", { count: omittedSources })}
 						</div>
 					)}
 				</div>

@@ -6,6 +6,7 @@ import { PathLink } from "./PathLink";
 import type { ToolRendererProps } from "./ToolCard";
 
 const MAX_PATHS = GLOB_PREVIEW_PATHS;
+const PREVIEW_PATHS = 6;
 
 interface GlobToolDetails {
 	fileCount?: number;
@@ -16,20 +17,22 @@ interface GlobToolDetails {
 /** Glob: matched-path count + the path list. Prefers the structured
  * `details.files` — parsing text lines miscounts appended notices (timeouts,
  * truncation notes) as paths and offers them as file links. */
-export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRendererProps) {
+export function GlobRenderer({ args, result, isPartial, partialResult, view }: ToolRendererProps) {
 	const t = useT();
 	const pattern = typeof args.path === "string" ? args.path : typeof args.pattern === "string" ? args.pattern : "";
 	const effective = isPartial ? partialResult : result;
 	const details = resultDetails(effective) as GlobToolDetails | undefined;
 	const listedPaths = Array.isArray(details?.files) ? details.files.map(String) : null;
 	const totalCount = typeof details?.fileCount === "number" ? details.fileCount : (listedPaths?.length ?? Number.NaN);
-	const paths = (
+	const allPaths = (
 		listedPaths ??
 		resultText(effective)
 			.split("\n")
 			.map(l => l.trim())
 			.filter(Boolean)
 	).slice(0, MAX_PATHS);
+	const paths = view === "preview" ? allPaths.slice(0, PREVIEW_PATHS) : allPaths;
+	const omitted = allPaths.length - paths.length;
 
 	return (
 		<div className="flex flex-col gap-1">
@@ -41,7 +44,7 @@ export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRen
 						? t("tools.glob.matching")
 						: Number.isFinite(totalCount)
 							? t("tools.glob.paths", { count: totalCount, plural: totalCount === 1 ? "" : "s" })
-							: t("tools.glob.paths", { count: paths.length, plural: paths.length === 1 ? "" : "s" })}
+							: t("tools.glob.paths", { count: allPaths.length, plural: allPaths.length === 1 ? "" : "s" })}
 					{details?.truncated === true ? " +" : ""}
 				</span>
 			</div>
@@ -61,6 +64,11 @@ export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRen
 							{p.endsWith("/") ? <span className="text-[var(--omp-status-path)]">{p}</span> : p}
 						</PathLink>
 					))}
+					{omitted > 0 && (
+						<div className="text-center text-[var(--omp-dim)]">
+							{t("tools.read.more", { count: omitted, plural: omitted === 1 ? "" : "s" })}
+						</div>
+					)}
 				</div>
 			)}
 		</div>

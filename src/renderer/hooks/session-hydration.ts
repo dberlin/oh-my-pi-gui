@@ -225,6 +225,8 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const beforeMessages = useMessagesStore.getState().messages;
 	const beforeLiveMessages = useMessagesStore.getState().liveMessages;
 	const beforeEventVersion = useSessionStore.getState().eventVersion;
+	const tools = useToolsStore.getState();
+	const hydrationStartToolEventRevision = tools.snapshotProjection().toolEventRevision;
 	const core = Promise.allSettled([
 		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
 		createSessionRpcClient(activeTabCommand).getTranscript(),
@@ -241,7 +243,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const [stateResult, messagesResult] = await core;
 	if (!isCurrent()) return;
 	const eventsUnchanged = useSessionStore.getState().eventVersion === beforeEventVersion;
-	const focusUnchanged = !originRuntime || focusedSessionRuntime() === originRuntime;
+	const focusUnchanged = focusedSessionRuntime() === originRuntime;
 	// `get_state` is the only witness to a live turn. A failed read counts as not
 	// live: a card left spinning never resolves, while a wrongly aborted card is
 	// repaired by the next execution event.
@@ -276,10 +278,19 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 		if (eventsUnchanged && stateIsIdle && useMessagesStore.getState().liveMessages === beforeLiveMessages) {
 			useMessagesStore.getState().clearDeliveredLiveMessages();
 		}
-		if (eventsUnchanged)
-			useToolsStore
-				.getState()
-				.hydrateMessages(useMessagesStore.getState().messages, { turnIsLive: stateIsStreaming });
+		const authoritativeStreaming = eventsUnchanged ? stateIsStreaming : useSessionStore.getState().isStreaming;
+		if (
+			!authoritativeStreaming &&
+			tools.snapshotProjection().toolEventRevision === hydrationStartToolEventRevision
+		) {
+			tools.hydrateMessages(useMessagesStore.getState().messages, { turnIsLive: stateIsStreaming });
+		} else {
+			tools.reconcileStreamingMessages(
+				useMessagesStore.getState().messages,
+				hydrationStartToolEventRevision,
+				authoritativeStreaming,
+			);
+		}
 	}
 	await subagents;
 	await secondary;
@@ -313,8 +324,10 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 	const beforeEventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
 	const subagents = sessionRuntimeStore<SubagentsStore>(tabId, "subagents");
 	const beforeRoster = subagents?.getState().subagents;
+	const tools = sessionRuntimeStore<ToolsStore>(tabId, "tools");
 	const focusedAgentView = useTabsStore.getState().activeTabId === tabId ? useAgentViewStore.getState() : null;
 	const beforeAgentViewGeneration = focusedAgentView?.generation;
+	const hydrationStartToolEventRevision = tools?.getState().snapshotProjection().toolEventRevision ?? 0;
 	let hydratedMessages = beforeMessages;
 
 	const coreResult = Promise.allSettled([
@@ -401,14 +414,29 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		const data = messagesResult.value.data as { messages?: AgentMessage[] } | undefined;
 		const fetched = data?.messages ?? [];
 		const messages = sessionRuntimeStore<MessagesStore>(tabId, "messages");
-		const tools = sessionRuntimeStore<ToolsStore>(tabId, "tools");
 		const current = messages?.getState().messages ?? [];
 		messages?.getState().reconcileFetched(mergeFetchedTranscript(fetched, beforeMessages, current));
 		if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === beforeLiveMessages) {
 			messages.getState().clearDeliveredLiveMessages();
 		}
 		hydratedMessages = messages?.getState().messages ?? [];
-		if (eventsUnchanged) tools?.getState().hydrateMessages(hydratedMessages, { turnIsLive: stateIsStreaming });
+		const currentTools = tools?.getState();
+		const authoritativeStreaming = eventsUnchanged
+			? stateIsStreaming
+			: sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().isStreaming === true;
+		if (
+			currentTools &&
+			!authoritativeStreaming &&
+			currentTools.snapshotProjection().toolEventRevision === hydrationStartToolEventRevision
+		) {
+			currentTools.hydrateMessages(hydratedMessages, { turnIsLive: stateIsStreaming });
+		} else {
+			currentTools?.reconcileStreamingMessages(
+				hydratedMessages,
+				hydrationStartToolEventRevision,
+				authoritativeStreaming,
+			);
+		}
 	}
 
 	// Subagents and secondary chips do not hold the transcript hostage. Their
