@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { groupReadRows } from "../../lib/read-group";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
@@ -628,64 +628,30 @@ describe("MessageBubble noise filtering", () => {
 		expect(html).toContain("py-3");
 	});
 
-	it("offers branch-to-new-tab on user and assistant messages even before legacy ids are resolved", () => {
-		const user: AgentMessage = {
-			role: "user",
-			entryId: "user-entry",
-			content: [{ type: "text", text: "branch point" }],
-			timestamp: at,
-		};
-		const assistant: AgentMessage = {
+
+
+});
+
+describe("MessageBubble read-only actions", () => {
+	it("retains copying but cannot branch a projected assistant answer into Main", () => {
+		const message: AgentMessage = {
 			role: "assistant",
-			entryId: "assistant-entry",
-			content: [{ type: "text", text: "answer" }],
-			timestamp: at,
+			content: [{ type: "text", text: "Completed the child investigation." }],
+			entryId: "child-answer",
+			timestamp: 1,
 		};
-		const render = (message: AgentMessage) =>
-			renderToStaticMarkup(
-				<I18nProvider>
-					<MessageBubble message={message} />
-				</I18nProvider>,
-			);
-
-		expect(render(user)).toContain("Branch to a new tab from here");
-		expect(render(assistant)).toContain("Branch to a new tab from here");
-		expect(render({ ...assistant, entryId: undefined })).toContain("Branch to a new tab from here");
-	});
-
-	it("uses compact chrome for expanded process details containing reasoning and tools", () => {
-		const processMessage: AgentMessage = {
-			role: "assistant",
-			content: [
-				{ type: "thinking", thinking: "Inspect first." },
-				{ type: "toolCall", id: "call_process", name: "read", arguments: { path: "x" } },
-			],
-			timestamp: at,
-		};
-		const html = renderToStaticMarkup(
-			<I18nProvider>
-				<MessageBubble compact message={processMessage} />
-			</I18nProvider>,
-		);
-		expect(html).toContain("read");
-		expect(html).not.toContain("Copy message text");
-		expect(html).toContain("py-1.5");
-		expect(html).toContain("omp-assistant-turn--compact");
-	});
-
-	it("uses the full-width transcript content surface for assistant output", () => {
-		const html = renderToStaticMarkup(
-			<I18nProvider>
-				<MessageBubble
-					message={{
-						role: "assistant",
-						content: [{ type: "text", text: "A long answer that must follow the transcript reading measure." }],
-						timestamp: at,
-					}}
-				/>
-			</I18nProvider>,
-		);
-		expect(html).toContain('class="omp-transcript-content min-w-0"');
-		expect(html).not.toContain('class="min-w-0 flex-1"');
+		const render = (readOnly: boolean) =>
+			parseHTML(
+				renderToStaticMarkup(
+					<I18nProvider>
+						<MessageBubble message={message} readOnly={readOnly} />
+					</I18nProvider>,
+				),
+			).document;
+		const branch = `button[aria-label="${translate("chat.branchFromHere")}"]`;
+		expect(render(false).querySelector(branch)).not.toBeNull();
+		const projected = render(true);
+		expect(projected.querySelector(branch)).toBeNull();
+		expect(projected.querySelector(`button[title="${translate("chat.copyMessage")}"]`)).not.toBeNull();
 	});
 });

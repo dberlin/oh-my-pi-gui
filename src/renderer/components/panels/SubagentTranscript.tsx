@@ -4,9 +4,11 @@ import type { ToolCallContent } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { isRenderableMessageText } from "../../lib/messages";
 import { useAgentViewStore } from "../../stores/agent-view";
+import { useRuntimeStore } from "../../stores/session-runtime-context";
+import { useSubagentsStore } from "../../stores/subagents";
 import { resolveProjectionToolCall } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { registerTranscriptToolCalls } from "../chat/activity/agent-tree-model";
+import { extractTaskToolCallIds } from "../chat/activity/agent-tree-model";
 import { TranscriptViewport } from "../chat/TranscriptViewport";
 import { Spinner } from "../common";
 
@@ -15,12 +17,14 @@ import { Spinner } from "../common";
  */
 export const SubagentTranscript = memo(function SubagentTranscript() {
 	const t = useT();
+	const agentView = useRuntimeStore("agentView", useAgentViewStore);
 	const target = useAgentViewStore(state => state.target);
 	const generation = useAgentViewStore(state => state.generation);
 	const loadState = useAgentViewStore(state => state.loadState);
 	const error = useAgentViewStore(state => state.error);
 	const selectedMessages = useAgentViewStore(state => state.messages);
 	const selectedTools = useAgentViewStore(state => state.tools);
+	const registerToolCallOwners = useSubagentsStore(state => state.registerToolCallOwners);
 	const reloadSelected = useAgentViewStore(state => state.reloadSelected);
 	const transcriptDetail = useUiStore(state => state.transcriptDetail);
 
@@ -32,7 +36,7 @@ export const SubagentTranscript = memo(function SubagentTranscript() {
 	const selectedAgentId = target.kind === "subagent" ? target.id : null;
 	useEffect(() => {
 		if (!selectedAgentId) return;
-		const current = useAgentViewStore.getState();
+		const current = agentView.getState();
 		if (
 			current.generation !== generation ||
 			current.target.kind !== "subagent" ||
@@ -43,8 +47,16 @@ export const SubagentTranscript = memo(function SubagentTranscript() {
 		const transcriptMessages = selectedMessages.streamingMessage
 			? [...selectedMessages.messages, selectedMessages.streamingMessage]
 			: selectedMessages.messages;
-		registerTranscriptToolCalls(selectedAgentId, transcriptMessages);
-	}, [generation, selectedAgentId, selectedMessages.messages, selectedMessages.streamingMessage]);
+		const toolCallIds = extractTaskToolCallIds(transcriptMessages);
+		if (toolCallIds.length > 0) registerToolCallOwners(selectedAgentId, toolCallIds);
+	}, [
+		agentView,
+		generation,
+		registerToolCallOwners,
+		selectedAgentId,
+		selectedMessages.messages,
+		selectedMessages.streamingMessage,
+	]);
 
 	if (target.kind !== "subagent") return null;
 

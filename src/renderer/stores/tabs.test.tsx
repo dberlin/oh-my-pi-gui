@@ -1496,7 +1496,7 @@ describe("useSessionTabs hook", () => {
 		useSessionStore.setState({ sessionId: "restored", cwd: "/alpha", status: "starting" });
 		omp.tabs.list.mockResolvedValue([{ ...tabInfo("t0", "/alpha"), active: true }]);
 		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "restored", cwd: "/alpha", messageCount: 1 })));
-		omp.rpc.getTranscript.mockResolvedValue(ok({ messages: [msg("restored history")] }));
+		omp.rpc.getMessages.mockResolvedValue(ok({ messages: [msg("restored history")] }));
 		await mount();
 		await act(async () => {
 			const { promise, resolve } = Promise.withResolvers<void>();
@@ -1520,7 +1520,7 @@ describe("useSessionTabs hook", () => {
 		setFocusedSessionRuntime("t1");
 		useSessionStore.setState({ sessionId: "restored", status: "starting" });
 		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "restored", messageCount: 1 })));
-		omp.rpc.getTranscript.mockResolvedValue(ok({ messages: [msg("restored history")] }));
+		omp.rpc.getMessages.mockResolvedValue(ok({ messages: [msg("restored history")] }));
 
 		await act(async () => {
 			emitTabStatus({ kind: "chat", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });

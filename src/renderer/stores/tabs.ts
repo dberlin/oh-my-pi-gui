@@ -28,7 +28,7 @@ import type {
 	IpcSpawnTabPayload,
 } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcSessionState } from "../../shared/rpc-types";
-import { hydrateTabSession, invalidateReadyRecovery, recoverReadySession } from "../hooks/use-rpc-events";
+import { hydrateTabSession, invalidateReadyRecovery, joinFullReadyPrelude, recoverReadySession } from "../hooks/use-rpc-events";
 import { basename, sanitizeDisplayText } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
@@ -50,7 +50,7 @@ import {
 	setFocusedSessionRuntime,
 	useRuntimeTabId,
 } from "./session-runtime-context";
-import { useSubagentsStore } from "./subagents";
+import { type SubagentsStore, useSubagentsStore } from "./subagents";
 import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import { toast } from "./toast";
 import { useUiStore } from "./ui";
@@ -856,7 +856,7 @@ export function consumePendingSession(tabId: string): Promise<boolean> {
 					return true;
 				}
 			}
-			invalidateReadyRecovery();
+			invalidateReadyRecovery(true, tabId);
 			sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().invalidateRefresh();
 			await recoverReadySession(tabId);
 			return true;
@@ -993,12 +993,13 @@ export function useSessionTabs(): void {
 						if (!tab || !session || (tab.status !== "ready" && tab.status !== "running")) continue;
 						session.getState().setStatus("ready", tab.cwd);
 						void (async () => {
-							if (tabId === state.activeTabId) {
-								const consumedPending = await consumePendingSession(tabId);
-								if (!consumedPending) await recoverReadySession(tabId);
-							} else {
-								await hydrateTabSession(tabId);
+							const fullReady = joinFullReadyPrelude(tabId);
+							if (fullReady) {
+								await fullReady;
+								return;
 							}
+							const consumedPending = await consumePendingSession(tabId);
+							if (!consumedPending) await recoverReadySession(tabId);
 						})();
 					}
 				}, 0);
@@ -1006,28 +1007,29 @@ export function useSessionTabs(): void {
 		const subscribe = window.omp.events.onTabStatus;
 		if (typeof subscribe !== "function") return;
 		return subscribe.call(window.omp.events, payload => {
-			const previousStatus = useTabsStore.getState().tabs.find(entry => entry.id === payload.tabId)?.status;
+			const previous = useTabsStore.getState().tabs.find(entry => entry.id === payload.tabId);
 			useTabsStore.getState().applyTabStatus(payload);
 			if (payload.status !== "ready") return;
 			const state = useTabsStore.getState();
 			const tab = state.tabs.find(entry => entry.id === payload.tabId);
-			if (visibleTabIds(state).includes(payload.tabId)) {
-				const runtime = ensureTabRuntime(payload.tabId);
-				void runtime.command({ type: "set_subagent_subscription", level: "events" });
-				if (!tab?.pendingSessionPath && previousStatus !== "ready" && previousStatus !== "running") {
-					// Light TAB_STATUS is registered before the full active-tab channel.
-					// If ready raced SET_ACTIVE_TAB, the full ready event was already
-					// missed. Restore history on the connection transition, including
-					// when metadata arrived first; idle metadata and run-end updates
-					// do not need another transcript fetch.
-					setTimeout(() => {
-						if (!visibleTabIds(useTabsStore.getState()).includes(payload.tabId)) return;
-						void hydrateTabSession(payload.tabId);
-					}, 0);
-				}
-			}
-			if (!tab?.pendingSessionPath || state.activeTabId !== tab.id) return;
-			void consumePendingSession(tab.id);
+			const reconnecting =
+				!previous ||
+				(previous.status !== "ready" && previous.status !== "running") ||
+				(payload.sessionId !== undefined && payload.sessionId !== previous.sessionId);
+			if (!visibleTabIds(state).includes(payload.tabId) || (!reconnecting && !tab?.pendingSessionPath)) return;
+			// Give full ready its synchronous claim before joining the owning pane's recovery.
+			setTimeout(() => {
+				if (!visibleTabIds(useTabsStore.getState()).includes(payload.tabId)) return;
+				void (async () => {
+					const fullReady = joinFullReadyPrelude(payload.tabId);
+					if (fullReady) {
+						await fullReady;
+						return;
+					}
+					const consumedPending = await consumePendingSession(payload.tabId);
+					if (!consumedPending) await recoverReadySession(payload.tabId);
+				})();
+			}, 0);
 		});
 	}, []);
 }

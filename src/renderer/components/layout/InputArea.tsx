@@ -1233,7 +1233,6 @@ function MainInputArea() {
 						</div>
 					</div>
 				</div>
-			</div>
 		</>
 	);
 }

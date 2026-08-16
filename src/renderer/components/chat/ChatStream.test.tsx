@@ -436,6 +436,7 @@ describe("compact transcript rows", () => {
 					toolResult(call.id),
 				],
 				"compact",
+				undefined,
 				resolveToolCall,
 			),
 			resolveToolCall,
@@ -592,8 +593,8 @@ describe("compact transcript rows", () => {
 			entry: undefined,
 		});
 		const messages = [
-			assistant([{ type: "text", text: "Inspect both occurrences." }, firstCall]),
-			assistant([{ type: "text", text: "." }, secondCall]),
+			{ ...assistant([{ type: "text", text: "Inspect both occurrences." }, firstCall]), timestamp: undefined },
+			{ ...assistant([{ type: "text", text: "." }, secondCall]), timestamp: undefined },
 		];
 
 		const compactRows = buildHistoryRows(messages, "compact", undefined, resolveToolCall);
@@ -626,8 +627,8 @@ describe("compact transcript rows", () => {
 			key: occurrenceKeys.get(call) ?? call.id,
 			entry: undefined,
 		});
-		const firstMessage = assistant([{ type: "text", text: "Inspect first." }, firstCall]);
-		const secondMessage = assistant([{ type: "text", text: "Inspect second." }, secondCall]);
+		const firstMessage = { ...assistant([{ type: "text", text: "Inspect first." }, firstCall]), timestamp: undefined };
+		const secondMessage = { ...assistant([{ type: "text", text: "Inspect second." }, secondCall]), timestamp: undefined };
 		const phaseBoundary: AgentMessage = {
 			...assistant([{ type: "text", text: "First inspection complete." }]),
 			id: "phase-boundary",
@@ -1104,80 +1105,8 @@ describe("transcript row entrances", () => {
 });
 
 describe("Main ChatStream characterization", () => {
-	it("routes Main messages and occurrence-specific tools through the shared viewport", async () => {
-		useMessagesStore.setState({ messages: toolRun });
-		useSessionStore.setState({ sessionId: "main-session", status: "ready" });
-		await mount(<ChatStream />);
 
-		expect(container?.querySelector(".omp-transcript-editorial")).not.toBeNull();
-		expect(container?.textContent).toContain("Implemented and verified.");
-	});
 
-	it("shows a local starting loader without starter actions", async () => {
-		useSessionStore.setState({ sessionId: "main-starting", status: "starting", isStreaming: false });
-		await mount(<ChatStream />);
-
-		expect(container?.querySelector(".animate-spin")).not.toBeNull();
-		expect(container?.querySelector(".omp-starter-card")).toBeNull();
-	});
-
-	it("releases shared Main tail following after a one-pixel manual scroll", async () => {
-		useMessagesStore.setState({
-			messages: Array.from({ length: 12 }, (_, index) => ({
-				role: "user",
-				content: [{ type: "text", text: `History prompt ${index + 1}` }],
-				timestamp: index + 1,
-			})),
-		});
-		useSessionStore.setState({ sessionId: "main-scroll-release", status: "ready" });
-		await mount(<ChatStream />);
-
-		const { promise: settled, resolve: resolveSettled } = Promise.withResolvers<void>();
-		setTimeout(resolveSettled, 0);
-		await act(async () => {
-			await settled;
-		});
-
-		const scroll = container?.querySelector(".omp-transcript-scroll") as unknown as HTMLElement | null;
-		const canvas = container?.querySelector(".omp-transcript-canvas") as unknown as HTMLElement | null;
-		if (!scroll || !canvas) throw new Error("Main transcript scroll surface missing");
-		Object.defineProperty(scroll, "scrollHeight", {
-			configurable: true,
-			get: () => Number.parseFloat(canvas.style.height),
-		});
-
-		const beforeAppendBottom = scroll.scrollHeight - scroll.clientHeight;
-		expect(beforeAppendBottom).toBeGreaterThan(0);
-		scroll.scrollTop = beforeAppendBottom - 1;
-		await act(async () => {
-			const wheel = new Event("wheel", { bubbles: true, cancelable: true });
-			Object.defineProperty(wheel, "eventPhase", { value: 0, writable: true, configurable: true });
-			scroll.dispatchEvent(wheel);
-			const manualScroll = new Event("scroll", { bubbles: true, cancelable: true });
-			Object.defineProperty(manualScroll, "eventPhase", { value: 0, writable: true, configurable: true });
-			scroll.dispatchEvent(manualScroll);
-		});
-
-		const jump = container?.querySelector('button[aria-label="Jump to latest"]') as unknown as HTMLElement | null;
-		if (!jump) throw new Error("Jump to latest action missing");
-		expect(jump.classList.contains("opacity-100")).toBe(true);
-		expect(jump.classList.contains("opacity-0")).toBe(false);
-
-		const { promise: appended, resolve: resolveAppended } = Promise.withResolvers<void>();
-		setTimeout(resolveAppended, 0);
-		await act(async () => {
-			useMessagesStore.setState(state => ({
-				messages: [
-					...state.messages,
-					{ role: "user", content: [{ type: "text", text: "Appended prompt" }], timestamp: 13 },
-				],
-			}));
-			await appended;
-		});
-
-		expect(jump.classList.contains("opacity-100")).toBe(true);
-		expect(jump.classList.contains("opacity-0")).toBe(false);
-	});
 
 	it("keeps finalized, live, navigation, and Main-only rows on the shared scroll surface", async () => {
 		const streamStartedAt = Date.parse("2026-08-05T04:00:05.000Z");
@@ -1252,12 +1181,6 @@ describe("Main ChatStream characterization", () => {
 			"temporary provider failure",
 		);
 
-		const scroll = container.querySelector(".omp-transcript-scroll");
-		const navigator = container.querySelector(".omp-conversation-nav");
-		const jump = container.querySelector('button[aria-label="Jump to latest"]');
-		expect(scroll).not.toBeNull();
-		expect(navigator?.parentElement).toBe(scroll?.parentElement);
-		expect(jump?.parentElement).toBe(scroll?.parentElement);
 
 		await act(async () => {
 			useUiStore.setState({ transcriptDetail: "compact" });

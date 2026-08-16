@@ -9,7 +9,7 @@ import type {
 	SubagentSnapshot,
 	RpcVibeModeState,
 } from "../../shared/rpc-types";
-import { useAgentViewStore } from "../stores/agent-view";
+import { type AgentViewStore, useAgentViewStore } from "../stores/agent-view";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
 import { type QueueStore, useQueueStore } from "../stores/queue";
@@ -215,23 +215,37 @@ export async function syncVibeMode(tabId: string, command: TabCommand, isCurrent
 const hydrationVersions = new WeakMap<SessionRuntime, number>();
 let legacyHydrationVersion = 0;
 
+/** Retire snapshots fetched before the owning sidecar restarted. */
+export function invalidateSessionHydration(tabId: string | null = useTabsStore.getState().activeTabId): void {
+	if (tabId === null) {
+		legacyHydrationVersion++;
+		return;
+	}
+	const runtime = sessionRuntime(tabId);
+	if (runtime) hydrationVersions.set(runtime, (hydrationVersions.get(runtime) ?? 0) + 1);
+}
+
 export async function hydrateLegacySession(fallbackName?: string, initialState?: RpcResponse): Promise<void> {
 	const version = ++legacyHydrationVersion;
-	const isCurrent = () => version === legacyHydrationVersion;
+	const originRuntime = focusedSessionRuntime();
+	const isCurrent = () => version === legacyHydrationVersion && focusedSessionRuntime() === originRuntime;
 	// This path has no tab runtime to scope to, so its stores are resolved by
 	// focus at apply time. Remember who we fetched for and refuse to write that
 	// snapshot into a pane the user switched to while the RPC was in flight.
-	const originRuntime = focusedSessionRuntime();
 	const beforeMessages = useMessagesStore.getState().messages;
 	const beforeLiveMessages = useMessagesStore.getState().liveMessages;
 	const beforeEventVersion = useSessionStore.getState().eventVersion;
 	const tools = useToolsStore.getState();
 	const hydrationStartToolEventRevision = tools.snapshotProjection().toolEventRevision;
+	const agentViewGeneration = useAgentViewStore.getState().generation;
+	const subagents = useSubagentsStore.getState();
+	const beforeRoster = subagents.subagents;
+	void activeTabCommand({ type: "set_subagent_subscription", level: "events" }).catch(() => {});
 	const core = Promise.allSettled([
 		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
-		createSessionRpcClient(activeTabCommand).getTranscript(),
+		createSessionRpcClient(activeTabCommand).getMessages(),
 	]);
-	const subagents = useSubagentsStore.getState().refresh({ expect: isCurrent });
+	const subagentsResult = Promise.allSettled([activeTabCommand({ type: "get_subagents" })]);
 	const secondary = Promise.allSettled([
 		syncGoal("", activeTabCommand, isCurrent),
 		syncLoopMode("", activeTabCommand, isCurrent),
@@ -269,9 +283,9 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 			useSessionStore.setState({ awaitingModelSince: Date.now() });
 		}
 		if (!wire.isStreaming) useMessagesStore.getState().clearStreaming();
-		void activeTabCommand({ type: "set_subagent_subscription", level: "events" });
 	}
-	if (focusUnchanged && messagesResult.status === "fulfilled" && messagesResult.value.success) {
+	const mainTranscriptReady = focusUnchanged && messagesResult.status === "fulfilled" && messagesResult.value.success;
+	if (mainTranscriptReady) {
 		const fetched = (messagesResult.value.data as { messages?: AgentMessage[] } | undefined)?.messages ?? [];
 		const current = useMessagesStore.getState().messages;
 		useMessagesStore.getState().reconcileFetched(mergeFetchedTranscript(fetched, beforeMessages, current));
@@ -292,7 +306,33 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 			);
 		}
 	}
-	await subagents;
+	const [settledSubagents] = await subagentsResult;
+	const authoritativeRosterReady =
+		isCurrent() && mainTranscriptReady && settledSubagents.status === "fulfilled" && settledSubagents.value.success;
+	if (authoritativeRosterReady) {
+		const data = settledSubagents.value.data as { subagents?: SubagentSnapshot[] } | undefined;
+		const roster = new Map(
+			historicalSubagentsFromMessages(
+				useMessagesStore.getState().messages,
+				useSessionStore.getState().sessionFile,
+			).map(snapshot => [snapshot.id, snapshot]),
+		);
+		for (const snapshot of data?.subagents ?? []) roster.set(snapshot.id, snapshot);
+		if (useSubagentsStore.getState().subagents === beforeRoster) subagents.setSnapshots([...roster.values()]);
+	}
+	if (isCurrent()) {
+		const selectedView = useAgentViewStore.getState();
+		if (selectedView.generation === agentViewGeneration && selectedView.target.kind === "subagent") {
+			if (authoritativeRosterReady) await selectedView.reloadSelected();
+			else {
+				selectedView.markSelectedLoadError(
+					!mainTranscriptReady
+						? hydrationFailureMessage(messagesResult, "Main transcript hydration failed")
+						: hydrationFailureMessage(settledSubagents, "Subagent roster hydration failed"),
+				);
+			}
+		}
+	}
 	await secondary;
 }
 
@@ -325,14 +365,16 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 	const subagents = sessionRuntimeStore<SubagentsStore>(tabId, "subagents");
 	const beforeRoster = subagents?.getState().subagents;
 	const tools = sessionRuntimeStore<ToolsStore>(tabId, "tools");
-	const focusedAgentView = useTabsStore.getState().activeTabId === tabId ? useAgentViewStore.getState() : null;
-	const beforeAgentViewGeneration = focusedAgentView?.generation;
+	const agentView = sessionRuntimeStore<AgentViewStore>(tabId, "agentView");
+	const beforeAgentViewGeneration = agentView?.getState().generation;
 	const hydrationStartToolEventRevision = tools?.getState().snapshotProjection().toolEventRevision ?? 0;
 	let hydratedMessages = beforeMessages;
+	// Subscribe before fetching history so live child frames cannot fall in the reconnect gap.
+	void runtime.command({ type: "set_subagent_subscription", level: "events" }).catch(() => {});
 
 	const coreResult = Promise.allSettled([
 		runtime.command({ type: "get_state" }),
-		createSessionRpcClient(runtime.command).getTranscript(),
+		createSessionRpcClient(runtime.command).getMessages(),
 	]);
 	const subagentsResult = Promise.allSettled([runtime.command({ type: "get_subagents" })]);
 	const queue = sessionRuntimeStore<QueueStore>(tabId, "queue")?.getState();
@@ -400,13 +442,6 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 			// removes delivered live rows while preserving an unsent local prompt.
 			messages?.getState().clearStreaming();
 		}
-		// Per-tab subagent subscription (F-HYDRATE), re-asserted on every
-		// successful hydrate: the runtime's command channel routes to THIS tab's
-		// sidecar. Tabs that report ready while active also subscribe via the
-		// status handlers — this covers tabs that booted or settled in the
-		// background, whose frames would otherwise stay silent on return.
-		// Idempotent server-side.
-		void runtime.command({ type: "set_subagent_subscription", level: "events" });
 	}
 
 	const mainTranscriptReady = isCurrent() && messagesResult.status === "fulfilled" && messagesResult.value.success;
@@ -454,16 +489,22 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		if (subagents && subagents.getState().subagents === beforeRoster) {
 			subagents.getState().setSnapshots([...roster.values()]);
 		}
-	} else if (
+	}
+	const selectedView = agentView?.getState();
+	if (
 		isCurrent() &&
-		focusedAgentView &&
-		focusedAgentView.generation === beforeAgentViewGeneration &&
-		focusedAgentView.target.kind === "subagent"
+		selectedView &&
+		selectedView.generation === beforeAgentViewGeneration &&
+		selectedView.target.kind === "subagent"
 	) {
-		const error = !mainTranscriptReady
-			? hydrationFailureMessage(messagesResult, "Main transcript hydration failed")
-			: hydrationFailureMessage(settledSubagents, "Subagent roster hydration failed");
-		focusedAgentView.markSelectedLoadError(error);
+		if (authoritativeRosterReady) {
+			await selectedView.reloadSelected();
+		} else {
+			const error = !mainTranscriptReady
+				? hydrationFailureMessage(messagesResult, "Main transcript hydration failed")
+				: hydrationFailureMessage(settledSubagents, "Subagent roster hydration failed");
+			selectedView.markSelectedLoadError(error);
+		}
 	}
 	await secondaryResult;
 }

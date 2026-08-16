@@ -238,6 +238,8 @@ export function AgentTree() {
 	const sessionFile = useSessionStore(state => state.sessionFile);
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const activeTarget = useAgentViewStore(state => state.target);
+	const selectMain = useAgentViewStore(state => state.selectMain);
+	const selectSubagent = useAgentViewStore(state => state.selectSubagent);
 	const activeKey = rowKey(activeTarget);
 	const [selectedKey, setSelectedKey] = useState(activeKey);
 	const [rovingKey, setRovingKey] = useState(activeKey);
@@ -377,10 +379,10 @@ export function AgentTree() {
 			const key = agent?.id ?? "main";
 			setSelectedKey(key);
 			setRovingKey(key);
-			if (agent) void useAgentViewStore.getState().selectSubagent(agent);
-			else useAgentViewStore.getState().selectMain();
+			if (agent) void selectSubagent(agent);
+			else selectMain();
 		},
-		[routeReady],
+		[routeReady, selectMain, selectSubagent],
 	);
 
 	const runLifecycleAction = useCallback(

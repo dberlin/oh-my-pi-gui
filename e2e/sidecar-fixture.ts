@@ -214,7 +214,6 @@ if (process.argv.includes("stats")) {
 				ok(state);
 				break;
 			case "get_messages":
-			case "get_transcript":
 				ok({ messages });
 				break;
 			case "get_subagents":

@@ -1,15 +1,12 @@
 import {
 	applyModelInfo,
-	applySessionState,
 	applyUsageSnapshot,
 	hydrateLegacySession,
 	hydrateSession,
 	hydrateTabSession,
+	invalidateSessionHydration,
 	refreshModelState,
 	refreshSessionState,
-	syncGoal,
-	syncLoopMode,
-	syncVibeMode,
 } from "./session-hydration";
 
 export * from "./session-hydration";
@@ -33,7 +30,7 @@ import {
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
-import { acceptsActiveTabEvents } from "../lib/tab-routing";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../lib/tab-routing";
 import { useAgentViewStore } from "../stores/agent-view";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useMessagesStore } from "../stores/messages";
@@ -43,6 +40,7 @@ import { useQueueStore } from "../stores/queue";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import {
 	activeTabCommand,
+	type SessionRuntime,
 	sessionRuntime,
 	sessionRuntimeStore,
 	type TabCommand,
@@ -50,7 +48,8 @@ import {
 } from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
 import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
-import { isTabClosed, useTabsStore } from "../stores/tabs";
+import { ensureTabRuntime } from "../stores/tab-runtime";
+import { consumePendingSession, invalidatePendingSessionGeneration, isTabClosed, useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
@@ -255,39 +254,118 @@ function goalPatchFromEvent(
 }
 
 interface ReadyRecovery {
-	tabId: string;
 	generation: number;
+	runtime: SessionRuntime | null;
 	promise: Promise<void>;
 }
 
-let readyRecovery: ReadyRecovery | null = null;
-let readyRecoveryGeneration = 0;
-
-export function invalidateReadyRecovery(): void {
-	readyRecoveryGeneration += 1;
-	readyRecovery = null;
+interface FullReadyPrelude {
+	tabId: string | null;
+	runtime: SessionRuntime | null;
+	promise: Promise<void>;
 }
 
-export function recoverReadySession(tabId: string | null = useTabsStore.getState().activeTabId): Promise<void> {
-	if (!tabId || isTabClosed(tabId)) return Promise.resolve();
-	const generation = readyRecoveryGeneration;
-	if (readyRecovery?.tabId === tabId && readyRecovery.generation === generation) return readyRecovery.promise;
-	const promise = (async () => {
-		sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().invalidateRefresh();
-		await hydrateTabSession(tabId);
-		if (generation !== readyRecoveryGeneration || isTabClosed(tabId)) return;
-		if (useTabsStore.getState().activeTabId !== tabId) return;
-		await useAgentViewStore.getState().reloadSelected();
-	})();
-	readyRecovery = { tabId, generation, promise };
+interface RetainedBootPending {
+	path: string;
+}
+
+interface BootPendingRead {
+	claim: { value: RetainedBootPending | null };
+	promise: Promise<void>;
+}
+
+const readyRecoveries = new Map<string | null, ReadyRecovery>();
+const readyRecoveryGenerations = new Map<string | null, number>();
+const fullReadyPreludes = new Map<string | null, FullReadyPrelude>();
+let retainedBootPending: RetainedBootPending | null = null;
+let pendingBootOwnerResolve: ((tabId: string | null) => void) | null = null;
+let bootPendingRead: BootPendingRead | null = null;
+
+function recoveryGeneration(tabId: string | null): number {
+	return readyRecoveryGenerations.get(tabId) ?? 0;
+}
+
+/** Invalidate only work owned by the restarted or replaced session. */
+export function invalidateReadyRecovery(
+	preserveFullReadyPrelude = false,
+	tabId: string | null = useTabsStore.getState().activeTabId,
+): void {
+	invalidateSessionHydration(tabId);
+	readyRecoveryGenerations.set(tabId, recoveryGeneration(tabId) + 1);
+	readyRecoveries.delete(tabId);
+	if (!preserveFullReadyPrelude) {
+		fullReadyPreludes.delete(tabId);
+		if (tabId === null) {
+			const resolve = pendingBootOwnerResolve;
+			pendingBootOwnerResolve = null;
+			resolve?.(null);
+		}
+	}
+}
+
+function claimFullReadyPrelude(
+	tabId: string | null,
+	operation: (promoteToTab: (tabId: string) => void) => Promise<void>,
+): Promise<void> {
+	const runtime = tabId === null ? null : ensureTabRuntime(tabId);
+	const existing = fullReadyPreludes.get(tabId);
+	if (existing?.runtime === runtime) return existing.promise;
+	const claim: FullReadyPrelude = { tabId, runtime, promise: Promise.resolve() };
+	const promoteToTab = (promotedTabId: string): void => {
+		if (fullReadyPreludes.get(null) !== claim) return;
+		fullReadyPreludes.delete(null);
+		claim.tabId = promotedTabId;
+		claim.runtime = sessionRuntime(promotedTabId);
+		fullReadyPreludes.set(promotedTabId, claim);
+	};
+	fullReadyPreludes.set(tabId, claim);
+	const promise = operation(promoteToTab);
+	claim.promise = promise;
 	const clear = () => {
-		if (readyRecovery?.promise === promise) readyRecovery = null;
+		if (fullReadyPreludes.get(claim.tabId) === claim) fullReadyPreludes.delete(claim.tabId);
 	};
 	void promise.then(clear, clear);
 	return promise;
 }
 
- 
+function getBootPendingRead(): BootPendingRead {
+	if (bootPendingRead) return bootPendingRead;
+	const claim: BootPendingRead["claim"] = { value: null };
+	const promise = window.omp.sessions.consumePendingOpen().then(pending => {
+		if (pending) claim.value = { path: pending };
+	});
+	bootPendingRead = { claim, promise };
+	return bootPendingRead;
+}
+
+/** Light ready must join the full pending-open/health prelude before hydrating. */
+export function joinFullReadyPrelude(tabId: string): Promise<void> | null {
+	return fullReadyPreludes.get(tabId)?.promise ?? null;
+}
+
+export function recoverReadySession(tabId: string | null = useTabsStore.getState().activeTabId): Promise<void> {
+	if (tabId !== null && isTabClosed(tabId)) return Promise.resolve();
+	const generation = recoveryGeneration(tabId);
+	const existing = readyRecoveries.get(tabId);
+	if (existing?.generation === generation && existing.runtime === sessionRuntime(tabId)) return existing.promise;
+	const promise = (async () => {
+		if (tabId === null) {
+			await hydrateLegacySession();
+		} else {
+			sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().invalidateRefresh();
+			await hydrateTabSession(tabId);
+		}
+	})();
+	readyRecoveries.set(tabId, { generation, runtime: sessionRuntime(tabId), promise });
+	const clear = () => {
+		setTimeout(() => {
+			if (readyRecoveries.get(tabId)?.promise === promise) readyRecoveries.delete(tabId);
+		}, 0);
+	};
+	void promise.then(clear, clear);
+	return promise;
+}
+
 /**
  * Subscribes to batched RPC events from the sidecar and dispatches
  * them to the appropriate stores. Call once in App.tsx.
@@ -597,17 +675,28 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			}
 		};
 
-		const handleStatus = (payload: IpcSidecarStatusPayload, statusTabId: string) => {
-			if (disposed || closedTabFrame(statusTabId)) return;
+		const handleStatus = (payload: IpcSidecarStatusPayload, routedTabId: string) => {
+			if (disposed || closedTabFrame(routedTabId)) return;
 			statusVersion++;
+			const statusTabId = routedTabId || useTabsStore.getState().activeTabId;
 			const isFocused = () => useTabsStore.getState().activeTabId === statusTabId;
+			if (statusTabId !== null && (payload.status === "starting" || payload.status === "ready")) {
+				useTabsStore.setState(current => ({
+					tabs: current.tabs.map(tab => (tab.id === statusTabId ? { ...tab, status: payload.status } : tab)),
+				}));
+			}
 			if (payload.status === "starting") {
-				if (isFocused()) stopHeartbeat();
-				retryPendingTabs.delete(statusTabId);
-				withSessionRuntime(statusTabId, () => {
+				if (isFocused()) {
+					stopHeartbeat();
+					invalidatePendingSessionGeneration();
+				}
+				invalidateReadyRecovery(false, statusTabId);
+				retryPendingTabs.delete(routedTabId);
+				withSessionRuntime(statusTabId ?? "", () => {
 					useMessagesStore.getState().reset();
 					useModelStore.getState().reset();
 					useSessionStore.getState().reset();
+					useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
 					useSettingsStore.getState().reset();
 					useSubagentsStore.getState().reset();
 					useTodoStore.getState().reset();
@@ -617,58 +706,126 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				});
 				if (isFocused()) useUiStore.getState().clearSidecarError();
 			}
-			withSessionRuntime(statusTabId, () => useSessionStore.getState().setStatus(payload.status, payload.cwd));
+			withSessionRuntime(statusTabId ?? "", () => useSessionStore.getState().setStatus(payload.status, payload.cwd));
 
 			if (payload.status === "ready") {
 				if (isFocused()) startHeartbeat();
-				// One-shot boot health check: verify the command loop is live.
-				void (async () => {
+				void claimFullReadyPrelude(statusTabId, async promoteFullReadyPrelude => {
+					const statusGeneration = recoveryGeneration(statusTabId);
+					const wasFocused = isFocused();
+					let pendingOwnerTabId = statusTabId;
+					let ownerGeneration = statusGeneration;
+					let ownerRuntime = sessionRuntime(statusTabId);
+					const pendingOwnerReady = statusTabId === null ? Promise.withResolvers<string | null>() : null;
+					const stopPendingOwnerCapture =
+						statusTabId === null
+							? onActiveTabRouteSettled(() => {
+									if (pendingOwnerTabId !== null || statusGeneration !== recoveryGeneration(null)) return;
+									const reconciledTabId = useTabsStore.getState().activeTabId;
+									if (reconciledTabId === null) return;
+									pendingOwnerTabId = reconciledTabId;
+									ownerGeneration = recoveryGeneration(reconciledTabId);
+									ownerRuntime = sessionRuntime(reconciledTabId);
+									pendingOwnerReady?.resolve(reconciledTabId);
+									promoteFullReadyPrelude(reconciledTabId);
+								})
+							: null;
+					const isStatusCurrent = (): boolean =>
+						!disposed &&
+						statusGeneration === recoveryGeneration(statusTabId) &&
+						(pendingOwnerTabId === null ||
+							(!isTabClosed(pendingOwnerTabId) &&
+								ownerGeneration === recoveryGeneration(pendingOwnerTabId) &&
+								sessionRuntime(pendingOwnerTabId) === ownerRuntime)) &&
+						(!wasFocused || (acceptsActiveTabEvents() && isFocused()));
 					try {
-						const runtime = sessionRuntime(statusTabId);
-						const command = runtime?.command ?? activeTabCommand;
-						// A window opened "in new window" for a specific session
-						// switches to it BEFORE hydrating, so the first transcript
-						// it pulls is the target session, not the fresh empty one.
-						const pending = isFocused() ? await window.omp.sessions.consumePendingOpen() : null;
-						if (pending) {
-							const sw = await command({ type: "switch_session", sessionPath: pending });
-							if (!sw.success) {
-								useToastStore.getState().push({
-									variant: "error",
-									message: translate("events.sessionOpenFailed", { error: sw.error }),
-								});
+						let pendingClaim: RetainedBootPending | null = null;
+						if (wasFocused) {
+							pendingClaim = retainedBootPending;
+							if (pendingClaim) retainedBootPending = null;
+							try {
+								if (pendingClaim === null) {
+									const pendingRead = getBootPendingRead();
+									try {
+										await pendingRead.promise;
+									} catch (error) {
+										if (bootPendingRead === pendingRead) bootPendingRead = null;
+										throw error;
+									}
+									if (statusGeneration !== recoveryGeneration(statusTabId) && pendingOwnerTabId === null) return;
+									pendingClaim = pendingRead.claim.value;
+									pendingRead.claim.value = null;
+									if (bootPendingRead === pendingRead) bootPendingRead = null;
+								}
+								if (pendingClaim !== null && pendingOwnerTabId === null && pendingOwnerReady !== null) {
+									retainedBootPending = pendingClaim;
+									pendingBootOwnerResolve = pendingOwnerReady.resolve;
+									const reconciledOwner = await pendingOwnerReady.promise;
+									if (pendingBootOwnerResolve === pendingOwnerReady.resolve) pendingBootOwnerResolve = null;
+									if (reconciledOwner === null) return;
+									pendingOwnerTabId = reconciledOwner;
+									if (retainedBootPending === pendingClaim) retainedBootPending = null;
+								}
+							} finally {
+								stopPendingOwnerCapture?.();
 							}
 						}
-						const res = await command({ type: "get_state" });
-						if (runtime && sessionRuntime(statusTabId) !== runtime) return;
-						if (!res.success) {
+						const pendingTabId = statusTabId ?? pendingOwnerTabId;
+						if (pendingClaim !== null) {
+							const pendingPath = pendingClaim.path;
+							if (pendingTabId !== null && !isTabClosed(pendingTabId)) {
+								useTabsStore.setState(current => ({
+									tabs: current.tabs.map(tab =>
+										tab.id === pendingTabId && tab.pendingSessionPath === undefined
+											? { ...tab, pendingSessionPath: pendingPath }
+											: tab,
+									),
+								}));
+								if (
+									!disposed &&
+									statusGeneration === recoveryGeneration(statusTabId) &&
+									ownerGeneration === recoveryGeneration(pendingTabId) &&
+									sessionRuntime(pendingTabId) === ownerRuntime
+								) {
+									await consumePendingSession(pendingTabId);
+								}
+							}
+							return;
+						}
+						if (!isStatusCurrent()) {
+							if (statusTabId === null && pendingOwnerTabId !== null && !disposed) {
+								const current = useTabsStore.getState();
+								const owner = current.tabs.find(tab => tab.id === pendingOwnerTabId);
+								if (
+									statusGeneration === recoveryGeneration(null) &&
+									ownerGeneration === recoveryGeneration(pendingOwnerTabId) &&
+									sessionRuntime(pendingOwnerTabId) === ownerRuntime &&
+									current.activeTabId === pendingOwnerTabId &&
+									(owner?.status === "ready" || owner?.status === "running") &&
+									acceptsActiveTabEvents()
+								) {
+									if (!(await consumePendingSession(pendingOwnerTabId))) await recoverReadySession(pendingOwnerTabId);
+								}
+							}
+							return;
+						}
+						const command = ownerRuntime?.command ?? activeTabCommand;
+						const response = await command({ type: "get_state" });
+						if (!isStatusCurrent()) return;
+						if (!response.success) {
 							if (isFocused()) useUiStore.getState().setSidecarError(translate("events.sidecarNoResponse"));
 						} else {
 							if (isFocused()) useUiStore.getState().clearSidecarError();
-							if (runtime) {
-								void recoverReadySession(statusTabId);
-							} else {
-								const wire = res.data as RpcSessionState;
-								applySessionState(wire);
-								if (wire.isStreaming && useSessionStore.getState().awaitingModelSince === null) {
-									useSessionStore.setState({ awaitingModelSince: Date.now() });
-								}
-								if (!wire.isStreaming) useMessagesStore.getState().clearStreaming();
-								await Promise.allSettled([
-									syncGoal("", activeTabCommand, () => true),
-									syncLoopMode("", activeTabCommand, () => true),
-									syncVibeMode("", activeTabCommand, () => true),
-									useQueueStore.getState().refresh(),
-									useSettingsStore.getState().syncDisplaySettings(),
-									useSettingsStore.getState().syncApproval(),
-								]);
-							}
-							void command({ type: "set_subagent_subscription", level: "events" });
+							if (statusTabId !== null && (await consumePendingSession(statusTabId))) return;
+							await recoverReadySession(statusTabId);
 						}
 					} catch {
+						if (!isStatusCurrent()) return;
 						if (isFocused()) useUiStore.getState().setSidecarError(translate("events.sidecarHealthFailed"));
+					} finally {
+						stopPendingOwnerCapture?.();
 					}
-				})();
+				});
 			} else if (payload.status === "error" || payload.status === "exited" || payload.status === "restarting") {
 				if (isFocused()) {
 					// The command queue died with the process, so a probe would fail and
@@ -711,7 +868,10 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 
 		const handleSubagent = (frame: SubagentFrame, tabId: string) => {
 			if (closedTabFrame(tabId)) return;
-			withSessionRuntime(tabId, () => useSubagentsStore.getState().applyFrame(frame));
+			withSessionRuntime(tabId, () => {
+				useSubagentsStore.getState().applyFrame(frame);
+				useAgentViewStore.getState().applyFrame(frame);
+			});
 		};
 		const unsubSubagent =
 			typeof window.omp.events.onTabSubagentFrame === "function"

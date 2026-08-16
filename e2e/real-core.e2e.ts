@@ -87,7 +87,7 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 				if (!sessionPath) throw new Error("Local command did not persist a restorable session");
 				const fresh = await rpc.newSession();
 				const restored = await rpc.switchSession(sessionPath);
-				const transcript = await rpc.getTranscript();
+				const transcript = await rpc.getMessages();
 				const exported = await rpc.exportHtml(exportPath);
 				return {
 					before,

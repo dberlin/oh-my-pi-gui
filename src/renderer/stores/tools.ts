@@ -46,11 +46,17 @@ export interface ToolsStore {
 	reset: () => void;
 }
 
+interface ToolCallEntryBinding {
+	key: string;
+}
+
 export interface ToolProjection {
 	activeTools: Map<string, ToolEntry>;
 	streamGeneration: number;
 	toolEventRevision: number;
-	callEntryKeys: WeakMap<object, string>;
+	callEntryKeys: WeakMap<object, ToolCallEntryBinding>;
+	/** One shared mutable binding per occurrence; call objects remain weakly held. */
+	entryBindingsByKey: Map<string, ToolCallEntryBinding>;
 	nextOccurrenceByCallId: Map<string, number>;
 	latestEntryKeyByCallId: Map<string, string>;
 	streamEntryKeysByIndex: Map<number, string>;
@@ -72,7 +78,7 @@ function timestampMs(value: string | number | undefined, fallback: number): numb
 	}
 	return fallback;
 }
-const mainCallEntryKeys = new WeakMap<object, string>();
+const mainCallEntryKeys = new WeakMap<object, ToolCallEntryBinding>();
 
 
 function occurrenceEntryKey(callId: string, occurrence: number): string {
@@ -143,8 +149,13 @@ function allocateProjectionEntryKey(projection: ToolProjection, callId: string):
 }
 
 function bindCallEntryKey(projection: ToolProjection, call: object, callId: string, key: string): void {
-	projection.callEntryKeys.set(call, key);
-	mainCallEntryKeys.set(call, key);
+	let binding = projection.entryBindingsByKey.get(key);
+	if (!binding) {
+		binding = { key };
+		projection.entryBindingsByKey.set(key, binding);
+	}
+	projection.callEntryKeys.set(call, binding);
+	mainCallEntryKeys.set(call, binding);
 	projection.latestEntryKeyByCallId.set(callId, key);
 }
 
@@ -174,6 +185,7 @@ export function createToolProjection(): ToolProjection {
 		streamGeneration: 0,
 		toolEventRevision: 0,
 		callEntryKeys: new WeakMap(),
+		entryBindingsByKey: new Map(),
 		nextOccurrenceByCallId: new Map(),
 		latestEntryKeyByCallId: new Map(),
 		streamEntryKeysByIndex: new Map(),
@@ -210,7 +222,16 @@ export function reconcileStreamingToolProjection(
 	hydrationStartToolEventRevision: number,
 	authoritativeStreaming: boolean,
 ): ToolProjection {
-	const reconciled = hydrateToolProjection(createToolProjection(), messages, { turnIsLive: authoritativeStreaming });
+	const reconciled = createToolProjection();
+	// Reconciliation stays in the same transcript lineage. Keep weak object
+	// bindings so finalized calls survive after message_end clears stream maps.
+	reconciled.callEntryKeys = projection.callEntryKeys;
+	reconciled.activeTools = projectTranscriptTools(
+		messages,
+		callId => allocateProjectionEntryKey(reconciled, callId),
+		(call, callId, key) => bindCallEntryKey(reconciled, call, callId, key),
+		authoritativeStreaming,
+	).tools;
 	const rebasedKeys = new Map<string, string>();
 	const currentEntriesByCallId = new Map<string, { key: string; entry: ToolEntry; occurrence: number }[]>();
 
@@ -300,6 +321,11 @@ export function reconcileStreamingToolProjection(
 				nextOccurrence += 1;
 			}
 			const fetchedEntry = isRepresented ? reconciled.activeTools.get(rebasedKey) : undefined;
+			const binding = projection.entryBindingsByKey.get(key);
+			if (binding) {
+				binding.key = rebasedKey;
+				reconciled.entryBindingsByKey.set(rebasedKey, binding);
+			}
 			const wasTouchedDuringHydration = (entry.lastToolEventRevision ?? 0) > hydrationStartToolEventRevision;
 			if (
 				isRepresented &&
@@ -313,6 +339,17 @@ export function reconcileStreamingToolProjection(
 			reconciled.latestEntryKeyByCallId.set(callId, rebasedKey);
 		}
 		reconciled.nextOccurrenceByCallId.set(callId, nextOccurrence);
+	}
+
+	// Matching fetched and original objects must share the selected binding,
+	// including fetched terminal entries that supersede untouched live state.
+	for (const message of messages) {
+		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (block.type !== "toolCall") continue;
+			const key = reconciled.callEntryKeys.get(block)?.key;
+			if (key !== undefined) bindCallEntryKey(reconciled, block, block.id, key);
+		}
 	}
 
 	reconciled.streamGeneration = projection.streamGeneration;
@@ -350,14 +387,14 @@ export function reconcileStreamingToolProjection(
 }
 
 export function resolveProjectionToolCall(projection: ToolProjection, call: ToolCallContent): ResolvedToolCall {
-	const key = projection.callEntryKeys.get(call) ?? projection.latestEntryKeyByCallId.get(call.id) ?? call.id;
+	const key = projection.callEntryKeys.get(call)?.key ?? projection.latestEntryKeyByCallId.get(call.id) ?? call.id;
 	return { key, entry: projection.activeTools.get(key) };
 }
 
 
 /** Resolve the occurrence-specific store key for one Main transcript tool call. */
 export function toolEntryKey(call: { id: string }): string {
-	return mainCallEntryKeys.get(call) ?? call.id;
+	return mainCallEntryKeys.get(call)?.key ?? call.id;
 }
 
 /** Build read-only tool results for a secondary transcript without mutating Main. */

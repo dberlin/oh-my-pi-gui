@@ -1,7 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { z } from "zod";
 import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
-import { useAgentViewStore } from "./agent-view";
+import { type AgentViewStore, useAgentViewStore } from "./agent-view";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
 
 export type SubagentNode = SubagentSnapshot;
@@ -179,7 +179,10 @@ function mergeFetchedSnapshot(fresh: SubagentNode, prev: SubagentNode): Subagent
 	};
 }
 
-export const createSubagentsStore = (command: TabCommand = activeTabCommand) => {
+export const createSubagentsStore = (
+	command: TabCommand = activeTabCommand,
+	agentView: () => AgentViewStore = () => useAgentViewStore.getState(),
+) => {
 	let refreshRevision = 0;
 	return createStore<SubagentsStore>()((set, get) => ({
 		subagents: new Map(),
@@ -256,7 +259,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 			}
 			if (subagents) {
 				set({ subagents });
-				const view = useAgentViewStore.getState();
+				const view = agentView();
 				if (view.target.kind === "subagent") {
 					const selected = subagents.get(view.target.id);
 					if (selected) view.updateSnapshot(selected);
@@ -271,7 +274,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 				subagents.set(normalized.id, normalized);
 			}
 			set({ subagents });
-			useAgentViewStore.getState().reconcileRoster(subagents.values());
+			agentView().reconcileRoster(subagents.values());
 		},
 		refresh: async options => {
 			const revision = ++refreshRevision;
@@ -312,7 +315,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 						subagents.set(id, node);
 				}
 				set({ subagents, error: null });
-				useAgentViewStore.getState().reconcileRoster(subagents.values());
+				agentView().reconcileRoster(subagents.values());
 			} catch (cause) {
 				// Best-effort poll: frames + hydration remain authoritative. The
 				// failure is still recorded so the empty roster can name it.

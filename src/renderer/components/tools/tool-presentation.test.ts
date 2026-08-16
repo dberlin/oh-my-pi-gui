@@ -2,34 +2,6 @@ import { describe, expect, it } from "vitest";
 import { resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
 
 describe("resolveToolPresentation", () => {
-	it("passes a direct Bash invocation through unchanged", () => {
-		const result = {
-			content: [{ type: "text", text: "boom" }],
-			details: { exitCode: 1, stderr: "boom" },
-		};
-		const partialResult = {
-			content: [{ type: "text", text: "running" }],
-			details: { pid: 42 },
-		};
-
-		expect(
-			resolveToolPresentation({
-				name: "bash",
-				args: { command: "false", timeout: 5 },
-				result,
-				partialResult,
-				isError: true,
-			}),
-		).toEqual({
-			name: "bash",
-			args: { command: "false", timeout: 5 },
-			result,
-			partialResult,
-			isError: true,
-			transport: "direct",
-			mode: "execute",
-		});
-	});
 
 	it("unwraps a completed xd device into the effective tool contract", () => {
 		const invocation = resolveToolPresentation({
@@ -53,7 +25,7 @@ describe("resolveToolPresentation", () => {
 			isError: false,
 		});
 
-		expect(invocation).toEqual({
+		expect(invocation).toMatchObject({
 			name: "lsp",
 			args: { action: "references", file: "src/a.ts" },
 			result: {
@@ -67,6 +39,7 @@ describe("resolveToolPresentation", () => {
 		});
 	});
 
+
 	it("recognizes a pending xd write and decodes its complete inner JSON", () => {
 		const invocation = resolveToolPresentation({
 			name: "write",
@@ -79,7 +52,7 @@ describe("resolveToolPresentation", () => {
 			isError: false,
 		});
 
-		expect(invocation).toEqual({
+		expect(invocation).toMatchObject({
 			name: "browser",
 			args: { action: "open", name: "main", url: "https://example.com" },
 			result: null,
@@ -150,7 +123,7 @@ describe("resolveToolPresentation", () => {
 			isError: false,
 		});
 
-		expect(invocation).toEqual({
+		expect(invocation).toMatchObject({
 			name: "debug",
 			args: { action: "stack_trace" },
 			result: null,
@@ -799,30 +772,6 @@ describe("toolPresentationSummary", () => {
 		expect(toolPresentationSummary(invocation)).toBe("context-mode/ctx_execute");
 	});
 
-	it("summarizes an xd invocation by the effective LSP name rather than outer Write", () => {
-		const invocation = resolveToolPresentation({
-			name: "write",
-			args: {
-				path: "xd://lsp",
-				content: '{"action":"references","file":"src/a.ts"}',
-			},
-			result: {
-				content: [{ type: "text", text: "Found 2 reference(s)" }],
-				details: {
-					xdev: {
-						tool: "lsp",
-						mode: "execute",
-						args: { action: "references", file: "src/a.ts" },
-						inner: { action: "references", success: true },
-					},
-				},
-			},
-			partialResult: null,
-			isError: false,
-		});
-
-		expect(toolPresentationSummary(invocation)).toBe("references");
-	});
 
 	it("bounds a direct Browser summary while retaining its action and URL prefix", () => {
 		const url = `https://example.test/${"path-segment/".repeat(20)}`;

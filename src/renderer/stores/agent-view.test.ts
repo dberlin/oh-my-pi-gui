@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentMessage, RpcResponse, SubagentSnapshot } from "../../shared/rpc-types";
+import type { AgentMessage, AgentSessionEvent, RpcResponse, SubagentSnapshot } from "../../shared/rpc-types";
 import { type AgentViewLoader, createAgentViewStore } from "./agent-view";
 
 function ok(data: unknown): RpcResponse {
@@ -93,6 +93,33 @@ describe("agent view store", () => {
 		await loading;
 
 		expect(store.getState().messages.messages).toEqual([history, onPageAndLive, liveOnly]);
+	});
+
+	it("keeps completion received during a pending page when the older page finally arrives", async () => {
+		const page = Promise.withResolvers<RpcResponse>();
+		const history = message("history", 1);
+		const answer: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "finished answer" }],
+			responseId: "answer-1",
+			timestamp: 2,
+		};
+		const persisted = { ...answer, entryId: "answer-entry" };
+		const store = createAgentViewStore(loader(async () => page.promise));
+		const loading = store.getState().selectSubagent(snapshot("a1"));
+		for (const event of [
+			{ type: "message_start", message: answer },
+			{ type: "message_end", message: answer },
+			{ type: "agent_end", messages: [persisted] },
+		] satisfies AgentSessionEvent[]) {
+			store.getState().applyFrame({ type: "subagent_event", payload: { id: "a1", event } });
+		}
+		page.resolve(ok({ messages: [history, persisted], nextByte: 12, hasMore: false }));
+		await loading;
+
+		expect(store.getState().messages.messages).toEqual([history, persisted]);
+		expect(store.getState().messages.streamingMessage).toBeNull();
+		expect(store.getState().loadState).toBe("ready");
 	});
 
 	it("preserves matching live frames received while restored idle, errored, and reloading", async () => {
