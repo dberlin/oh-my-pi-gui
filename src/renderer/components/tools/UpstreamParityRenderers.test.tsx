@@ -51,6 +51,7 @@ describe("omp 17.3.5 renderer parity", () => {
 						{ type: "image", data: "cG5n", mimeType: "image/png" },
 					],
 				}}
+				view="expanded"
 			/>,
 		);
 
@@ -67,6 +68,7 @@ describe("omp 17.3.5 renderer parity", () => {
 					content: [{ type: "text", text: "stale registration" }],
 					details: { agents: [{ id: "Zombie", ageMs: 12_000, live: false }] },
 				}}
+				view="expanded"
 			/>,
 		);
 
