@@ -1,4 +1,5 @@
 import type { RpcCommand, RpcResponse, RpcResponseError } from "../../shared/rpc-types";
+import { createAgentViewStore } from "./agent-view";
 import { type ComposerStore, createComposerStore } from "./composer";
 import { createExtensionUiStore } from "./extension-ui";
 import { createMessagesStore } from "./messages";
@@ -76,6 +77,15 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 	};
 
 	const runtime: SessionRuntime = { tabId, command, stores: new Map() };
+	const agentView = createAgentViewStore(
+		{
+			getSubagentMessages: (subagentId, sessionFile, fromByte) =>
+				command({ type: "get_subagent_messages", subagentId, sessionFile, fromByte }),
+			readPersistedSubagentTranscript: sessionFile => window.omp.sessions.readSubagentTranscript(sessionFile),
+		},
+		() => sessionRuntime(tabId) === runtime,
+	);
+	addRuntimeStore(runtime, "agentView", agentView);
 	addRuntimeStore(runtime, "composer", createComposerStore());
 	addRuntimeStore(runtime, "extensionUi", createExtensionUiStore());
 	addRuntimeStore(runtime, "messages", createMessagesStore());
@@ -85,7 +95,7 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 	addRuntimeStore(runtime, "session", createSessionStore());
 	addRuntimeStore(runtime, "settings", createSettingsStore(command));
 	addRuntimeStore(runtime, "subagentGraph", createSubagentGraphStore());
-	addRuntimeStore(runtime, "subagents", createSubagentsStore(command));
+	addRuntimeStore(runtime, "subagents", createSubagentsStore(command, agentView.getState));
 	addRuntimeStore(runtime, "todo", createTodoStore());
 	addRuntimeStore(runtime, "tools", createToolsStore());
 	return registerSessionRuntime(runtime);

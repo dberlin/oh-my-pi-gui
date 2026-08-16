@@ -1,5 +1,4 @@
 import type { AgentMessage, SubagentSnapshot } from "../../../../shared/rpc-types";
-import { useSubagentsStore } from "../../../stores/subagents";
 import type { BadgeVariant } from "../../common";
 
 export interface StatusMeta {
@@ -60,10 +59,6 @@ export function extractTaskToolCallIds(messages: AgentMessage[]): string[] {
 	return ids;
 }
 
-export function registerTranscriptToolCalls(agentId: string, messages: AgentMessage[]): void {
-	const ids = extractTaskToolCallIds(messages);
-	if (ids.length > 0) useSubagentsStore.getState().registerToolCallOwners(agentId, ids);
-}
 
 export function subagentPrimaryLabel(agent: SubagentSnapshot, maxLength = 60): string {
 	const raw = agent.description ?? agent.assignment ?? agent.task ?? agent.agent;

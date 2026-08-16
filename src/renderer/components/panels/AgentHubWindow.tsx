@@ -673,6 +673,7 @@ function HubTab({ onClose }: { onClose: () => void }) {
 	const tabRpc = useTabRpc();
 	const tabId = useRuntimeTabId();
 	const t = useT();
+	const selectSubagent = useAgentViewStore(state => state.selectSubagent);
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
 	const agentsPaused = useSessionStore(s => s.agentsPaused);
 	const [pausePending, setPausePending] = useState(false);
@@ -691,10 +692,10 @@ function HubTab({ onClose }: { onClose: () => void }) {
 
 	const activateAgent = useCallback(
 		(agent: SubagentSnapshot) => {
-			void useAgentViewStore.getState().selectSubagent(agent);
+			void selectSubagent(agent);
 			onClose();
 		},
-		[onClose],
+		[onClose, selectSubagent],
 	);
 
 	// Live count drives the 1s elapsed tick and the Abort button. Counted with

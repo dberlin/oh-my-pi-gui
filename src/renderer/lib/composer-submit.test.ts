@@ -446,7 +446,7 @@ describe("settleComposerResponse", () => {
 		const omp = installMockOmp();
 		await settleComposerResponse({ ...success({}), command: "compact" });
 		expect(omp.rpc.getState).toHaveBeenCalled();
-		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+		expect(omp.rpc.getMessages).toHaveBeenCalled();
 	});
 
 	it("does not rehydrate when the agent was invoked (events stream normally)", async () => {

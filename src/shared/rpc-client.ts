@@ -34,51 +34,55 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	plan_approval: 660_000,
 	switch_leaf: 660_000,
 	login: 660_000,
-	get_transcript: 30_000,
 	get_messages: 30_000,
-	get_transcript_page: 30_000,
+	get_messages_page: 30_000,
 };
 
 export function timeoutForCommand(cmd: RpcCommand): number | undefined {
 	return RPC_COMMAND_TIMEOUTS[cmd.type];
 }
 
-const TRANSCRIPT_PAGE_LIMIT = 256;
+const MESSAGES_PAGE_LIMIT = 256;
 
-function transcriptPageData(response: RpcResponse): MessagesPage | undefined {
+function messagesPageData(response: RpcResponse): MessagesPage | undefined {
 	if (!response.success || typeof response.data !== "object" || response.data === null) return undefined;
 	const data = response.data as { messages?: unknown; nextCursor?: unknown; totalMessages?: unknown };
 	if (
 		!Array.isArray(data.messages) ||
 		!Number.isSafeInteger(data.totalMessages) ||
 		(data.totalMessages as number) < 0 ||
-		(data.nextCursor !== undefined && typeof data.nextCursor !== "string")
+		(data.nextCursor !== undefined && (typeof data.nextCursor !== "string" || data.nextCursor.length === 0))
 	)
 		return undefined;
 	return data as unknown as MessagesPage;
 }
 
-async function fetchTranscript(transport: RpcTransport): Promise<RpcResponse> {
-	const legacy = () => transport({ type: "get_transcript" });
-	let page = await transport({ type: "get_transcript_page", limit: TRANSCRIPT_PAGE_LIMIT });
+async function fetchMessages(transport: RpcTransport): Promise<RpcResponse> {
+	const legacy = () => transport({ type: "get_messages" });
+	let page = await transport({ type: "get_messages_page", limit: MESSAGES_PAGE_LIMIT });
 	if (!page.success) return legacy();
 
 	const messages: MessagesPage["messages"] = [];
 	const seenCursors = new Set<string>();
 	let totalMessages: number | undefined;
 	for (;;) {
-		const data = transcriptPageData(page);
-		if (!data || (totalMessages !== undefined && totalMessages !== data.totalMessages)) return legacy();
+		const data = messagesPageData(page);
+		if (
+			!data ||
+			(totalMessages !== undefined && totalMessages !== data.totalMessages) ||
+			messages.length + data.messages.length > data.totalMessages
+		)
+			return legacy();
 		totalMessages = data.totalMessages;
 		messages.push(...data.messages);
 		const cursor = data.nextCursor;
-		if (!cursor) {
+		if (cursor === undefined) {
 			if (messages.length !== totalMessages) return legacy();
-			return { id: page.id, type: "response", command: "get_transcript", success: true, data: { messages } };
+			return { id: page.id, type: "response", command: "get_messages", success: true, data: { messages } };
 		}
-		if (seenCursors.has(cursor)) return legacy();
+		if (data.messages.length === 0 || messages.length === totalMessages || seenCursors.has(cursor)) return legacy();
 		seenCursors.add(cursor);
-		page = await transport({ type: "get_transcript_page", cursor, limit: TRANSCRIPT_PAGE_LIMIT });
+		page = await transport({ type: "get_messages_page", cursor, limit: MESSAGES_PAGE_LIMIT });
 		if (!page.success) return legacy();
 	}
 }
@@ -208,7 +212,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setSessionName: (name: string) => rpcCommand({ type: "set_session_name", name }),
 		setEntryLabel: (entryId: string, label?: string) => rpcCommand({ type: "set_entry_label", entryId, label }),
 		handoff: (customInstructions?: string) => rpcCommand({ type: "handoff", customInstructions }),
-		getMessages: () => rpcCommand({ type: "get_messages" }),
+		getMessages: () => fetchMessages(rpcCommand),
 		getMessagesPage: (cursor?: string, limit?: number) => rpcCommand({ type: "get_messages_page", cursor, limit }),
 		getLoginProviders: () => rpcCommand({ type: "get_login_providers" }),
 		login: (providerId: string) => rpcCommand({ type: "login", providerId }),
@@ -265,7 +269,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getSessionTree: () => rpcCommand({ type: "get_session_tree" }),
 		getThemes: () => rpcCommand({ type: "get_themes" }),
 		getThemeColors: (name: string) => rpcCommand({ type: "get_theme_colors", name }),
-		getTranscript: () => fetchTranscript(rpcCommand),
 		planApproval: (
 			approved: boolean,
 			option?: "execute" | "compact" | "keep_context" | "save",

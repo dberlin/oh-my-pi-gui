@@ -19,20 +19,22 @@ describe("model RPC timeouts", () => {
 			{ type: "cycle_model", timeoutMs: 30_000 },
 		]);
 	});
+});
 
-	it("reassembles paged transcripts without requesting the oversized snapshot", async () => {
+describe("message pagination", () => {
+	it("reassembles paged messages without requesting the oversized snapshot", async () => {
 		const messages = [
 			{ role: "user" as const, content: "first", timestamp: 1 },
 			{ role: "assistant" as const, content: [{ type: "text" as const, text: "second" }], timestamp: 2 },
 		];
-		const calls: string[] = [];
-		const rpc = createSessionRpcClient(async command => {
-			calls.push(command.type);
-			if (command.type !== "get_transcript_page")
+		const calls: Array<{ type: string; cursor: string | undefined; timeoutMs: number | undefined }> = [];
+		const rpc = createSessionRpcClient(async (command, timeoutMs) => {
+			if (command.type !== "get_messages_page" || (command.cursor !== undefined && command.cursor !== "next"))
 				return { type: "response", command: command.type, success: false, error: "unexpected command" };
+			calls.push({ type: command.type, cursor: command.cursor, timeoutMs });
 			return {
 				type: "response",
-				command: "get_transcript_page",
+				command: "get_messages_page",
 				success: true,
 				data:
 					command.cursor === undefined
@@ -41,12 +43,15 @@ describe("model RPC timeouts", () => {
 			};
 		});
 
-		expect(await rpc.getTranscript()).toEqual({
+		expect(await rpc.getMessages()).toEqual({
 			type: "response",
-			command: "get_transcript",
+			command: "get_messages",
 			success: true,
 			data: { messages },
 		});
-		expect(calls).toEqual(["get_transcript_page", "get_transcript_page"]);
+		expect(calls).toEqual([
+			{ type: "get_messages_page", cursor: undefined, timeoutMs: 30_000 },
+			{ type: "get_messages_page", cursor: "next", timeoutMs: 30_000 },
+		]);
 	});
 });

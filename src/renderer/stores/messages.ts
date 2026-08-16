@@ -181,6 +181,58 @@ export function mergeFetchedTranscript(
 	const tail = current.slice(before.length).filter(message => message.entryId && !fetchedIds.has(message.entryId));
 	return tail.length === 0 ? fetched : [...fetched, ...tail];
 }
+
+/**
+ * Live deliveries already form the transcript suffix. Attach persisted ids to
+ * that overlap and append only the remaining run rows, never replacing history.
+ */
+function mergeRunMessages(current: AgentMessage[], run: AgentMessage[]): AgentMessage[] {
+	if (run.length === 0) return current;
+	if (current.length === 0) return run;
+	const runKeys = run.map(messageIdentityKey);
+	// Maintenance may rewrite a streamed row's identity. A full run aligned to
+	// the current tail still owns those rows; preserve their live representation.
+	const runStart = current.findLastIndex(message => messageIdentityKey(message) === runKeys[0]);
+	if (runStart >= 0 && current.length - runStart === run.length) {
+		let merged = current;
+		for (let index = runStart; index < current.length; index++) {
+			const entryId = run[index - runStart]?.entryId;
+			if (!entryId || current[index].entryId === entryId) continue;
+			if (merged === current) merged = [...current];
+			merged[index] = { ...current[index], entryId };
+		}
+		return merged;
+	}
+	const maxOverlap = Math.min(current.length, run.length);
+	const currentTailKeys = current.slice(current.length - maxOverlap).map(messageIdentityKey);
+	let overlap = 0;
+	for (let count = maxOverlap; count > 0; count--) {
+		let matches = true;
+		for (let index = 0; index < count; index++) {
+			if (currentTailKeys[maxOverlap - count + index] !== runKeys[index]) {
+				matches = false;
+				break;
+			}
+		}
+		if (matches) {
+			overlap = count;
+			break;
+		}
+	}
+	let merged = current;
+	for (let index = 0; index < overlap; index++) {
+		const currentIndex = current.length - overlap + index;
+		const entryId = run[index].entryId;
+		if (!entryId || current[currentIndex].entryId === entryId) continue;
+		if (merged === current) merged = [...current];
+		merged[currentIndex] = { ...current[currentIndex], entryId };
+	}
+	if (overlap < run.length) {
+		if (merged === current) merged = [...current];
+		merged.push(...run.slice(overlap));
+	}
+	return merged;
+}
 export function createMessageProjection(): MessageProjection {
 	return {
 		messages: [],
@@ -235,17 +287,25 @@ export function applyMessageProjectionEvents(
 				break;
 			}
 			case "message_end": {
-				newMessages.push(event.message);
+				const key = messageIdentityKey(event.message);
+				if (!deliveredKeys.has(key)) newMessages.push(event.message);
 				if (!deliveredKeysCopied) {
 					deliveredKeys = new Set(deliveredKeys);
 					deliveredKeysCopied = true;
 				}
-				deliveredKeys.add(messageIdentityKey(event.message));
+				deliveredKeys.add(key);
 				streamingEnd = true;
 				break;
 			}
 			case "agent_end": {
-				if (event.messages) runMessages = event.messages;
+				if (event.messages) {
+					runMessages = event.messages;
+					if (!deliveredKeysCopied) {
+						deliveredKeys = new Set(deliveredKeys);
+						deliveredKeysCopied = true;
+					}
+					for (const message of event.messages) deliveredKeys.add(messageIdentityKey(message));
+				}
 				break;
 			}
 			case "turn_end": {

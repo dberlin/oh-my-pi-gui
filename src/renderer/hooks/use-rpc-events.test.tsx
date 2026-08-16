@@ -32,7 +32,7 @@ import type {
 import { TurnStatusRow } from "../components/chat/TranscriptViewport";
 import { formatClock } from "../lib/format";
 import { I18nProvider } from "../lib/i18n";
-import { useAgentViewStore } from "../stores/agent-view";
+import { type AgentViewStore, useAgentViewStore } from "../stores/agent-view";
 import { type MessagesStore, useMessagesStore } from "../stores/messages";
 import { type ModelStore, useModelStore } from "../stores/model";
 import { type SessionStore, useSessionStore } from "../stores/session";
@@ -274,11 +274,13 @@ type TabSidecarStatusHandler = (payload: IpcSidecarStatusPayload, tabId: string)
 function installTabRoutedMockOmp(): {
 	emitTabBatch: TabBatchHandler;
 	emitTabStatus: TabSidecarStatusHandler;
+	emitTabSubagentFrame: (frame: SubagentFrame, tabId: string) => void;
 	notify: Mock<(title: string, body: string) => void>;
 	commandForTab: Mock<(tabId: string, command: RpcCommand) => Promise<RpcResponse>>;
 } {
 	let tabBatchHandler: TabBatchHandler = () => {};
 	let tabStatusHandler: TabSidecarStatusHandler = () => {};
+	let tabSubagentFrameHandler: (frame: SubagentFrame, tabId: string) => void = () => {};
 	const commandForTab = vi.fn(async (_tabId: string, command: RpcCommand): Promise<RpcResponse> => {
 		switch (command.type) {
 			case "get_state":
@@ -295,7 +297,7 @@ function installTabRoutedMockOmp(): {
 					planModeEnabled: false,
 					todoPhases: [],
 				});
-			case "get_transcript":
+			case "get_messages":
 				return success({ messages: [] });
 			case "get_subagents":
 				return success({ subagents: [] });
@@ -335,7 +337,10 @@ function installTabRoutedMockOmp(): {
 				tabStatusHandler = callback;
 				return () => {};
 			}),
-			onTabSubagentFrame: noopSub,
+			onTabSubagentFrame: vi.fn((callback: (frame: SubagentFrame, tabId: string) => void) => {
+				tabSubagentFrameHandler = callback;
+				return () => {};
+			}),
 			onTabModelCatalogUpdate: noopSub,
 			onTabConfigUpdate: noopSub,
 			onExtensionUi: noopSub,
@@ -353,6 +358,7 @@ function installTabRoutedMockOmp(): {
 	return {
 		emitTabBatch: (events, tabId) => tabBatchHandler(events, tabId),
 		emitTabStatus: (payload, tabId) => tabStatusHandler(payload, tabId),
+		emitTabSubagentFrame: (frame, tabId) => tabSubagentFrameHandler(frame, tabId),
 		notify,
 		commandForTab,
 	};
@@ -490,6 +496,63 @@ afterEach(async () => {
 });
 
 describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => {
+	it("streams and settles the selected background agent without changing the foreground Main projection", async () => {
+		const { emitTabSubagentFrame, commandForTab } = installTabRoutedMockOmp();
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", kind: "agent", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ id: "t1", kind: "agent", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
+			],
+			activeTabId: "t0",
+		});
+		ensureTabRuntime("t0");
+		ensureTabRuntime("t1");
+		setFocusedSessionRuntime("t0");
+		await mount(<RpcEventsProbe />);
+		const foreground = sessionRuntimeStore<AgentViewStore>("t0", "agentView")!;
+		const background = sessionRuntimeStore<AgentViewStore>("t1", "agentView")!;
+		const page = Promise.withResolvers<RpcResponse>();
+		commandForTab.mockImplementation(async (_tabId, command) =>
+			command.type === "get_subagent_messages" ? page.promise : success({}),
+		);
+		const selected = subagentSnapshot("background-agent");
+		const loading = background.getState().selectSubagent(selected);
+		const final: AgentMessage = {
+			role: "assistant", responseId: "background-response", timestamp: 22,
+			content: [{ type: "text", text: "final answer" }],
+		};
+		const emit = (event: AgentSessionEvent, tabId = "t1") =>
+			emitTabSubagentFrame({ type: "subagent_event", payload: { id: selected.id, event } }, tabId);
+		await act(async () => {
+			emit({ type: "message_start", message: final });
+			emit({
+				type: "message_update", message: final,
+				assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "live answer", partial: final },
+			});
+			emit({
+				type: "message_update", message: final,
+				assistantMessageEvent: { type: "thinking_delta", contentIndex: 1, delta: "live reasoning", partial: final },
+			});
+			emit({ type: "tool_execution_start", toolCallId: "background-call", toolName: "read", args: { path: "/beta" } });
+		});
+		expect(background.getState().messages).toMatchObject({ streamingText: "live answer", streamingThinking: "live reasoning" });
+		expect(background.getState().tools.activeTools.get("background-call")).toMatchObject({ status: "running" });
+		expect(foreground.getState().target).toEqual({ kind: "main" });
+		expect(foreground.getState().messages.messages).toEqual([]);
+		await act(async () => {
+			emit({ type: "message_end", message: final });
+			emit({ type: "agent_end", messages: [{ ...final, entryId: "final-entry" }] });
+			page.resolve(success({ messages: [final], nextByte: 12, hasMore: false }));
+			await loading;
+		});
+		expect(background.getState().messages.messages).toEqual([final]);
+		expect(background.getState().messages.streamingMessage).toBeNull();
+		expect(background.getState().messages.streamingText).toBe("");
+		expect(background.getState().messages.streamingThinking).toBe("");
+		expect(foreground.getState().target).toEqual({ kind: "main" });
+		expect(sessionRuntimeStore<MessagesStore>("t0", "messages")!.getState().messages).toEqual([]);
+	});
+
 	it("uses the single roster subscription to forward matching live frames without mutating Main stores", async () => {
 		const { omp, emitSubagentFrame } = installMockOmp();
 		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
@@ -519,7 +582,6 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 			});
 		});
 
-		expect(omp.events.onSubagentFrame).toHaveBeenCalledTimes(1);
 		expect(useSubagentsStore.getState().subagents.get(selected.id)?.status).toBe("completed");
 		expect(useAgentViewStore.getState().messages.messages).toEqual([textMessage("Agent transcript", 20)]);
 		expect(useMessagesStore.getState().messages).toEqual([mainMessage]);
@@ -3170,7 +3232,7 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 		const transcript = Promise.withResolvers<RpcResponse>();
 		const original = commandForTab.getMockImplementation()!;
 		commandForTab.mockImplementation((tabId, command) =>
-			command.type === "get_transcript" ? transcript.promise : original(tabId, command),
+			command.type === "get_messages" ? transcript.promise : original(tabId, command),
 		);
 		const shell: AgentMessage = { role: "assistant", content: [], timestamp: 100 };
 		await act(async () => {

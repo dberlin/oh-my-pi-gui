@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { createStore } from "zustand/vanilla";
 import type { IpcSubagentTranscriptReadResult } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
@@ -14,6 +14,7 @@ import {
 	type MessageProjection,
 	messageIdentityKey,
 } from "./messages";
+import { createScopedStoreHook } from "./session-runtime-context";
 import { applyToolProjectionEvents, createToolProjection, hydrateToolProjection, type ToolProjection } from "./tools";
 
 export type AgentViewTarget = { kind: "main" } | { kind: "subagent"; id: string };
@@ -154,12 +155,15 @@ const defaultAgentViewLoader: AgentViewLoader = {
 	readPersistedSubagentTranscript: sessionFile => window.omp.sessions.readSubagentTranscript(sessionFile),
 };
 
-export function createAgentViewStore(loader: AgentViewLoader = defaultAgentViewLoader) {
+export function createAgentViewStore(
+	loader: AgentViewLoader = defaultAgentViewLoader,
+	ownsRuntime: () => boolean = () => true,
+) {
 	let activeSnapshot: SubagentSnapshot | null = null;
 	let rosterSnapshot: SubagentSnapshot | null = null;
 	let loadingEvents: AgentSessionEvent[] = [];
 
-	return create<AgentViewStore>()((set, get) => {
+	return createStore<AgentViewStore>()((set, get) => {
 		const loadSnapshot = async (snapshot: SubagentSnapshot, generation: number): Promise<void> => {
 			let fromByte = 0;
 			let loadedMessages: AgentMessage[] = [];
@@ -167,6 +171,7 @@ export function createAgentViewStore(loader: AgentViewLoader = defaultAgentViewL
 			const isCurrent = (): boolean => {
 				const state = get();
 				return (
+					ownsRuntime() &&
 					state.generation === generation &&
 					state.target.kind === "subagent" &&
 					state.target.id === snapshot.id &&
@@ -334,4 +339,4 @@ export function createAgentViewStore(loader: AgentViewLoader = defaultAgentViewL
 	});
 }
 
-export const useAgentViewStore = createAgentViewStore();
+export const useAgentViewStore = createScopedStoreHook("agentView", createAgentViewStore());

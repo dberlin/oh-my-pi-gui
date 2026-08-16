@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, RpcCommand, RpcResponse } from "../../shared/rpc-types";
+import { type AgentViewStore, useAgentViewStore } from "./agent-view";
 import { type ComposerStore, useComposerStore } from "./composer";
 import { type MessagesStore, useMessagesStore } from "./messages";
 import type { SessionStore } from "./session";
@@ -9,6 +10,7 @@ import {
 	setFocusedSessionRuntime,
 	withSessionRuntime,
 } from "./session-runtime-context";
+import type { SubagentsStore } from "./subagents";
 import { createTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import type { ToolsStore } from "./tools";
 
@@ -181,4 +183,75 @@ it("preserves a committed session change acknowledgement when its metadata arriv
 
 	expect(await runtime.command({ type: "new_session" })).toMatchObject({ success: true, data: { cancelled: false } });
 	expect(sessionRuntimeStore<SessionStore>("tab-a", "session")?.getState().sessionId).toBe("committed-session");
+});
+
+it("loads selected agents through their owning tab while keeping Main selection independent", async () => {
+	createTabRuntime("tab-a");
+	createTabRuntime("tab-b");
+	const viewA = sessionRuntimeStore<AgentViewStore>("tab-a", "agentView")!;
+	const viewB = sessionRuntimeStore<AgentViewStore>("tab-b", "agentView")!;
+	vi.spyOn(window.omp.rpc, "commandForTab").mockImplementation(async (tabId, command) => ({
+		type: "response", command: command.type, success: true,
+		data: { messages: [{ role: "user", content: `history for ${tabId}`, timestamp: 1 }], hasMore: false },
+	}));
+	const selected = { id: "shared-agent", index: 1, agent: "worker", status: "running", lastUpdate: 1, kind: "sub" } as const;
+	setFocusedSessionRuntime("tab-a");
+	await viewB.getState().selectSubagent(selected);
+	expect(viewA.getState().target).toEqual({ kind: "main" });
+	expect(viewB.getState().messages.messages).toMatchObject([{ content: "history for tab-b" }]);
+	await viewA.getState().selectSubagent(selected);
+	viewB.getState().selectMain();
+
+	expect(viewA.getState().target).toEqual({ kind: "subagent", id: selected.id });
+	expect(viewA.getState().messages.messages).toMatchObject([{ content: "history for tab-a" }]);
+	expect(viewB.getState().target).toEqual({ kind: "main" });
+	expect(viewB.getState().messages.messages).toEqual([]);
+});
+
+it("keeps background roster reconciliation bound to its owning selected projection", async () => {
+	createTabRuntime("tab-a");
+	createTabRuntime("tab-b");
+	const viewA = sessionRuntimeStore<AgentViewStore>("tab-a", "agentView")!;
+	const viewB = sessionRuntimeStore<AgentViewStore>("tab-b", "agentView")!;
+	const rosterB = sessionRuntimeStore<SubagentsStore>("tab-b", "subagents")!;
+	viewA.getState().restoreTarget({ kind: "subagent", id: "agent-a" });
+	viewB.getState().restoreTarget({ kind: "subagent", id: "agent-b" });
+	const roster = Promise.withResolvers<RpcResponse>();
+	vi.spyOn(window.omp.rpc, "commandForTab").mockReturnValueOnce(roster.promise);
+	const refreshing = rosterB.getState().refresh();
+	setFocusedSessionRuntime("tab-a");
+	roster.resolve({ type: "response", command: "get_subagents", success: true, data: { subagents: [] } });
+	await refreshing;
+
+	expect(viewA.getState().target).toEqual({ kind: "subagent", id: "agent-a" });
+	expect(viewB.getState().target).toEqual({ kind: "main" });
+	expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "agent-a" });
+	deleteSessionRuntime("tab-b");
+	expect(viewA.getState().target).toEqual({ kind: "subagent", id: "agent-a" });
+	viewA.getState().selectMain();
+	expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
+});
+
+it("discards selected transcript pages after runtime replacement without falling back to persisted bytes", async () => {
+	createTabRuntime("tab-a");
+	createTabRuntime("tab-b");
+	const oldView = sessionRuntimeStore<AgentViewStore>("tab-a", "agentView")!;
+	const otherView = sessionRuntimeStore<AgentViewStore>("tab-b", "agentView")!;
+	otherView.getState().restoreTarget({ kind: "subagent", id: "other" });
+	const page = Promise.withResolvers<RpcResponse>();
+	vi.spyOn(window.omp.rpc, "commandForTab").mockReturnValueOnce(page.promise);
+	const loading = oldView.getState().selectSubagent({
+		id: "old", index: 1, agent: "worker", status: "completed",
+		sessionFile: "/sessions/old.jsonl", lastUpdate: 1, kind: "sub",
+	});
+	replaceTabRuntime("tab-a");
+	page.resolve({ type: "response", command: "get_subagent_messages", success: true,
+		data: { messages: [{ role: "user", content: "stale bytes", timestamp: 1 }], nextByte: 8, hasMore: true },
+	});
+	await loading;
+
+	expect(oldView.getState().messages.messages).toEqual([]);
+	expect(oldView.getState().error).toBeNull();
+	expect(sessionRuntimeStore<AgentViewStore>("tab-a", "agentView")!.getState().target).toEqual({ kind: "main" });
+	expect(otherView.getState().target).toEqual({ kind: "subagent", id: "other" });
 });

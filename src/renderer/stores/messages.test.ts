@@ -109,6 +109,54 @@ describe("message projections", () => {
 		expect(second.messages).toEqual([finalized]);
 	});
 
+	it("settles overlapping completion rows by strong identity without losing prior history", () => {
+		const history = userMessage("history");
+		const live: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "live answer" }],
+			responseId: "response-1",
+			timestamp: 3,
+		};
+		const persisted = { ...live, entryId: "persisted-answer" };
+		const distinct = { ...live, responseId: "response-2", entryId: "second-answer" };
+		let projection = { ...createMessageProjection(), messages: [history] };
+		projection = applyMessageProjectionEvents(projection, [
+			{ type: "message_start", message: streamingMessage },
+			delta("partial"),
+			thinkingDelta("reasoning"),
+			{ type: "message_end", message: live },
+		]);
+		projection = applyMessageProjectionEvents(projection, [
+			{ type: "message_start", message: streamingMessage },
+			delta("unfinished tail"),
+			thinkingDelta("unfinished reasoning"),
+		]);
+		projection = applyMessageProjectionEvents(projection, [
+			{ type: "agent_end", messages: [persisted, distinct] },
+		]);
+		projection = applyMessageProjectionEvents(projection, [{ type: "turn_end", message: persisted }]);
+
+		expect(projection.messages).toEqual([history, persisted, distinct]);
+		expect(projection.streamingMessage).toBeNull();
+		expect(projection.streamingText).toBe("");
+		expect(projection.streamingThinking).toBe("");
+	});
+
+	it("does not append a message_end already delivered by an earlier completion", () => {
+		const answer: AgentMessage = {
+			role: "assistant", responseId: "answer", timestamp: 4,
+			content: [{ type: "text", text: "answer" }],
+		};
+		let projection = applyMessageProjectionEvents(createMessageProjection(), [
+			{ type: "agent_end", messages: [answer] },
+		]);
+		projection = applyMessageProjectionEvents(projection, [
+			{ type: "message_end", message: answer },
+			{ type: "agent_end", messages: [answer] },
+		]);
+		expect(projection.messages).toEqual([answer]);
+	});
+
 	it("resets one projection without changing another", () => {
 		let first = applyMessageProjectionEvents(createMessageProjection(), [
 			{ type: "message_start", message: streamingMessage },

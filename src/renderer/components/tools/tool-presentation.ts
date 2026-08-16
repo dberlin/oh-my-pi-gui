@@ -24,7 +24,7 @@ export interface EffectiveToolInvocation {
 	partialResult: unknown;
 	isError: boolean;
 	transport: "direct" | "xdev";
-	/** Only dispatched device calls have a specialized result to render. */
+	/** Device metadata or a successful legacy settled result permits specialized rendering. */
 	dispatched?: boolean;
 	mode: ToolPresentationMode;
 	mcp?: McpIdentity;
@@ -171,7 +171,7 @@ export function resolveToolPresentation(input: ToolPresentationInput): Effective
 		partialResult: input.partialResult,
 		isError: input.isError,
 		transport: "xdev",
-		dispatched: false,
+		dispatched: input.result != null && !input.isError,
 		mode: "execute",
 		...(mcp ? { mcp } : {}),
 	};

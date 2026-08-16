@@ -94,6 +94,7 @@ const MAIN_MUTATING_KEYMAP_ACTIONS: Partial<Record<KeymapActionId, true>> = {
 };
 
 const MAIN_MUTATING_MENU_ACTIONS: Partial<Record<MenuAction, true>> = {
+	"open-model-picker": true,
 	"new-session": true,
 	"open-project": true,
 	"switch-project": true,
@@ -261,11 +262,6 @@ export function AppGlobalActions() {
 				case "tab.newChat":
 					void useTabsStore.getState().openTab({ kind: "chat" });
 					return;
-				case "tab.close": {
-					const tabs = useTabsStore.getState();
-					if (tabs.activeTabId) void tabs.closeTab(tabs.activeTabId);
-					return;
-				}
 				case "tab.newWorktree":
 					// ⌥T — new worktree tab (create dialog, plan/20).
 					useUiStore.getState().openWorktreeDialog();
@@ -379,6 +375,8 @@ export function AppGlobalActions() {
 	useEffect(() => {
 		const run = async (action: MenuAction, payload?: MenuActionPayload) => {
 			const ui = useUiStore.getState();
+			// Guard writable dialogs before early dispatch; navigation remains available.
+			if (MAIN_MUTATING_MENU_ACTIONS[action] && !canMutateMainTarget()) return;
 			if (action === "toggle-sidebar") {
 				ui.toggleSidebar();
 				return;
@@ -519,8 +517,6 @@ export function AppGlobalActions() {
 			// Menu commands below read or mutate the selected sidecar. Ignore the
 			// short selected-vs-routed gap instead of sending them to the old tab.
 			if (!acceptsActiveTabEvents()) return;
-			// Projected views retain navigation and read-only exports, never Main mutations.
-			if (MAIN_MUTATING_MENU_ACTIONS[action] && !canMutateMainTarget()) return;
 			if (action === "toggle-fast") {
 				void useModelStore.getState().toggleFastMode();
 				return;

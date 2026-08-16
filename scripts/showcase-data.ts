@@ -746,7 +746,6 @@ export function createShowcaseData(
 	const replies = {
 		get_state: state,
 		get_messages: { messages },
-		get_transcript: { messages },
 		get_messages_page: { messages, totalMessages: messages.length } satisfies MessagesPage,
 		get_available_models: availableModels,
 		get_providers: providers,

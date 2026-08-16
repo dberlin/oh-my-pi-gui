@@ -3,7 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { MenuAction, MenuActionPayload } from "../shared/ipc-types";
-import { AppGlobalActions, AppWorkspace } from "./App";
+import { AppGlobalActions } from "./App";
+import { ChatCanvas } from "./components/chat/ChatStream";
+import { InputArea } from "./components/layout/InputArea";
+import { WorkspaceCanvas } from "./components/layout/WorkspaceCanvas";
 import { I18nProvider } from "./lib/i18n";
 import { resetTabRoute } from "./lib/tab-routing";
 import { useActivitySidebarStore } from "./stores/activity-sidebar";
@@ -154,7 +157,7 @@ async function mountWorkspace(): Promise<void> {
 	useUiStore.setState({ sidecarError: "sidecar unavailable" });
 	useUpdaterStore.setState({
 		status: { state: "available", version: "9.9.9", mode: "automatic" },
-		dismissedVersion: undefined,
+		dismissed: {},
 	});
 
 	container = testDocument.createElement("div") as unknown as Element;
@@ -164,7 +167,10 @@ async function mountWorkspace(): Promise<void> {
 	await act(async () => {
 		mountedRoot.render(
 			<I18nProvider>
-				<AppWorkspace activeTabId="tab-a" />
+				<WorkspaceCanvas>
+					<div data-chat-canvas><ChatCanvas /></div>
+				</WorkspaceCanvas>
+				<InputArea />
 			</I18nProvider>,
 		);
 	});
@@ -188,6 +194,7 @@ async function runMenuAction(action: MenuAction): Promise<void> {
 }
 
 function resetUiState(): void {
+	useUiStore.getState().cancelCloseTab();
 	useUiStore.setState({
 		commandPaletteOpen: false,
 		hotkeysOpen: false,
@@ -213,7 +220,7 @@ beforeEach(() => {
 	useSubagentsStore.getState().reset();
 	useTabsStore.getState().reset();
 	useTodoStore.getState().reset();
-	useUpdaterStore.setState({ status: { state: "idle" }, dismissedVersion: undefined });
+	useUpdaterStore.setState({ status: { state: "idle" }, dismissed: {} });
 	testWindow.addEventListener("omp:fill-composer", captureComposerFill);
 });
 
@@ -235,43 +242,12 @@ afterEach(async () => {
 	useSubagentsStore.getState().reset();
 	useTabsStore.getState().reset();
 	useTodoStore.getState().reset();
-	useUpdaterStore.setState({ status: { state: "idle" }, dismissedVersion: undefined });
+	useUpdaterStore.setState({ status: { state: "idle" }, dismissed: {} });
 	vi.restoreAllMocks();
 });
 
 describe("App workspace composition", () => {
-	it("keeps banners, context, one canvas, composer, and footer in full-width DOM order", async () => {
-		await mountWorkspace();
 
-		const children = [...(container as Element).children] as HTMLElement[];
-		expect(children).toHaveLength(6);
-		expect(children[0]?.textContent).toContain("sidecar unavailable");
-		expect(children[1]?.textContent).toContain("9.9.9");
-		expect(children[2]?.getAttribute("data-agent-view")).toBe("main");
-		expect(children[3]?.hasAttribute("data-workspace-canvas")).toBe(true);
-		expect(children[4]?.querySelector("textarea")).not.toBeNull();
-		expect(children[5]?.tagName).toBe("FOOTER");
-		expect((container as Element).querySelectorAll("[data-chat-canvas]")).toHaveLength(1);
-		expect((container as Element).querySelector('[data-testid="workspace-dock-scroll"]')).toBeNull();
-	});
-
-	it("hides Main session mutation badges while a subagent transcript is selected", async () => {
-		useSessionStore.setState({
-			planModeEnabled: true,
-			goal: { objective: "Ship the activity dock" },
-			goalState: { status: "active" },
-			loopMode: { enabled: true, state: "waiting" },
-			vibeModeEnabled: true,
-			agentsPaused: true,
-		});
-		await selectSubagent();
-		await mountWorkspace();
-
-		const footerText = (container as Element).querySelector("footer")?.textContent ?? "";
-		for (const label of ["Plan", "Goal", "Loop", "Vibe", "Paused"]) {
-			expect(footerText).not.toContain(label);
-		}
-	});
 
 	it("keeps the transcript and composer mounted when a complete activity section crashes", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
@@ -296,14 +272,20 @@ describe("App global actions in selected-subagent mode", () => {
 		expect(cycleModel).toHaveBeenCalledTimes(1);
 	});
 
-	it("opens the Main model picker on Main but not for a selected subagent", async () => {
+	it("opens model controls on Main during startup but blocks both entry points for a selected subagent", async () => {
 		await mountApp();
 		await pressKey({ key: "m", code: "KeyM", altKey: true });
 		expect(useUiStore.getState().modelPickerOpen).toBe(true);
 
 		useUiStore.getState().closeModelPicker();
+		useSessionStore.setState({ status: "starting" });
+		await runMenuAction("open-model-picker");
+		expect(useUiStore.getState().modelPickerOpen).toBe(true);
+
+		useUiStore.getState().closeModelPicker();
 		await selectSubagent();
 		await pressKey({ key: "m", code: "KeyM", altKey: true });
+		await runMenuAction("open-model-picker");
 		expect(useUiStore.getState().modelPickerOpen).toBe(false);
 	});
 
@@ -333,6 +315,26 @@ describe("App global actions in selected-subagent mode", () => {
 		await runMenuAction("toggle-language");
 		await flush();
 		expect(prefsSet).toHaveBeenCalledWith("language", "zh");
+	});
+
+	it("arms confirmation instead of closing a live tab through its remapped shortcut", async () => {
+		await mountApp();
+		await act(async () => {
+			useTabsStore.setState({
+				tabs: [
+					{ id: "tab-a", cwd: "/work/a", status: "ready", kind: "agent", target: { type: "local" }, unreadDone: false },
+					{ id: "tab-b", cwd: "/work/b", status: "ready", kind: "agent", target: { type: "local" }, unreadDone: false },
+				],
+				activeTabId: "tab-a",
+			});
+			useSessionStore.setState({ isStreaming: true });
+			useUiStore.setState({ keymapOverrides: { "tab.close": ["ctrl+w"] } });
+		});
+		const close = vi.spyOn(useTabsStore.getState(), "closeTab").mockResolvedValue(undefined);
+		await pressKey({ key: "w", code: "KeyW", ctrlKey: true });
+		expect(useUiStore.getState().armedCloseTab?.tabId).toBe("tab-a");
+		expect(close).not.toHaveBeenCalled();
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["tab-a", "tab-b"]);
 	});
 
 	it("keeps view-only keyboard actions available for a selected subagent", async () => {

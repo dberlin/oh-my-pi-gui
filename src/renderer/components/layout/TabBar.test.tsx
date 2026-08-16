@@ -153,7 +153,7 @@ function installMockOmp(): MockOmp {
 							planModeEnabled: false,
 							todoPhases: [],
 						});
-					case "get_transcript":
+					case "get_messages":
 						return ok({ messages: [] });
 					case "get_subagents":
 						return ok({ subagents: [] });

@@ -4,6 +4,7 @@ import type { StoreApi } from "zustand/vanilla";
 import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
 
 export type RuntimeStoreKey =
+	| "agentView"
 	| "composer"
 	| "extensionUi"
 	| "messages"
@@ -26,10 +27,12 @@ export function activeTabCommand(command: RpcCommand, timeoutMs?: number): Promi
 	switch (command.type) {
 		case "get_state":
 			return rpc.getState();
-		case "get_transcript":
-			return rpc.getTranscript();
+		case "get_messages":
+			return rpc.getMessages();
 		case "get_subagents":
 			return rpc.getSubagents();
+		case "get_subagent_messages":
+			return rpc.getSubagentMessages(command.subagentId, command.sessionFile, command.fromByte);
 		case "get_queue":
 			return rpc.getQueue();
 		case "get_goal":
@@ -144,6 +147,11 @@ export function useTabCommand(): TabCommand {
 
 function runtimeStore<T>(runtime: SessionRuntime | null, key: RuntimeStoreKey, fallback: StoreApi<T>): StoreApi<T> {
 	return (runtime?.stores.get(key) as StoreApi<T> | undefined) ?? fallback;
+}
+
+/** Capture the nearest pane's store for imperative guards and asynchronous continuations. */
+export function useRuntimeStore<T>(key: RuntimeStoreKey, fallback: StoreApi<T>): StoreApi<T> {
+	return runtimeStore(useSessionRuntime(), key, fallback);
 }
 
 /**

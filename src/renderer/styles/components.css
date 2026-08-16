@@ -1254,7 +1254,7 @@
 }
 
 @container omp-workspace (max-width: 900px) {
-	.omp-transcript-editorial {
+	.omp-editorial-transcript {
 		--omp-editorial-inset: calc(var(--omp-column-pad) + 30px);
 	}
 
@@ -1319,10 +1319,10 @@
 		display: none;
 	}
 
-	.omp-transcript-editorial {
+	.omp-editorial-transcript {
 		--omp-editorial-inset: calc(var(--omp-column-pad) + 24px);
 	}
-	.omp-transcript-editorial .omp-user-bubble-actions {
+	.omp-editorial-transcript .omp-user-bubble-actions {
 		opacity: 1;
 		pointer-events: auto;
 	}

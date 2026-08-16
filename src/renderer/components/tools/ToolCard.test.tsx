@@ -110,6 +110,23 @@ afterEach(async () => {
 });
 
 describe("ToolCard adaptive rendering", () => {
+	it("renders settled legacy device references as navigable locations without xdev metadata", async () => {
+		const outerArgs = {
+			path: "xd://lsp",
+			content: '{"action":"references","file":"src/historical.ts"}',
+		};
+		const result = resultEnvelope("Found 1 reference(s)\nsrc/historical.ts:8:3");
+		const card = await mountCard({
+			toolCallId: "historical-xd-lsp",
+			toolName: "write",
+			args: outerArgs,
+			entry: completedEntry("write", outerArgs, result),
+		});
+
+		expect(card.textContent).toContain("src/historical.ts");
+		expect(card.textContent).toContain("line 8, col 3");
+	});
+
 	it("renders Xdev help as bounded escaped documentation instead of LSP execution output", async () => {
 		const documentation = [
 			'<img src="x" onerror="HELP_HANDLER_SHOULD_NOT_RUN">HELP_MARKUP</img>',
@@ -595,7 +612,7 @@ describe("ToolCard adaptive rendering", () => {
 
 	it("synchronizes shared expand and collapse across compact and framed cards", async () => {
 		const globArgs = { pattern: "src/*" };
-		const bashArgs = { command: "printf SHARED_BASH_BODY" };
+		const bashArgs = { command: "fixture-command" };
 		const container = await mount(
 			<>
 				<ToolCard
@@ -710,13 +727,17 @@ describe("ToolCard adaptive rendering", () => {
 		expect(card.textContent?.length ?? Number.POSITIVE_INFINITY).toBeLessThan(300);
 	});
 
-	it("renders an undispatched device response through the generic fallback", async () => {
+	it("renders a failed undispatched device response through the generic fallback", async () => {
 		const args = { path: "xd://lsp", content: '{"action":"references","symbol":"privateSymbol"}' };
 		const card = await mountCard({
 			toolCallId: "undispatched-device",
 			toolName: "write",
 			args,
-			entry: completedEntry("write", args, resultEnvelope("DEVICE_DID_NOT_DISPATCH")),
+			entry: {
+				...completedEntry("write", args, resultEnvelope("DEVICE_DID_NOT_DISPATCH")),
+				status: "error",
+				isError: true,
+			},
 		});
 		await toggleCard(card);
 		expect(card.textContent).toContain("DEVICE_DID_NOT_DISPATCH");

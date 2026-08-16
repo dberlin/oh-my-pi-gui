@@ -500,7 +500,7 @@ export const MessageBubble = memo(function MessageBubble({
 						>
 							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
 						</button>
-						{isAssistant && (
+						{isAssistant && !readOnly && (
 							<button
 								type="button"
 								onClick={() => void handleBranch()}
