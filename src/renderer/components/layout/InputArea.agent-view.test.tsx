@@ -282,7 +282,7 @@ describe("InputArea selected-subagent mode", () => {
 		await flush();
 
 		expect(prompt).toHaveBeenCalledTimes(1);
-		expect(prompt).toHaveBeenCalledWith("keep this Main draft", [image.content]);
+		expect(prompt).toHaveBeenCalledWith("keep this Main draft", [image.content], "steer");
 		expect(steer).not.toHaveBeenCalled();
 		expect(followUp).not.toHaveBeenCalled();
 	});
