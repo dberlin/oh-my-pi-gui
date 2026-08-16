@@ -327,6 +327,7 @@ export class SidecarManager extends EventEmitter {
 	#remoteRestartGeneration = 0;
 	#remoteStderrTail: Buffer = Buffer.alloc(0);
 	#remotePreparingChild: ChildProcess | null = null;
+	#localPreparingChild: ChildProcess | null = null;
 	#remoteLaunchResumed = false;
 	#latestRemoteSessionId: string | null;
 	#disposePromise: Promise<void> | null = null;
@@ -425,9 +426,10 @@ export class SidecarManager extends EventEmitter {
 			const resumeSessionId = this.#latestRemoteSessionId;
 			this.#remoteLaunchResumed = resumeSessionId !== null;
 			if (resumeSessionId) args.push("--resume", resumeSessionId);
-			if (this.#options.kind === "chat") args.push("--chat");
+			const isChat = this.#options.kind === "chat";
+			if (isChat) args.push("--no-tools");
 			const userFlags = [...(this.#options.extraFlags ?? []), ...loadLaunchProfileFlags(resolution.target.cwd)];
-			args.push(...stripDenylistedFlags(userFlags));
+			args.push(...stripDenylistedFlags(userFlags, isChat));
 
 			this.#setStatus("starting", `Launching remote omp on ${target.hostAlias}`);
 			const handle = remoteSsh.spawnRpc(resolution.target, resolution.runtime, args);
@@ -450,14 +452,14 @@ export class SidecarManager extends EventEmitter {
 
 		const args = ["--mode", "rpc-ui"];
 		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
-		else if (this.#freshLaunchPending) args.push("--no-auto-resume");
-		if (this.#options.kind === "chat") args.push("--chat");
+		const isChat = this.#options.kind === "chat";
+		if (isChat) args.push("--no-tools");
 		// User-controllable flags ride the extraFlags seam + the launch profile.
 		// Strip the code-controlled-flag denylist (pair-aware) over BOTH, then
-		// append: neither can override the code-controlled argv above, while a
-		// profile value that merely looks like a protected flag survives intact.
+		// append: neither can override the code-controlled argv above. Chat
+		// launches also strip tool selections so --no-tools remains authoritative.
 		const userFlags = [...(extraFlags ?? []), ...loadLaunchProfileFlags(cwd)];
-		args.push(...stripDenylistedFlags(userFlags));
+		args.push(...stripDenylistedFlags(userFlags, isChat));
 
 		// Source sidecar (monorepo dev): run the workspace coding-agent from
 		// source via bun so in-repo RPC fixes are live in the running GUI.
@@ -677,27 +679,43 @@ export class SidecarManager extends EventEmitter {
 			void this.#prepareRemote(ready);
 			return;
 		}
-		this.#resumeSessionPath = null;
-		// Freshness is a creation contract, not a restart policy. Once the new
-		// tab has booted successfully, later crash/manual restarts may auto-resume
-		// the session it has since created or opened.
-		this.#freshLaunchPending = false;
-		// Stay on v1 when an older/malformed sidecar omits the negotiation fields
-		// or advertises limits this decoder cannot safely honor.
-		if (supportsRpcProtocolV2(ready)) {
-			this.#rpcClient
-				?.command({ type: "negotiate_protocol", protocolVersion: 2 })
-				.then(() => {
-					this.#setStatus("ready");
-					this.#restartCount = 0;
-				})
-				.catch(() => {
-					this.#setStatus("ready");
-					this.#restartCount = 0;
-				});
-		} else {
+		void this.#prepareLocal(ready);
+	}
+
+	async #prepareLocal(ready: RpcReadyFrame): Promise<void> {
+		const child = this.#child;
+		const client = this.#rpcClient;
+		if (!child || !client || this.#localPreparingChild === child) return;
+		this.#localPreparingChild = child;
+		try {
+			// Stay on v1 when an older/malformed sidecar omits the negotiation
+			// fields or rejects v2. Negotiation failure preserves the existing
+			// v1 fallback; session preparation still runs over the active client.
+			if (supportsRpcProtocolV2(ready)) {
+				await client.command({ type: "negotiate_protocol", protocolVersion: 2 }).catch(() => undefined);
+			}
+			if (this.#child !== child || this.#disposed) return;
+
+			if (this.#freshLaunchPending) {
+				const created = await client.command({ type: "new_session" });
+				if (!created.success) throw new Error(created.error ?? "Fresh session creation failed");
+				if ((created.data as { cancelled?: unknown } | undefined)?.cancelled === true) {
+					throw new Error("Fresh session creation was cancelled");
+				}
+			}
+			if (this.#child !== child || this.#disposed) return;
+
+			this.#resumeSessionPath = null;
+			// Freshness is a creation contract, not a restart policy. Once the
+			// tab has created its new session, later restarts may auto-resume it.
+			this.#freshLaunchPending = false;
 			this.#setStatus("ready");
 			this.#restartCount = 0;
+		} catch (error) {
+			if (this.#child !== child || this.#disposed) return;
+			this.#setStatus("error", error instanceof Error ? error.message : String(error));
+		} finally {
+			if (this.#localPreparingChild === child) this.#localPreparingChild = null;
 		}
 	}
 
@@ -798,6 +816,7 @@ export class SidecarManager extends EventEmitter {
 		this.#rpcClient?.rejectAll("Sidecar disconnected");
 		this.#rpcClient = null;
 		this.#child = null;
+		this.#localPreparingChild = null;
 		this.#remoteChildHandle = null;
 		this.#remotePreparingChild = null;
 	}

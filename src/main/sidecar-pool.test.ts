@@ -430,6 +430,31 @@ describe("SidecarPool tabs", () => {
 		]);
 	});
 
+	it("lists tabs during closed-window cleanup without reading destroyed webContents", () => {
+		const { pool } = fakePool();
+		const emitter = new EventEmitter();
+		const webContents = { id: 42, send: () => {} };
+		let destroyed = false;
+		const win = {
+			get webContents() {
+				if (destroyed) throw new Error("Object has been destroyed");
+				return webContents;
+			},
+			isDestroyed: () => destroyed,
+			once: (event: string, listener: () => void) => emitter.once(event, listener),
+		} as unknown as BrowserWindow;
+		let closedTabs: string[] | undefined;
+		emitter.on("closed", () => {
+			closedTabs = pool.tabsForWindow(win).map(tab => tab.tabId);
+		});
+		pool.acquire({ cwd: "/a", win, tabId: "tab-a" });
+		pool.acquire({ cwd: "/b", win, tabId: "tab-b" });
+
+		destroyed = true;
+		expect(() => emitter.emit("closed")).not.toThrow();
+		expect(closedTabs).toEqual(["tab-a", "tab-b"]);
+	});
+
 	it("mints a snowflake tabId when none is given", () => {
 		const { pool } = fakePool();
 		const fw = fakeWindow(1);

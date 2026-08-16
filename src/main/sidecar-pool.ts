@@ -573,9 +573,10 @@ export class SidecarPool {
 	/** The window's tabs in acquisition order (GET_TABS boot reconciliation). */
 	tabsForWindow(win: BrowserWindow): IpcTabInfo[] {
 		const tabs: IpcTabInfo[] = [];
-		const activeTabId = this.#activeByWindow.get(win.webContents.id);
+		let activeTabId: string | undefined;
 		for (const entry of this.#entries) {
 			if (entry.win !== win) continue;
+			activeTabId ??= this.#activeByWindow.get(entry.winId);
 			const tab = tabStatusPayload(entry);
 			if (entry.tabId === activeTabId) tab.active = true;
 			tabs.push(tab);

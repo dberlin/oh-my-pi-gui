@@ -106,8 +106,9 @@ const VALUED_FLAGS: Record<string, true> = {
 /** Drop denylisted flags (and their separate value tokens) from a flag list.
  * Handles both `--flag value` and `--flag=value` forms. Pair-aware: the value
  * of a non-denylisted valued flag is pushed verbatim and never inspected, so
- * a legitimate value that merely looks like a protected flag survives. */
-export function stripDenylistedFlags(flags: readonly string[]): string[] {
+ * a legitimate value that merely looks like a protected flag survives.
+ * Chat launches additionally deny `--tools`, preserving their tool-free mode. */
+export function stripDenylistedFlags(flags: readonly string[], denyTools = false): string[] {
 	const out: string[] = [];
 	for (let i = 0; i < flags.length; i++) {
 		const token = flags[i];
@@ -117,11 +118,12 @@ export function stripDenylistedFlags(flags: readonly string[]): string[] {
 		}
 		const eq = token.indexOf("=");
 		const name = eq === -1 ? token : token.slice(0, eq);
-		if (DENYLISTED[name] === true) {
+		const toolSelectionDenied = denyTools && name === "--tools";
+		if (DENYLISTED[name] === true || toolSelectionDenied) {
 			// `--flag value`: the value rides with the flag unless the next token is
 			// itself flag-looking (then the flag is treated as valueless). The
 			// `--flag=value` form carries its value in the dropped token already.
-			if (eq === -1 && DENYLISTED_WITH_VALUE[name] === true) {
+			if (eq === -1 && (DENYLISTED_WITH_VALUE[name] === true || toolSelectionDenied)) {
 				const next = flags[i + 1];
 				if (next !== undefined && !next.startsWith("-")) i++;
 			}

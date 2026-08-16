@@ -113,8 +113,10 @@
 - **Nested-checkout React resolution**: added the missing `linkedom` test dependency and made Vitest use one React module graph across hoisted workspace dependencies, preventing invalid-hook failures after clean dependency installs.
 - **Electron packaging**: pinned the Electron toolchain version so `electron-builder` can resolve the platform binary from the nested GUI checkout, and restored dedicated arm64/x64 configs over one shared base so each package selects the correct sidecar and native companions.
 - **Signed sidecar startup**: packaged the matching `pi_natives` addon beside the bundled `omp` binary so electron-builder signs both with the same team, preventing hardened-runtime library validation from terminating RPC and stats sidecars at startup.
-- **Bundled stats dashboard**: restored a supported `omp stats --no-open` mode for the embedded server and recognized IPv4 loopback readiness output, avoiding external browser launches and stale startup state.
+- **Bundled stats dashboard**: launch the current `omp stats` command with supported flags and shadow only its best-effort platform opener, restoring the embedded server without opening a browser, disabling port-conflict recovery, or entering a restart loop.
 - **Electron development commands**: made `preview` launch the built desktop app again and kept Chromium sandboxing enabled during Vite development unless `NO_SANDBOX=1` is explicitly set.
+- **Bundled sidecar compatibility**: fresh project sessions now create over RPC instead of passing the removed `--no-auto-resume` flag, and local/remote chats use the supported tool-free mode instead of the removed `--chat` flag without allowing launch profiles to re-enable tools.
+- **Reliable application quit**: closed-window cleanup no longer reads destroyed Electron `webContents`, preventing the JavaScript error that interrupted the first quit attempt.
 ## [0.8.0] - 2026-08-14
 
 ### Changed

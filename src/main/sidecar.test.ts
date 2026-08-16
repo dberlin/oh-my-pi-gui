@@ -293,7 +293,7 @@ describe("SidecarManager", () => {
 		}
 	});
 
-	it("spawns a chat sidecar with --chat in the code-controlled argv", async () => {
+	it("spawns a tool-free chat sidecar with the supported --no-tools flag", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-chat-"));
 		const logPath = path.join(tempDir, "argv.json");
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
@@ -310,20 +310,41 @@ describe("SidecarManager", () => {
 			await ready;
 
 			const launch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
-			expect(launch).toEqual(["--mode", "rpc-ui", "--chat"]);
+			expect(launch).toEqual(["--mode", "rpc-ui", "--no-tools"]);
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, { recursive: true, force: true });
 		}
 	});
 
-	it("forces a freshly created tab to bypass the CLI auto-resume setting", async () => {
+	it("creates a fresh local session over RPC before reporting ready", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-fresh-"));
-		const logPath = path.join(tempDir, "argv.json");
+		const argvPath = path.join(tempDir, "argv.json");
+		const commandsPath = path.join(tempDir, "commands.json");
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
 		await fs.writeFile(
 			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`#!/usr/bin/env bun
+import * as fs from "node:fs/promises";
+import { createInterface } from "node:readline";
+await fs.writeFile(${JSON.stringify(argvPath)}, JSON.stringify(process.argv.slice(2)));
+await fs.writeFile(${JSON.stringify(commandsPath)}, "[]");
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
+const lines = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
+lines.on("line", async line => {
+	const command = JSON.parse(line);
+	const commands = JSON.parse(await fs.readFile(${JSON.stringify(commandsPath)}, "utf8"));
+	commands.push(command.type);
+	await fs.writeFile(${JSON.stringify(commandsPath)}, JSON.stringify(commands));
+	process.stdout.write(JSON.stringify({
+		type: "response",
+		id: command.id,
+		command: command.type,
+		success: true,
+		data: { cancelled: false },
+	}) + "\\n");
+});
+`,
 		);
 		await fs.chmod(binaryPath, 0o755);
 
@@ -333,16 +354,72 @@ describe("SidecarManager", () => {
 			sidecar.start();
 			await ready;
 
-			const launch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
-			expect(launch).toEqual(["--mode", "rpc-ui", "--no-auto-resume"]);
+			const launch: unknown = JSON.parse(await fs.readFile(argvPath, "utf8"));
+			const commands: unknown = JSON.parse(await fs.readFile(commandsPath, "utf8"));
+			expect(launch).toEqual(["--mode", "rpc-ui"]);
+			expect(commands).toEqual(["new_session"]);
 
 			const restarted = waitForReady(sidecar);
 			sidecar.restart();
 			await restarted;
-			const restartLaunch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
+			const restartLaunch: unknown = JSON.parse(await fs.readFile(argvPath, "utf8"));
+			const restartCommands: unknown = JSON.parse(await fs.readFile(commandsPath, "utf8"));
 			expect(restartLaunch).toEqual(["--mode", "rpc-ui"]);
+			expect(restartCommands).toEqual([]);
 		} finally {
-			sidecar.dispose();
+			await sidecar.dispose();
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps freshness pending when local session creation is cancelled", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-fresh-cancelled-"));
+		const commandsPath = path.join(tempDir, "commands.txt");
+		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
+		await fs.writeFile(
+			binaryPath,
+			`#!/usr/bin/env bun
+import * as fs from "node:fs/promises";
+import { createInterface } from "node:readline";
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
+const lines = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
+lines.on("line", async line => {
+	const command = JSON.parse(line);
+	await fs.appendFile(${JSON.stringify(commandsPath)}, command.type + "\\n");
+	process.stdout.write(JSON.stringify({
+		type: "response",
+		id: command.id,
+		command: command.type,
+		success: true,
+		data: { cancelled: true },
+	}) + "\\n");
+});
+`,
+		);
+		await fs.chmod(binaryPath, 0o755);
+
+		const sidecar = new SidecarManager({ binaryPath, cwd: tempDir, fresh: true });
+		const waitForPreparation = async (): Promise<StatusEvent> => {
+			const settled = Promise.withResolvers<StatusEvent>();
+			const listener = (event: StatusEvent): void => {
+				if (event.status !== "ready" && event.status !== "error") return;
+				sidecar.off("status", listener);
+				settled.resolve(event);
+			};
+			sidecar.on("status", listener);
+			return await settled.promise;
+		};
+		try {
+			const firstPreparation = waitForPreparation();
+			sidecar.start();
+			expect((await firstPreparation).status).toBe("error");
+
+			const secondPreparation = waitForPreparation();
+			sidecar.restart();
+			expect((await secondPreparation).status).toBe("error");
+			expect((await fs.readFile(commandsPath, "utf8")).trim().split("\n")).toEqual(["new_session", "new_session"]);
+		} finally {
+			await sidecar.dispose();
 			await fs.rm(tempDir, { recursive: true, force: true });
 		}
 	});
@@ -394,6 +471,7 @@ describe("SidecarManager", () => {
 		const originalHome = process.env.HOME;
 		process.env.HOME = fakeHome;
 		const sidecar = new SidecarManager({ binaryPath, cwd: workspaceCwd });
+		let chatSidecar: SidecarManager | null = null;
 		try {
 			// Same options as the loader; a variable sidesteps the excess-property
 			// check on electron-store's Options type (projectName reaches conf).
@@ -434,7 +512,24 @@ describe("SidecarManager", () => {
 				"--tools",
 				"read,bash",
 			]);
+
+			chatSidecar = new SidecarManager({ binaryPath, cwd: workspaceCwd, kind: "chat" });
+			const chatReady = waitForReady(chatSidecar);
+			chatSidecar.start();
+			await chatReady;
+			const chatLaunch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
+			expect(chatLaunch).toEqual([
+				"--mode",
+				"rpc-ui",
+				"--no-tools",
+				"--append-system-prompt",
+				"GUI injected",
+				"--no-rules",
+				"--add-dir",
+				"/data/extra",
+			]);
 		} finally {
+			await chatSidecar?.dispose();
 			process.env.HOME = originalHome;
 			sidecar.dispose();
 			await fs.rm(tempDir, { recursive: true, force: true });
@@ -551,6 +646,38 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			expect(launch?.args).not.toContain("--session");
 			expect(launch?.args).not.toContain("--no-auto-resume");
 			expect(commands).toEqual(["negotiate_protocol", "get_state"]);
+		} finally {
+			await sidecar.dispose();
+			await remoteSsh.dispose();
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps remote chat tool-free when user flags select tools", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-chat-"));
+		const { remoteSsh, logPath } = await createFakeSsh(tempDir);
+		const sidecar = new SidecarManager({
+			binaryPath: "",
+			cwd: REMOTE_TARGET.cwd,
+			kind: "chat",
+			extraFlags: ["--tools", "bash", "--tools=read", "--no-rules"],
+			resumeSessionId: "remote-session-7",
+			target: REMOTE_TARGET,
+			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
+		});
+		try {
+			const ready = waitForStatus(sidecar, "ready");
+			sidecar.start();
+			await ready;
+
+			const launch = (await readRemoteLog(logPath)).find(row => row.type === "launch");
+			expect(launch?.args).toContain("--no-tools");
+			expect(launch?.args).toContain("--no-rules");
+			expect(launch?.args).not.toContain("--chat");
+			expect(launch?.args).not.toContain("--tools");
+			expect(launch?.args).not.toContain("--tools=read");
+			expect(launch?.args).not.toContain("bash");
 		} finally {
 			await sidecar.dispose();
 			await remoteSsh.dispose();
