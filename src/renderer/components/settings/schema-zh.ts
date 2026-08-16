@@ -53,6 +53,7 @@ export const ZH_GROUP_TITLES: Record<string, string> = {
 	"Output Limits": "输出上限",
 	Execution: "执行",
 	"Discovery & MCP": "发现与 MCP",
+	Extensions: "扩展",
 	Developer: "开发者",
 	Modes: "模式",
 	Subagents: "子代理",
@@ -68,6 +69,10 @@ export const ZH_GROUP_TITLES: Record<string, string> = {
 
 /** Per-setting row text, keyed by schema setting path. */
 export const ZH_SETTINGS: Record<string, { label: string; description?: string }> = {
+	"extensionHandlers.toolCallTimeoutMs": {
+		label: "扩展工具调用超时（毫秒）",
+		description: "扩展 tool_call 处理器的有效工作超时；等待 OMP 对话框期间不计时，无效值回退为 30000 毫秒。",
+	},
 	// ── appearance ──────────────────────────────────────────────────────────
 	"theme.dark": { label: "深色主题", description: "TUI 与 GUI 使用深色外观时的主题配色" },
 	"theme.light": { label: "浅色主题", description: "TUI 与 GUI 使用浅色外观时的主题配色" },

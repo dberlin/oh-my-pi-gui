@@ -2,14 +2,20 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-08-16
+
 ### Changed
 
+- **Bundled agent upgraded to omp 17.3.5**: the packaged sidecars now use the native PDF backend, updated provider/model catalog, one-shot retry hardening, stale Agent Hub activity signals, and extension-handler timeout settings from monorepo commit `0107a9eb22`.
 - **Native macOS menu-bar mark**: the generic colored status dot is replaced by a crisp Retina π template icon that automatically follows light, dark and selected menu-bar states.
 - **Recent-first navigation**: sidebar sessions and workspace groups now move dynamically by last use, persist that MRU order across restarts and package updates, retain pinned-first priority, and preserve relevance ordering while searching.
 - **Quieter execution history**: each reasoning/tool run now folds into one lightweight inline activity summary instead of a stack of nested cards and scroll boxes; active work opens for progress, then both successful and failed runs collapse to an outcome summary with full details available on demand.
 
 ### Fixed
 
+- **OMP 17.3.5 GUI parity**: PDF page screenshots returned by the upgraded native `read` tool now render inline, stale Agent Hub registrations are labeled as having no active turn and remain cancellable, and the new extension-handler timeout setting is localized instead of silently degrading to raw schema text.
+- **omp 17.3.5 sidecar builds**: the GUI packager now follows upstream's native PDF implementation and no longer calls the removed MuPDF generation/reset scripts, so upstream syncs can rebuild the bundled agent instead of failing before compilation.
+- **Live provider catalog**: login, logout, and custom provider/model add, edit, or delete operations now invalidate and refresh every provider/model selector; slow discovery finishes update the GUI automatically, upstream failures are shown in Providers, explicit refresh bypasses the cache, settings dropdowns no longer retain process-lifetime option caches, and custom OpenAI or Anthropic Messages providers can populate models directly from `/v1/models` without a manual model row.
 - **Clean, consistent tabs**: the disposable empty startup chat now disappears after a real tab opens (including layouts saved by older builds), while drafts and genuine sessions remain protected; restored tabs carry their transcript path before delayed session metadata arrives, so labels reliably use the same renamed-title/first-message fallback as the sidebar and truncate long text with the full title available on hover.
 - **Persistent tab workspace**: the open top-tab order and active session now survive app restarts and package replacement; stale workspaces are discarded and missing transcripts fall back safely instead of reopening a random project.
 - **Single waiting indicator**: model-response, retry, and compaction waiting rows now show one loading animation instead of duplicating it in the transcript timeline.

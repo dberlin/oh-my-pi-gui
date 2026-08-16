@@ -1,15 +1,15 @@
 /**
  * Searchable dropdown for string-typed settings whose value references a
  * model or a provider (e.g. providers.webSearchGeminiModel, mnemopi.llmModel).
- * Options are fetched lazily on first open (get_available_models /
- * get_providers) and cached module-wide so several rows share one fetch.
+ * Options are fetched on every open (get_available_models / get_providers),
+ * so credential and models.yml changes never leave a process-lifetime cache.
  * Custom values stay allowed: the current value is pinned when it is not in
  * the fetched list, and the search text can be committed verbatim. Commits go
  * through the caller's setSetting flow.
  */
 
 import { Check, ChevronDown, Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ModelInfo, ProvidersResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { Spinner } from "../common";
@@ -37,49 +37,32 @@ interface SelectOption {
 
 type FetchState = "idle" | "loading" | "error" | "ready";
 
-// Module-wide lazy caches: one in-flight/resolved fetch per kind, shared by
-// every mounted row. A rejected fetch evicts itself so the next open retries.
-let modelsCache: Promise<SelectOption[]> | null = null;
-let providersCache: Promise<SelectOption[]> | null = null;
-
-function modelOptions(): Promise<SelectOption[]> {
-	if (modelsCache === null) {
-		modelsCache = window.omp.rpc.getAvailableModels().then(res => {
-			if (!res.success) throw new Error(res.error);
-			const data = res.data as { models?: ModelInfo[] } | undefined;
-			const seen = new Set<string>();
-			const options: SelectOption[] = [];
-			for (const model of data?.models ?? []) {
-				const value = `${model.provider}/${model.id}`;
-				if (seen.has(value)) continue;
-				seen.add(value);
-				options.push({ value, detail: model.provider });
-			}
-			return options;
-		});
-		modelsCache.catch(() => {
-			modelsCache = null;
-		});
+async function modelOptions(): Promise<SelectOption[]> {
+	const response = await window.omp.rpc.getAvailableModels();
+	if (!response.success) throw new Error(response.error);
+	const data = response.data as { models?: ModelInfo[] } | undefined;
+	const seen = new Set<string>();
+	const options: SelectOption[] = [];
+	for (const model of data?.models ?? []) {
+		const value = `${model.provider}/${model.id}`;
+		if (seen.has(value)) continue;
+		seen.add(value);
+		options.push({ value, detail: model.provider });
 	}
-	return modelsCache;
+	return options;
 }
 
-function providerOptions(): Promise<SelectOption[]> {
-	if (providersCache === null) {
-		providersCache = window.omp.rpc.getProviders().then(res => {
-			if (!res.success) throw new Error(res.error);
-			const data = res.data as ProvidersResult | undefined;
-			return (data?.providers ?? []).map(provider => ({
-				value: provider.id,
-				detail: provider.name,
-				disabled: provider.disabled,
-			}));
-		});
-		providersCache.catch(() => {
-			providersCache = null;
-		});
-	}
-	return providersCache;
+async function providerOptions(): Promise<SelectOption[]> {
+	// The sidecar's get_providers command refreshes the registry before deriving
+	// provider visibility and counts, including for an older tab-sidecar snapshot.
+	const response = await window.omp.rpc.getProviders();
+	if (!response.success) throw new Error(response.error);
+	const data = response.data as ProvidersResult | undefined;
+	return (data?.providers ?? []).map(provider => ({
+		value: provider.id,
+		detail: provider.name,
+		disabled: provider.disabled,
+	}));
 }
 
 const PANEL_WIDTH = 288;
@@ -110,29 +93,35 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 	const rootRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
+	const requestIdRef = useRef(0);
 
-	// Lazy fetch on first open; after an error, returning to "idle" re-fires.
-	useEffect(() => {
-		if (!open || fetchState !== "idle") return;
+	const fetchOptions = useCallback(() => {
+		const requestId = ++requestIdRef.current;
 		setFetchState("loading");
 		setFetchError(null);
-		let cancelled = false;
 		const load = kind === "model" ? modelOptions : providerOptions;
-		load()
+		return load()
 			.then(result => {
-				if (cancelled) return;
+				if (requestIdRef.current !== requestId) return;
 				setOptions(result);
 				setFetchState("ready");
 			})
 			.catch((cause: unknown) => {
-				if (cancelled) return;
+				if (requestIdRef.current !== requestId) return;
 				setFetchError(cause instanceof Error ? cause.message : String(cause));
 				setFetchState("error");
 			});
+	}, [kind]);
+
+	// Fetch on every open. A provider/model edit can happen while this settings
+	// row remains mounted, so retaining a previous "ready" result is stale.
+	useEffect(() => {
+		if (!open) return;
+		void fetchOptions();
 		return () => {
-			cancelled = true;
+			requestIdRef.current++;
 		};
-	}, [open, fetchState, kind]);
+	}, [fetchOptions, open]);
 
 	// Focus the filter input once the panel is up.
 	useEffect(() => {
@@ -274,7 +263,7 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 								</span>
 								<button
 									className="rounded-md border border-(--omp-border-muted) px-2.5 py-1 text-omp-sm font-medium text-(--omp-text) hover:bg-(--omp-bg-tertiary)"
-									onClick={() => setFetchState("idle")}
+									onClick={() => void fetchOptions()}
 									type="button"
 								>
 									{t("modelValue.retry")}

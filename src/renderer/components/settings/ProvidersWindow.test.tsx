@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { CustomProviderView } from "../../../shared/ipc-types";
 import type { ProviderInfo } from "../../../shared/rpc-types";
-import { ProviderRow, resolveProviderEditAction } from "./ProvidersWindow";
+import { ProviderRow, providerDiscoveryErrors, resolveProviderEditAction } from "./ProvidersWindow";
 
 function provider(id: string, loginAvailable: boolean, authenticated = true): ProviderInfo {
 	return {
@@ -46,6 +46,34 @@ describe("resolveProviderEditAction", () => {
 
 	it("does not invent an editor when neither a custom config nor credential flow exists", () => {
 		expect(resolveProviderEditAction(provider("catalog-only", false), [])).toBeNull();
+	});
+});
+
+describe("providerDiscoveryErrors", () => {
+	it("reports configured upstream failures without alarming on optional local probes", () => {
+		expect(
+			providerDiscoveryErrors(
+				[
+					{
+						provider: "custom-openai",
+						status: "unavailable",
+						optional: false,
+						stale: false,
+						models: [],
+						error: "HTTP 401",
+					},
+					{
+						provider: "ollama",
+						status: "unavailable",
+						optional: true,
+						stale: false,
+						models: [],
+						error: "connection refused",
+					},
+				],
+				"Discovery unavailable",
+			),
+		).toEqual(["custom-openai: HTTP 401"]);
 	});
 });
 

@@ -528,7 +528,9 @@ const HubRow = memo(function HubRow({
 	const lastUpdate = agent.progress?.description;
 	const model = agent.progress?.resolvedModel;
 	const parked = agent.status === "parked";
-	const actionableLive = live && agent.kind !== "advisor";
+	// A stale registration has no live turn, but cancel is the recovery action
+	// upstream exposes specifically for clearing it from the registry.
+	const actionableLive = (live || agent.status === "stale") && agent.kind !== "advisor";
 	const revivable = parked && agent.kind !== "advisor";
 
 	return (

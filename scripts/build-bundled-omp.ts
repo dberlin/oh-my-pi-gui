@@ -261,11 +261,7 @@ async function embedNativeForTarget(target: SidecarTarget): Promise<void> {
 }
 
 async function restoreGeneratedAssets(): Promise<void> {
-	await Promise.all([
-		runPackageScript(codingAgentDir, "gen:mupdf:reset"),
-		runPackageScript(nativesDir, "gen:native:reset"),
-		runPackageScript(statsDir, "gen:stats:reset"),
-	]);
+	await Promise.all([runPackageScript(nativesDir, "gen:native:reset"), runPackageScript(statsDir, "gen:stats:reset")]);
 }
 
 // ---------------------------------------------------------------------------
@@ -283,7 +279,6 @@ try {
 		await runPackageScript(statsDir, "gen:stats");
 		await runPackageScript(collabWebDir, "gen:tool-views");
 		await embedNativeForTarget(target);
-		await runPackageScript(codingAgentDir, "gen:mupdf");
 		await compileCodingAgent({
 			repoRoot,
 			entrypoint: path.join(codingAgentDir, "src", "cli.ts"),
@@ -293,7 +288,7 @@ try {
 		});
 	} finally {
 		// Compiled assets are temporary source substitutions. Reset every family
-		// even when generation or compilation fails; Promise.all starts all three
+		// even when generation or compilation fails; Promise.all starts both
 		// cleanups before surfacing an individual failure.
 		await restoreGeneratedAssets();
 	}

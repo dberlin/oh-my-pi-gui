@@ -25,6 +25,14 @@ afterEach(() => {
 });
 
 describe("subagents store refresh", () => {
+	it("maps a claimed-running row without a live turn to a cancellable stale status", () => {
+		useSubagentsStore.getState().setSnapshots([snap({ id: "zombie", status: "running", live: false })]);
+		expect(useSubagentsStore.getState().subagents.get("zombie")).toMatchObject({
+			status: "stale",
+			live: false,
+		});
+	});
+
 	it("merges: keeps forgotten terminal rows, drops released live rows, updates the rest", async () => {
 		useSubagentsStore
 			.getState()

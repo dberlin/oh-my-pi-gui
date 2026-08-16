@@ -104,7 +104,7 @@ function extractJobs(details: Record<string, unknown> | undefined): JobRow[] {
 		if (!ar || typeof ar.id !== "string") continue;
 		out.push({
 			id: ar.id,
-			status: "running",
+			status: ar.live === false ? "stale" : "running",
 			label: typeof ar.activity === "string" ? ar.activity : undefined,
 			durationMs: typeof ar.ageMs === "number" ? ar.ageMs : undefined,
 		});
@@ -194,6 +194,7 @@ const STATE_COLOR: Record<string, string> = {
 	stopping: "var(--omp-warning)",
 	cancelled: "var(--omp-warning)",
 	failed: "var(--omp-error)",
+	stale: "var(--omp-warning)",
 };
 
 /** Hub: peer roster, job list, process list, or message log depending on the op. */
@@ -334,8 +335,13 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 									{job.label}
 								</span>
 							)}
+							{job.status === "stale" && (
+								<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-warning)]">
+									{stateLabel(job.status)}
+								</span>
+							)}
 							{job.durationMs != null && (
-								<span className="ml-auto shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
+								<span className="shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
 									{formatDuration(job.durationMs)}
 								</span>
 							)}

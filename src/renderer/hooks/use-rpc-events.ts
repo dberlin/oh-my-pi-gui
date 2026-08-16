@@ -737,6 +737,11 @@ export function useRpcEvents(): void {
 			useSubagentsStore.getState().applyFrame(frame);
 		});
 
+		const unsubModelCatalog = window.omp.events.onModelCatalogUpdate(frame => {
+			if (!acceptsActiveTabEvents()) return;
+			useModelStore.getState().applyCatalogUpdate(frame);
+		});
+
 		// Agent config edits (set_setting from any client, slash-command config
 		// changes) push config_update — re-read the thinking-display settings so
 		// ThinkingBlock re-renders with the live hide/prose-only policy.
@@ -799,6 +804,7 @@ export function useRpcEvents(): void {
 			unsubscribe();
 			unsubStatus();
 			unsubSubagent();
+			unsubModelCatalog();
 			unsubConfig();
 			unsubPromptResult();
 			unsubExtensionUi();

@@ -25,7 +25,20 @@ interface SubagentsStore {
  * Rows absent from a refresh fetch are dropped when live (released) but kept
  * when terminal (the server forgets them; the user is still looking at them).
  */
-const LIVE_STATUSES: Record<string, true> = { started: true, running: true, pending: true, idle: true, parked: true };
+const LIVE_STATUSES: Record<string, true> = {
+	started: true,
+	running: true,
+	pending: true,
+	idle: true,
+	parked: true,
+	// Stale registrations remain server-owned rows and must disappear after
+	// hub cancel removes them; do not retain them as terminal history.
+	stale: true,
+};
+
+function normalizeSnapshot(snapshot: SubagentNode): SubagentNode {
+	return snapshot.status === "running" && snapshot.live === false ? { ...snapshot, status: "stale" } : snapshot;
+}
 
 /**
  * Merge one fetched row over the local one: the fetch wins EXCEPT it may never
@@ -117,7 +130,8 @@ export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
 	setSnapshots: snapshots => {
 		const subagents = new Map<string, SubagentNode>();
 		for (const snap of snapshots) {
-			subagents.set(snap.id, snap);
+			const normalized = normalizeSnapshot(snap);
+			subagents.set(normalized.id, normalized);
 		}
 		set({ subagents });
 	},
@@ -131,9 +145,10 @@ export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
 			const fetched = new Set<string>();
 			const subagents = new Map<string, SubagentNode>();
 			for (const snap of data.subagents) {
-				fetched.add(snap.id);
-				const prev = current.get(snap.id);
-				subagents.set(snap.id, prev ? mergeFetchedSnapshot(snap, prev) : snap);
+				const normalized = normalizeSnapshot(snap);
+				fetched.add(normalized.id);
+				const prev = current.get(normalized.id);
+				subagents.set(normalized.id, prev ? mergeFetchedSnapshot(normalized, prev) : normalized);
 			}
 			// Terminal rows the server has forgotten survive the merge — see the
 			// refresh docstring (RPC registry deletes completed/failed agents).

@@ -31,6 +31,7 @@ import type {
 	ContextUsage,
 	ExtensionUIRequest,
 	ModelInfo,
+	ProviderDiscoveryState,
 	RpcLoopModeState,
 	RpcQueuedMessage,
 	RpcSessionState,
@@ -127,6 +128,9 @@ interface ModelSlice {
 	fastModeActive: boolean;
 	tokensPerSecond: number | null;
 	availableModels: ModelInfo[];
+	discoveryStates: ProviderDiscoveryState[];
+	catalogRefreshPending: boolean;
+	catalogGeneration: number;
 }
 
 /** Per-tab bundle: every session-scoped store slice captured on switch-away. */
@@ -157,6 +161,9 @@ const EMPTY_MODEL_SLICE: ModelSlice = {
 	fastModeActive: false,
 	tokensPerSecond: null,
 	availableModels: [],
+	discoveryStates: [],
+	catalogRefreshPending: false,
+	catalogGeneration: 0,
 };
 
 // IPC routing is window-global. Serialize switches so rapid tab clicks cannot
@@ -223,6 +230,9 @@ function captureBundle(): SessionTabBundle {
 			fastModeActive: model.fastModeActive,
 			tokensPerSecond: model.tokensPerSecond,
 			availableModels: model.availableModels,
+			discoveryStates: model.discoveryStates,
+			catalogRefreshPending: model.catalogRefreshPending,
+			catalogGeneration: model.catalogGeneration,
 		},
 		composer: {
 			draft: composer.draft,

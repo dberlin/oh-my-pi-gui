@@ -1,5 +1,5 @@
 import { FileText } from "lucide-react";
-import { basename, dirname, headLines, languageFromPath, resultText } from "../../lib/format";
+import { basename, dirname, extractImageDataUrl, headLines, languageFromPath, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { CodeBlock } from "../chat/CodeBlock";
 import type { ToolRendererProps } from "./ToolCard";
@@ -10,7 +10,9 @@ const PREVIEW_LINES = 50;
 export function ReadRenderer({ args, result, isPartial, partialResult }: ToolRendererProps) {
 	const t = useT();
 	const path = typeof args.path === "string" ? args.path : "";
-	const text = resultText(isPartial ? partialResult : result);
+	const effective = isPartial ? partialResult : result;
+	const text = resultText(effective);
+	const image = extractImageDataUrl(effective);
 	const { head, omitted } = headLines(text, PREVIEW_LINES);
 
 	return (
@@ -20,7 +22,13 @@ export function ReadRenderer({ args, result, isPartial, partialResult }: ToolRen
 				<span className="truncate text-[var(--omp-text)]">{basename(path)}</span>
 				<span className="truncate text-[var(--omp-dim)]">{dirname(path)}</span>
 			</div>
-			{text ? (
+			{image ? (
+				<img
+					src={image}
+					alt={path || t("tools.image.alt")}
+					className="max-h-72 rounded-md border border-[var(--omp-border-muted)] object-contain"
+				/>
+			) : text ? (
 				<>
 					<CodeBlock
 						code={head}

@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { ModelInfo, RpcSessionState, ThinkingLevel } from "../../shared/rpc-types";
+import type {
+	AvailableModelsResult,
+	ModelCatalogUpdateFrame,
+	ModelInfo,
+	ProviderDiscoveryState,
+	RpcSessionState,
+	ThinkingLevel,
+} from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { toast } from "./toast";
 
@@ -14,8 +21,14 @@ interface ModelStore {
 	fastModeActive: boolean;
 	tokensPerSecond: number | null;
 	availableModels: ModelInfo[];
+	discoveryStates: ProviderDiscoveryState[];
+	catalogRefreshPending: boolean;
+	catalogGeneration: number;
 	setFromState: (state: RpcSessionState) => void;
 	setAvailableModels: (models: ModelInfo[]) => void;
+	/** Fetch the authoritative, cache-aware catalog from the active sidecar. */
+	refreshAvailableModels: (forceRefresh?: boolean) => Promise<AvailableModelsResult>;
+	applyCatalogUpdate: (update: ModelCatalogUpdateFrame) => void;
 	/** Toggle fast mode via RPC and apply the returned {enabled, active} (fixes
 	 * call sites that fired setFastMode and ignored the response, desyncing the store). */
 	toggleFastMode: () => Promise<void>;
@@ -31,6 +44,9 @@ const initialState = {
 	fastModeActive: false,
 	tokensPerSecond: null as number | null,
 	availableModels: [] as ModelInfo[],
+	discoveryStates: [] as ProviderDiscoveryState[],
+	catalogRefreshPending: false,
+	catalogGeneration: 0,
 };
 
 export const useModelStore = create<ModelStore>()(set => ({
@@ -46,6 +62,39 @@ export const useModelStore = create<ModelStore>()(set => ({
 			tokensPerSecond: state.tokensPerSecond,
 		}),
 	setAvailableModels: models => set({ availableModels: models }),
+	refreshAvailableModels: async (forceRefresh = false) => {
+		const response = await window.omp.rpc.getAvailableModels(forceRefresh);
+		if (!response.success) throw new Error(response.error);
+		const data = response.data as AvailableModelsResult | undefined;
+		const result: AvailableModelsResult = {
+			models: data?.models ?? [],
+			discoveryStates: data?.discoveryStates ?? [],
+			refreshPending: data?.refreshPending ?? false,
+			generation: data?.generation ?? 0,
+		};
+		set(state =>
+			result.generation < state.catalogGeneration
+				? {}
+				: {
+						availableModels: result.models,
+						discoveryStates: result.discoveryStates,
+						catalogRefreshPending: result.refreshPending,
+						catalogGeneration: result.generation,
+					},
+		);
+		return result;
+	},
+	applyCatalogUpdate: update =>
+		set(state =>
+			update.generation < state.catalogGeneration
+				? {}
+				: {
+						availableModels: update.models,
+						discoveryStates: update.discoveryStates,
+						catalogRefreshPending: update.refreshPending,
+						catalogGeneration: update.generation,
+					},
+		),
 	toggleFastMode: async () => {
 		const res = await window.omp.rpc.setFastMode(!useModelStore.getState().fastModeEnabled);
 		if (res.success) {

@@ -17,6 +17,7 @@ import type {
 	ExtensionUIRequest,
 	HostToolCallRequest,
 	HostUriRequest,
+	ModelCatalogUpdateFrame,
 	OutboundFrame,
 	PromptResultFrame,
 	RpcLiveUpdateFrame,
@@ -135,6 +136,7 @@ export interface SidecarEvents {
 	hostUriRequest: (request: HostUriRequest) => void;
 	subagentFrame: (frame: SubagentFrame) => void;
 	liveUpdate: (frame: RpcLiveUpdateFrame) => void;
+	modelCatalogUpdate: (frame: ModelCatalogUpdateFrame) => void;
 	commandsUpdate: (commands: unknown[]) => void;
 	frame: (frame: OutboundFrame) => void;
 }
@@ -341,6 +343,11 @@ export class SidecarManager extends EventEmitter {
 		// Available commands update
 		if (obj.type === "available_commands_update") {
 			this.emit("commandsUpdate", (obj as { commands: unknown[] }).commands);
+			this.emit("frame", obj);
+			return;
+		}
+		if (obj.type === "model_catalog_update") {
+			this.emit("modelCatalogUpdate", obj as unknown as ModelCatalogUpdateFrame);
 			this.emit("frame", obj);
 			return;
 		}

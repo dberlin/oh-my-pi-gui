@@ -45,6 +45,7 @@ import type {
 	HostUriRequest,
 	HostUriResult,
 	ImageContent,
+	ModelCatalogUpdateFrame,
 	PromptResultFrame,
 	RpcCommand,
 	RpcDebugParams,
@@ -217,7 +218,7 @@ const api: OmpApi = {
 		collabJoin: (link: string) => rpcCommand({ type: "collab_join", link }, 120_000),
 		collabLeave: () => rpcCommand({ type: "collab_leave" }, 60_000),
 		getCollabState: () => rpcCommand({ type: "get_collab_state" }),
-		getAvailableModels: () => rpcCommand({ type: "get_available_models" }),
+		getAvailableModels: (forceRefresh?: boolean) => rpcCommand({ type: "get_available_models", forceRefresh }),
 		setThinkingLevel: (level: ThinkingLevel | "auto") => rpcCommand({ type: "set_thinking_level", level }),
 		cycleThinkingLevel: () => rpcCommand({ type: "cycle_thinking_level" }),
 		setFastMode: (enabled: boolean) => rpcCommand({ type: "set_fast_mode", enabled }),
@@ -247,7 +248,7 @@ const api: OmpApi = {
 		getSettingsSchema: () => rpcCommand({ type: "get_settings_schema" }),
 		getSettings: (paths?: string[]) => rpcCommand({ type: "get_settings", paths }),
 		setSetting: (path: string, value: unknown) => rpcCommand({ type: "set_setting", path, value }),
-		getProviders: () => rpcCommand({ type: "get_providers" }),
+		getProviders: (forceRefresh?: boolean) => rpcCommand({ type: "get_providers", forceRefresh }),
 		setPlanMode: (enabled: boolean) => rpcCommand({ type: "set_plan_mode", enabled }),
 		getPlanMode: () => rpcCommand({ type: "get_plan_mode" }),
 		getModelRoles: () => rpcCommand({ type: "get_model_roles" }),
@@ -357,6 +358,8 @@ const api: OmpApi = {
 			subscribeActiveTab<SubagentFrame>(IPC_EVENTS.SUBAGENT_FRAME, callback),
 		onLiveUpdate: (callback: (frame: RpcLiveUpdateFrame) => void) =>
 			subscribeActiveTab<RpcLiveUpdateFrame>(IPC_EVENTS.LIVE_UPDATE, callback),
+		onModelCatalogUpdate: (callback: (frame: ModelCatalogUpdateFrame) => void) =>
+			subscribeActiveTab<ModelCatalogUpdateFrame>(IPC_EVENTS.MODEL_CATALOG_UPDATE, callback),
 		onCommandsUpdate: (callback: (commands: AvailableCommand[]) => void) =>
 			subscribeActiveTab<AvailableCommand[]>(IPC_EVENTS.COMMANDS_UPDATE, callback),
 		onConfigUpdate: (callback: (payload: ConfigUpdateFrame) => void) =>

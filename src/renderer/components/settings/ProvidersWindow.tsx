@@ -7,8 +7,9 @@
 import { Edit, ExternalLink, Globe, LogIn, LogOut, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { CustomProviderView } from "../../../shared/ipc-types";
-import type { ProviderInfo, ProvidersResult } from "../../../shared/rpc-types";
+import type { ProviderDiscoveryState, ProviderInfo, ProvidersResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
+import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
@@ -43,6 +44,13 @@ export function resolveProviderEditAction(
 	if (provider.loginAvailable) return { kind: "login" };
 	const config = customConfigs.find(candidate => candidate.id === provider.id);
 	return config && !config.builtin ? { kind: "config", provider: config } : null;
+}
+
+/** Only user-required discovery failures should become settings errors. */
+export function providerDiscoveryErrors(states: readonly ProviderDiscoveryState[], fallbackMessage: string): string[] {
+	return states
+		.filter(state => state.status === "unavailable" && !state.optional)
+		.map(state => `${state.provider}: ${state.error ?? fallbackMessage}`);
 }
 export function ProviderRow({
 	provider,
@@ -129,40 +137,81 @@ export function ProvidersWindow() {
 	const open = useUiStore(s => s.providersOpen);
 	const close = useUiStore(s => s.closeProviders);
 	const openProviderConfig = useUiStore(s => s.openProviderConfig);
+	const providerConfigOpen = useUiStore(s => s.providerConfigOpen);
 	const t = useT();
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
+	const applyCatalogUpdate = useModelStore(s => s.applyCatalogUpdate);
 	const [result, setResult] = useState<ProvidersResult | null>(null);
 	const [customConfigs, setCustomConfigs] = useState<CustomProviderView[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [busyProvider, setBusyProvider] = useState<string | null>(null);
-	const load = useCallback(async () => {
-		setLoading(true);
-		setError(null);
-		if (!sidecarReady) {
-			setError(t("providers.notConnected"));
-			setLoading(false);
-			return;
-		}
-		try {
-			const [providerResult, configsResult] = await Promise.allSettled([
-				window.omp.rpc.getProviders(),
-				window.omp.models.listProviders(),
-			]);
-			if (providerResult.status === "rejected") throw providerResult.reason;
-			if (providerResult.value.success) setResult(providerResult.value.data as ProvidersResult);
-			else setError(providerResult.value.error);
-			setCustomConfigs(configsResult.status === "fulfilled" ? configsResult.value : []);
-		} catch (cause) {
-			setError(String(cause));
-		} finally {
-			setLoading(false);
-		}
-	}, [sidecarReady, t]);
+	const load = useCallback(
+		async (forceRefresh = false) => {
+			setLoading(true);
+			setError(null);
+			if (!sidecarReady) {
+				setError(t("providers.notConnected"));
+				setLoading(false);
+				return;
+			}
+			try {
+				const [providerResult, configsResult] = await Promise.allSettled([
+					window.omp.rpc.getProviders(forceRefresh),
+					window.omp.models.listProviders(),
+				]);
+				if (providerResult.status === "rejected") throw providerResult.reason;
+				if (providerResult.value.success) {
+					const wire = providerResult.value.data as Partial<ProvidersResult>;
+					const data: ProvidersResult = {
+						providers: wire.providers ?? [],
+						models: wire.models ?? [],
+						discoveryStates: wire.discoveryStates ?? [],
+						refreshPending: wire.refreshPending ?? false,
+						generation: wire.generation ?? 0,
+					};
+					setResult(data);
+					applyCatalogUpdate({ type: "model_catalog_update", ...data });
+					const discoveryErrors = providerDiscoveryErrors(
+						data.discoveryStates,
+						t("providers.discoveryUnavailable"),
+					);
+					if (discoveryErrors.length > 0) {
+						setError(t("providers.discoveryFailed", { details: discoveryErrors.join("; ") }));
+					}
+				} else setError(providerResult.value.error);
+				setCustomConfigs(configsResult.status === "fulfilled" ? configsResult.value : []);
+			} catch (cause) {
+				setError(String(cause));
+			} finally {
+				setLoading(false);
+			}
+		},
+		[applyCatalogUpdate, sidecarReady, t],
+	);
 
 	useEffect(() => {
-		if (open) void load();
-	}, [open, load]);
+		if (!open) return;
+		return window.omp.events.onModelCatalogUpdate(frame => {
+			setResult({
+				providers: frame.providers,
+				models: frame.models,
+				discoveryStates: frame.discoveryStates,
+				refreshPending: frame.refreshPending,
+				generation: frame.generation,
+			});
+			const discoveryErrors = providerDiscoveryErrors(frame.discoveryStates, t("providers.discoveryUnavailable"));
+			setError(
+				discoveryErrors.length > 0 ? t("providers.discoveryFailed", { details: discoveryErrors.join("; ") }) : null,
+			);
+		});
+	}, [open, t]);
+
+	useEffect(() => {
+		// ProviderConfigDialog is an independent overlay. Reload when it closes so
+		// the still-open provider window reflects add/edit/delete immediately.
+		if (open && !providerConfigOpen) void load();
+	}, [open, providerConfigOpen, load]);
 
 	const handleLogin = async (providerId: string) => {
 		setBusyProvider(providerId);
@@ -245,7 +294,7 @@ export function ProvidersWindow() {
 							size="sm"
 							variant="ghost"
 							icon={<RefreshCw size={12} />}
-							onClick={() => void load()}
+							onClick={() => void load(true)}
 							loading={loading}
 						>
 							{t("providers.refresh")}
@@ -256,6 +305,13 @@ export function ProvidersWindow() {
 				{error && (
 					<div className="rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-omp-md text-[var(--omp-error)]">
 						{error}
+					</div>
+				)}
+				{result?.refreshPending && !error && (
+					<div
+						className="rounded-md bg-[var(--omp-bg-tertiary)] px-3 py-2 text-omp-md text-[var(--omp-muted)]" // surface-ok: transient discovery status banner
+					>
+						{t("providers.refreshPending")}
 					</div>
 				)}
 				{loading && !result && (

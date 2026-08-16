@@ -50,6 +50,22 @@ describe("models-config", () => {
 	});
 
 	describe("upsert and list", () => {
+		test("round-trips a discovery-only Anthropic Messages provider", () => {
+			const input: CustomProviderInput = {
+				id: "messages-provider",
+				api: "anthropic-messages",
+				baseUrl: "https://anthropic.example.com/v1",
+				discovery: { type: "openai-models-list" },
+				models: [],
+			};
+			upsertModelsProvider(input);
+
+			const saved = listModelsProviders().find(provider => provider.id === input.id);
+			expect(saved?.api).toBe("anthropic-messages");
+			expect(saved?.discovery).toEqual({ type: "openai-models-list" });
+			expect(saved?.models).toEqual([]);
+		});
+
 		test("creates new provider with minimal fields", () => {
 			const input: CustomProviderInput = {
 				id: "test-provider",

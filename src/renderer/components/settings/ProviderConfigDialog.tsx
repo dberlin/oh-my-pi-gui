@@ -16,9 +16,15 @@
 
 import { ChevronDown, ChevronRight, Eye, EyeOff, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CustomProviderApi, CustomProviderInput, CustomProviderView } from "../../../shared/ipc-types";
+import type {
+	CustomProviderApi,
+	CustomProviderDiscoveryType,
+	CustomProviderInput,
+	CustomProviderView,
+} from "../../../shared/ipc-types";
 import { CUSTOM_PROVIDER_APIS } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
+import { useModelStore } from "../../stores/model";
 import { toast } from "../../stores/toast";
 import { Button, Input, Modal, Spinner } from "../common";
 import { FieldError, FieldLabel } from "./providers/FormFields";
@@ -27,6 +33,22 @@ import { ProviderConfigRow } from "./providers/ProviderConfigRow";
 
 /** Protocols accepted by models.yml (re-export from shared types). */
 export const PROVIDER_PROTOCOLS = CUSTOM_PROVIDER_APIS;
+
+const UPSTREAM_MODEL_LIST_PROTOCOLS: ReadonlySet<CustomProviderApi> = new Set([
+	"openai-completions",
+	"openai-responses",
+	"anthropic-messages",
+]);
+
+/** Default discovery for protocols that expose a standard `/v1/models` list. */
+export function defaultProviderDiscovery(api: CustomProviderApi): CustomProviderDiscoveryType | undefined {
+	return UPSTREAM_MODEL_LIST_PROTOCOLS.has(api) ? "openai-models-list" : undefined;
+}
+
+/** Manual model rows are optional when the provider can discover them upstream. */
+export function providerRequiresManualModels(discoveryType: CustomProviderDiscoveryType | undefined): boolean {
+	return discoveryType === undefined;
+}
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -85,6 +107,7 @@ interface ProviderFormProps {
 
 function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel }: ProviderFormProps) {
 	const t = useT();
+	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
 	const nextKey = useRef(1);
 	const readonly = editing?.builtin ?? false;
 
@@ -97,7 +120,9 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 	const [showKey, setShowKey] = useState(false);
 	const [auth, setAuth] = useState<"apiKey" | "none" | "oauth" | undefined>(editing?.auth);
 	const [authHeader, setAuthHeader] = useState(editing?.authHeader ?? false);
-	const [discoveryType, setDiscoveryType] = useState<string | undefined>(editing?.discovery?.type);
+	const [discoveryType, setDiscoveryType] = useState<CustomProviderDiscoveryType | undefined>(() =>
+		editing ? editing.discovery?.type : defaultProviderDiscovery(PROVIDER_PROTOCOLS[0]),
+	);
 	const [discoveryTimeout, setDiscoveryTimeout] = useState<number | undefined>(editing?.discovery?.timeoutMs);
 	const [disableStrictTools, setDisableStrictTools] = useState(editing?.disableStrictTools ?? false);
 	const [transport, setTransport] = useState<"pi-native" | undefined>(editing?.transport);
@@ -149,7 +174,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 		else if (!isValidHttpUrl(url)) errs.baseUrl = t("providerCfg.form.baseUrlInvalid");
 
 		const filled = models.filter(row => row.id.trim().length > 0);
-		if (filled.length === 0) {
+		if (filled.length === 0 && providerRequiresManualModels(discoveryType)) {
 			errs.models = t("providerCfg.form.modelsRequired");
 		} else if (models.some(row => row.id.trim().length === 0 && (row.name?.trim().length ?? 0) > 0)) {
 			errs.models = t("providerCfg.form.modelIdRequired");
@@ -223,7 +248,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 			...(discoveryType
 				? {
 						discovery: {
-							type: discoveryType as NonNullable<CustomProviderInput["discovery"]>["type"],
+							type: discoveryType,
 							...(discoveryTimeout ? { timeoutMs: discoveryTimeout } : {}),
 						},
 					}
@@ -247,6 +272,25 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 		setSubmitError(null);
 		try {
 			await window.omp.models.upsertProvider(input);
+			try {
+				const catalog = await refreshAvailableModels(true);
+				const discoveryError = catalog.discoveryStates.find(
+					state => state.provider === input.id && state.status === "unavailable",
+				);
+				if (discoveryError) {
+					toast({
+						variant: "warning",
+						title: t("providerCfg.toast.refreshFailed"),
+						message: discoveryError.error ?? t("providers.discoveryUnavailable"),
+					});
+				}
+			} catch (cause) {
+				toast({
+					variant: "warning",
+					title: t("providerCfg.toast.refreshFailed"),
+					message: cause instanceof Error ? cause.message : String(cause),
+				});
+			}
 			toast({ variant: "success", message: t("providerCfg.toast.saved", { id: input.id }) });
 			onSaved();
 		} catch (cause) {
@@ -288,7 +332,13 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 						className={SELECT_CLASS}
 						value={api}
 						disabled={readonly || submitting}
-						onChange={event => setApi(event.target.value as CustomProviderApi)}
+						onChange={event => {
+							const nextApi = event.target.value as CustomProviderApi;
+							setApi(nextApi);
+							if (!editing && (discoveryType === undefined || discoveryType === "openai-models-list")) {
+								setDiscoveryType(defaultProviderDiscovery(nextApi));
+							}
+						}}
 					>
 						{PROVIDER_PROTOCOLS.map(protocol => (
 							<option key={protocol} value={protocol}>
@@ -379,7 +429,9 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 							style={{ flex: "2" }}
 							value={discoveryType ?? ""}
 							disabled={readonly || submitting}
-							onChange={event => setDiscoveryType(event.target.value || undefined)}
+							onChange={event =>
+								setDiscoveryType((event.target.value || undefined) as CustomProviderDiscoveryType | undefined)
+							}
 						>
 							<option value="">{t("common.noneParenthesized")}</option>
 							<option value="ollama">Ollama</option>
@@ -477,6 +529,11 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 						</Button>
 					)}
 					<FieldError message={errors.models} />
+					{discoveryType && (
+						<span className="mt-1 block text-omp-sm text-(--omp-dim)">
+							{t("providerCfg.form.modelsDiscoveryOptional")}
+						</span>
+					)}
 				</div>
 
 				<div>
@@ -581,6 +638,7 @@ export interface ProviderConfigDialogProps {
 
 export function ProviderConfigDialog({ open, onClose, editProvider = null }: ProviderConfigDialogProps) {
 	const t = useT();
+	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
 	const [view, setView] = useState<View>({ kind: "list" });
 	const [providers, setProviders] = useState<CustomProviderView[] | null>(null);
 	const [listError, setListError] = useState<string | null>(null);
@@ -616,6 +674,15 @@ export function ProviderConfigDialog({ open, onClose, editProvider = null }: Pro
 		setDeleting(true);
 		try {
 			await window.omp.models.deleteProvider(pendingDelete.id);
+			try {
+				await refreshAvailableModels(true);
+			} catch (cause) {
+				toast({
+					variant: "warning",
+					title: t("providerCfg.toast.refreshFailed"),
+					message: cause instanceof Error ? cause.message : String(cause),
+				});
+			}
 			toast({ variant: "success", message: t("providerCfg.toast.deleted", { id: pendingDelete.id }) });
 			setPendingDelete(null);
 			await load();

@@ -17,6 +17,7 @@ import type {
 	HostUriRequest,
 	HostUriResult,
 	ImageContent,
+	ModelCatalogUpdateFrame,
 	PromptResultFrame,
 	RpcCommand,
 	RpcDebugParams,
@@ -66,6 +67,8 @@ export const IPC_EVENTS = {
 	EXTENSION_ERROR: "extension:error",
 	/** Realtime voice session state/levels/transcript update. */
 	LIVE_UPDATE: "live:update",
+	/** Model/provider discovery completed after a bounded listing response. */
+	MODEL_CATALOG_UPDATE: "model-catalog:update",
 	/** Session list changed */
 	SESSIONS_CHANGED: "sessions:changed",
 	/** Log line appended */
@@ -807,7 +810,7 @@ export interface OmpApi {
 		collabJoin(link: string): Promise<RpcResponse>;
 		collabLeave(): Promise<RpcResponse>;
 		getCollabState(): Promise<RpcResponse>;
-		getAvailableModels(): Promise<RpcResponse>;
+		getAvailableModels(forceRefresh?: boolean): Promise<RpcResponse>;
 		setThinkingLevel(level: ThinkingLevel | "auto"): Promise<RpcResponse>;
 		cycleThinkingLevel(): Promise<RpcResponse>;
 		setFastMode(enabled: boolean): Promise<RpcResponse>;
@@ -837,7 +840,7 @@ export interface OmpApi {
 		getSettingsSchema(): Promise<RpcResponse>;
 		getSettings(paths?: string[]): Promise<RpcResponse>;
 		setSetting(path: string, value: unknown): Promise<RpcResponse>;
-		getProviders(): Promise<RpcResponse>;
+		getProviders(forceRefresh?: boolean): Promise<RpcResponse>;
 		setPlanMode(enabled: boolean): Promise<RpcResponse>;
 		getPlanMode(): Promise<RpcResponse>;
 		getModelRoles(): Promise<RpcResponse>;
@@ -935,6 +938,7 @@ export interface OmpApi {
 		onHostToolCall(callback: (request: HostToolCallRequest) => void): () => void;
 		onHostUriRequest(callback: (request: HostUriRequest) => void): () => void;
 		onLiveUpdate(callback: (frame: RpcLiveUpdateFrame) => void): () => void;
+		onModelCatalogUpdate(callback: (frame: ModelCatalogUpdateFrame) => void): () => void;
 		onSubagentFrame(callback: (frame: SubagentFrame) => void): () => void;
 		onCommandsUpdate(callback: (commands: AvailableCommand[]) => void): () => void;
 		onConfigUpdate(callback: (payload: ConfigUpdateFrame) => void): () => void;

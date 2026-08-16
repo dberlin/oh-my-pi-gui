@@ -35,6 +35,7 @@ const STATUS_META: Record<string, StatusMeta> = {
 	pending: { label: "pending", variant: "muted", live: true, labelKey: "subagent.status.pending" },
 	idle: { label: "idle", variant: "muted", live: true, labelKey: "subagent.status.idle" },
 	parked: { label: "parked", variant: "muted", live: true, labelKey: "subagent.status.parked" },
+	stale: { label: "stale", variant: "warning", live: false, labelKey: "subagent.status.stale" },
 	completed: { label: "completed", variant: "success", live: false, labelKey: "subagent.status.completed" },
 	failed: { label: "failed", variant: "error", live: false, labelKey: "subagent.status.failed" },
 	aborted: { label: "cancelled", variant: "muted", live: false, labelKey: "subagent.status.cancelled" },

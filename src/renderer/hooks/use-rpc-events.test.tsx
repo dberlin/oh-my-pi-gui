@@ -17,6 +17,7 @@ import type {
 	AgentSessionEvent,
 	CommandOutputFrame,
 	ExtensionErrorFrame,
+	ModelCatalogUpdateFrame,
 	PromptResultFrame,
 	RpcResponse,
 	SessionInfoUpdateFrame,
@@ -61,6 +62,7 @@ function success(data: unknown): RpcResponse {
 type BatchHandler = (events: AgentSessionEvent[]) => void;
 type CommandOutputHandler = (frame: CommandOutputFrame) => void;
 type PromptResultHandler = (frame: PromptResultFrame) => void;
+type ModelCatalogUpdateHandler = (frame: ModelCatalogUpdateFrame) => void;
 
 interface MockOmp {
 	tabs: {
@@ -81,6 +83,7 @@ interface MockOmp {
 		onBatch: Mock<(callback: BatchHandler) => () => void>;
 		onSidecarStatus: Mock<() => () => void>;
 		onSubagentFrame: Mock<() => () => void>;
+		onModelCatalogUpdate: Mock<(callback: ModelCatalogUpdateHandler) => () => void>;
 		onConfigUpdate: Mock<() => () => void>;
 		onExtensionUi: Mock<() => () => void>;
 		onPromptResult: Mock<(callback: PromptResultHandler) => () => void>;
@@ -102,10 +105,12 @@ function installMockOmp(): {
 	emitBatch: BatchHandler;
 	emitCommandOutput: CommandOutputHandler;
 	emitPromptResult: PromptResultHandler;
+	emitModelCatalogUpdate: ModelCatalogUpdateHandler;
 } {
 	let batchHandler: BatchHandler = () => {};
 	let commandOutputHandler: CommandOutputHandler = () => {};
 	let promptResultHandler: PromptResultHandler = () => {};
+	let modelCatalogUpdateHandler: ModelCatalogUpdateHandler = () => {};
 	// Mirror the real server: get_state reports isStreaming=true mid-run, and
 	// agent_start triggers refreshSessionState — a static mock would overwrite
 	// the event-set flag with stale state and test a race production never has.
@@ -144,6 +149,10 @@ function installMockOmp(): {
 			}),
 			onSidecarStatus: vi.fn(() => () => {}),
 			onSubagentFrame: vi.fn(() => () => {}),
+			onModelCatalogUpdate: vi.fn((callback: ModelCatalogUpdateHandler) => {
+				modelCatalogUpdateHandler = callback;
+				return () => {};
+			}),
 			onConfigUpdate: vi.fn(() => () => {}),
 			onExtensionUi: vi.fn(() => () => {}),
 			onPromptResult: vi.fn((callback: PromptResultHandler) => {
@@ -181,6 +190,7 @@ function installMockOmp(): {
 		emitBatch,
 		emitCommandOutput: frame => commandOutputHandler(frame),
 		emitPromptResult: frame => promptResultHandler(frame),
+		emitModelCatalogUpdate: frame => modelCatalogUpdateHandler(frame),
 	};
 }
 
@@ -502,6 +512,31 @@ describe("useRpcEvents non-transcript frames", () => {
 
 		expect(omp.rpc.getState.mock.calls.length).toBeGreaterThan(stateCallsBefore);
 		expect(omp.rpc.getTranscript.mock.calls.length).toBeGreaterThan(transcriptCallsBefore);
+	});
+
+	it("applies a model catalog completion frame without reopening the picker", async () => {
+		const { emitModelCatalogUpdate } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		useModelStore.setState({ catalogRefreshPending: true, catalogGeneration: 1, availableModels: [] });
+
+		await act(async () => {
+			emitModelCatalogUpdate({
+				type: "model_catalog_update",
+				models: [{ provider: "custom", id: "new-model" }],
+				providers: [],
+				discoveryStates: [
+					{ provider: "custom", status: "ok", optional: false, stale: false, models: ["new-model"] },
+				],
+				refreshPending: false,
+				generation: 2,
+			});
+		});
+
+		expect(useModelStore.getState()).toMatchObject({
+			availableModels: [{ provider: "custom", id: "new-model" }],
+			catalogRefreshPending: false,
+			catalogGeneration: 2,
+		});
 	});
 
 	it("drops session events while the selected tab and main-process route disagree", async () => {

@@ -54,12 +54,12 @@ The omp TUI is powerful, but some things are easier with a visual interface. omp
 
 ### Highlights
 
-- **Parallel sessions.** Open up to 10 tabs, each with its own sidecar, session, queue, and optional git worktree. Background tabs keep running while you work elsewhere.
+- **Parallel sessions.** Open up to 10 tabs, each with its own sidecar, session, queue, and optional git worktree. Background tabs keep running, and the open/active tab workspace survives restarts and app upgrades.
 - **Chats stay separate from agent workspaces.** The sidebar keeps tool-free chat history in a global section while project groups contain only coding-agent tasks, so workspace actions never sweep chats into project operations.
 - **Dense execution state without nested scrollbars.** Large Todo and Agents collections collapse into bounded summaries, keep urgent rows visible, and expand one card into a focused full-list view when you need every item.
 - **Every `/` command as a menu.** `⌘K` opens a searchable command palette — sub-menus, argument prompts, and toggles all run real RPC, never a fake input box.
 - **Visual tool calls.** Bash, edit, read, grep, task — rendered live with real diffs, syntax highlighting, collapsible thinking blocks, KaTeX math, and mermaid diagrams.
-- **Model & provider management.** OAuth or API-key sign-in, third-party providers, per-role model assignment, thinking-level tuning, and a full usage dashboard with cost/speed/cache-hit charts.
+- **Model & provider management.** OAuth or API-key sign-in, live upstream model discovery for OpenAI and Anthropic-compatible providers, per-role model assignment, thinking-level tuning, and a full usage dashboard with cost/speed/cache-hit charts.
 - **Bundled agent, zero deps.** The app ships its own omp binary — no separate omp / Bun / Node install required. The same `~/.omp` config is shared with the TUI.
 
 ### Screenshots
@@ -76,10 +76,10 @@ The omp TUI is powerful, but some things are easier with a visual interface. omp
 
 ### Install
 
-Current release: [**v0.8.0**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.8.0)
+Current release: [**v0.8.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.8.1)
 
-- **Apple Silicon (M1/M2/M3/M4):** `omp-0.8.0-arm64.dmg`
-- **Intel:** `omp-0.8.0.dmg`
+- **Apple Silicon (M1/M2/M3/M4):** `omp-0.8.1-arm64.dmg`
+- **Intel:** `omp-0.8.1.dmg`
 
 Open the `.dmg` and drag **omp** into **Applications**. The build is unsigned, so on first launch macOS may block it: **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*).
 
@@ -208,12 +208,12 @@ omp TUI 很强大,但有些事情用可视化界面更方便。omp GUI 不替代
 
 ### 核心特性
 
-- **并行会话。** 最多同时打开 10 个标签页,每个拥有独立 sidecar、会话、队列和可选 git worktree。后台标签页持续运行,你可以在其他标签页继续工作。
+- **并行会话。** 最多同时打开 10 个标签页,每个拥有独立 sidecar、会话、队列和可选 git worktree。后台标签页持续运行,已打开及选中的标签工作区会跨重启和应用升级保留。
 - **Chat 与 Agent 工作区分离。** 左侧栏把无工具聊天历史放进全局分组,项目工作区只保留编码 agent 任务,工作区操作不会再把 chat 混入项目范围。
 - **大量任务也不出现双层滚动。** Todo 与 Agents 使用受控摘要展示,保留待处理和紧急项；需要查看全部时可将单一卡片展开为聚焦视图。
 - **所有 `/` 命令做成菜单。** `⌘K` 打开可搜索的命令面板——子菜单、参数输入、开关项都走真实 RPC,绝不是套个输入框。
 - **可视化工具调用。** Bash、edit、read、grep、task——实时渲染真实 diff、语法高亮、可折叠思考块、KaTeX 公式和 mermaid 图。
-- **模型与 Provider 管理。** OAuth 或 API key 登录、第三方 provider、按角色分配模型、调节思考等级,以及完整的用量仪表盘（花费/速度/缓存命中图表）。
+- **模型与 Provider 管理。** OAuth 或 API key 登录、OpenAI/Anthropic 兼容 Provider 的上游模型实时发现、按角色分配模型、调节思考等级,以及完整的用量仪表盘（花费/速度/缓存命中图表）。
 - **内置 agent,零依赖。** 应用自带 omp 二进制——无需单独安装 omp / Bun / Node。与 TUI 共享同一份 `~/.omp` 配置。
 
 ### 界面截图
@@ -230,10 +230,10 @@ omp TUI 很强大,但有些事情用可视化界面更方便。omp GUI 不替代
 
 ### 安装
 
-当前版本：[**v0.8.0**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.8.0)
+当前版本：[**v0.8.1**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.8.1)
 
-- **Apple Silicon（M1/M2/M3/M4）：** `omp-0.8.0-arm64.dmg`
-- **Intel：** `omp-0.8.0.dmg`
+- **Apple Silicon（M1/M2/M3/M4）：** `omp-0.8.1-arm64.dmg`
+- **Intel：** `omp-0.8.1.dmg`
 
 打开 `.dmg`,把 **omp** 拖进 **应用程序**。构建未签名,首次打开 macOS 可能拦截:**右键 → 打开**(或 *系统设置 → 隐私与安全性 → 仍要打开*)。
 

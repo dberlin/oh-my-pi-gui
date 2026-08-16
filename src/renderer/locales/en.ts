@@ -618,6 +618,9 @@ export const en: Record<string, string> = {
 	"providers.authenticated": "Authenticated",
 	"providers.available": "Available",
 	"providers.refresh": "Refresh",
+	"providers.refreshPending": "Model discovery is still running; this list will update automatically.",
+	"providers.discoveryFailed": "Some upstream model lists could not be refreshed: {details}",
+	"providers.discoveryUnavailable": "upstream model list unavailable",
 	"providers.login": "Login",
 	"providers.logout": "Logout",
 	"providers.noAuth": "No authenticated providers. Login below to get started.",
@@ -1123,6 +1126,8 @@ export const en: Record<string, string> = {
 	"providerCfg.form.modelAdd": "Add model",
 	"providerCfg.form.modelRemove": "Remove model",
 	"providerCfg.form.modelsRequired": "Add at least one model",
+	"providerCfg.form.modelsDiscoveryOptional":
+		"Optional while model discovery is enabled. Models returned by the upstream endpoint are added automatically.",
 	"providerCfg.form.modelIdRequired": "Every model with a display name also needs an id",
 	"providerCfg.form.modelDuplicate": 'Duplicate model id "{id}"',
 	"providerCfg.form.costAllRequired":
@@ -1141,7 +1146,7 @@ export const en: Record<string, string> = {
 	"providerCfg.form.discoveryType": "Discovery type",
 	"providerCfg.form.discoveryTimeout": "Timeout (ms)",
 	"providerCfg.form.discoveryHint":
-		"Auto-detect models from the provider's API (ollama, llama.cpp, lm-studio, openai-models-list, proxy, litellm).",
+		"Auto-detect models from the provider API. OpenAI-compatible and Anthropic Messages endpoints use /v1/models.",
 	"providerCfg.form.disableStrictTools": "Disable strict tool schemas",
 	"providerCfg.form.disableStrictToolsHint":
 		"Some providers reject strict JSON Schema; enable this to send permissive schemas.",
@@ -1196,6 +1201,7 @@ export const en: Record<string, string> = {
 	"providerCfg.toast.deleted": 'Provider "{id}" deleted',
 	"providerCfg.toast.saveFailed": "Save failed",
 	"providerCfg.toast.deleteFailed": "Delete failed",
+	"providerCfg.toast.refreshFailed": "Change saved, but the live model catalog could not refresh",
 
 	// Settings page
 	"settings.searchPlaceholder": "Search settings and managed resources…",
@@ -2329,6 +2335,7 @@ export const en: Record<string, string> = {
 	"subagent.status.pending": "pending",
 	"subagent.status.idle": "idle",
 	"subagent.status.parked": "parked",
+	"subagent.status.stale": "no turn",
 	"subagent.status.unknown": "unknown",
 	"subagent.empty": "No subagents spawned yet.",
 	"subagent.emptyHint": "Agents created via the task tool appear here.",
@@ -2839,6 +2846,7 @@ export const en: Record<string, string> = {
 	"tools.hub.state.cancelled": "cancelled",
 	"tools.hub.state.failed": "failed",
 	"tools.hub.state.pending": "pending",
+	"tools.hub.state.stale": "no turn",
 	"tools.lsp.errors": "Errors: {count}",
 	"tools.lsp.line": "line {line}",
 	"tools.lsp.location": "line {line}, col {column}",
@@ -2878,7 +2886,7 @@ export const en: Record<string, string> = {
 	"themePicker.theme.matcha.description": "Soft green-cream surfaces with a calm sage accent.",
 	"input.githubPullRequest": "pull request",
 	"input.githubIssue": "issue",
-	"providerCfg.form.discoveryOpenAiList": "OpenAI model list",
+	"providerCfg.form.discoveryOpenAiList": "OpenAI / Messages model list",
 	"providerCfg.form.discoveryProxy": "Proxy",
 	"providerCfg.form.thinkingModeEffort": "Effort",
 	"providerCfg.form.thinkingModeBudget": "Token budget",

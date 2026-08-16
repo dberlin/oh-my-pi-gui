@@ -28,7 +28,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_subagent_messages"; subagentId?: string; sessionFile?: string; fromByte?: number }
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
 	| { id?: string; type: "cycle_model"; direction?: "forward" | "backward" }
-	| { id?: string; type: "get_available_models" }
+	| { id?: string; type: "get_available_models"; forceRefresh?: boolean }
 	| { id?: string; type: "set_thinking_level"; level: ThinkingLevel | "auto" }
 	| { id?: string; type: "cycle_thinking_level" }
 	| { id?: string; type: "set_steering_mode"; mode: "all" | "one-at-a-time" }
@@ -72,7 +72,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_settings_schema" }
 	| { id?: string; type: "get_settings"; paths?: string[] }
 	| { id?: string; type: "set_setting"; path: string; value: unknown }
-	| { id?: string; type: "get_providers" }
+	| { id?: string; type: "get_providers"; forceRefresh?: boolean }
 	| { id?: string; type: "set_plan_mode"; enabled: boolean }
 	| { id?: string; type: "get_plan_mode" }
 	| { id?: string; type: "get_model_roles" }
@@ -1180,6 +1180,8 @@ export interface SubagentSnapshot {
 	agentSource?: AgentSource;
 	description?: string;
 	status: string;
+	/** False when a registry ref claims running but has no turn in flight. */
+	live?: boolean;
 	task?: string;
 	assignment?: string;
 	sessionFile?: string;
@@ -1558,7 +1560,35 @@ export interface ProviderInfo {
 	modelCount: number;
 }
 
+export type ProviderDiscoveryStatus = "idle" | "ok" | "empty" | "cached" | "unavailable" | "unauthenticated";
+
+export interface ProviderDiscoveryState {
+	provider: string;
+	status: ProviderDiscoveryStatus;
+	optional: boolean;
+	stale: boolean;
+	fetchedAt?: number;
+	models: string[];
+	error?: string;
+}
+
+export interface AvailableModelsResult {
+	models: ModelInfo[];
+	discoveryStates: ProviderDiscoveryState[];
+	refreshPending: boolean;
+	generation: number;
+}
+
 export interface ProvidersResult {
+	providers: ProviderInfo[];
+	models: ModelInfo[];
+	discoveryStates: ProviderDiscoveryState[];
+	refreshPending: boolean;
+	generation: number;
+}
+
+export interface ModelCatalogUpdateFrame extends AvailableModelsResult {
+	type: "model_catalog_update";
 	providers: ProviderInfo[];
 }
 
@@ -1661,6 +1691,7 @@ export type OutboundFrame =
 	| SessionInfoUpdateFrame
 	| ConfigUpdateFrame
 	| RpcLiveUpdateFrame
+	| ModelCatalogUpdateFrame
 	| ExtensionErrorFrame;
 
 export interface AvailableCommandsUpdateFrame {

@@ -45,6 +45,7 @@ import type {
 	ExtensionUIRequest,
 	HostToolCallRequest,
 	HostUriRequest,
+	ModelCatalogUpdateFrame,
 	PromptResultFrame,
 	RpcCommand,
 	RpcLiveUpdateFrame,
@@ -318,6 +319,9 @@ export class SidecarPool {
 		});
 		wire("liveUpdate", (frame: RpcLiveUpdateFrame) => {
 			forwardActive(IPC_EVENTS.LIVE_UPDATE, frame);
+		});
+		wire("modelCatalogUpdate", (frame: ModelCatalogUpdateFrame) => {
+			forwardActive(IPC_EVENTS.MODEL_CATALOG_UPDATE, frame);
 		});
 		wire("commandsUpdate", (commands: AvailableCommand[]) => {
 			forwardActive(IPC_EVENTS.COMMANDS_UPDATE, commands);
