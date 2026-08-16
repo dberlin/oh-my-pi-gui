@@ -269,6 +269,7 @@ function resetAll(): void {
 
 afterEach(() => {
 	resetAll();
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 	({ omp, emitTabStatus } = installMockOmp());
 });
@@ -1353,7 +1354,7 @@ describe("useSessionTabs hook", () => {
 
 		expect(useTabsStore.getState().activeTabId).toBe("t1");
 		expect(useSessionStore.getState()).toMatchObject({ sessionId: "restored", cwd: "/beta", status: "ready" });
-		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+		expect(omp.rpc.getMessages).toHaveBeenCalled();
 	});
 
 	it("restores transcript and controls when metadata arrives before the boot status snapshot", async () => {
@@ -1528,6 +1529,7 @@ describe("useSessionTabs hook", () => {
 		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
 	});
 	it("does not route a delayed pending-session switch into a newly active tab", async () => {
+		vi.useFakeTimers();
 		useTabsStore.setState({
 			tabs: [
 				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
@@ -1554,9 +1556,7 @@ describe("useSessionTabs hook", () => {
 			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", target: { type: "local" }, status: "ready" });
 		});
 		await act(async () => {
-			const { promise, resolve } = Promise.withResolvers<void>();
-			setTimeout(resolve, 0);
-			await promise;
+			await vi.runAllTimersAsync();
 		});
 		await useTabsStore.getState().switchTab("t0");
 		pendingState.resolve(ok(serverState({ sessionId: "tab-one", sessionFile: null, cwd: "/beta" })));
@@ -1662,6 +1662,12 @@ describe("useSessionTabs hook", () => {
 
 	it("subscribes subagent frames on a tab's ready only while it is active (F-HYDRATE)", async () => {
 		seedTabs();
+		// Ready recovery is transition-driven: a duplicate ready for an already
+		// hydrated session is intentionally a no-op. Model real connection-ready
+		// transitions for both the background and active tabs.
+		useTabsStore.setState(current => ({
+			tabs: current.tabs.map(tab => (tab.id === "t0" || tab.id === "t1" ? { ...tab, status: "starting" } : tab)),
+		}));
 		useSessionStore.setState({ sessionId: "active" });
 		await mount();
 		await act(async () => {

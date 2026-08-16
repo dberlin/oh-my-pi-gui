@@ -36,6 +36,7 @@ interface TestElement {
 	textContent: string | null;
 	getAttribute: (name: string) => string | null;
 	querySelector: (selector: string) => TestElement | null;
+	querySelectorAll: (selector: string) => TestElement[];
 	remove: () => void;
 }
 
@@ -111,7 +112,8 @@ describe("AgentViewContextBar", () => {
 		expect(bar?.querySelector("[data-agent-label]")?.textContent).toBe("Implement the context bar");
 		expect(bar?.querySelector("[data-agent-type]")?.textContent).toBe("worker");
 		expect(bar?.querySelector('[data-agent-status="running"]')?.textContent).toBe("running");
-		expect(bar?.querySelector('[data-agent-live="true"] .animate-ping')).not.toBeNull();
+		expect(bar?.querySelectorAll(".omp-pulse-dot")).toHaveLength(1);
+		expect(bar?.querySelector(".animate-ping")).toBeNull();
 	});
 
 	it("repaints lifecycle and live state from roster frames", async () => {

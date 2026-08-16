@@ -28,11 +28,11 @@ import type {
 	IpcSpawnTabPayload,
 } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcSessionState } from "../../shared/rpc-types";
-import { hydrateTabSession } from "../hooks/use-rpc-events";
+import { hydrateTabSession, invalidateReadyRecovery, recoverReadySession } from "../hooks/use-rpc-events";
 import { basename, sanitizeDisplayText } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
-import { beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
+import { acceptsActiveTabEvents, beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
 import { type ComposerImage, type ComposerStore, useComposerStore } from "./composer";
 import type { ExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
@@ -50,6 +50,7 @@ import {
 	setFocusedSessionRuntime,
 	useRuntimeTabId,
 } from "./session-runtime-context";
+import { useSubagentsStore } from "./subagents";
 import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import { toast } from "./toast";
 import { useUiStore } from "./ui";
@@ -100,6 +101,12 @@ export interface SplitLayout {
 // Focus routing is window-global. Serialize changes so rapid tab clicks cannot
 // resolve out of order and leave main targeting the wrong sidecar.
 let switchVersion = 0;
+let pendingSessionGeneration = 0;
+
+/** Reject pending-session RPC replies from a restarted or replaced sidecar session. */
+export function invalidatePendingSessionGeneration(): void {
+	pendingSessionGeneration += 1;
+}
 let routingChain: Promise<void> = Promise.resolve();
 let ratioFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -729,6 +736,9 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 
 	reset: () => {
 		switchVersion += 1;
+		invalidatePendingSessionGeneration();
+		pendingSessionConsumptions.clear();
+		invalidateReadyRecovery();
 		if (ratioFlushTimer) {
 			clearTimeout(ratioFlushTimer);
 			ratioFlushTimer = null;
@@ -741,6 +751,136 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	},
 }));
 
+interface PendingSessionConsumption {
+	switchVersion: number;
+	sessionGeneration: number;
+	promise: Promise<boolean>;
+}
+const pendingSessionConsumptions = new Map<string, PendingSessionConsumption>();
+const noPendingSession = Promise.resolve(false);
+const pendingSessionClaimed = Promise.resolve(true);
+
+/**
+ * Apply the active ready tab's parked session path through its routed sidecar.
+ * Clearing before the first await deduplicates full/light/route triggers; a
+ * route or session-generation change restores the path for its owning tab.
+ */
+export function consumePendingSession(tabId: string): Promise<boolean> {
+	const activeConsumption = pendingSessionConsumptions.get(tabId);
+	const sessionGeneration = pendingSessionGeneration;
+	if (activeConsumption) {
+		if (
+			activeConsumption.switchVersion === switchVersion &&
+			activeConsumption.sessionGeneration === sessionGeneration
+		) {
+			return activeConsumption.promise;
+		}
+		return pendingSessionClaimed;
+	}
+	const initial = useTabsStore.getState();
+	const tab = initial.tabs.find(entry => entry.id === tabId);
+	if (
+		initial.activeTabId !== tabId ||
+		!tab?.pendingSessionPath ||
+		(tab.status !== "ready" && tab.status !== "running") ||
+		!acceptsActiveTabEvents()
+	) {
+		return noPendingSession;
+	}
+	const sessionPath = tab.pendingSessionPath;
+	const claimedSwitchVersion = switchVersion;
+	let retryAfterRestore = false;
+	const promise = (async (): Promise<boolean> => {
+		const runtime = ensureTabRuntime(tabId);
+		const isCurrent = (): boolean => {
+			const current = useTabsStore.getState();
+			const currentTab = current.tabs.find(entry => entry.id === tabId);
+			return (
+				claimedSwitchVersion === switchVersion &&
+				sessionGeneration === pendingSessionGeneration &&
+				acceptsActiveTabEvents() &&
+				current.activeTabId === tabId &&
+				(currentTab?.status === "ready" || currentTab?.status === "running") &&
+				sessionRuntimeStore<SessionStore>(tabId, "session") !== undefined
+			);
+		};
+		const canRetryRestoredPath = (): boolean => {
+			const current = useTabsStore.getState();
+			const currentTab = current.tabs.find(entry => entry.id === tabId);
+			return (
+				acceptsActiveTabEvents() &&
+				current.activeTabId === tabId &&
+				(currentTab?.status === "ready" || currentTab?.status === "running") &&
+				(claimedSwitchVersion !== switchVersion ||
+					sessionGeneration !== pendingSessionGeneration ||
+					currentTab.sessionId !== tab.sessionId)
+			);
+		};
+		const restorePendingPath = () => {
+			useTabsStore.setState(current => ({
+				tabs: current.tabs.map(entry =>
+					entry.id === tabId && entry.pendingSessionPath === undefined
+						? { ...entry, pendingSessionPath: sessionPath }
+						: entry,
+				),
+			}));
+		};
+		useTabsStore.setState(current => ({
+			tabs: current.tabs.map(entry => (entry.id === tabId ? { ...entry, pendingSessionPath: undefined } : entry)),
+		}));
+		try {
+			const state = await runtime.command({ type: "get_state" });
+			if (!isCurrent()) {
+				restorePendingPath();
+				retryAfterRestore = canRetryRestoredPath();
+				return true;
+			}
+			const currentFile =
+				state.success && state.data != null ? (state.data as RpcSessionState).sessionFile : undefined;
+			if (currentFile !== sessionPath) {
+				const response = await runtime.command({ type: "switch_session", sessionPath });
+				if (!isCurrent()) {
+					restorePendingPath();
+					retryAfterRestore = canRetryRestoredPath();
+					return true;
+				}
+				if (!response.success) {
+					restorePendingPath();
+					toast({ variant: "error", title: translate("sidebar.openFailed"), message: response.error });
+					return true;
+				}
+				const data = response.data as { cancelled?: unknown } | undefined;
+				if (data?.cancelled === true) {
+					restorePendingPath();
+					toast({ variant: "info", message: translate("sidebar.openCancelled") });
+					return true;
+				}
+			}
+			invalidateReadyRecovery();
+			sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().invalidateRefresh();
+			await recoverReadySession(tabId);
+			return true;
+		} catch (error) {
+			restorePendingPath();
+			retryAfterRestore = canRetryRestoredPath();
+			toast({ variant: "error", title: translate("sidebar.openFailed"), message: String(error) });
+			return true;
+		}
+	})();
+	pendingSessionConsumptions.set(tabId, {
+		switchVersion: claimedSwitchVersion,
+		sessionGeneration,
+		promise,
+	});
+	const clear = () => {
+		if (pendingSessionConsumptions.get(tabId)?.promise === promise) {
+			pendingSessionConsumptions.delete(tabId);
+			if (retryAfterRestore) void consumePendingSession(tabId);
+		}
+	};
+	void promise.then(clear, clear);
+	return promise;
+}
 /** Route an extension UI frame into the tab that raised it. Blocking dialogs,
  * status text, and widgets disappear while that tab is parked and return with
  * it; a late IPC delivery can never leak into the newly selected tab. */
@@ -852,7 +992,14 @@ export function useSessionTabs(): void {
 						const session = sessionRuntimeStore<SessionStore>(tabId, "session");
 						if (!tab || !session || (tab.status !== "ready" && tab.status !== "running")) continue;
 						session.getState().setStatus("ready", tab.cwd);
-						void hydrateTabSession(tabId);
+						void (async () => {
+							if (tabId === state.activeTabId) {
+								const consumedPending = await consumePendingSession(tabId);
+								if (!consumedPending) await recoverReadySession(tabId);
+							} else {
+								await hydrateTabSession(tabId);
+							}
+						})();
 					}
 				}, 0);
 			});
@@ -879,35 +1026,8 @@ export function useSessionTabs(): void {
 					}, 0);
 				}
 			}
-			if (!tab?.pendingSessionPath || !visibleTabIds(state).includes(tab.id)) return;
-			// Clear before the RPC so a duplicate ready push can't re-enter.
-			const sessionPath = tab.pendingSessionPath;
-			useTabsStore.setState(current => ({
-				tabs: current.tabs.map(entry =>
-					entry.id === tab.id ? { ...entry, pendingSessionPath: undefined } : entry,
-				),
-			}));
-			void (async () => {
-				// A sidecar spawned WITH --session is already on the pending
-				// session by the time it reports ready: switching again would
-				// abort the in-flight resume. Gate on get_state and only switch
-				// when the sidecar's sessionFile differs (a failed read keeps
-				// the old behavior — switch unconditionally).
-				const runtime = ensureTabRuntime(tab.id);
-				const currentState = await runtime.command({ type: "get_state" });
-				const currentFile =
-					currentState.success && currentState.data != null
-						? (currentState.data as RpcSessionState).sessionFile
-						: undefined;
-				if (currentFile !== sessionPath) {
-					const response = await runtime.command({ type: "switch_session", sessionPath });
-					if (!response.success) {
-						toast({ variant: "error", title: translate("sidebar.openFailed"), message: response.error });
-						return;
-					}
-				}
-				await hydrateTabSession(tab.id);
-			})();
+			if (!tab?.pendingSessionPath || state.activeTabId !== tab.id) return;
+			void consumePendingSession(tab.id);
 		});
 	}, []);
 }

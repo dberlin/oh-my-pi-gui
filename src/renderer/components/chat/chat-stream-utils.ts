@@ -19,6 +19,7 @@ import type { TranscriptDetail } from "../../stores/ui";
 import { isCompletionMessage, launchCompletionFailureCount } from "./completion-events";
 
 interface ProcessMeta {
+	identityKey: string;
 	stepCount: number;
 	failedEvents: number;
 	toolCallIds: string[];
@@ -166,7 +167,7 @@ function transcriptRowBaseKey(row: Row, resolveToolCall: ResolveToolCall): strin
 			// Compact mode may replace one live assistant row with a process row,
 			// or split it into process + answer rows. Key the first finalized row
 			// by the same assistant identity so the viewport anchor survives both.
-			return `message-${messageKey(row.messages[0]!, resolveToolCall)}`;
+			return `message-${row.identityKey}`;
 		case "readGroup":
 			return `read-${row.entries.map(entry => entry.toolKey).join("-")}`;
 		case "todoSnapshot":
@@ -353,7 +354,13 @@ function summarizeProcess(messages: AgentMessage[], resolveToolCall: ResolveTool
 			toolNames.push(block.name);
 		}
 	}
-	return { stepCount: thinkingCount + toolCallIds.length, failedEvents, toolCallIds, toolNames };
+	return {
+		identityKey: messageKey(messages[0]!, resolveToolCall),
+		stepCount: thinkingCount + toolCallIds.length,
+		failedEvents,
+		toolCallIds,
+		toolNames,
+	};
 }
 
 /**

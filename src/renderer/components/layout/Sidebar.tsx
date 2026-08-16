@@ -33,6 +33,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { RemoteHistorySession, SessionInfo, SshSessionTarget } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow } from "../../hooks/use-session-switch";
@@ -53,9 +54,8 @@ import { Button } from "../common";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { LangSwitcher } from "../common/LangSwitcher";
-import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
-
 import { RemoteWorkspaceDialog } from "../dialogs/RemoteWorkspaceDialog";
+import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 
 const STATUS_COLOR: Record<SessionInfo["status"], string> = {
 	complete: "var(--omp-success)",
