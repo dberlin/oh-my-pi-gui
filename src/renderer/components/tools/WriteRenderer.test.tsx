@@ -46,7 +46,9 @@ async function expand(): Promise<void> {
 
 describe("WriteRenderer", () => {
 	it("create: content preview behind the toggle, no overwrite markers", async () => {
-		await mount(<WriteRenderer args={{ path: "src/new.ts", content: "const a = 1;\n" }} result={{}} />);
+		await mount(
+			<WriteRenderer view="expanded" args={{ path: "src/new.ts", content: "const a = 1;\n" }} result={{}} />,
+		);
 		expect(container.textContent).toContain("new.ts");
 		expect(container.textContent).not.toContain("Overwrote");
 		expect(container.textContent).not.toContain("+1");
@@ -58,6 +60,7 @@ describe("WriteRenderer", () => {
 	it("overwrite with diff: stats ride the header, toggle reveals the diff", async () => {
 		await mount(
 			<WriteRenderer
+				view="expanded"
 				args={{ path: "src/existing.ts", content: "const newValue = true;\nexport {};\n" }}
 				result={{
 					content: [{ type: "text", text: "Successfully wrote 42 bytes to src/existing.ts" }],
@@ -78,6 +81,7 @@ describe("WriteRenderer", () => {
 	it("overwrite without diff: warns instead of pretending it is a create", async () => {
 		await mount(
 			<WriteRenderer
+				view="expanded"
 				args={{ path: "src/existing.ts", content: "same\n" }}
 				result={{
 					content: [{ type: "text", text: "Successfully wrote 5 bytes to src/existing.ts" }],
@@ -93,7 +97,7 @@ describe("WriteRenderer", () => {
 	});
 
 	it("accepts the file_path argument alias", async () => {
-		await mount(<WriteRenderer args={{ file_path: "src/alias.ts", content: "x\n" }} result={{}} />);
+		await mount(<WriteRenderer view="expanded" args={{ file_path: "src/alias.ts", content: "x\n" }} result={{}} />);
 		expect(container.textContent).toContain("alias.ts");
 	});
 });

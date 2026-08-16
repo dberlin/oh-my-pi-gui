@@ -1,7 +1,9 @@
 import { Braces } from "lucide-react";
+import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { CodeBlock } from "../chat/CodeBlock";
+import { PathLink } from "./PathLink";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -43,6 +45,7 @@ type LspResult =
 
 const DIAG_NOUNS: Record<string, true> = { error: true, warning: true, info: true, hint: true };
 const MAX_ITEMS = 50;
+const PREVIEW_ITEMS = 3;
 
 const FLAT_DIAG_RE = /^(.*):(\d+):(\d+)\s+\[(\w+)\]\s*(.*)$/;
 const GROUPED_DIAG_RE = /^(\d+):(\d+)\s+\[(\w+)\]\s*(.*)$/;
@@ -162,6 +165,25 @@ function parseLspText(text: string): LspResult {
 	return { kind: "generic" };
 }
 
+function limitReferenceGroups(groups: RefGroup[], maxItems: number): RefGroup[] {
+	let remaining = maxItems;
+	const limited: RefGroup[] = [];
+	for (const group of groups) {
+		if (remaining === 0) break;
+		const locs = group.locs.slice(0, remaining);
+		if (locs.length > 0) limited.push({ ...group, locs });
+		remaining -= locs.length;
+	}
+	return limited;
+}
+
+function proseBlocks(text: string): string[] {
+	return text
+		.split(/\n\s*\n/)
+		.map(block => block.trim())
+		.filter(Boolean);
+}
+
 const SEVERITY_COLOR: Record<string, string> = {
 	error: "var(--omp-error)",
 	warning: "var(--omp-warning)",
@@ -171,7 +193,7 @@ const SEVERITY_COLOR: Record<string, string> = {
 };
 
 /** LSP: operation badge + typed result (hover / diagnostics / references / symbols). */
-export function LspRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function LspRenderer({ args, result, isError, isPartial, partialResult, view }: ToolRendererProps) {
 	const t = useT();
 	const effective = isPartial ? partialResult : result;
 	const details = resultDetails(effective);
@@ -200,6 +222,46 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 				: typeof args.symbol === "string"
 					? args.symbol
 					: undefined;
+	const diagnosticItems =
+		parsed.kind === "diagnostics" && view === "preview"
+			? parsed.items.slice(0, PREVIEW_ITEMS)
+			: parsed.kind === "diagnostics"
+				? parsed.items
+				: [];
+	const diagnosticOmitted = parsed.kind === "diagnostics" ? parsed.items.length - diagnosticItems.length : 0;
+	const referenceGroups =
+		parsed.kind === "references" && view === "preview"
+			? limitReferenceGroups(parsed.groups, PREVIEW_ITEMS)
+			: parsed.kind === "references"
+				? parsed.groups
+				: [];
+	const referenceTotal =
+		parsed.kind === "references" ? parsed.groups.reduce((total, group) => total + group.locs.length, 0) : 0;
+	const referenceShown = referenceGroups.reduce((total, group) => total + group.locs.length, 0);
+	const referenceOmitted = referenceTotal - referenceShown;
+	const symbolItems =
+		parsed.kind === "symbols" && view === "preview"
+			? parsed.symbols.slice(0, PREVIEW_ITEMS)
+			: parsed.kind === "symbols"
+				? parsed.symbols
+				: [];
+	const symbolOmitted = parsed.kind === "symbols" ? parsed.symbols.length - symbolItems.length : 0;
+	const hoverBeforeBlocks = parsed.kind === "hover" ? proseBlocks(parsed.before) : [];
+	const hoverAfterBlocks = parsed.kind === "hover" ? proseBlocks(parsed.after) : [];
+	const hoverBefore =
+		parsed.kind === "hover" ? (view === "expanded" ? parsed.before : (hoverBeforeBlocks[0] ?? "")) : "";
+	const hoverAfter =
+		parsed.kind === "hover"
+			? view === "expanded"
+				? parsed.after
+				: hoverBeforeBlocks.length === 0
+					? (hoverAfterBlocks[0] ?? "")
+					: ""
+			: "";
+	const hoverOmitted =
+		parsed.kind === "hover" && view === "preview"
+			? Math.max(hoverBeforeBlocks.length + hoverAfterBlocks.length - (hoverBefore || hoverAfter ? 1 : 0), 0)
+			: 0;
 
 	const countLabel =
 		parsed.kind === "diagnostics"
@@ -223,10 +285,10 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 					{operation}
 				</span>
 				{requestFile && (
-					<span className="truncate text-[var(--omp-status-path)]" title={requestFile}>
+					<PathLink path={requestFile} className="truncate text-[var(--omp-status-path)]">
 						{requestFile}
 						{requestLine != null ? `:${requestLine}` : ""}
-					</span>
+					</PathLink>
 				)}
 				{requestSymbol && <span className="truncate text-[var(--omp-text)]">{requestSymbol}</span>}
 				<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">{countLabel}</span>
@@ -234,15 +296,20 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 
 			{parsed.kind === "hover" && (
 				<div className="flex flex-col gap-1">
-					{parsed.before && (
+					{hoverBefore && (
 						<div className="whitespace-pre-wrap text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
-							{parsed.before}
+							{hoverBefore}
 						</div>
 					)}
 					<CodeBlock code={parsed.code} language={parsed.lang} maxHeightClass="max-h-56" />
-					{parsed.after && (
+					{hoverAfter && (
 						<div className="line-clamp-3 whitespace-pre-wrap text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
-							{parsed.after}
+							{hoverAfter}
+						</div>
+					)}
+					{hoverOmitted > 0 && (
+						<div className="font-mono text-omp-xs text-[var(--omp-dim)]">
+							{t("tools.read.more", { count: hoverOmitted, plural: hoverOmitted === 1 ? "" : "s" })}
 						</div>
 					)}
 				</div>
@@ -267,22 +334,33 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 					</div>
 					{parsed.items.length > 0 && (
 						<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
-							{parsed.items.map((item, i) => (
+							{diagnosticItems.map((item, i) => (
 								<div key={i} className="flex gap-2 transition-colors hover:bg-[var(--omp-selected-bg)]/50">
 									<span
 										className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
 										style={{ background: SEVERITY_COLOR[item.severity] ?? "var(--omp-dim)" }}
 									/>
 									{item.file && (
-										<span className="w-44 shrink-0 truncate text-[var(--omp-status-path)]" title={item.file}>
+										<PathLink
+											path={item.file}
+											className="w-44 shrink-0 truncate text-[var(--omp-status-path)]"
+										>
 											{item.file}:{item.line}:{item.col}
-										</span>
+										</PathLink>
 									)}
 									<span className="min-w-0 flex-1 truncate text-[var(--omp-muted)]" title={item.message}>
 										{item.message}
 									</span>
 								</div>
 							))}
+							{diagnosticOmitted > 0 && (
+								<div className="text-[var(--omp-dim)]">
+									{t("tools.read.more", {
+										count: diagnosticOmitted,
+										plural: diagnosticOmitted === 1 ? "" : "s",
+									})}
+								</div>
+							)}
 						</div>
 					)}
 				</div>
@@ -290,7 +368,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 
 			{parsed.kind === "references" && (
 				<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
-					{parsed.groups.map(group => (
+					{referenceGroups.map(group => (
 						<div key={group.file}>
 							<div className="flex gap-2">
 								<span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]" title={group.file}>
@@ -307,6 +385,14 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 							))}
 						</div>
 					))}
+					{referenceOmitted > 0 && (
+						<div className="text-[var(--omp-dim)]">
+							{t("tools.read.more", {
+								count: referenceOmitted,
+								plural: referenceOmitted === 1 ? "" : "s",
+							})}
+						</div>
+					)}
 					{parsed.groups.length === 0 && (
 						<div className="whitespace-pre-wrap text-[var(--omp-muted)]">{text.trim()}</div>
 					)}
@@ -315,7 +401,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 
 			{parsed.kind === "symbols" && (
 				<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
-					{parsed.symbols.map((sym, i) => (
+					{symbolItems.map((sym, i) => (
 						<div key={i} className="flex gap-2" style={{ paddingLeft: `${Math.min(sym.indent, 8) * 10}px` }}>
 							<span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]">
 								{sym.icon} {sym.name}
@@ -325,6 +411,11 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 							</span>
 						</div>
 					))}
+					{symbolOmitted > 0 && (
+						<div className="text-[var(--omp-dim)]">
+							{t("tools.read.more", { count: symbolOmitted, plural: symbolOmitted === 1 ? "" : "s" })}
+						</div>
+					)}
 					{parsed.symbols.length === 0 && (
 						<div className="whitespace-pre-wrap text-[var(--omp-muted)]">{text.trim()}</div>
 					)}
@@ -340,7 +431,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
 					)}
 				>
-					{text}
+					{hasAnsi(text) ? <AnsiText text={text} /> : text}
 				</pre>
 			)}
 		</div>

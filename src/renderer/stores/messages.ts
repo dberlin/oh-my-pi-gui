@@ -11,6 +11,26 @@ export interface MessageProjection {
 }
 
 
+function assistantToolCallIds(message: AgentMessage): string[] {
+	if (message.role !== "assistant" || !Array.isArray(message.content)) return [];
+	const ids: string[] = [];
+	for (const block of message.content) {
+		if (block.type === "toolCall" && typeof block.id === "string") ids.push(block.id);
+	}
+	return ids;
+}
+
+/** Match fetched and live projections without depending on newly assigned entry IDs. */
+export function messageIdentityKey(message: AgentMessage): string {
+	const stableId =
+		message.role === "assistant"
+			? [message.responseId ?? null, assistantToolCallIds(message)]
+			: message.role === "toolResult"
+				? message.toolCallId
+				: null;
+	return JSON.stringify([message.role, stableId, message.timestamp]);
+}
+
 /**
  * Session-tab snapshot of committed history plus the active run overlay. The
  * accumulated strings are sufficient
@@ -197,7 +217,10 @@ export function applyMessageProjectionEvents(
 				break;
 			}
 			case "message_start": {
-				streamingStart = event.message;
+				streamingStart =
+					event.message.timestamp === undefined || event.message.timestamp === null
+						? { ...event.message, timestamp: Date.now() }
+						: event.message;
 				textAccum = "";
 				thinkAccum = "";
 				break;

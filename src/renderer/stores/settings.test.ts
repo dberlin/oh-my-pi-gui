@@ -26,6 +26,22 @@ afterEach(() => {
 });
 
 describe("settings store display sync", () => {
+	it("defaults MCP Markdown rendering on and synchronizes only mcp.renderMarkdownResults updates", async () => {
+		expect(useSettingsStore.getState().mcpRenderMarkdownResults).toBe(true);
+
+		getSettings.mockResolvedValueOnce(await success({ "mcp.renderMarkdownResults": false }));
+		await useSettingsStore.getState().syncDisplaySettings();
+		expect(useSettingsStore.getState().mcpRenderMarkdownResults).toBe(false);
+
+		getSettings.mockResolvedValueOnce(await success({ "display.showTokenUsage": true }));
+		await useSettingsStore.getState().syncDisplaySettings();
+		expect(useSettingsStore.getState().mcpRenderMarkdownResults).toBe(false);
+
+		getSettings.mockResolvedValueOnce(await success({ "mcp.renderMarkdownResults": true }));
+		await useSettingsStore.getState().syncDisplaySettings();
+		expect(useSettingsStore.getState().mcpRenderMarkdownResults).toBe(true);
+	});
+
 	it("maps display.*, tui.titleState, and goal.statusInFooter onto store fields", async () => {
 		getSettings.mockResolvedValueOnce(
 			await success({

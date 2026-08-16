@@ -1,12 +1,14 @@
 import { Ban, Check, ChevronRight, Loader2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Component, type ComponentType, type ErrorInfo, useEffect, useRef, useState } from "react";
 import { cx, durationBetween } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
+import { reportRuntimeError } from "../../lib/runtime-errors";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { GenericRenderer } from "./GenericRenderer";
-import { getToolRenderer, getToolSummary } from "./index";
+import { getToolRenderer, type ToolRendererView } from "./index";
+import { resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
 
 export interface ToolRendererProps {
 	args: Record<string, unknown>;
@@ -20,6 +22,9 @@ export interface ToolRendererProps {
 	 * no `result` arrives to replace it.
 	 */
 	interrupted?: boolean;
+	/** Terminal calls must not offer live-only controls. */
+	settled?: boolean;
+	view: ToolRendererView;
 }
 
 export interface ToolCardProps {
@@ -33,6 +38,37 @@ export interface ToolCardProps {
 }
 
 export type RunningIndicator = "spinner" | "dot";
+type AccessibleToolStatus = "running" | "completed" | "failed" | "interrupted";
+
+interface ToolRendererErrorBoundaryProps {
+	component: ComponentType<ToolRendererProps>;
+	effectiveName: string;
+	rendererProps: ToolRendererProps;
+}
+
+interface ToolRendererErrorBoundaryState {
+	failed: boolean;
+}
+
+class ToolRendererErrorBoundary extends Component<ToolRendererErrorBoundaryProps, ToolRendererErrorBoundaryState> {
+	state: ToolRendererErrorBoundaryState = { failed: false };
+
+	static getDerivedStateFromError(): ToolRendererErrorBoundaryState {
+		return { failed: true };
+	}
+
+	componentDidCatch(error: Error, info: ErrorInfo): void {
+		reportRuntimeError("react-render", error, {
+			componentStack: info.componentStack ?? undefined,
+			details: { boundary: "tool-renderer", tool: this.props.effectiveName },
+		});
+	}
+
+	render() {
+		const Renderer = this.state.failed ? GenericRenderer : this.props.component;
+		return <Renderer {...this.props.rendererProps} />;
+	}
+}
 
 /**
  * Chrome around every tool invocation: status rail, name, summary, duration,
@@ -53,6 +89,7 @@ function ToolCardContent({
 	args,
 	entry,
 	runningIndicator = "spinner",
+	toolCallId,
 	toolName,
 }: Omit<ToolCardProps, "entry"> & { entry: ToolEntry | undefined }) {
 	const t = useT();
@@ -67,20 +104,73 @@ function ToolCardContent({
 	const entryStatus = entry?.status ?? "running";
 	// "pending" (args still streaming) is a live sub-state: spinner, not a check.
 	const status = entryStatus === "pending" ? "running" : entryStatus;
-	const isError = Boolean(entry?.isError);
+	const effective = resolveToolPresentation({
+		name: toolName,
+		args: entry ? { ...args, ...entry.args } : args,
+		result: entry?.result ?? null,
+		partialResult: entry?.partialResult ?? null,
+		isError: Boolean(entry?.isError),
+		streamingArgs: entry?.streamingArgs,
+	});
+	const isError = effective.isError;
+	const accessibleStatus: AccessibleToolStatus =
+		status === "aborted"
+			? "interrupted"
+			: status === "error" || isError
+				? "failed"
+				: status === "done"
+					? "completed"
+					: "running";
+	const statusText = t(`tools.status.${accessibleStatus}`);
+	const previousStatusRef = useRef({ toolCallId, status: accessibleStatus });
+	const [announcement, setAnnouncement] = useState<{ toolCallId: string; text: string } | null>(null);
+	useEffect(() => {
+		const previous = previousStatusRef.current;
+		if (previous.toolCallId !== toolCallId) {
+			previousStatusRef.current = { toolCallId, status: accessibleStatus };
+			setAnnouncement(null);
+			return;
+		}
+		if (previous.status === accessibleStatus) return;
+		previousStatusRef.current = { toolCallId, status: accessibleStatus };
+		setAnnouncement({ toolCallId, text: statusText });
+	}, [accessibleStatus, statusText, toolCallId]);
 	const isPartial = status === "running";
 	const isAborted = status === "aborted";
 	const now = useNowTick(isPartial);
 	const duration = entry ? durationBetween(entry.startTime, isPartial ? now : entry.endTime) : null;
-	// While args stream in, `args` is still {} — surface the raw partial JSON
-	// (truncated) so a long bash/edit call doesn't sit as an empty card until
-	// message_end.
+	// Pending arguments have no parsed fields yet; keep the raw preview bounded.
 	const streamingSummary =
 		entry?.status === "pending" && typeof entry.streamingArgs === "string"
 			? entry.streamingArgs.slice(0, 160)
 			: undefined;
-	const Renderer = getToolRenderer(toolName);
-	const summary = getToolSummary(toolName, args);
+	const definition = getToolRenderer(effective);
+	const summary = toolPresentationSummary(effective);
+	const view: ToolRendererView = expanded ? "expanded" : "preview";
+	const rendererProps: ToolRendererProps = {
+		args: effective.args,
+		result: isAborted ? (effective.result ?? effective.partialResult) : effective.result,
+		isError,
+		isPartial,
+		partialResult: effective.partialResult,
+		interrupted: isAborted,
+		settled: !isPartial,
+		view,
+	};
+	const showsCollapsedPreview = !isPartial && (effective.mode === "help" || effective.mcp != null);
+	// An output-less interruption has no outcome for a specialized renderer.
+	const Renderer =
+		isAborted && effective.result == null && effective.partialResult == null
+			? GenericRenderer
+			: definition.component;
+	const renderer = (
+		<ToolRendererErrorBoundary
+			key={`${toolCallId}:${effective.name}`}
+			component={Renderer}
+			effectiveName={effective.name}
+			rendererProps={rendererProps}
+		/>
+	);
 
 	const railColor =
 		status === "error" || isError
@@ -106,6 +196,8 @@ function ToolCardContent({
 				"omp-tool-card omp-fade-up relative my-2 overflow-hidden rounded-[10px] border border-[var(--omp-border-muted)] transition-[border-color,box-shadow,background-color] duration-200",
 				status === "running" && "border-[var(--omp-border-accent)]/60",
 			)}
+			data-tool-name={effective.name}
+			data-tool-shell={definition.shell}
 			data-tool-status={status}
 			data-tool-error={isError ? "true" : undefined}
 			style={{
@@ -122,7 +214,8 @@ function ToolCardContent({
 			<button
 				type="button"
 				aria-expanded={expanded}
-				onClick={() => setExpanded(v => !v)}
+				aria-label={`${effective.name}${summary ? ` ${summary}` : ""}, ${statusText}`}
+				onClick={() => setExpanded(value => !value)}
 				className="omp-tool-header flex w-full items-center gap-2 py-2 pl-3.5 pr-2.5 text-left transition-colors duration-150 hover:bg-[var(--omp-selected-bg)]/40"
 			>
 				{status === "running" && runningIndicator === "spinner" ? (
@@ -132,17 +225,14 @@ function ToolCardContent({
 						<span className="h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
 					</span>
 				) : status === "aborted" ? (
-					<span className="omp-tool-status-icon flex shrink-0 items-center">
-						<Ban size={12} className="text-[var(--omp-warning)]" />
-						<span className="sr-only">{t("tools.status.interrupted")}</span>
-					</span>
-				) : isError ? (
-					<X size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-error)]" />
+					<Ban aria-hidden size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-warning)]" />
+				) : accessibleStatus === "failed" ? (
+					<X aria-hidden size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-error)]" />
 				) : (
-					<Check size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-success)]" />
+					<Check aria-hidden size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-success)]" />
 				)}
 				<span className="omp-tool-name shrink-0 font-mono text-omp-md font-semibold tracking-tight text-[var(--omp-text)]">
-					{toolName}
+					{effective.name}
 				</span>
 				{summary && (
 					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-omp-sm text-[var(--omp-tool-output)]">
@@ -170,28 +260,25 @@ function ToolCardContent({
 					)}
 				/>
 			</button>
-			{expanded && (
-				<div className="omp-tool-body omp-fade-in border-t border-[var(--omp-border-muted)]/70 px-3.5 py-2.5">
+			{announcement?.toolCallId === toolCallId && (
+				<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+					{announcement.text}
+				</span>
+			)}
+			{(expanded || definition.shell === "compact" || showsCollapsedPreview) && (
+				<div
+					className={cx(
+						"omp-fade-in border-t border-[var(--omp-border-muted)]/70 px-3.5 py-2.5",
+						expanded || definition.shell === "compact" ? "omp-tool-body" : "omp-tool-preview",
+					)}
+				>
 					{isAborted && (
 						<div className="mb-1.5 flex items-center gap-1.5 font-mono text-omp-sm text-[var(--omp-warning)]">
-							<Ban size={11} className="shrink-0" />
+							<Ban aria-hidden size={11} className="shrink-0" />
 							{t("tools.status.interrupted")}
 						</div>
 					)}
-					{/* A specialized renderer would claim "no matches" for a call that never
-					 * returned, so an output-less abort shows only what was asked for. */}
-					{isAborted && entry?.result == null && entry?.partialResult == null ? (
-						<GenericRenderer args={args} result={null} interrupted />
-					) : (
-						<Renderer
-							args={args}
-							result={entry?.result}
-							isError={isError}
-							isPartial={isPartial}
-							partialResult={entry?.partialResult}
-							interrupted={isAborted}
-						/>
-					)}
+					{renderer}
 				</div>
 			)}
 		</div>

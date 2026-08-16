@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { AgentMessage, AgentSessionEvent, ToolCallContent } from "../../shared/rpc-types";
 import {
 	applyToolProjectionEvents,
+	buildTranscriptToolEntries,
 	createToolProjection,
 	createToolsStore,
 	hydrateToolProjection,
+	reconcileStreamingToolProjection,
 	resolveProjectionToolCall,
 	toolEntryKey,
 	useToolsStore,
@@ -63,6 +65,17 @@ describe("tools store history rebuild", () => {
 			.hydrateMessages([historyCall("first"), historyResult("first"), historyCall("last")], { turnIsLive: false });
 
 		expect(store.getState().activeTools.get("last")).toMatchObject({ status: "aborted" });
+	});
+
+	it("does not revive an earlier unanswered occurrence during a later live turn", () => {
+		const store = createToolsStore();
+		const interrupted = toolCall("interrupted");
+		const live = toolCall("live");
+		store.getState().hydrateMessages([assistant(interrupted, 1), assistant(live, 2)], { turnIsLive: true });
+
+		expect(store.getState().activeTools.get(toolEntryKey(interrupted))).toMatchObject({ status: "aborted" });
+		expect(store.getState().activeTools.get(toolEntryKey(live))).toMatchObject({ status: "running" });
+		expect(toolEntryKey(interrupted)).not.toBe(toolEntryKey(live));
 	});
 
 	it("promotes the aborted placeholder when a late execution event arrives", () => {
@@ -190,6 +203,17 @@ describe("tool projections", () => {
 		expect(resolveProjectionToolCall(projection, interrupted).entry).toMatchObject({ status: "aborted" });
 	});
 
+	it("preserves historical and live occurrence state in read-only transcript entries", () => {
+		const interrupted = toolCall("interrupted");
+		const live = toolCall("live");
+		const entries = buildTranscriptToolEntries([assistant(interrupted, 1), assistant(live, 2)], {
+			turnIsLive: true,
+		});
+
+		expect(entries.get(interrupted)).toMatchObject({ args: { path: "interrupted" }, status: "aborted" });
+		expect(entries.get(live)).toMatchObject({ args: { path: "live" }, status: "running" });
+	});
+
 	it("routes a streamed repeated ID through final execution events", () => {
 		const historicalCall = toolCall("history");
 		let projection = hydrateToolProjection(createToolProjection(), [
@@ -272,29 +296,160 @@ describe("tool projections", () => {
 		expect(toolEntryKey(mainCall)).toBe(mainKey);
 	});
 
-	it("resolves the stable local key and entry for a concrete call object", () => {
-		const firstCall = toolCall("first");
-		const secondCall = toolCall("second");
-		const projection = hydrateToolProjection(createToolProjection(), [
-			assistant(firstCall, 1),
-			assistant(secondCall, 2),
+	it("rebases mixed restored and streaming same-id occurrences independently", () => {
+		const restoredCall = toolCall("restored-running");
+		let projection = hydrateToolProjection(createToolProjection(), [assistant(restoredCall, 1)], {
+			turnIsLive: true,
+		});
+		const streamingCall = toolCall("streaming");
+		const streamingMessage = assistant(streamingCall, 2);
+		projection = applyToolProjectionEvents(projection, [
+			{
+				type: "message_update",
+				message: streamingMessage,
+				assistantMessageEvent: {
+					type: "toolcall_delta",
+					contentIndex: 0,
+					delta: '{"path":',
+					partial: streamingMessage,
+				},
+			},
+		]);
+		const hydrationStartRevision = projection.toolEventRevision;
+		const fetchedCall = toolCall("restored-running");
+
+		projection = reconcileStreamingToolProjection(
+			projection,
+			[assistant(fetchedCall, 1)],
+			hydrationStartRevision,
+			true,
+		);
+
+		const fetched = resolveProjectionToolCall(projection, fetchedCall);
+		const streamed = resolveProjectionToolCall(projection, streamingCall);
+		expect(projection.activeTools).toHaveLength(2);
+		expect(fetched.key).toBe("read:0");
+		expect(streamed.key).not.toBe(fetched.key);
+		expect(fetched.entry).toMatchObject({
+			args: { path: "restored-running" },
+			status: "running",
+		});
+		expect(streamed.entry).toMatchObject({
+			status: "pending",
+			streamingArgs: '{"path":',
+		});
+
+		const finalCall = toolCall("streaming-final");
+		projection = applyToolProjectionEvents(projection, [
+			{ type: "message_end", message: assistant(finalCall, 3) },
+			{
+				type: "tool_execution_start",
+				toolCallId: finalCall.id,
+				toolName: finalCall.name,
+				args: finalCall.arguments,
+			},
+			{
+				type: "tool_execution_end",
+				toolCallId: finalCall.id,
+				toolName: finalCall.name,
+				result: "streaming result",
+				isError: false,
+			},
 		]);
 
-		const firstResolution = resolveProjectionToolCall(projection, secondCall);
-		const secondResolution = resolveProjectionToolCall(projection, secondCall);
-
-		expect(firstResolution.key).toBe(secondResolution.key);
-		expect(firstResolution.entry).toBe(secondResolution.entry);
-		expect(firstResolution.entry?.args).toEqual({ path: "second" });
+		expect(resolveProjectionToolCall(projection, fetchedCall).entry).toMatchObject({
+			args: { path: "restored-running" },
+			status: "running",
+		});
+		expect(resolveProjectionToolCall(projection, finalCall).entry).toMatchObject({
+			args: { path: "streaming-final" },
+			status: "done",
+			result: "streaming result",
+		});
 	});
 
-	it("does not copy active tools for batches without tool events", () => {
-		const call = toolCall("kept");
-		const projection = hydrateToolProjection(createToolProjection(), [assistant(call, 1)]);
+	it("trusts a fetched settled occurrence over an untouched restored running entry", () => {
+		const restoredCall = toolCall("restored-running");
+		const restored = hydrateToolProjection(createToolProjection(), [assistant(restoredCall, 1)], {
+			turnIsLive: true,
+		});
+		const hydrationStartRevision = restored.toolEventRevision;
+		const fetchedCall = toolCall("fetched-settled");
 
-		const next = applyToolProjectionEvents(projection, [{ type: "notice", level: "info", message: "unrelated" }]);
+		const reconciled = reconcileStreamingToolProjection(
+			restored,
+			[assistant(fetchedCall, 1), projectionResult("fetched result", 2)],
+			hydrationStartRevision,
+			true,
+		);
 
-		expect(next).toBe(projection);
-		expect(next.activeTools).toBe(projection.activeTools);
+		expect(resolveProjectionToolCall(reconciled, fetchedCall).entry).toMatchObject({
+			args: { path: "fetched-settled" },
+			status: "done",
+			result: {
+				content: [{ type: "text", text: "fetched result" }],
+				details: null,
+			},
+		});
+	});
+
+	it("settles an untouched restored call when a newer fetched turn is live", () => {
+		const restoredCall = toolCall("interrupted");
+		const restored = hydrateToolProjection(createToolProjection(), [assistant(restoredCall, 1)], {
+			turnIsLive: true,
+		});
+		const fetchedInterrupted = toolCall("interrupted");
+		const fetchedLive = toolCall("live");
+		const reconciled = reconcileStreamingToolProjection(
+			restored,
+			[assistant(fetchedInterrupted, 1), assistant(fetchedLive, 2)],
+			restored.toolEventRevision,
+			true,
+		);
+
+		expect(resolveProjectionToolCall(reconciled, fetchedInterrupted).entry).toMatchObject({ status: "aborted" });
+		expect(resolveProjectionToolCall(reconciled, fetchedLive).entry).toMatchObject({ status: "running" });
+	});
+
+	it("keeps a completion arriving during an idle transcript fetch attached to its occurrence", () => {
+		const historical = toolCall("historical");
+		const live = toolCall("live");
+		let projection = hydrateToolProjection(
+			createToolProjection(),
+			[assistant(historical, 1), projectionResult("historical result", 2), assistant(live, 3)],
+			{ turnIsLive: true },
+		);
+		const hydrationStartRevision = projection.toolEventRevision;
+		projection = applyToolProjectionEvents(projection, [
+			start(live.id),
+			{
+				type: "tool_execution_end",
+				toolCallId: live.id,
+				toolName: live.name,
+				result: { content: "late completion" },
+				isError: false,
+			},
+		]);
+		const fetchedHistorical = toolCall("historical");
+		const fetchedLive = toolCall("live");
+		const reconciled = reconcileStreamingToolProjection(
+			projection,
+			[assistant(fetchedHistorical, 1), projectionResult("historical result", 2), assistant(fetchedLive, 3)],
+			hydrationStartRevision,
+			false,
+		);
+
+		expect(resolveProjectionToolCall(reconciled, fetchedHistorical).entry).toMatchObject({
+			status: "done",
+			result: { content: [{ type: "text", text: "historical result" }], details: null },
+		});
+		expect(resolveProjectionToolCall(reconciled, fetchedLive).entry).toMatchObject({
+			args: { path: "read:0.ts" },
+			status: "done",
+			result: { content: "late completion" },
+		});
+		expect(resolveProjectionToolCall(reconciled, fetchedLive).key).not.toBe(
+			resolveProjectionToolCall(reconciled, fetchedHistorical).key,
+		);
 	});
 });
