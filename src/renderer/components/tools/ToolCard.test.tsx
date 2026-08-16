@@ -152,6 +152,27 @@ describe("ToolCard adaptive rendering", () => {
 		expect(card.textContent).not.toContain("xd://lsp");
 	});
 
+	it("keeps a settled metadata-less xd LSP call on the useful compact renderer", async () => {
+		const outerArgs = {
+			path: "xd://lsp",
+			content: '{"action":"references","file":"src/historical.ts"}',
+		};
+		const result = resultEnvelope("Found 1 reference(s)\nsrc/historical.ts:8:3");
+		const card = await mountCard({
+			toolCallId: "historical-xd-lsp",
+			toolName: "write",
+			args: outerArgs,
+			entry: completedEntry("write", outerArgs, result),
+		});
+
+		expect(card.getAttribute("data-tool-name")).toBe("lsp");
+		expect(card.getAttribute("data-tool-shell")).toBe("compact");
+		expect(card.querySelector(".omp-tool-summary")?.textContent).toBe("references");
+		expect(card.textContent).toContain("src/historical.ts");
+		expect(card.textContent).toContain("line 8, col 3");
+		expect(card.textContent).not.toContain("xd://lsp");
+	});
+
 	it("renders Xdev help as bounded escaped documentation instead of LSP execution output", async () => {
 		const documentation = [
 			'<img src="x" onerror="HELP_HANDLER_SHOULD_NOT_RUN">HELP_MARKUP</img>',

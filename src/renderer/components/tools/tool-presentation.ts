@@ -152,7 +152,7 @@ export function resolveToolPresentation(input: ToolPresentationInput): Effective
 		};
 	}
 
-	if (input.name !== "write" || input.result != null) return directInvocation(input);
+	if (input.name !== "write") return directInvocation(input);
 
 	const streamedArgs = decodeRecordJson(input.streamingArgs);
 	const outerArgs = deviceName(input.args.path) ? input.args : streamedArgs;

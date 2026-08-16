@@ -67,6 +67,32 @@ describe("resolveToolPresentation", () => {
 		});
 	});
 
+	it("keeps a settled metadata-less xd write bound to its effective tool", () => {
+		const result = {
+			content: [{ type: "text", text: "Found 1 reference(s)\nsrc/historical.ts:8:3" }],
+		};
+		const invocation = resolveToolPresentation({
+			name: "write",
+			args: {
+				path: "xd://lsp",
+				content: '{"action":"references","file":"src/historical.ts"}',
+			},
+			result,
+			partialResult: null,
+			isError: false,
+		});
+
+		expect(invocation).toEqual({
+			name: "lsp",
+			args: { action: "references", file: "src/historical.ts" },
+			result,
+			partialResult: null,
+			isError: false,
+			transport: "xdev",
+			mode: "execute",
+		});
+	});
+
 	it("recognizes a pending xd write and decodes its complete inner JSON", () => {
 		const invocation = resolveToolPresentation({
 			name: "write",
