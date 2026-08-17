@@ -36,7 +36,16 @@ function diffStats(diff: string): { added: number; removed: number } {
  */
 /** Preview ceiling for diff-less write content (lines entered into the DOM). */
 const WRITE_PREVIEW_LINES = 500;
-export function WriteRenderer({ args, result, isError, isPartial, partialResult, interrupted }: ToolRendererProps) {
+export function WriteRenderer({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	interrupted,
+	settled,
+	view,
+}: ToolRendererProps) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
 	const path = typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : "";
@@ -52,6 +61,8 @@ export function WriteRenderer({ args, result, isError, isPartial, partialResult,
 				partialResult={partialResult}
 				result={result}
 				target={path}
+				settled={settled}
+				view={view}
 			/>
 		);
 	}

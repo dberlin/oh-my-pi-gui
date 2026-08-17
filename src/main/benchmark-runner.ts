@@ -69,7 +69,7 @@ const summary = z.object({
 			selector: z.string(),
 			model: z.string(),
 			stats: stats.nullable(),
-			byChallenge: z.record(stats).default({}),
+			byChallenge: z.record(z.string(), stats).default({}),
 			results: z.array(z.object({ ok: z.boolean(), error: z.string().optional() })),
 		}),
 	),

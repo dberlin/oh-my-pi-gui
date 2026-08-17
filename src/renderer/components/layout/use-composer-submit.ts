@@ -397,7 +397,7 @@ export function useComposerSubmit({
 						useInputHistoryStore.getState().record(message, originCwd);
 						if (!originStillActive()) return;
 						dropReferencedPastes(message);
-						await settleComposerResponse(response, () => hydrateTabSession(originTabId));
+						await settleComposerResponse(response, expandedMessage, () => hydrateTabSession(originTabId));
 					})
 					.catch(error => {
 						if (accepted) {

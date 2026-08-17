@@ -180,6 +180,30 @@ describe("message projections", () => {
 		expect(second.streamingMessage).toBe(streamingMessage);
 	});
 });
+it("projects live IRC traffic immediately and deduplicates its later persisted delivery", () => {
+	const incoming: AgentMessage = {
+		role: "custom",
+		customType: "irc:incoming",
+		content: "[IRC from PlanReviewer]",
+		display: true,
+		details: { id: "irc-1", from: "PlanReviewer", message: "Review complete." },
+		timestamp: 100,
+	};
+	let projection = applyMessageProjectionEvents(createMessageProjection(), [
+		{ type: "irc_message", message: incoming },
+	]);
+
+	expect(projection.messages).toEqual([incoming]);
+
+	projection = applyMessageProjectionEvents(projection, [
+		{ type: "agent_start" },
+		{ type: "message_start", message: incoming },
+		{ type: "message_end", message: incoming },
+	]);
+
+	expect(projection.messages).toEqual([incoming]);
+	expect(projection.streamingMessage).toBeNull();
+});
 
 describe("messages streaming snapshots", () => {
 	it("preserves the next reply and follow-up regardless of event batch boundaries", () => {

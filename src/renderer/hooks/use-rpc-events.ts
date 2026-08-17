@@ -340,7 +340,8 @@ function getBootPendingRead(): BootPendingRead {
 
 /** Light ready must join the full pending-open/health prelude before hydrating. */
 export function joinFullReadyPrelude(tabId: string): Promise<void> | null {
-	return fullReadyPreludes.get(tabId)?.promise ?? null;
+	const prelude = fullReadyPreludes.get(tabId);
+	return prelude?.runtime === sessionRuntime(tabId) ? prelude.promise : null;
 }
 
 export function recoverReadySession(tabId: string | null = useTabsStore.getState().activeTabId): Promise<void> {

@@ -182,7 +182,6 @@ export function CommandPalette() {
 	const close = useUiStore(state => state.closeCommandPalette);
 	const openModelPicker = useUiStore(state => state.openModelPicker);
 	const openSettings = useUiStore(state => state.openSettings);
-	const openUsage = useUiStore(state => state.openUsage);
 	const openProviders = useUiStore(state => state.openProviders);
 	const openModelRoles = useUiStore(state => state.openModelRoles);
 	const openStatsDashboard = useUiStore(state => state.openStatsDashboard);
@@ -350,7 +349,6 @@ export function CommandPalette() {
 				availableCommands,
 				openModelPicker,
 				openSettings,
-				openUsage,
 				openProviders,
 				openModelRoles,
 				openStatsDashboard,
@@ -415,7 +413,6 @@ export function CommandPalette() {
 			availableCommands,
 			openModelPicker,
 			openSettings,
-			openUsage,
 			openProviders,
 			openModelRoles,
 			openStatsDashboard,

@@ -26,7 +26,7 @@ const SIDECAR_COMMANDS: AvailableCommand[] = [
 
 function seedTab(kind: "agent" | "chat"): void {
 	useTabsStore.setState({
-		tabs: [{ id: `t-${kind}`, cwd: "/tmp", status: "ready", kind, unreadDone: false }],
+		tabs: [{ id: `t-${kind}`, cwd: "/tmp", target: { type: "local" }, status: "ready", kind, unreadDone: false }],
 		activeTabId: `t-${kind}`,
 	});
 }

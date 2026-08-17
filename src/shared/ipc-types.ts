@@ -1152,7 +1152,6 @@ export interface OmpApi {
 		getLoginProviders(): Promise<RpcResponse>;
 		login(providerId: string): Promise<RpcResponse>;
 		logout(providerId: string): Promise<RpcResponse>;
-		getUsage(): Promise<RpcResponse>;
 		getSettingsSchema(): Promise<RpcResponse>;
 		getSettings(paths?: string[]): Promise<RpcResponse>;
 		setSetting(path: string, value: unknown): Promise<RpcResponse>;

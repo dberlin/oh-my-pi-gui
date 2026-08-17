@@ -126,7 +126,7 @@ export interface SubagentsStore {
 	toolCallOwners: Map<string, string>;
 	registerToolCallOwners: (agentId: string, toolCallIds: string[]) => void;
 	applyFrame: (frame: SubagentFrame) => void;
-	setSnapshots: (snapshots: SubagentNode[]) => void;
+	setSnapshots: (snapshots: SubagentNode[], preserveSettled?: boolean) => void;
 	/**
 	 * Pull the full roster over get_subagents and MERGE it. Unlike
 	 * setSnapshots this keeps local terminal rows: the RPC registry deletes
@@ -177,6 +177,33 @@ function mergeFetchedSnapshot(fresh: SubagentNode, prev: SubagentNode): Subagent
 		progress: fresh.progress ?? prev.progress,
 		sessionFile: fresh.sessionFile ?? prev.sessionFile,
 	};
+}
+
+function mergeRosterSnapshots(
+	snapshots: SubagentNode[],
+	current: Map<string, SubagentNode>,
+	before: Map<string, SubagentNode>,
+	preserveSettled: boolean,
+): Map<string, SubagentNode> {
+	const subagents = new Map<string, SubagentNode>();
+	for (const snap of snapshots) {
+		const normalized = normalizeSnapshot(snap);
+		const previous = current.get(normalized.id);
+		subagents.set(
+			normalized.id,
+			preserveSettled && previous
+				? previous !== before.get(normalized.id)
+					? previous
+					: mergeFetchedSnapshot(normalized, previous)
+				: normalized,
+		);
+	}
+	if (preserveSettled) {
+		for (const [id, node] of current) {
+			if (!subagents.has(id) && (!LIVE_STATUSES[node.status] || node !== before.get(id))) subagents.set(id, node);
+		}
+	}
+	return subagents;
 }
 
 export const createSubagentsStore = (
@@ -266,13 +293,10 @@ export const createSubagentsStore = (
 				}
 			}
 		},
-		setSnapshots: snapshots => {
+		setSnapshots: (snapshots, preserveSettled = false) => {
 			refreshRevision += 1;
-			const subagents = new Map<string, SubagentNode>();
-			for (const snap of snapshots) {
-				const normalized = normalizeSnapshot(snap);
-				subagents.set(normalized.id, normalized);
-			}
+			const current = get().subagents;
+			const subagents = mergeRosterSnapshots(snapshots, current, current, preserveSettled);
 			set({ subagents });
 			agentView().reconcileRoster(subagents.values());
 		},
@@ -294,26 +318,7 @@ export const createSubagentsStore = (
 					set({ error: null });
 					return;
 				}
-				const current = get().subagents;
-				const fetched = new Set<string>();
-				const subagents = new Map<string, SubagentNode>();
-				for (const snap of data.subagents) {
-					const normalized = normalizeSnapshot(snap);
-					fetched.add(normalized.id);
-					const prev = current.get(normalized.id);
-					subagents.set(
-						normalized.id,
-						prev && prev !== before.get(normalized.id)
-							? prev
-							: prev
-								? mergeFetchedSnapshot(normalized, prev)
-								: normalized,
-					);
-				}
-				for (const [id, node] of current) {
-					if (!fetched.has(id) && (!LIVE_STATUSES[node.status] || node !== before.get(id)))
-						subagents.set(id, node);
-				}
+				const subagents = mergeRosterSnapshots(data.subagents, get().subagents, before, true);
 				set({ subagents, error: null });
 				agentView().reconcileRoster(subagents.values());
 			} catch (cause) {

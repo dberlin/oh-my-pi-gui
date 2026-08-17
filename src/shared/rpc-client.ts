@@ -217,7 +217,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getLoginProviders: () => rpcCommand({ type: "get_login_providers" }),
 		login: (providerId: string) => rpcCommand({ type: "login", providerId }),
 		logout: (providerId: string) => rpcCommand({ type: "logout", providerId }),
-		getUsage: () => rpcCommand({ type: "get_usage" }),
 		getSettingsSchema: () => rpcCommand({ type: "get_settings_schema" }),
 		getSettings: (paths?: string[]) => rpcCommand({ type: "get_settings", paths }),
 		setSetting: (path: string, value: unknown) => rpcCommand({ type: "set_setting", path, value }),

@@ -44,7 +44,7 @@ import { useRpcEvents } from "./hooks/use-rpc-events";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
 import { useSidebarRecency } from "./hooks/use-sidebar-recency";
 import { useTraySync } from "./hooks/use-tray-sync";
-import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
+import { requestUsageReport, restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
 import {
 	hydrateDisplayPreferences,
 	readDisplayPreference,
@@ -140,7 +140,6 @@ const PrCenterWindow = lazy(() =>
 const ProviderConfigDialog = lazy(() =>
 	import("./components/settings/ProviderConfigDialog").then(m => ({ default: m.ProviderConfigDialog })),
 );
-const UsageWindow = lazy(() => import("./components/settings/UsageWindow").then(m => ({ default: m.UsageWindow })));
 const ModelRolesWindow = lazy(() =>
 	import("./components/settings/ModelRolesWindow").then(m => ({ default: m.ModelRolesWindow })),
 );
@@ -410,7 +409,9 @@ export function AppGlobalActions() {
 				return;
 			}
 			if (action === "open-usage") {
-				ui.openUsage();
+				void requestUsageReport(window.omp.rpc.prompt).catch(error => {
+					toast({ variant: "error", title: t("palette.failed"), message: String(error) });
+				});
 				return;
 			}
 			if (action === "open-model-picker") {
@@ -810,7 +811,6 @@ export function App() {
 			<HandoffDialog />
 			<Suspense fallback={null}>
 				<SettingsWindow />
-				<UsageWindow />
 				<ProvidersWindow />
 				<ModelRolesWindow />
 				<ModelCompare open={modelCompareOpen} onClose={closeModelCompare} />

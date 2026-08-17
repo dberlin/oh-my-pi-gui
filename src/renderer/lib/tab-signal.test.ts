@@ -10,7 +10,7 @@ import type { SessionTab } from "../stores/tabs";
 import { tabSignalPresentation } from "./tab-signal";
 
 function tab(overrides: Partial<SessionTab>): SessionTab {
-	return { kind: "agent", id: "a", cwd: "/work/a", status: "ready", unreadDone: false, ...overrides };
+	return { kind: "agent", id: "a", cwd: "/work/a", target: { type: "local" }, status: "ready", unreadDone: false, ...overrides };
 }
 
 describe("tabSignalPresentation", () => {

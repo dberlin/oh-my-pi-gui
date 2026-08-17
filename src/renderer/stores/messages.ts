@@ -22,6 +22,7 @@ function assistantToolCallIds(message: AgentMessage): string[] {
 
 /** Match fetched and live projections without depending on newly assigned entry IDs. */
 export function messageIdentityKey(message: AgentMessage): string {
+	if (isIrcTranscriptMessage(message)) return ircMessageIdentityKey(message);
 	const stableId =
 		message.role === "assistant"
 			? [message.responseId ?? null, assistantToolCallIds(message)]
@@ -161,6 +162,49 @@ function upsertCommittedMessages(current: AgentMessage[], committed: AgentMessag
 	return next;
 }
 
+interface IrcTranscriptMessage extends AgentMessage {
+	role: "custom";
+	customType: "irc:incoming" | "irc:autoreply" | "irc:relay";
+}
+
+function isIrcTranscriptMessage(value: unknown): value is IrcTranscriptMessage {
+	if (value == null || typeof value !== "object" || Array.isArray(value)) return false;
+	const record = value as Record<string, unknown>;
+	return (
+		record.role === "custom" &&
+		(record.customType === "irc:incoming" ||
+			record.customType === "irc:autoreply" ||
+			record.customType === "irc:relay") &&
+		"content" in record
+	);
+}
+
+function ircMessageIdentityKey(message: AgentMessage): string {
+	if (!isIrcTranscriptMessage(message)) return "";
+	const details =
+		message.details != null && typeof message.details === "object" && !Array.isArray(message.details)
+			? (message.details as Record<string, unknown>)
+			: undefined;
+	const stableId =
+		typeof details?.id === "string"
+			? details.id
+			: [details?.from ?? null, details?.to ?? null, details?.replyTo ?? null, message.content];
+	return JSON.stringify([message.customType, stableId, message.timestamp]);
+}
+
+function hasProjectedIrcMessage(
+	current: readonly AgentMessage[],
+	pending: readonly AgentMessage[],
+	message: AgentMessage,
+): boolean {
+	const key = ircMessageIdentityKey(message);
+	return (
+		key.length > 0 &&
+		(current.some(item => isIrcTranscriptMessage(item) && ircMessageIdentityKey(item) === key) ||
+			pending.some(item => isIrcTranscriptMessage(item) && ircMessageIdentityKey(item) === key))
+	);
+}
+
 /** Preserve only committed rows appended after a transcript request began. */
 export function mergeFetchedTranscript(
 	fetched: AgentMessage[],
@@ -268,7 +312,24 @@ export function applyMessageProjectionEvents(
 				deliveredKeysCopied = true;
 				break;
 			}
+			case "irc_message": {
+				if (!isIrcTranscriptMessage(event.message)) break;
+				if (hasProjectedIrcMessage(projection.messages, newMessages, event.message)) break;
+				newMessages.push(event.message);
+				if (!deliveredKeysCopied) {
+					deliveredKeys = new Set(deliveredKeys);
+					deliveredKeysCopied = true;
+				}
+				deliveredKeys.add(messageIdentityKey(event.message));
+				break;
+			}
 			case "message_start": {
+				if (
+					isIrcTranscriptMessage(event.message) &&
+					hasProjectedIrcMessage(projection.messages, newMessages, event.message)
+				) {
+					break;
+				}
 				streamingStart =
 					event.message.timestamp === undefined || event.message.timestamp === null
 						? { ...event.message, timestamp: Date.now() }
@@ -287,6 +348,12 @@ export function applyMessageProjectionEvents(
 				break;
 			}
 			case "message_end": {
+				if (
+					isIrcTranscriptMessage(event.message) &&
+					hasProjectedIrcMessage(projection.messages, newMessages, event.message)
+				) {
+					break;
+				}
 				const key = messageIdentityKey(event.message);
 				if (!deliveredKeys.has(key)) newMessages.push(event.message);
 				if (!deliveredKeysCopied) {

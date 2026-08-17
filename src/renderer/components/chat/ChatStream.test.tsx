@@ -138,7 +138,7 @@ afterEach(async () => {
 	useTodoStore.getState().reset();
 	useToolsStore.getState().reset();
 	setFocusedSessionRuntime(null);
-	useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact", switchPending: null });
+	useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact" });
 	vi.restoreAllMocks();
 });
 const at = "2026-08-05T04:00:00.000Z";
@@ -1142,6 +1142,7 @@ describe("Main ChatStream characterization", () => {
 		useSessionStore.setState({
 			sessionId: "main-characterization",
 			status: "ready",
+			switchPending: null,
 			isStreaming: true,
 			retryInfo: {
 				attempt: 2,
@@ -1164,7 +1165,7 @@ describe("Main ChatStream characterization", () => {
 				},
 			],
 		});
-		useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "full", switchPending: null });
+		useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "full" });
 
 		await mount(<ChatStream />);
 

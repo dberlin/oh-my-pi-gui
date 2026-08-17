@@ -81,8 +81,6 @@ Object.assign(HTMLElement.prototype, {
 });
 
 interface TestElement {
-	children: TestElement[];
-	parentElement: TestElement | null;
 	textContent: string | null;
 	click: () => void;
 	remove: () => void;
@@ -141,8 +139,8 @@ function seedLiveCompactGrep({
 		streamingThinking,
 	});
 	useToolsStore.setState({ activeTools: new Map([[liveGrepCall.id, entry]]) });
-	useSessionStore.setState({ isStreaming: true, status: "ready" });
-	useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "compact", switchPending: null });
+	useSessionStore.setState({ isStreaming: true, status: "ready", switchPending: null });
+	useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "compact" });
 	return entry;
 }
 afterEach(async () => {
@@ -161,7 +159,7 @@ afterEach(async () => {
 	useSettingsStore.getState().reset();
 	useTodoStore.getState().reset();
 	useToolsStore.getState().reset();
-	useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact", switchPending: null });
+	useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact" });
 });
 
 describe("TranscriptViewport projected branch", () => {
@@ -317,7 +315,7 @@ describe("TranscriptViewport compact tool visibility", () => {
 		expect(specializedBody?.textContent).toContain("1 match");
 	});
 
-	it("keeps live compact reasoning disclosed while tools remain visible before streaming answer text", async () => {
+	it("keeps live compact reasoning disclosed while tools and answer text remain visible", async () => {
 		seedLiveCompactGrep();
 
 		await mount(<ChatStream />);
@@ -366,8 +364,8 @@ describe("TranscriptViewport compact tool visibility", () => {
 				args: liveGrepCall.arguments,
 			},
 		]);
-		useSessionStore.setState({ isStreaming: true, status: "ready" });
-		useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "compact", switchPending: null });
+		useSessionStore.setState({ isStreaming: true, status: "ready", switchPending: null });
+		useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "compact" });
 
 		await mount(<ChatStream />);
 

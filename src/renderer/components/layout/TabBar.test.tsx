@@ -428,11 +428,12 @@ describe("TabBar", () => {
 					kind: "agent",
 					id: "t0",
 					cwd: "/work/alpha",
+					target: { type: "local" },
 					status: "ready",
 					title: "A deliberately long session title",
 					unreadDone: false,
 				},
-				{ kind: "agent", id: "t1", cwd: "/work/beta", status: "ready", title: "Short", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/work/beta", target: { type: "local" }, status: "ready", title: "Short", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -508,8 +509,8 @@ describe("TabBar", () => {
 	it("right-click creates and removes a two-session split without changing either runtime", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			split: null,
@@ -774,8 +775,8 @@ describe("TabBar close confirm", () => {
 	it("⌘W and File → Close Tab leave the chip in exactly the × confirm state", async () => {
 		useTabsStore.setState({
 			tabs: [
-				{ kind: "agent", id: "t0", cwd: "/alpha", status: "running", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "running", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -953,7 +954,7 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 
 	it("shows tab actions without requiring a context click", async () => {
 		useTabsStore.setState({
-			tabs: [{ kind: "agent", id: "t0", cwd: "/work/gui", status: "ready", unreadDone: false }],
+			tabs: [{ kind: "agent", id: "t0", cwd: "/work/gui", target: { type: "local" }, status: "ready", unreadDone: false }],
 			activeTabId: "t0",
 			bundles: new Map(),
 		});

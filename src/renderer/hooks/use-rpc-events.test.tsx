@@ -385,11 +385,17 @@ async function mount(element: ReactElement): Promise<void> {
 	await flush();
 }
 
-function turnStatusRow(): ReactElement {
-	const { awaitingModelSince, compactionInfo, retryInfo } = useSessionStore.getState();
+function LiveTurnStatusRow(): ReactElement {
+	const awaitingModelSince = useSessionStore(state => state.awaitingModelSince);
+	const compactionInfo = useSessionStore(state => state.compactionInfo);
+	const retryInfo = useSessionStore(state => state.retryInfo);
 	return (
 		<TurnStatusRow awaitingModelSince={awaitingModelSince} compactionInfo={compactionInfo} retryInfo={retryInfo} />
 	);
+}
+
+function turnStatusRow(): ReactElement {
+	return <LiveTurnStatusRow />;
 }
 /** Renders the hook under test with no visible chrome of its own. */
 function RpcEventsProbe({ heartbeatMs }: { heartbeatMs?: number } = {}) {
@@ -1094,9 +1100,14 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
+		ensureTabRuntime("t0");
+		setFocusedSessionRuntime("t0");
 		useSubagentsStore.getState().setSnapshots([selected]);
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
 		omp.rpc.getSubagents.mockResolvedValue(success({ subagents: [selected] }));
+		omp.rpc.getSubagentMessages.mockResolvedValue(
+			success({ messages: [textMessage("joined selected transcript")], nextByte: 12, hasMore: false }),
+		);
 		const pendingOpen = Promise.withResolvers<unknown>();
 		const health = Promise.withResolvers<RpcResponse>();
 		omp.sessions.consumePendingOpen.mockReturnValue(pendingOpen.promise);
@@ -1115,6 +1126,61 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
+		expect(useAgentViewStore.getState().messages.messages).toEqual([textMessage("joined selected transcript")]);
+	});
+
+	it("hydrates a replacement without waiting for its retired session's full ready health reply", async () => {
+		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
+		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		await mount(<RpcEventsAndTabsProbe />);
+		useTabsStore.setState({
+			tabs: [{
+				id: "t0",
+				kind: "agent",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				sessionId: "old",
+				unreadDone: false,
+			}],
+			activeTabId: "t0",
+		});
+		ensureTabRuntime("t0");
+		setFocusedSessionRuntime("t0");
+		useSessionStore.setState({ sessionId: "old" });
+		const oldHealth = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState
+			.mockReturnValueOnce(oldHealth.promise)
+			.mockResolvedValue(success({ ...sessionState(), sessionId: "new" }));
+		omp.rpc.getMessages.mockResolvedValue(success({ messages: [textMessage("replacement history")] }));
+		await act(async () => {
+			emitSidecarStatus({ status: "ready", cwd: "/alpha" });
+		});
+		await flush();
+		useTabsStore.setState(current => ({
+			tabs: current.tabs.map(tab => ({ ...tab, pendingSessionPath: "/replacement.jsonl" })),
+		}));
+		await act(async () => {
+			emitTabStatus({
+				tabId: "t0",
+				kind: "agent",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				sessionId: "new",
+			});
+		});
+		await flush();
+		expect(useSessionStore.getState().sessionId).toBe("new");
+		expect(useMessagesStore.getState().messages).toEqual([textMessage("replacement history")]);
+		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/replacement.jsonl");
+		oldHealth.resolve(success({ ...sessionState(), sessionId: "old" }));
+		await flush();
+		expect(useSessionStore.getState().sessionId).toBe("new");
+		expect(useMessagesStore.getState().messages).toEqual([textMessage("replacement history")]);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
 	});
 
 	it("promotes a boot-time full prelude so reconciled light ready joins it", async () => {
@@ -1154,7 +1220,8 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
-		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
+		expect(omp.rpc.getSubagentMessages).not.toHaveBeenCalled();
 	});
 
 	it("waits for the reconciled boot owner when pending-open resolves first", async () => {
@@ -1951,7 +2018,7 @@ describe("useRpcEvents model switch sync", () => {
 	it("lands a model switch whose get_state races a trailing event from the same batch", async () => {
 		const { emitTabBatch, commandForTab } = installTabRoutedMockOmp();
 		useTabsStore.setState({
-			tabs: [{ kind: "agent", id: "t-model", cwd: "/alpha", status: "ready", unreadDone: false }],
+			tabs: [{ kind: "agent", id: "t-model", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false }],
 			activeTabId: "t-model",
 		});
 		ensureTabRuntime("t-model");
@@ -2033,7 +2100,7 @@ function settledState(overrides: Record<string, unknown>): RpcResponse {
 
 function seedReadyTab(tabId: string) {
 	useTabsStore.setState({
-		tabs: [{ kind: "agent", id: tabId, cwd: "/alpha", status: "ready", unreadDone: false }],
+		tabs: [{ kind: "agent", id: tabId, cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false }],
 		activeTabId: tabId,
 	});
 	ensureTabRuntime(tabId);

@@ -37,6 +37,7 @@ import type { RemoteHistorySession, SessionInfo, SshSessionTarget } from "../../
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow } from "../../hooks/use-session-switch";
+import { requestUsageReport } from "../../lib/command-registry";
 import { basename, cx, formatTimeAgo, sanitizeDisplayText, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -719,7 +720,11 @@ export function Sidebar() {
 									id: "usage",
 									icon: Coins,
 									label: t("titlebar.usage"),
-									onClick: () => useUiStore.getState().openUsage(),
+									onClick: () => {
+										void requestUsageReport(tabRpc.prompt).catch(error => {
+											toast({ variant: "error", title: t("palette.failed"), message: String(error) });
+										});
+									},
 								},
 								{
 									id: "stats",

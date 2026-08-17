@@ -63,7 +63,7 @@ interface OmpMock {
 
 function installOmpMock(overrides: Partial<OmpMock> = {}): OmpMock {
 	useTabsStore.setState({
-		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
+		tabs: [{ id: "t1", cwd: "/w", target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false }],
 		activeTabId: "t1",
 		bundles: new Map(),
 	});

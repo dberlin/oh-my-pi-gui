@@ -82,6 +82,7 @@ describe("omp 18.1.9 renderer parity", () => {
 	it("renders every image while an eval cell is still streaming", async () => {
 		await mount(
 			<EvalRenderer
+				view="expanded"
 				args={{ code: "display(first); display(second)", language: "python" }}
 				isPartial
 				partialResult={{
@@ -111,6 +112,7 @@ describe("omp 18.2.8 renderer parity", () => {
 		// the transcript showed paths and a folded JSON blob instead of images.
 		await mount(
 			<ImageRenderer
+				view="preview"
 				args={{ subject: "a red fox", action: "running through snow" }}
 				result={{
 					content: [{ type: "text", text: "Provider: openai\nModel: gpt-image-1\nGenerated 2 image(s):" }],
@@ -146,6 +148,7 @@ describe("read preview", () => {
 		// been switched off here.
 		await mount(
 			<ReadRenderer
+				view="preview"
 				args={{ path: "src/renderer/lib/diff.tsx" }}
 				result={{ content: [{ type: "text", text: "export const INITIAL_RENDER_ROWS = 150;\n" }] }}
 			/>,
@@ -160,6 +163,7 @@ describe("omp 18.3.0 coordination protocol renderers", () => {
 	it("renders wait snapshots as compact job and agent rows", async () => {
 		await mount(
 			<WaitRenderer
+				view="preview"
 				args={{}}
 				result={{
 					content: [{ type: "text", text: "Waiting on background work" }],
@@ -183,6 +187,7 @@ describe("omp 18.3.0 coordination protocol renderers", () => {
 	it("renders proc reads with structured job details instead of a file preview", async () => {
 		await mount(
 			<ReadRenderer
+				view="expanded"
 				args={{ path: "proc://build-42" }}
 				result={{
 					content: [{ type: "text", text: "build-42 [bash] — running" }],
@@ -204,6 +209,7 @@ describe("omp 18.3.0 coordination protocol renderers", () => {
 	it("renders agent messages and proc cancellation as protocol operations", async () => {
 		await mount(
 			<WriteRenderer
+				view="expanded"
 				args={{ path: "agent://Scout", content: "please recheck the API" }}
 				result={{
 					content: [{ type: "text", text: "Delivered to Scout." }],
@@ -218,6 +224,7 @@ describe("omp 18.3.0 coordination protocol renderers", () => {
 		await act(async () => root.unmount());
 		await mount(
 			<WriteRenderer
+				view="expanded"
 				args={{ path: "proc://build-42/kill" }}
 				result={{
 					content: [{ type: "text", text: "Cancelled build-42" }],

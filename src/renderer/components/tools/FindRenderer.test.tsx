@@ -60,6 +60,7 @@ describe("FindRenderer", () => {
 	it("ranks hits by content score regardless of wire order and shows the query", async () => {
 		await mount(
 			<FindRenderer
+				view="expanded"
 				args={{ query: "auth flow" }}
 				result={findResult({
 					query: "auth flow",
@@ -99,6 +100,7 @@ describe("FindRenderer", () => {
 	it("sanitizes snippet text: strips ANSI color and expands tabs", async () => {
 		await mount(
 			<FindRenderer
+				view="expanded"
 				args={{ query: "q" }}
 				result={findResult({
 					query: "q",
@@ -124,6 +126,7 @@ describe("FindRenderer", () => {
 	it("shows the empty-state label when the search verified no passages", async () => {
 		await mount(
 			<FindRenderer
+				view="preview"
 				args={{ query: "nothing" }}
 				result={findResult({
 					query: "nothing",
@@ -139,6 +142,7 @@ describe("FindRenderer", () => {
 	it("shows the failure label and suppresses the hit list on error", async () => {
 		await mount(
 			<FindRenderer
+				view="preview"
 				args={{ query: "boom" }}
 				isError
 				result={findResult(
@@ -155,6 +159,7 @@ describe("FindRenderer", () => {
 		setLanguage("zh");
 		await mount(
 			<FindRenderer
+				view="preview"
 				args={{ query: "boom" }}
 				isError
 				result={findResult({ query: "boom", hits: [] }, "index unavailable")}

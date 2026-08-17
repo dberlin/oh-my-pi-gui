@@ -94,7 +94,7 @@ async function keyDown(element: TestElement, key: string): Promise<void> {
 
 function seedTab(kind: SessionKind): void {
 	useTabsStore.setState({
-		tabs: [{ id: `t-${kind}`, cwd: "/tmp", status: "ready", kind, unreadDone: false }],
+		tabs: [{ id: `t-${kind}`, cwd: "/tmp", target: { type: "local" }, status: "ready", kind, unreadDone: false }],
 		activeTabId: `t-${kind}`,
 	});
 }

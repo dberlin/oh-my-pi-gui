@@ -14,6 +14,7 @@ import { useTodoStore } from "../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { buildSubagentList } from "../chat/activity/agent-tree-model";
+import { AgentViewContextBar } from "../chat/AgentViewContextBar";
 import { ChatCanvas } from "../chat/ChatStream";
 import { SubagentTranscript } from "./SubagentTranscript";
 
@@ -203,10 +204,22 @@ afterEach(async () => {
 	useSubagentsStore.getState().reset();
 	useTodoStore.getState().reset();
 	useToolsStore.getState().reset();
-	useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact", switchPending: null });
+	useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact" });
 });
 
 describe("selected transcript canvas", () => {
+	it("shows a restored Main session as asleep until its sidecar starts connecting", async () => {
+		useSessionStore.setState({ status: "asleep", isStreaming: false, switchPending: null });
+		await mount(<AgentViewContextBar />);
+		if (!container) throw new Error("Context bar mount missing");
+		expect(container.querySelector('[role="status"]')?.textContent).toBe("Asleep");
+
+		await act(async () => {
+			useSessionStore.setState({ status: "starting" });
+		});
+		expect(container.querySelector('[role="status"]')?.textContent).toBe("Connecting");
+	});
+
 	it("switches between Main and an isolated full-parity subagent projection", async () => {
 		const getSubagentMessages = vi.fn<AgentViewLoader["getSubagentMessages"]>(async () =>
 			ok({ messages: finalizedMessages, nextByte: 100, hasMore: false }),
@@ -263,6 +276,7 @@ describe("selected transcript canvas", () => {
 		useSessionStore.setState({
 			sessionId: "main-session",
 			status: "ready",
+			switchPending: null,
 			isStreaming: true,
 			retryInfo: {
 				attempt: 1,
@@ -273,7 +287,7 @@ describe("selected transcript canvas", () => {
 			},
 		});
 		useSettingsStore.setState({ showTokenUsage: true });
-		useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "full", switchPending: null });
+		useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "full" });
 
 		await mount(<ChatCanvas />);
 		if (!container) throw new Error("Canvas mount missing");
@@ -409,7 +423,8 @@ describe("selected transcript canvas", () => {
 		);
 		setSubagentLoader(getSubagentMessages);
 		useSubagentsStore.getState().setSnapshots([agent]);
-		useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "full", switchPending: null });
+		useSessionStore.setState({ switchPending: null });
+		useUiStore.setState({ thinkingExpanded: true, transcriptDetail: "full" });
 
 		const mainMessages = useMessagesStore.getState().messages;
 		const mainTools = useToolsStore.getState().activeTools;

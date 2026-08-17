@@ -37,7 +37,16 @@ function stripReadSelector(path: string): string {
 	return index > 1 ? path.slice(0, index) : path;
 }
 
-export function ReadRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function ReadRenderer({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	interrupted,
+	settled,
+	view,
+}: ToolRendererProps) {
 	const t = useT();
 	const path = typeof args.path === "string" ? args.path : "";
 	const effective = isPartial ? partialResult : result;
@@ -47,11 +56,14 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult }
 			<ProcReadRenderer
 				args={args}
 				id={path.replace(/^proc:\/\//i, "")}
+				interrupted={interrupted}
 				isError={isError}
 				isPartial={isPartial}
 				partialResult={partialResult}
 				procDetails={details.proc}
 				result={result}
+				settled={settled}
+				view={view}
 			/>
 		);
 	}

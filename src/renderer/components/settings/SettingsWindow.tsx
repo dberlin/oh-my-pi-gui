@@ -46,7 +46,7 @@ import {
 	profileToFlags,
 } from "../../../shared/launch-profile";
 import type { SettingEntry, SettingsSchemaResult, SidecarStatus } from "../../../shared/rpc-types";
-import { forkSessionFromGui, prefillComposer, retryFailedTurn } from "../../lib/command-registry";
+import { forkSessionFromGui, prefillComposer, requestUsageReport, retryFailedTurn } from "../../lib/command-registry";
 import { exportSessionHtml } from "../../lib/export-session";
 import { useLang, useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -740,7 +740,11 @@ export function SettingsWindow() {
 					external(() => useUiStore.getState().openProviderConfig());
 					return;
 				case "usage":
-					external(() => useUiStore.getState().openUsage());
+					external(() => {
+						void requestUsageReport(tabRpc.prompt).catch(error => {
+							toast({ variant: "error", title: t("palette.failed"), message: String(error) });
+						});
+					});
 					return;
 				case "agents":
 					external(() => useUiStore.getState().openAgentHub());

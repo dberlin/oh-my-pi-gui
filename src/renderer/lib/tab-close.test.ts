@@ -40,7 +40,7 @@ function installMockOmp(): MockOmp {
 }
 
 function tab(id: string, overrides: Partial<SessionTab> = {}): SessionTab {
-	return { kind: "agent", id, cwd: `/work/${id}`, status: "ready", unreadDone: false, ...overrides };
+	return { kind: "agent", id, cwd: `/work/${id}`, target: { type: "local" }, status: "ready", unreadDone: false, ...overrides };
 }
 
 let omp: MockOmp;
