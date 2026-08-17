@@ -361,6 +361,8 @@ export const KEYMAP_ACTIONS = [
 		overlaySafe: false,
 		hotkeyGroup: "session",
 	},
+	{ id: "tab.previous", labelKey: "hotkeys.row.tabPrevious", defaults: ["⌘["], overlaySafe: false, hotkeyGroup: "session" },
+	{ id: "tab.next", labelKey: "hotkeys.row.tabNext", defaults: ["⌘]"], overlaySafe: false, hotkeyGroup: "session" },
 	{
 		id: "settings",
 		labelKey: "hotkeys.row.settings",
