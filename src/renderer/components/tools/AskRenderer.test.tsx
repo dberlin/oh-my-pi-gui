@@ -18,6 +18,7 @@ function render(props: ToolRendererProps) {
 describe("Ask history", () => {
 	it("preserves original structured options and selects only the exact answer", () => {
 		const document = render({
+			view: "expanded",
 			args: {
 				questions: [
 					{
@@ -41,6 +42,7 @@ describe("Ask history", () => {
 
 	it("matches multiple answers to question ids and retains custom input and notes", () => {
 		const document = render({
+			view: "expanded",
 			args: {
 				questions: [
 					{ id: "one", question: "First?", options: [{ label: "Alpha" }] },
@@ -71,6 +73,7 @@ describe("Ask history", () => {
 
 	it("preserves a legacy question and an error result without inferring a selection", () => {
 		const document = render({
+			view: "expanded",
 			args: { question: "Continue?", options: ["Yes", "No"] },
 			result: "No response: cancelled",
 			isError: true,

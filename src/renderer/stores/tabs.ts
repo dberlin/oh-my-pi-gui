@@ -33,6 +33,7 @@ import { basename, sanitizeDisplayText } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
 import { acceptsActiveTabEvents, beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
+import { useAgentViewStore } from "./agent-view";
 import { type ComposerImage, type ComposerStore, useComposerStore } from "./composer";
 import type { ExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
@@ -46,6 +47,7 @@ import { type SessionStore, useSessionStore } from "./session";
 import {
 	deleteSessionRuntime,
 	focusedRuntimeTabId,
+	sessionRuntime,
 	sessionRuntimeStore,
 	setFocusedSessionRuntime,
 	useRuntimeTabId,
@@ -283,7 +285,7 @@ export interface TabsStore {
 	/** Apply authoritative get_state cwd to the active tab without replacing
 	 * its immutable target identity. SSH keeps the same target snapshot except
 	 * for its current cwd; local targets remain unchanged. */
-	applyHydratedCwd: (cwd: string | undefined) => void;
+	applyHydratedCwd: (cwd: string | undefined, tabId?: string | null) => void;
 	reset: () => void;
 }
 
@@ -524,7 +526,9 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const routedTab = get().tabs.find(tab => tab.id === id);
 		if (routedTab?.status === "ready" || routedTab?.status === "running") {
 			sessionRuntimeStore<SessionStore>(id, "session")?.getState().setStatus("ready", routedTab.cwd);
-			await hydrateTabSession(id);
+			const fullReady = joinFullReadyPrelude(id);
+			if (fullReady) await fullReady;
+			else if (!(await consumePendingSession(id))) await recoverReadySession(id);
 		}
 	},
 
@@ -704,8 +708,13 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			return { tabs };
 		});
 		const session = sessionRuntimeStore<SessionStore>(payload.tabId, "session");
-		if (sessionChanged && (payload.status === "ready" || payload.status === "running")) {
-			void hydrateTabSession(payload.tabId);
+		if (
+			sessionChanged &&
+			(payload.status === "ready" || payload.status === "running") &&
+			!previous?.pendingSessionPath &&
+			!pendingSessionConsumptions.has(payload.tabId)
+		) {
+			void recoverReadySession(payload.tabId);
 		}
 		if (session) {
 			session.getState().setStatus(payload.status === "running" ? "ready" : payload.status, payload.cwd);
@@ -719,11 +728,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 	},
 
-	applyHydratedCwd: cwd => {
+	applyHydratedCwd: (cwd, tabId = get().activeTabId) => {
 		if (cwd === undefined) return;
 		set(state => {
-			if (!state.activeTabId) return state;
-			const index = state.tabs.findIndex(tab => tab.id === state.activeTabId);
+			if (!tabId) return state;
+			const index = state.tabs.findIndex(tab => tab.id === tabId);
 			if (index === -1) return state;
 			const current = state.tabs[index];
 			if (!current) return state;
@@ -746,6 +755,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		for (const tab of get().tabs) deleteSessionRuntime(tab.id);
 		closedTabIds.clear();
 		setFocusedSessionRuntime(null);
+		useAgentViewStore.getState().reset();
 		resetTabRoute();
 		set({ tabs: [], activeTabId: null, bundles: new Map(), split: null });
 	},
@@ -762,8 +772,9 @@ const pendingSessionClaimed = Promise.resolve(true);
 
 /**
  * Apply the active ready tab's parked session path through its routed sidecar.
- * Clearing before the first await deduplicates full/light/route triggers; a
- * route or session-generation change restores the path for its owning tab.
+ * Clearing before the first await deduplicates full/light/route triggers. A
+ * route change or replaced owner restores the path for its owning tab before
+ * retrying against the current session.
  */
 export function consumePendingSession(tabId: string): Promise<boolean> {
 	const activeConsumption = pendingSessionConsumptions.get(tabId);
@@ -801,7 +812,7 @@ export function consumePendingSession(tabId: string): Promise<boolean> {
 				acceptsActiveTabEvents() &&
 				current.activeTabId === tabId &&
 				(currentTab?.status === "ready" || currentTab?.status === "running") &&
-				sessionRuntimeStore<SessionStore>(tabId, "session") !== undefined
+				sessionRuntime(tabId) === runtime
 			);
 		};
 		const canRetryRestoredPath = (): boolean => {
@@ -813,7 +824,8 @@ export function consumePendingSession(tabId: string): Promise<boolean> {
 				(currentTab?.status === "ready" || currentTab?.status === "running") &&
 				(claimedSwitchVersion !== switchVersion ||
 					sessionGeneration !== pendingSessionGeneration ||
-					currentTab.sessionId !== tab.sessionId)
+					currentTab.sessionId !== tab.sessionId ||
+					sessionRuntime(tabId) !== runtime)
 			);
 		};
 		const restorePendingPath = () => {
@@ -855,6 +867,9 @@ export function consumePendingSession(tabId: string): Promise<boolean> {
 					toast({ variant: "info", message: translate("sidebar.openCancelled") });
 					return true;
 				}
+				replaceTabRuntime(tabId);
+				sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().setStatus("ready", tab.cwd);
+				setFocusedSessionRuntime(tabId);
 			}
 			invalidateReadyRecovery(true, tabId);
 			sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().invalidateRefresh();

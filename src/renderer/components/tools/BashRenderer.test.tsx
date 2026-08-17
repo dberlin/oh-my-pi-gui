@@ -135,6 +135,7 @@ describe("BashRenderer", () => {
 	it("renders every terminal image returned beside bash output", async () => {
 		await mount(
 			<BashRenderer
+				view="expanded"
 				args={{ command: "show-images" }}
 				result={{
 					content: [

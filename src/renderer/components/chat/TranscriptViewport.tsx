@@ -686,11 +686,7 @@ export function ProcessGroup({
 }) {
 	return (
 		<div className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
-			<ExecutionGroup
-				expanded={expanded}
-				onExpandedChange={onExpandedChange}
-				stepCount={row.stepCount}
-			>
+			<ExecutionGroup expanded={expanded} onExpandedChange={onExpandedChange} stepCount={row.stepCount}>
 				<div className="omp-process-group">
 					{row.messages.map((message, index) => (
 						<MessageBubble

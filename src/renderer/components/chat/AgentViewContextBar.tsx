@@ -14,6 +14,7 @@ interface SessionStatusPresentation {
 }
 
 const SESSION_STATUS: Record<SidecarStatus, SessionStatusPresentation> = {
+	asleep: { labelKey: "titlebar.status.asleep", variant: "muted", live: false },
 	starting: { labelKey: "titlebar.status.connecting", variant: "info", live: true },
 	ready: { labelKey: "titlebar.status.ready", variant: "success", live: false },
 	exited: { labelKey: "agentView.status.disconnected", variant: "muted", live: false },

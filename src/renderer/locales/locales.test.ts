@@ -55,7 +55,6 @@ const TRANSLATED_NAMESPACES = [
 	"diffPanel.",
 	"sidecar.",
 	"panel.",
-	"usage.",
 	"providers.",
 	"modelValue.",
 	"tree.",

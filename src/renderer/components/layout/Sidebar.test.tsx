@@ -499,6 +499,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				{
 					id: "t0",
 					cwd: "/work/alpha",
+					target: { type: "local" },
 					status: "ready",
 					kind: "agent",
 					sessionId: "attached-id",

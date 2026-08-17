@@ -58,7 +58,7 @@ export type RpcCommand =
 	| { id?: string; type: "queue_clear"; lane?: "steering" | "followUp" }
 	| { id?: string; type: "get_session_stats" }
 	| { id?: string; type: "export_html"; outputPath?: string }
-	| { id?: string; type: "switch_session"; sessionPath: string; provider?: string; modelId?: string }
+	| { id?: string; type: "switch_session"; sessionPath: string }
 	| { id?: string; type: "branch"; entryId: string }
 	| { id?: string; type: "fork" }
 	| { id?: string; type: "get_branch_messages" }
@@ -70,9 +70,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_messages_page"; cursor?: string; limit?: number }
 	| { id?: string; type: "get_login_providers" }
 	| { id?: string; type: "login"; providerId: string }
-	| { id?: string; type: "get_logout_accounts"; providerId: string }
-	| { id?: string; type: "logout"; providerId: string; credentialId: number }
-	| { id?: string; type: "get_usage" }
+	| { id?: string; type: "logout"; providerId: string }
 	| { id?: string; type: "get_settings_schema" }
 	| { id?: string; type: "get_settings"; paths?: string[] }
 	| { id?: string; type: "set_setting"; path: string; value: unknown }
@@ -94,10 +92,6 @@ export type RpcCommand =
 	| { id?: string; type: "get_marketplaces" }
 	| { id?: string; type: "get_prompt_templates" }
 	| { id?: string; type: "get_memory_report" }
-	| { id?: string; type: "get_memory_overview"; cwd?: string }
-	| { id?: string; type: "get_memory_activity"; cwd?: string }
-	| { id?: string; type: "edit_memory"; cwd?: string; edit: RpcMemoryEdit }
-	| { id?: string; type: "update_memory"; cwd?: string; minIdleMinutes?: number }
 	| { id?: string; type: "get_security_dashboard" }
 	| { id?: string; type: "get_security_scan"; scanId: string }
 	| { id?: string; type: "get_ssh_hosts" }
@@ -141,10 +135,8 @@ export type RpcCommand =
 	| { id?: string; type: "get_goal" }
 	| { id?: string; type: "guided_goal"; initial?: string }
 	| { id?: string; type: "set_agents_paused"; enabled: boolean }
-	| { id?: string; type: "btw"; question: string; recordId?: string }
+	| { id?: string; type: "btw"; question: string }
 	| { id?: string; type: "btw_branch" }
-	| { id?: string; type: "btw_cancel"; recordId: string }
-	| { id?: string; type: "get_btw_history" }
 	| { id?: string; type: "tan"; work: string }
 	| { id?: string; type: "omfg"; complaint: string }
 	| {
@@ -199,12 +191,10 @@ export type RpcCommand =
 	  }
 	| { id?: string; type: "ssh_test"; host: RpcSshHostInput & { name: string } }
 
-	// Voice. Dictation: the GUI's microphone feeds the dictation model; words come back as
-	// `dictation_*` frames. `pcm16Base64` is little-endian PCM16 mono at 16 kHz.
-	| { id?: string; type: "dictation_start" }
-	| { id?: string; type: "dictation_audio"; pcm16Base64: string }
-	| { id?: string; type: "dictation_stop" }
-	| { id?: string; type: "dictation_cancel" }
+	// Voice (speech in/out). `transcribe_audio.audioBase64` carries a canonical
+	// RIFF/WAVE buffer — PCM16, mono, 16 kHz (the STT pipeline's native rate);
+	// `mimeType` is informational ("audio/wav").
+	| { id?: string; type: "transcribe_audio"; audioBase64: string; mimeType: string }
 	| { id?: string; type: "synthesize_speech"; text: string }
 	| { id?: string; type: "retry" }
 	| { id?: string; type: "clear_context" }
@@ -233,18 +223,10 @@ export type RpcCommand =
 	| { id?: string; type: "set_plugin_features"; pluginId: string; features: string[] }
 	| { id?: string; type: "set_plugin_setting"; pluginId: string; key: string; value: unknown }
 	| { id?: string; type: "delete_plugin_setting"; pluginId: string; key: string }
-	| { id?: string; type: "live_start"; voice?: string; instructions?: string }
+	| { id?: string; type: "live_start"; voice?: string }
+	| { id?: string; type: "live_toggle_mute" }
 	| { id?: string; type: "live_stop" }
-	| { id?: string; type: "live_mute"; muted?: boolean }
-	| { id?: string; type: "terminal_open"; cols?: number; rows?: number; cwd?: string }
-	| { id?: string; type: "terminal_input"; terminalId: string; data: string }
-	| { id?: string; type: "terminal_resize"; terminalId: string; cols: number; rows: number }
-	| { id?: string; type: "terminal_close"; terminalId: string }
-	| { id?: string; type: "terminal_list" }
-	| { id?: string; type: "terminal_snapshot"; terminalId: string }
-	| { id?: string; type: "terminal_configure"; interactiveCommands: boolean; agentTools?: boolean }
-	| { id?: string; type: "browser_host_start" }
-	| { id?: string; type: "browser_host_stop" }
+	| { id?: string; type: "get_live_state" }
 	| { id?: string; type: "debug"; params: RpcDebugParams }
 	| { id?: string; type: "collab_start"; relayUrl?: string; view?: boolean }
 	| { id?: string; type: "collab_join"; link: string }
@@ -388,30 +370,16 @@ export interface RpcAsyncJobItem {
 	/** Epoch ms when the job started. */
 	startTime: number;
 	endedAt?: number;
-	/** Subagent a task job runs. */
 	agentId?: string;
-	/** Subagent that owns the job; absent for the viewing agent's own jobs. */
-	ownerId?: string;
 	cancellationPending?: boolean;
 	resultPreview?: string;
 	errorPreview?: string;
 	previewTruncated?: boolean;
 }
 
-/** One get_jobs tree row: a job (a task job also heads its subagent), or a header for a subagent with no listed task job. */
-export interface RpcJobTreeRow {
-	/** 0 for the viewing agent's own jobs; one more per subagent level. */
-	depth: number;
-	job?: RpcAsyncJobItem;
-	/** Subagent this row heads. */
-	agentId?: string;
-}
-
 /** get_jobs result: running jobs first, then recent (TUI /jobs ordering). */
 export interface RpcJobsResult {
 	jobs: RpcAsyncJobItem[];
-	/** This agent's and its subagents' jobs nested as TUI /jobs shows them, in display order (newer sidecars). */
-	tree?: RpcJobTreeRow[];
 }
 
 export type RpcResponse = RpcResponseSuccess | RpcResponseError;
@@ -485,235 +453,26 @@ export interface RpcDebugParams {
 	timeout?: number;
 }
 
-export type RpcLivePhase = "connecting" | "listening" | "working" | "speaking" | "muted" | "error";
-
-/** Live session phase change. */
-export interface RpcLivePhaseFrame {
-	type: "live_phase";
-	phase: RpcLivePhase;
-}
-
-/** Microphone/speaker RMS in [0, 1], at most one frame per 100 ms. */
-export interface RpcLiveLevelsFrame {
-	type: "live_levels";
-	input: number;
-	output: number;
-}
-
-/** Incremental (`final: false`) or final transcript of one realtime turn; coalesce on `role` + `turn`. */
-export interface RpcLiveTranscriptFrame {
-	type: "live_transcript";
+export interface RpcLiveTranscript {
 	role: "user" | "assistant";
-	turn: number;
 	text: string;
+	turn: number;
 	final: boolean;
 }
 
-/** Emitted exactly once per live session when it has ended; `error` carries the failure cause. */
-export interface RpcLiveEndFrame {
-	type: "live_end";
-	error?: string;
-}
-
-export type RpcLiveFrame = RpcLivePhaseFrame | RpcLiveLevelsFrame | RpcLiveTranscriptFrame | RpcLiveEndFrame;
-
-export const LIVE_FRAME_TYPES: ReadonlySet<string> = new Set<RpcLiveFrame["type"]>([
-	"live_phase",
-	"live_levels",
-	"live_transcript",
-	"live_end",
-]);
-
-// ============================================================================
-// Dictation (upstream shape: coding-agent rpc-dictation.ts)
-// ============================================================================
-
-/**
- * `preparing`: loading (or downloading) the model, audio is not yet consumed;
- * `recording`: audio is transcribed live; `transcribing`: finishing after stop.
- */
-export type RpcDictationState = "preparing" | "recording" | "transcribing" | "idle";
-
-export interface RpcDictationStateFrame {
-	type: "dictation_state";
-	state: RpcDictationState;
-}
-
-/**
- * Edits to the composer: `volatile` replaces the in-progress words; `commit` inserts final
- * text at the dictation point; `clear` drops the in-progress words; `trim` deletes `count`
- * characters before the dictation point; `submit` sends, per `stt.submitTrigger`.
- */
-export type RpcDictationTextFrame =
-	| { type: "dictation_text"; op: "volatile"; text: string }
-	| { type: "dictation_text"; op: "commit"; text: string }
-	| { type: "dictation_text"; op: "clear" }
-	| { type: "dictation_text"; op: "trim"; count: number }
-	| { type: "dictation_text"; op: "submit" };
-
-export interface RpcDictationNoticeFrame {
-	type: "dictation_notice";
-	level: "warning" | "status";
-	message: string;
-}
-
-/** Download progress of the dictation model while preparing (integer percent, never decreasing). */
-export interface RpcDictationDownloadFrame {
-	type: "dictation_download";
-	label: string;
-	percent: number;
-}
-
-export type RpcDictationFrame =
-	| RpcDictationStateFrame
-	| RpcDictationTextFrame
-	| RpcDictationNoticeFrame
-	| RpcDictationDownloadFrame;
-
-export const DICTATION_FRAME_TYPES: ReadonlySet<string> = new Set<RpcDictationFrame["type"]>([
-	"dictation_state",
-	"dictation_text",
-	"dictation_notice",
-	"dictation_download",
-]);
-
-/** Result of `dictation_start`: `recording`, or `idle` when the start was cancelled or failed. */
-export interface RpcDictationStartResult {
-	state: RpcDictationState;
-}
-
-// ============================================================================
-// Terminals (sidecar-hosted PTYs; upstream shape: coding-agent rpc-terminal.ts)
-// ============================================================================
-
-/** One sidecar-hosted terminal. */
-export interface RpcTerminalInfo {
-	terminalId: string;
-	/**
-	 * `shell`: a login shell the user opened; `command`: a `pty: true` bash call
-	 * waiting on the user; `background`: a long-lived command the agent started
-	 * with its `terminal` tool (a dev server, a watcher).
-	 */
-	kind: "shell" | "command" | "background";
-	/** Shell name, or the command's first line. */
-	title: string;
-	cwd: string;
-	running: boolean;
-	exitCode?: number;
-	pid?: number;
-	cols: number;
-	rows: number;
-}
-
-/** A terminal exists; `reveal` asks the GUI to show it (an agent command waits for the user). */
-export interface RpcTerminalOpenedFrame {
-	type: "terminal_opened";
-	terminal: RpcTerminalInfo;
-	reveal?: boolean;
-}
-
-/** Raw PTY output; `seq` counts characters sent for this terminal through the end of `data`. */
-export interface RpcTerminalOutputFrame {
-	type: "terminal_output";
-	terminalId: string;
-	data: string;
-	seq: number;
-}
-
-/** The terminal's process ended; the terminal stays until closed. */
-export interface RpcTerminalExitFrame {
-	type: "terminal_exit";
-	terminalId: string;
-	exitCode?: number;
-	cancelled: boolean;
-	timedOut: boolean;
-}
-
-export interface RpcTerminalClosedFrame {
-	type: "terminal_closed";
-	terminalId: string;
-}
-
-export type RpcTerminalFrame =
-	| RpcTerminalOpenedFrame
-	| RpcTerminalOutputFrame
-	| RpcTerminalExitFrame
-	| RpcTerminalClosedFrame;
-
-export const TERMINAL_FRAME_TYPES: ReadonlySet<string> = new Set<RpcTerminalFrame["type"]>([
-	"terminal_opened",
-	"terminal_output",
-	"terminal_exit",
-	"terminal_closed",
-]);
-
-/** `terminal_snapshot` result: recent output through `seq`; later frames have a larger `seq`. */
-export interface RpcTerminalSnapshot {
-	terminal: RpcTerminalInfo;
-	data: string;
-	seq: number;
-}
-
-/** `browser_host_start` result: the relay websocket the GUI dials as the extension. */
-export interface RpcBrowserHostInfo {
-	extensionUrl: string;
-}
-
-/** One /btw turn (upstream wire shape: `session/btw-history`). */
-export interface BtwHistoryTurn {
-	question: string;
-	answer: string;
-	status: "running" | "complete" | "cancelled" | "error" | "interrupted";
-	createdAt: number;
-	updatedAt: number;
-	error?: string;
-}
-
-/** A side-question conversation: the root turn plus follow-up turns. */
-export interface BtwHistoryRecord extends BtwHistoryTurn {
-	id: string;
-	leafId: string | null;
-	followUps?: readonly BtwHistoryTurn[];
-}
-
-/** The latest (or root) turn of a btw record. */
-export function getBtwLatestTurn(record: BtwHistoryRecord): BtwHistoryTurn {
-	return record.followUps?.at(-1) ?? record;
-}
-
-/** One stored credential selectable for /logout (upstream `logout-account-selector`). */
-export interface LogoutAccount {
-	credentialId: number;
-	provider: string;
-	label: string;
-	detail: string;
-	type: "api_key" | "oauth";
+export interface RpcLiveState {
 	active: boolean;
-}
-
-/** Text appended to the running side question's latest answer. */
-export interface RpcBtwDeltaFrame {
-	type: "btw_delta";
-	recordId: string;
-	delta: string;
-}
-
-/** Full record snapshot on every lifecycle change: started, complete, cancelled, error. */
-export interface RpcBtwRecordFrame {
-	type: "btw_record";
-	record: BtwHistoryRecord;
-}
-
-export type RpcBtwFrame = RpcBtwDeltaFrame | RpcBtwRecordFrame;
-
-export const BTW_FRAME_TYPES: ReadonlySet<string> = new Set<RpcBtwFrame["type"]>(["btw_delta", "btw_record"]);
-
-export interface RpcLiveStartResult {
-	voice: string;
-}
-
-export interface RpcLiveMuteResult {
+	phase: "connecting" | "listening" | "working" | "speaking" | "muted" | "error";
 	muted: boolean;
+	inputLevel: number;
+	outputLevel: number;
+	transcript?: RpcLiveTranscript;
+	error?: string;
+}
+
+export interface RpcLiveUpdateFrame {
+	type: "live_update";
+	state: RpcLiveState;
 }
 
 export interface RpcCollabParticipant {
@@ -794,8 +553,6 @@ export interface RpcSkillInfo {
 	level: "user" | "project" | "native";
 	managed: boolean;
 	hidden: boolean;
-	/** Managed skills only: last write to SKILL.md, ms since epoch. */
-	modifiedAt?: number;
 }
 export interface RpcSkillsResult {
 	skills: RpcSkillInfo[];
@@ -1042,90 +799,6 @@ export interface RpcMemoryStatus {
 	message?: string;
 	error?: string;
 }
-/** One bullet of the user's notes or the captured lessons; edits name it by `line`. */
-export interface RpcMemoryListEntry {
-	line: string;
-	text: string;
-	context?: string;
-}
-
-/** Where a session stands in its project's memory (mirrors MemorySourceState). */
-export type RpcMemorySourceState =
-	| "remembered"
-	| "nothing"
-	| "forgotten"
-	| "reading"
-	| "failed"
-	| "waiting"
-	| "queued"
-	| "old";
-
-export interface RpcMemorySource {
-	threadId: string;
-	sessionPath?: string;
-	title?: string;
-	/** ms since epoch; 0 when unknown. */
-	updatedAt: number;
-	state: RpcMemorySourceState;
-	summary?: string;
-	readAt?: number;
-	changedSinceRead?: boolean;
-	forgottenAt?: number;
-	error?: string;
-}
-
-export interface RpcMemoryActivity {
-	phase: "reading" | "consolidating";
-	done: number;
-	total: number;
-	/** Another omp process holds the work; counts are unknown. */
-	elsewhere: boolean;
-}
-
-/** One project's local memory (mirrors MemoryOverview). */
-export interface RpcMemoryOverview {
-	cwd: string;
-	/** The project's memory folder (may not exist yet). */
-	root: string;
-	backend: string;
-	enabled: boolean;
-	notes: RpcMemoryListEntry[];
-	lessons: RpcMemoryListEntry[];
-	summary: string;
-	full: string;
-	playbooks: Array<{ name: string; description: string; content: string }>;
-	injection: {
-		tokens: { notes: number; summary: number; learned: number; budget: number };
-		notesIncluded: number;
-		lessonsIncluded: number;
-		summaryTruncated: boolean;
-	};
-	sources: RpcMemorySource[];
-	activity?: RpcMemoryActivity;
-	consolidation: { updatedAt?: number; error?: string; pending: boolean };
-	limits: { idleHours: number; maxAgeDays: number; perUpdate: number };
-	models: { read?: string; consolidate?: string };
-}
-
-export type RpcMemoryEdit =
-	| { kind: "note"; action: "add"; text: string }
-	| { kind: "note" | "lesson"; action: "update"; line: string; text: string; context?: string }
-	| { kind: "note" | "lesson"; action: "delete"; line: string }
-	| { kind: "source"; action: "forget" | "restore"; threadId: string }
-	| { kind: "erase" };
-
-export type RpcMemoryEditOutcome = { ok: true; line?: string } | { ok: false; reason: "empty" | "not_found" | "full" };
-
-export interface RpcMemoryEditResult {
-	result: RpcMemoryEditOutcome;
-	overview: RpcMemoryOverview;
-}
-
-export interface RpcMemoryUpdateResult {
-	started: boolean;
-	overview: RpcMemoryOverview;
-}
-
 /** Read-only memory backend report. */
 export interface RpcMemoryReport {
 	backend: string;
@@ -1348,12 +1021,6 @@ export interface ModelInfo {
 	/** Below the catalog these are reported only for models with a rate card. */
 	maxTokens?: number | null;
 	cost?: ModelCost;
-	/** Wire API the model speaks (`openai-responses`, `anthropic-messages`, …); present on `get_state`. */
-	api?: string;
-	/** Input modalities; `image` means snapcompact can archive history for this model. */
-	input?: string[];
-	/** Catalog-resolved quirks (an opaque bag here); the context strategy reads only `supportsServerCompaction`. */
-	compat?: object;
 }
 
 export interface RpcSessionState {
@@ -1934,49 +1601,6 @@ export interface LoginProvider {
 }
 
 // ============================================================================
-// Usage (provider quotas + local session tallies)
-// ============================================================================
-
-export interface UsageLimit {
-	id: string;
-	label: string;
-	usedFraction?: number;
-	used?: number;
-	limit?: number;
-	unit?: string;
-	remainingFraction?: number;
-	windowLabel?: string;
-	resetsAt?: number;
-	status?: string;
-	notes?: string[];
-}
-
-export interface UsageReport {
-	provider: string;
-	fetchedAt: number;
-	limits: UsageLimit[];
-	notes?: string[];
-	account?: string;
-	resetCreditsAvailable?: number;
-}
-
-export interface UsageSessionStats {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	totalTokens: number;
-	orchestrationTokens: number;
-	premiumRequests: number;
-	cost: number;
-}
-
-export interface UsageResult {
-	reports: UsageReport[];
-	session: UsageSessionStats;
-}
-
-// ============================================================================
 // Settings schema
 // ============================================================================
 
@@ -2156,6 +1780,11 @@ export interface SessionStats {
 // Voice (speech in/out)
 // ============================================================================
 
+/** Result of `transcribe_audio`: the recognized utterance. */
+export interface TranscribeAudioResult {
+	text: string;
+}
+
 /** Result of `synthesize_speech`: local TTS output as base64 WAV (PCM16). */
 export interface SynthesizeSpeechResult {
 	audioBase64: string;
@@ -2183,9 +1812,7 @@ export type OutboundFrame =
 	| CommandOutputFrame
 	| SessionInfoUpdateFrame
 	| ConfigUpdateFrame
-	| RpcLiveFrame
-	| RpcDictationFrame
-	| RpcTerminalFrame
+	| RpcLiveUpdateFrame
 	| ModelCatalogUpdateFrame
 	| ExtensionErrorFrame;
 
@@ -2373,6 +2000,4 @@ export interface SidecarStatusPayload {
 	message?: string;
 	cwd: string;
 	restart?: SidecarRestartProgress;
-	/** On `ready`: the saved session model that could not be restored; the session resumed on the default model. */
-	modelFallback?: string;
 }

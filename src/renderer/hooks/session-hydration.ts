@@ -59,6 +59,7 @@ export function applySessionState(state: RpcSessionState, fallbackName?: string)
 	if (useSessionStore.getState().sessionId !== state.sessionId) useSubagentGraphStore.getState().reset();
 	useModelStore.getState().setFromState(state);
 	useSessionStore.getState().setFromState(state);
+	useTabsStore.getState().applyHydratedCwd(state.cwd, runtime?.tabId ?? useTabsStore.getState().activeTabId);
 	writeUsage(state);
 	if (!state.sessionName && fallbackName) {
 		useSessionStore.setState({ sessionName: fallbackName });
@@ -318,7 +319,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 			).map(snapshot => [snapshot.id, snapshot]),
 		);
 		for (const snapshot of data?.subagents ?? []) roster.set(snapshot.id, snapshot);
-		if (useSubagentsStore.getState().subagents === beforeRoster) subagents.setSnapshots([...roster.values()]);
+		if (useSubagentsStore.getState().subagents === beforeRoster) subagents.setSnapshots([...roster.values()], true);
 	}
 	if (isCurrent()) {
 		const selectedView = useAgentViewStore.getState();
@@ -487,7 +488,7 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		);
 		for (const snapshot of data?.subagents ?? []) roster.set(snapshot.id, snapshot);
 		if (subagents && subagents.getState().subagents === beforeRoster) {
-			subagents.getState().setSnapshots([...roster.values()]);
+			subagents.getState().setSnapshots([...roster.values()], true);
 		}
 	}
 	const selectedView = agentView?.getState();

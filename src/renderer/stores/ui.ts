@@ -33,7 +33,6 @@ interface UiStore {
 	modelPickerOpen: boolean;
 	settingsOpen: boolean;
 	settingsTab: string;
-	usageOpen: boolean;
 	providersOpen: boolean;
 	modelRolesOpen: boolean;
 	statsDashboardOpen: boolean;
@@ -121,8 +120,6 @@ interface UiStore {
 	closeModelPicker: () => void;
 	openSettings: (tab?: string) => void;
 	closeSettings: () => void;
-	openUsage: () => void;
-	closeUsage: () => void;
 	openProviders: () => void;
 	closeProviders: () => void;
 	openModelRoles: () => void;
@@ -274,10 +271,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			settingsTab: tab ?? (state.settingsOpen ? state.settingsTab : "capabilities"),
 		})),
 	closeSettings: () => set({ settingsOpen: false }),
-	usageOpen: false,
 	providersOpen: false,
-	openUsage: () => set({ usageOpen: true }),
-	closeUsage: () => set({ usageOpen: false }),
 	openProviders: () => set({ providersOpen: true }),
 	closeProviders: () => set({ providersOpen: false }),
 	modelRolesOpen: false,

@@ -1,10 +1,9 @@
 /**
  * tabs store contract tests:
  * - boot GET_TABS reconciliation (initial sidecar = tab 0, never duplicated)
- * - switchTab snapshots the current tab's session-scoped slices (messages,
- *   session meta, todos, subagents, queue, model, composer draft), restores
- *   the target's bundle for instant paint, fires SET_ACTIVE_TAB BEFORE
- *   hydrate, then hydrates from the target sidecar
+ * - switchTab retains each tab's session runtime for instant paint, routes
+ *   SET_ACTIVE_TAB before hydration, then refreshes the owning sidecar without
+ *   moving selected-agent targets or transcripts between tabs
  * - closeTab keeps ≥1 tab and activates a neighbor when the active tab closes
  * - applyTabStatus stamps unreadDone on background run completion
  * - useSessionTabs completes the open-in-new-tab flow (pending session path
@@ -40,7 +39,7 @@ import { buildSubagentList } from "../components/chat/activity/agent-tree-model"
 import { recoverReadySession } from "../hooks/use-rpc-events";
 import { resolveMainToolCall } from "../lib/read-group";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
-import { useAgentViewStore } from "./agent-view";
+import { type AgentViewStore, useAgentViewStore } from "./agent-view";
 import { useComposerStore } from "./composer";
 import { useExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
@@ -49,7 +48,7 @@ import { useModelStore } from "./model";
 import { usePlanApprovalStore } from "./plan-approval";
 import { useQueueStore } from "./queue";
 import { useSessionStore } from "./session";
-import { sessionRuntime, setFocusedSessionRuntime } from "./session-runtime-context";
+import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "./session-runtime-context";
 import { useSubagentsStore } from "./subagents";
 import { ensureTabRuntime } from "./tab-runtime";
 import {
@@ -391,19 +390,34 @@ describe("tabs store boot reconciliation", () => {
 		seedTabs();
 		useTabsStore
 			.getState()
-			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "before-restart" });
+			.applyTabStatus({
+				kind: "agent",
+				tabId: "t0",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				sessionId: "before-restart",
+			});
 		useComposerStore.getState().setDraft("unsent recovery draft");
 		useComposerStore.getState().setSubmissionUncertain(true);
 		useTabsStore.getState().applyTabStatus({
 			kind: "agent",
 			tabId: "t0",
 			cwd: "/alpha",
+			target: { type: "local" },
 			status: "starting",
 			sessionId: "before-restart",
 		});
 		useTabsStore
 			.getState()
-			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "after-restart" });
+			.applyTabStatus({
+				kind: "agent",
+				tabId: "t0",
+				cwd: "/alpha",
+				target: { type: "local" },
+				status: "ready",
+				sessionId: "after-restart",
+			});
 		expect(useComposerStore.getState()).toMatchObject({
 			draft: "unsent recovery draft",
 			sending: false,
@@ -422,7 +436,6 @@ describe("tabs store boot reconciliation", () => {
 			sessionId: "s-old",
 		});
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: "old-agent" });
-		const generation = useAgentViewStore.getState().generation;
 		omp.tabs.list.mockResolvedValue([
 			{ ...tabInfo("t0", "/alpha"), sessionId: "s-new" },
 			tabInfo("t1", "/beta"),
@@ -432,7 +445,6 @@ describe("tabs store boot reconciliation", () => {
 		await useTabsStore.getState().reconcileTabs();
 
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
-		expect(useAgentViewStore.getState().generation).toBe(generation + 1);
 	});
 });
 
@@ -976,7 +988,7 @@ describe("tabs store switch", () => {
 
 		expect(omp.rpc.getMessages).not.toHaveBeenCalled();
 	});
-	it("captures only agent target identity and reloads its projection after route hydration", async () => {
+	it("retains each tab's selected target and transcript until authoritative route hydration", async () => {
 		seedTabs();
 		const agent: SubagentSnapshot = {
 			id: "agent-t0",
@@ -995,9 +1007,10 @@ describe("tabs store switch", () => {
 
 		await useTabsStore.getState().switchTab("t1");
 
-		const parked = useTabsStore.getState().bundles.get("t0");
-		expect(parked?.agentViewTarget).toEqual({ kind: "subagent", id: agent.id });
-		expect(JSON.stringify(parked)).not.toContain("private transcript bytes");
+		expect(sessionRuntimeStore<AgentViewStore>("t0", "agentView")?.getState().target).toEqual({
+			kind: "subagent",
+			id: agent.id,
+		});
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
 
 		omp.rpc.getSubagents.mockResolvedValue(ok({ subagents: [agent] }));
@@ -1009,7 +1022,7 @@ describe("tabs store switch", () => {
 		const switchingBack = useTabsStore.getState().switchTab("t0");
 
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: agent.id });
-		expect(useAgentViewStore.getState().messages.messages).toEqual([]);
+		expect(useAgentViewStore.getState().messages.messages).toEqual([msg("private transcript bytes")]);
 		hydrateGate.resolve(ok({ messages: [] }));
 		await switchingBack;
 
@@ -1043,7 +1056,7 @@ describe("tabs store switch", () => {
 		expect(useAgentViewStore.getState().messages.messages).toEqual([msg("recovered route transcript")]);
 	});
 
-	it("invalidates an in-flight selected-agent page when switching tabs", async () => {
+	it("settles an in-flight selected-agent page only into its owning background tab", async () => {
 		seedTabs();
 		const selected: SubagentSnapshot = {
 			id: "agent-t0",
@@ -1064,6 +1077,12 @@ describe("tabs store switch", () => {
 
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
 		expect(useAgentViewStore.getState().messages.messages).toEqual([]);
+		expect(sessionRuntimeStore<AgentViewStore>("t0", "agentView")?.getState().messages.messages).toEqual([
+			msg("stale t0 projection"),
+		]);
+		omp.rpc.getSubagents.mockResolvedValue(ok({ subagents: [selected] }));
+		await useTabsStore.getState().switchTab("t0");
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
 	});
 
 	it("uses the same routed roster and transcript RPCs when restoring a selected target on an SSH tab", async () => {
@@ -1097,26 +1116,25 @@ describe("tabs store switch", () => {
 		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, selected.sessionFile, 0);
 		expect(useAgentViewStore.getState().messages.messages).toEqual([msg("remote transcript")]);
 	});
-	it("rejects an old A recovery across an A-to-B-to-A route cycle", async () => {
+	it("joins the owning A recovery across an A-to-B-to-A route cycle", async () => {
 		seedTabs();
 		useTabsStore.setState(state => ({
 			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "starting" } : tab)),
 		}));
-		const staleA = Promise.withResolvers<RpcResponse>();
-		omp.rpc.getState
-			.mockReturnValueOnce(staleA.promise)
-			.mockResolvedValue(ok(serverState({ sessionId: "fresh-a", cwd: "/fresh-a" })));
+		const pendingA = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(pendingA.promise);
 
 		const oldRecovery = recoverReadySession("t0");
 		await useTabsStore.getState().switchTab("t1");
 		const switchingBack = useTabsStore.getState().switchTab("t0");
 		await Promise.resolve();
-		staleA.resolve(ok(serverState({ sessionId: "stale-a", cwd: "/stale-a" })));
+		expect(useSessionStore.getState().sessionId).not.toBe("recovered-a");
+		pendingA.resolve(ok(serverState({ sessionId: "recovered-a", cwd: "/recovered-a" })));
 		await Promise.all([oldRecovery, switchingBack]);
 
-		expect(omp.rpc.getState).toHaveBeenCalledTimes(2);
-		expect(useSessionStore.getState().sessionId).toBe("fresh-a");
-		expect(useSessionStore.getState().cwd).toBe("/fresh-a");
+		expect(omp.rpc.getState).toHaveBeenCalledTimes(1);
+		expect(useSessionStore.getState().sessionId).toBe("recovered-a");
+		expect(useSessionStore.getState().cwd).toBe("/recovered-a");
 	});
 
 	it("rejects a delayed roster poll after switching to a newer tab roster", async () => {
@@ -1408,7 +1426,6 @@ describe("tabs store applyTabStatus", () => {
 			sessionId: "s-old",
 		});
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: "old-agent" });
-		const generation = useAgentViewStore.getState().generation;
 
 		useTabsStore.getState().applyTabStatus({
 			kind: "agent",
@@ -1420,19 +1437,16 @@ describe("tabs store applyTabStatus", () => {
 		});
 
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
-		expect(useAgentViewStore.getState().generation).toBe(generation + 1);
 	});
 });
 
 describe("tabs store reset", () => {
-	it("returns the view to Main and invalidates its generation", () => {
+	it("returns the view to Main", () => {
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: "old-agent" });
-		const generation = useAgentViewStore.getState().generation;
 
 		useTabsStore.getState().reset();
 
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
-		expect(useAgentViewStore.getState().generation).toBe(generation + 1);
 	});
 });
 describe("useSessionTabs hook", () => {
@@ -1554,6 +1568,8 @@ describe("useSessionTabs hook", () => {
 			activeTabId: "t1",
 			bundles: new Map(),
 		});
+		ensureTabRuntime("t1");
+		setFocusedSessionRuntime("t1");
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: agent.id });
 		useSessionStore.setState({ status: "starting" });
 		omp.rpc.getSubagents.mockResolvedValue(ok({ subagents: [agent] }));
@@ -1592,8 +1608,12 @@ describe("useSessionTabs hook", () => {
 			activeTabId: "t1",
 			bundles: new Map(),
 		});
+		ensureTabRuntime("t1");
+		setFocusedSessionRuntime("t1");
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: agent.id });
 		useSessionStore.setState({ status: "starting", sessionId: "cached-session" });
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("t1", "/beta", "starting"), sessionId: "cached-session" }]);
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "cached-session" })));
 		omp.rpc.getSubagents.mockReturnValue(roster.promise);
 		omp.rpc.getSubagentMessages.mockResolvedValue(
 			ok({ messages: [msg("full-ready agent transcript")], nextByte: 12, hasMore: false }),
@@ -1635,8 +1655,9 @@ describe("useSessionTabs hook", () => {
 			activeTabId: "t1",
 			bundles: new Map(),
 		});
+		ensureTabRuntime("t1");
+		setFocusedSessionRuntime("t1");
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: "old-session-agent" });
-		const generation = useAgentViewStore.getState().generation;
 		await mount();
 
 		await act(async () => {
@@ -1653,7 +1674,6 @@ describe("useSessionTabs hook", () => {
 		expect(omp.rpc.getState).toHaveBeenCalled();
 		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
-		expect(useAgentViewStore.getState().generation).toBe(generation + 1);
 
 		// A duplicate ready push must not re-enter the flow.
 		await act(async () => {
@@ -1947,6 +1967,7 @@ describe("tab runtime lifecycle guards", () => {
 			kind: "agent",
 			tabId: "t0",
 			cwd: "/alpha",
+			target: { type: "local" },
 			status: "ready",
 			sessionId: "s-old",
 			sessionPath: "/old.jsonl",
@@ -1958,6 +1979,7 @@ describe("tab runtime lifecycle guards", () => {
 			kind: "agent",
 			tabId: "t0",
 			cwd: "/alpha",
+			target: { type: "local" },
 			status: "ready",
 			sessionId: "s-new",
 			sessionPath: "/new.jsonl",

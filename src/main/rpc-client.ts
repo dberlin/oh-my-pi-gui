@@ -7,9 +7,10 @@ import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 const DEFAULT_TIMEOUT_MS = 8_000;
 
 interface PendingRequest {
+	command: RpcCommand["type"];
 	resolve: (response: RpcResponse) => void;
 	reject: (error: Error) => void;
-	timer: ReturnType<typeof setTimeout>;
+	timer: NodeJS.Timeout;
 }
 
 export class RpcClient {
@@ -34,7 +35,7 @@ export class RpcClient {
 			reject(new Error(`RPC timeout (${timeout}ms): ${(cmd as { type: string }).type}`));
 		}, timeout);
 
-		this.#pending.set(id, { resolve, reject, timer });
+		this.#pending.set(id, { command: cmd.type, resolve, reject, timer });
 		this.#send({ ...cmd, id });
 		return promise;
 	}
@@ -49,7 +50,22 @@ export class RpcClient {
 	/** Route an inbound response frame to its waiting promise. */
 	onResponse(frame: RpcResponse): boolean {
 		const id = frame.id;
-		if (!id) return false;
+		if (!id) {
+			if (frame.success || frame.error !== `Unknown command: ${frame.command}`) return false;
+			let handled = false;
+			for (const [pendingId, entry] of this.#pending) {
+				if (entry.command !== frame.command) continue;
+				clearTimeout(entry.timer);
+				this.#pending.delete(pendingId);
+				entry.reject(
+					new Error(
+						`RPC command "${frame.command}" is not supported by the connected coding agent (${frame.error})`,
+					),
+				);
+				handled = true;
+			}
+			return handled;
+		}
 
 		const entry = this.#pending.get(id);
 		if (!entry) return false;

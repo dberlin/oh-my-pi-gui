@@ -22,6 +22,8 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 /** Structural stand-in for linkedom nodes, keeping tests decoupled from its types. */
 interface TestElement {
 	textContent: string | null;
+	getAttribute: (name: string) => string | null;
+	dispatchEvent: (event: Event) => boolean;
 	remove: () => void;
 	querySelector: (selector: string) => TestElement | null;
 	querySelectorAll: (selector: string) => TestElement[];
@@ -82,11 +84,28 @@ describe("ThinkingBlock", () => {
 		expect(container.querySelector("code.language-ts")).toBeNull();
 	});
 
-	it("does not mount markdown while the live block is collapsed", async () => {
+	it("exposes only a bounded preview until compact reasoning is expanded", async () => {
+		const text = `Visible reasoning preview ${"detail ".repeat(80)}HIDDEN_REASONING_TAIL`;
 		useUiStore.getState().setThinkingExpanded(false);
-		await mount(<ThinkingBlock live text={HEADLINED_THINKING} />);
-		expect(container.querySelector(".markdown-body")).toBeNull();
-		expect(container.querySelector(".omp-thinking-body")).toBeNull();
+		await mount(<ThinkingBlock compact text={text} />);
+
+		const toggle = container.querySelector(".omp-thinking-compact-toggle");
+		const regionId = toggle?.getAttribute("aria-controls");
+		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+		expect(regionId).toBeTruthy();
+		const collapsedRegion = regionId ? (document.getElementById(regionId) as unknown as TestElement | null) : null;
+		expect(collapsedRegion?.textContent).toContain("Visible reasoning preview");
+		expect(collapsedRegion?.textContent).not.toContain("HIDDEN_REASONING_TAIL");
+		expect(collapsedRegion?.querySelector(".markdown-body")).not.toBeNull();
+
+		await act(async () => {
+			toggle?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+
+		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+		const expandedRegion = regionId ? (document.getElementById(regionId) as unknown as TestElement | null) : null;
+		expect(expandedRegion?.textContent).toContain("HIDDEN_REASONING_TAIL");
+		expect(expandedRegion?.querySelector(".markdown-body")).not.toBeNull();
 	});
 
 	it("uses only the streaming caret as motion while visible reasoning grows", async () => {

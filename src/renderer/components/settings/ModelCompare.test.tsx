@@ -17,7 +17,6 @@ import type {
 	ProviderInfo,
 	RpcCommand,
 	RpcResponse,
-	UsageReport,
 } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
@@ -57,10 +56,6 @@ function role(partial: Partial<ModelRoleEntry> & { id: string }): ModelRoleEntry
 	};
 }
 
-function report(partial: Partial<UsageReport> & { provider: string }): UsageReport {
-	return { fetchedAt: Date.now(), limits: [], ...partial };
-}
-
 describe("formatCost", () => {
 	it("formats per-million costs and trims insignificant zeros without eating integer zeros", () => {
 		expect(formatCost(0)).toBe("$0");
@@ -80,7 +75,6 @@ describe("buildModelRows", () => {
 			models: [model({ provider: "anthropic", id: "claude-opus" }), model({ provider: "local", id: "llama" })],
 			providers: [provider({ id: "anthropic", name: "Anthropic", authenticated: true, authKind: "oauth" })],
 			roles: [],
-			usage: [],
 		});
 		expect(rows[0]).toMatchObject({
 			providerName: "Anthropic",
@@ -97,11 +91,9 @@ describe("buildModelRows", () => {
 			models: [model({ provider: "openai", id: "gpt-5" })],
 			providers: [],
 			roles: null,
-			usage: null,
 		});
 		expect(rows[0].authKnown).toBe(false);
 		expect(rows[0].roles).toEqual([]);
-		expect(rows[0].quota).toBeNull();
 	});
 
 	it("matches role assignments by exact provider/id key only", () => {
@@ -115,33 +107,9 @@ describe("buildModelRows", () => {
 				role({ id: "default", model: "anthropic/claude-opus" }),
 				role({ id: "smol", model: "claude-opus" }), // bare id — must not match
 			],
-			usage: null,
 		});
 		expect(rows[0].roles.map(r => r.id)).toEqual(["default"]);
 		expect(rows[1].roles).toEqual([]);
-	});
-
-	it("picks the tightest usage limit per provider, preferring usedFraction then used/limit", () => {
-		const usage = [
-			report({
-				provider: "anthropic",
-				limits: [
-					{ id: "weekly", label: "Weekly", usedFraction: 0.4 },
-					{ id: "hourly", label: "Hourly", usedFraction: 0.9 },
-				],
-			}),
-			report({ provider: "openai", limits: [{ id: "req", label: "Requests", used: 30, limit: 60 }] }),
-		];
-		const rows = buildModelRows({
-			models: [model({ provider: "anthropic", id: "a" }), model({ provider: "openai", id: "b" })],
-			providers: [],
-			roles: null,
-			usage,
-		});
-		expect(rows[0].quota?.limit.id).toBe("hourly");
-		expect(rows[0].quota?.fraction).toBe(0.9);
-		expect(rows[1].quota?.limit.id).toBe("req");
-		expect(rows[1].quota?.fraction).toBe(0.5);
 	});
 
 	it("reads optional wire metadata defensively: missing cost/context become null, name equal to id is dropped", () => {
@@ -158,7 +126,6 @@ describe("buildModelRows", () => {
 			],
 			providers: [],
 			roles: null,
-			usage: null,
 		});
 		expect(rows[0]).toMatchObject({ name: "Rich Model", contextWindow: 200_000, costIn: 3, costOut: 15 });
 		expect(rows[1]).toMatchObject({ name: null, contextWindow: null, costIn: null, costOut: null });
@@ -229,7 +196,6 @@ Object.assign(window as unknown as Record<string, unknown>, {
 			setModelRole: vi.fn(async (): Promise<RpcResponse> => ok("set_model_role")),
 			getModelRoles: vi.fn(async (): Promise<RpcResponse> => ok("get_model_roles", { roles: [] })),
 			getModelRoleMetadata: vi.fn(async (): Promise<RpcResponse> => ok("get_model_role_metadata", { roles: [] })),
-			getUsage: vi.fn(async (): Promise<RpcResponse> => ok("get_usage", { reports: [] })),
 		},
 	},
 });
@@ -277,6 +243,32 @@ afterEach(async () => {
 });
 
 describe("ModelCompare row availability", () => {
+	it("keeps a newer pushed catalog when the opening read finishes late", async () => {
+		command.mockImplementationOnce(async req => {
+			useModelStore.getState().applyCatalogUpdate({
+				type: "model_catalog_update",
+				providers: [providerInfo("new")],
+				models: [{ provider: "new", id: "new-model" }],
+				discoveryStates: [],
+				refreshPending: false,
+				generation: 2,
+			});
+			return ok(req.type, {
+				providers: [providerInfo("old")],
+				models: [{ provider: "old", id: "old-model" }],
+				discoveryStates: [],
+				refreshPending: false,
+				generation: 1,
+			});
+		});
+
+		await mountMatrix();
+
+		expect(rowFor("new-model")?.textContent).toContain("new-model");
+		expect(rowFor("old-model")).toBeUndefined();
+		expect(useModelStore.getState().providers.map(item => item.id)).toEqual(["new"]);
+	});
+
 	it("will not point the session at a provider that is off or signed out", async () => {
 		await mountMatrix();
 

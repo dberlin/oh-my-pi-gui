@@ -3,9 +3,7 @@
  * Type-safe contract for the contextBridge API.
  */
 
-import type { KeyEventLike } from "./chord";
 import type { LaunchProfile } from "./launch-profile";
-import type { SessionModelOverride } from "./model-restore";
 import type {
 	AgentMessage,
 	AgentSessionEvent,
@@ -23,18 +21,14 @@ import type {
 	ImageContent,
 	ModelCatalogUpdateFrame,
 	PromptResultFrame,
-	RpcBtwFrame,
 	RpcCommand,
 	RpcDebugParams,
-	RpcDictationFrame,
-	RpcLiveFrame,
+	RpcLiveUpdateFrame,
 	RpcMcpServerInput,
-	RpcMemoryEdit,
 	RpcResponse,
 	RpcSecurityDispositionStatus,
 	RpcSecurityTargetInput,
 	RpcSshHostInput,
-	RpcTerminalFrame,
 	SessionInfoUpdateFrame,
 	SidecarStatus,
 	SidecarStatusPayload,
@@ -75,17 +69,11 @@ export const IPC_EVENTS = {
 	/** Extension runtime hook failed */
 	EXTENSION_ERROR: "extension:error",
 	/** Realtime voice session state/levels/transcript update. */
-	LIVE_FRAME: "live:frame",
-	/** Dictation state, composer edits, notices, and model download progress. */
-	DICTATION_FRAME: "dictation:frame",
-	/** /btw side-question streaming delta or lifecycle record update. */
-	BTW_FRAME: "btw:frame",
+	LIVE_UPDATE: "live:update",
 	/** Model/provider discovery completed after a bounded listing response. */
 	MODEL_CATALOG_UPDATE: "model-catalog:update",
 	/** Session list changed */
 	SESSIONS_CHANGED: "sessions:changed",
-	/** Learned skills or a project's memory changed on disk (any omp process). */
-	MEMORY_CHANGED: "memory:changed",
 	/** Log line appended */
 	LOG_LINE: "log:line",
 	/** Stats data ready */
@@ -100,12 +88,6 @@ export const IPC_EVENTS = {
 	PROGRESS_SET: "progress:set",
 	/** Auto-update status machine push (idle/checking/available/downloading/downloaded/not-available/error) */
 	UPDATER_STATUS: "updater:status",
-	/** Sidecar terminal frame for any tab of the window, visible or not (IpcTerminalFramePayload). */
-	TERMINAL_FRAME: "terminal:frame",
-	/** A tab's built-in browser changed: pages, navigation, agent link (IpcBrowserState). */
-	BROWSER_STATE: "browser:state",
-	/** A key the focused built-in browser page handed to the app (IpcBrowserKeyPayload). */
-	BROWSER_KEY: "browser:key",
 } as const;
 
 // ============================================================================
@@ -141,8 +123,6 @@ export const IPC_COMMANDS = {
 	SESSIONS_RENAME: "sessions:rename",
 	/** Full-content search over session files; returns matching paths */
 	SESSIONS_SEARCH: "sessions:search",
-	/** Message-level search over what was said in sessions (user and assistant text only). */
-	CONVERSATIONS_SEARCH: "conversations:search",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -237,18 +217,6 @@ export const IPC_COMMANDS = {
 	UPDATER_GET_STATUS: "updater:getStatus",
 	/** Current app version (settings → updates row) */
 	UPDATER_VERSION: "updater:version",
-	/** A tab's built-in browser state (IpcBrowserState). */
-	BROWSER_GET_STATE: "browser:get-state",
-	/** Open a page the user asked for in a tab's built-in browser. */
-	BROWSER_OPEN: "browser:open",
-	/** Navigate, go back/forward, reload/stop, inspect, or open externally (IpcBrowserActionPayload). */
-	BROWSER_ACTION: "browser:action",
-	/** Place (or hide, with null bounds) a tab's active page over the panel's viewport. */
-	BROWSER_SET_VIEWPORT: "browser:set-viewport",
-	/** Still image of a tab's active page, shown while a dialog covers the live view. */
-	BROWSER_CAPTURE: "browser:capture",
-	/** The app keymap's chords, so a focused page hands them to the app instead of keeping them. */
-	BROWSER_SET_SHORTCUTS: "browser:set-shortcuts",
 } as const;
 
 export type RuntimeErrorSource =
@@ -329,7 +297,6 @@ export type MenuAction =
 	| "restart-sidecar"
 	| "open-workspace-dirs"
 	| "open-agent-hub"
-	| "open-memory"
 	| "open-modes"
 	| "open-providers"
 	| "open-model-roles"
@@ -897,47 +864,6 @@ export type TabStatus = SidecarStatus | "running";
 /** Session kind: "agent" (tools enabled) or "chat" (tool-free conversation). */
 export type SessionKind = "agent" | "chat";
 
-/** One message that matched a conversation search. */
-export interface ConversationHit {
-	/** The session entry id, used to open the transcript at this message. */
-	entryId: string;
-	role: "user" | "assistant";
-	/** One line around the match; matches are wrapped in \u0001…\u0002. */
-	snippet: string;
-	/** ms since epoch; 0 when unknown. */
-	timestamp: number;
-}
-
-/** A session with matching messages, newest activity first. */
-export interface ConversationSearchResult {
-	path: string;
-	sessionId: string;
-	cwd: string;
-	title: string | null;
-	kind?: "chat";
-	/** File modification time, ms since epoch. */
-	modified: number;
-	hits: ConversationHit[];
-	/** Further matching messages not shown. */
-	more: number;
-}
-
-export interface ConversationSearchResponse {
-	results: ConversationSearchResult[];
-	/** Sessions in the index. */
-	indexed: number;
-	/** Present while sessions are still being read into the index. */
-	indexing: { done: number; total: number } | null;
-	/** The index could not be opened; search is off for this run. */
-	unavailable?: boolean;
-}
-
-export interface IpcConversationSearchPayload {
-	query: string;
-	/** Limit to one project; omitted or null searches every project. */
-	cwd?: string | null;
-}
-
 /**
  * A tab's git-worktree binding (tab × worktree, plan/20). Immutable, set at
  * spawn like `kind`; main-held so it survives renderer reloads. `name` is the
@@ -977,94 +903,10 @@ export interface IpcTabInfo {
 	sessionId?: string;
 	/** Null explicitly clears the previous session's cached title. */
 	title?: string | null;
-	/** Run outcome a background chip shows: auto-retry in flight, or the last run failed. Null clears it. */
-	attention?: "retrying" | "failed" | null;
-	/** Provider error behind `attention: "failed"`. */
-	attentionDetail?: string;
-	/** The auto-retry in flight (null clears), so a tab shown mid-saga can render it. */
-	retry?: IpcTabRetry | null;
-}
-
-/** One auto-retry wait, as the agent announced it; `startedAt` is main's clock. */
-export interface IpcTabRetry {
-	attempt: number;
-	maxAttempts: number;
-	delayMs: number;
-	errorMessage: string;
-	startedAt: number;
 }
 
 /** TAB_STATUS push payload — a full tab snapshot from any tab, active or background. */
 export type IpcTabStatusPayload = IpcTabInfo;
-
-/** TERMINAL_FRAME push: one sidecar terminal frame and the tab it belongs to. */
-export interface IpcTerminalFramePayload {
-	tabId: string;
-	frame: RpcTerminalFrame;
-}
-
-/** One page in a tab's built-in browser. */
-export interface IpcBrowserPage {
-	/** Stable for the page's life (its webContents id). */
-	pageId: number;
-	url: string;
-	title: string;
-	loading: boolean;
-	canGoBack: boolean;
-	canGoForward: boolean;
-	/** Who opened it: the agent's browser tool, or the user. */
-	openedBy: "agent" | "user";
-	/** The agent is driving the page right now: it opened it, or adopted one the user opened. */
-	agentDriving: boolean;
-	/** The last main-frame load failure, cleared by the next navigation. */
-	error?: string;
-	/** Find in page: the current match (1-based; 0 while none is selected) and the total. */
-	find?: { active: number; matches: number };
-}
-
-/** A tab's built-in browser: its pages and the active one. */
-export interface IpcBrowserState {
-	tabId: string;
-	pages: IpcBrowserPage[];
-	activePageId: number | null;
-	/** The agent can reach this browser (its sidecar serves the relay and the GUI is linked). */
-	agentLinked: boolean;
-}
-
-export type IpcBrowserAction =
-	| { action: "navigate"; url: string }
-	| { action: "back" }
-	| { action: "forward" }
-	| { action: "reload" }
-	| { action: "stop" }
-	| { action: "select" }
-	| { action: "close" }
-	| { action: "devtools" }
-	| { action: "external" }
-	/** Search the page: a new search, or with `next` the following match of the current one. Empty text clears it. */
-	| { action: "find"; text: string; backward?: boolean; next?: boolean }
-	/** End the search, keeping the current match selected; `focusPage` gives the page the keyboard back. */
-	| { action: "stopFind"; focusPage?: boolean };
-
-export type IpcBrowserActionPayload = { tabId: string; pageId: number } & IpcBrowserAction;
-
-/**
- * BROWSER_KEY push. Keystrokes in a focused page go to the page, not the app's
- * window, so the host hands back the ones that belong to the app: a chord of
- * the app keymap (replayed as a keydown), ⌘L/Ctrl+L for the address bar, and
- * the Edit menu's Find commands for the page on screen.
- */
-export type IpcBrowserKeyPayload =
-	| { tabId: string; kind: "shortcut"; key: KeyEventLike }
-	| { tabId: string; kind: "focusAddress" }
-	| { tabId: string; kind: "find" }
-	| { tabId: string; kind: "findNext"; backward: boolean };
-
-/** Where the active page sits, in the window's CSS pixels; null hides it (panel closed, dialog open). */
-export interface IpcBrowserViewportPayload {
-	tabId: string;
-	bounds: { x: number; y: number; width: number; height: number } | null;
-}
 
 /** Full sidecar event tagged with the tab that emitted it. The preload drops
  * envelopes from a previously active tab after SET_ACTIVE_TAB resolves. */
@@ -1143,13 +985,6 @@ export interface IpcSidecarRestartPayload {
 	sessionPath?: string;
 }
 
-/** What changed under ~/.omp/agent: learned skills, and which project memory folders. */
-export interface IpcMemoryChange {
-	skills: boolean;
-	/** Memory folder names (encoded project paths) that changed. */
-	memoryRoots: string[];
-}
-
 export interface SessionInfo {
 	path: string;
 	id: string;
@@ -1214,7 +1049,7 @@ export interface OmpApi {
 		abortAndPrompt(message: string): Promise<RpcResponse>;
 		newSession(parentSession?: string): Promise<RpcResponse>;
 		dropSession(): Promise<RpcResponse>;
-		switchSession(sessionPath: string, model?: SessionModelOverride): Promise<RpcResponse>;
+		switchSession(sessionPath: string): Promise<RpcResponse>;
 		branch(entryId: string): Promise<RpcResponse>;
 		fork(): Promise<RpcResponse>;
 		eval(code: string, language?: "python" | "js" | "ruby" | "julia", excluded?: boolean): Promise<RpcResponse>;
@@ -1281,13 +1116,10 @@ export interface OmpApi {
 			draft?: boolean;
 		}): Promise<RpcResponse>;
 		prCheckout(number: number): Promise<RpcResponse>;
-		liveStart(options?: { voice?: string; instructions?: string }): Promise<RpcResponse>;
-		liveMute(muted?: boolean): Promise<RpcResponse>;
+		liveStart(voice?: string): Promise<RpcResponse>;
+		liveToggleMute(): Promise<RpcResponse>;
 		liveStop(): Promise<RpcResponse>;
-		dictationStart(): Promise<RpcResponse>;
-		dictationAudio(pcm16Base64: string): Promise<RpcResponse>;
-		dictationStop(): Promise<RpcResponse>;
-		dictationCancel(): Promise<RpcResponse>;
+		getLiveState(): Promise<RpcResponse>;
 		debug(params: RpcDebugParams): Promise<RpcResponse>;
 		collabStart(relayUrl?: string, view?: boolean): Promise<RpcResponse>;
 		collabJoin(link: string): Promise<RpcResponse>;
@@ -1319,9 +1151,7 @@ export interface OmpApi {
 		getMessagesPage(cursor?: string, limit?: number): Promise<RpcResponse>;
 		getLoginProviders(): Promise<RpcResponse>;
 		login(providerId: string): Promise<RpcResponse>;
-		getLogoutAccounts(providerId: string): Promise<RpcResponse>;
-		logout(providerId: string, credentialId: number): Promise<RpcResponse>;
-		getUsage(): Promise<RpcResponse>;
+		logout(providerId: string): Promise<RpcResponse>;
 		getSettingsSchema(): Promise<RpcResponse>;
 		getSettings(paths?: string[]): Promise<RpcResponse>;
 		setSetting(path: string, value: unknown): Promise<RpcResponse>;
@@ -1342,10 +1172,6 @@ export interface OmpApi {
 		getMarketplaces(): Promise<RpcResponse>;
 		getPromptTemplates(): Promise<RpcResponse>;
 		getMemoryReport(): Promise<RpcResponse>;
-		getMemoryOverview(cwd?: string): Promise<RpcResponse>;
-		getMemoryActivity(cwd?: string): Promise<RpcResponse>;
-		editMemory(edit: RpcMemoryEdit, cwd?: string): Promise<RpcResponse>;
-		updateMemory(cwd?: string, minIdleMinutes?: number): Promise<RpcResponse>;
 		getSecurityDashboard(): Promise<RpcResponse>;
 		getSecurityScan(scanId: string): Promise<RpcResponse>;
 		securityStart(target: RpcSecurityTargetInput): Promise<RpcResponse>;
@@ -1418,6 +1244,7 @@ export interface OmpApi {
 		setHostTools(tools: unknown[]): Promise<RpcResponse>;
 		setHostUriSchemes(schemes: unknown[]): Promise<RpcResponse>;
 		// Voice (speech in/out): audio is canonical PCM16 mono 16 kHz WAV, base64.
+		transcribeAudio(audioBase64: string, mimeType: string): Promise<RpcResponse>;
 		synthesizeSpeech(text: string): Promise<RpcResponse>;
 	};
 	events: {
@@ -1427,8 +1254,7 @@ export interface OmpApi {
 		onExtensionUi(callback: (request: ExtensionUIRequest, tabId: string) => void): () => void;
 		onHostToolCall(callback: (request: HostToolCallRequest) => void): () => void;
 		onHostUriRequest(callback: (request: HostUriRequest) => void): () => void;
-		onLiveFrame(callback: (frame: RpcLiveFrame) => void): () => void;
-		onBtwFrame(callback: (frame: RpcBtwFrame) => void): () => void;
+		onLiveUpdate(callback: (frame: RpcLiveUpdateFrame) => void): () => void;
 		onModelCatalogUpdate(callback: (frame: ModelCatalogUpdateFrame) => void): () => void;
 		onSubagentFrame(callback: (frame: SubagentFrame) => void): () => void;
 		onCommandsUpdate(callback: (commands: AvailableCommand[]) => void): () => void;
@@ -1441,7 +1267,6 @@ export interface OmpApi {
 		onTabBatch(callback: (events: AgentSessionEvent[], tabId: string) => void): () => void;
 		onTabSidecarStatus(callback: (status: IpcSidecarStatusPayload, tabId: string) => void): () => void;
 		onTabSubagentFrame(callback: (frame: SubagentFrame, tabId: string) => void): () => void;
-		onTabDictationFrame(callback: (frame: RpcDictationFrame, tabId: string) => void): () => void;
 		onTabModelCatalogUpdate(callback: (frame: ModelCatalogUpdateFrame, tabId: string) => void): () => void;
 		onTabCommandsUpdate(callback: (commands: AvailableCommand[], tabId: string) => void): () => void;
 		onTabConfigUpdate(callback: (payload: ConfigUpdateFrame, tabId: string) => void): () => void;
@@ -1450,24 +1275,11 @@ export interface OmpApi {
 		onTabSessionInfoUpdate(callback: (frame: SessionInfoUpdateFrame, tabId: string) => void): () => void;
 		onTabExtensionError(callback: (frame: ExtensionErrorFrame, tabId: string) => void): () => void;
 		onSessionsChanged(callback: () => void): () => void;
-		onMemoryChanged(callback: (change: IpcMemoryChange) => void): () => void;
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;
 		onLogLines(callback: (lines: string[]) => void): () => void;
 		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
 		onUpdaterStatus(callback: (status: UpdateStatus) => void): () => void;
-		onTerminalFrame(callback: (payload: IpcTerminalFramePayload) => void): () => void;
-		onBrowserState(callback: (state: IpcBrowserState) => void): () => void;
-		onBrowserKey(callback: (payload: IpcBrowserKeyPayload) => void): () => void;
-	};
-	browser: {
-		getState(tabId: string): Promise<IpcBrowserState | null>;
-		open(tabId: string, url: string): Promise<IpcBrowserState | null>;
-		action(payload: IpcBrowserActionPayload): Promise<IpcBrowserState | null>;
-		setViewport(payload: IpcBrowserViewportPayload): void;
-		capture(tabId: string): Promise<string | null>;
-		/** Fire-and-forget: the chords the app keymap dispatches. */
-		setShortcuts(chords: string[]): void;
 	};
 	updater: {
 		check(): Promise<UpdateStatus>;
@@ -1487,8 +1299,6 @@ export interface OmpApi {
 		delete(sessionPath: string): Promise<void>;
 		rename(sessionPath: string, name: string): Promise<void>;
 		search(query: string, scope: "local" | "global"): Promise<string[]>;
-		/** Message-level search over user and assistant text; `cwd` limits it to one project. */
-		searchConversations(query: string, cwd?: string | null): Promise<ConversationSearchResponse>;
 		/**
 		 * Open a session (or a fresh project window) in a new parallel window.
 		 * False at the cap. When `sessionPath` is already attached to a tab,

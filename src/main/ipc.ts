@@ -934,7 +934,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	sidecarPool.hostToolExecutor = (sidecar, request, win) => {
 		const result = executeGuiHostTool(request.toolName, request.arguments);
 		if (result !== undefined) {
-			sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result });
+			void Promise.resolve(result).then(
+				value => sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result: value }),
+				error => sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, error: String(error) }),
+			);
 			return true;
 		}
 		// Unknown host tools → forward to the owning renderer.
@@ -1774,7 +1777,7 @@ function broadcast(windowManager: WindowManager, channel: string, data: unknown)
 }
 
 /** Execute GUI-registered host tools. Returns undefined for unknown tools. */
-function executeGuiHostTool(name: string, args: Record<string, unknown>): string | undefined {
+function executeGuiHostTool(name: string, args: Record<string, unknown>): string | Promise<string> | undefined {
 	switch (name) {
 		case "gui_open_url": {
 			const url = typeof args.url === "string" ? args.url : "";

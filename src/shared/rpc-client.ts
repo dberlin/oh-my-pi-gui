@@ -1,12 +1,10 @@
 import type { OmpApi } from "./ipc-types";
-import type { SessionModelOverride } from "./model-restore";
 import type {
 	ImageContent,
 	MessagesPage,
 	RpcCommand,
 	RpcDebugParams,
 	RpcMcpServerInput,
-	RpcMemoryEdit,
 	RpcResponse,
 	RpcSecurityDispositionStatus,
 	RpcSecurityTargetInput,
@@ -103,8 +101,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		abortAndPrompt: (message: string) => rpcCommand({ type: "abort_and_prompt", message }),
 		newSession: (parentSession?: string) => rpcCommand({ type: "new_session", parentSession }),
 		dropSession: () => rpcCommand({ type: "drop_session" }),
-		switchSession: (sessionPath: string, model?: SessionModelOverride) =>
-			rpcCommand({ type: "switch_session", sessionPath, ...model }),
+		switchSession: (sessionPath: string) => rpcCommand({ type: "switch_session", sessionPath }),
 		branch: (entryId: string) => rpcCommand({ type: "branch", entryId }),
 		fork: () => rpcCommand({ type: "fork" }),
 		eval: (code: string, language?: "python" | "js" | "ruby" | "julia", excluded?: boolean) =>
@@ -183,15 +180,10 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		prCreate: (input: { title: string; body: string; base?: string; head?: string; draft?: boolean }) =>
 			rpcCommand({ type: "pr_create", ...input }, 120_000),
 		prCheckout: (number: number) => rpcCommand({ type: "pr_checkout", number }, 180_000),
-		liveStart: (options?: { voice?: string; instructions?: string }) =>
-			rpcCommand({ type: "live_start", ...options }, 60_000),
-		liveMute: (muted?: boolean) => rpcCommand({ type: "live_mute", muted }),
+		liveStart: (voice?: string) => rpcCommand({ type: "live_start", voice }, 60_000),
+		liveToggleMute: () => rpcCommand({ type: "live_toggle_mute" }),
 		liveStop: () => rpcCommand({ type: "live_stop" }, 30_000),
-		// Start waits on the model (a first use may download it); stop waits on the final words.
-		dictationStart: () => rpcCommand({ type: "dictation_start" }, 30 * 60_000),
-		dictationAudio: (pcm16Base64: string) => rpcCommand({ type: "dictation_audio", pcm16Base64 }),
-		dictationStop: () => rpcCommand({ type: "dictation_stop" }, 120_000),
-		dictationCancel: () => rpcCommand({ type: "dictation_cancel" }),
+		getLiveState: () => rpcCommand({ type: "get_live_state" }),
 		debug: (params: RpcDebugParams) => rpcCommand({ type: "debug", params }, 120_000),
 		collabStart: (relayUrl?: string, view?: boolean) => rpcCommand({ type: "collab_start", relayUrl, view }, 60_000),
 		collabJoin: (link: string) => rpcCommand({ type: "collab_join", link }, 120_000),
@@ -224,9 +216,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getMessagesPage: (cursor?: string, limit?: number) => rpcCommand({ type: "get_messages_page", cursor, limit }),
 		getLoginProviders: () => rpcCommand({ type: "get_login_providers" }),
 		login: (providerId: string) => rpcCommand({ type: "login", providerId }),
-		getLogoutAccounts: (providerId: string) => rpcCommand({ type: "get_logout_accounts", providerId }),
-		logout: (providerId: string, credentialId: number) => rpcCommand({ type: "logout", providerId, credentialId }),
-		getUsage: () => rpcCommand({ type: "get_usage" }),
+		logout: (providerId: string) => rpcCommand({ type: "logout", providerId }),
 		getSettingsSchema: () => rpcCommand({ type: "get_settings_schema" }),
 		getSettings: (paths?: string[]) => rpcCommand({ type: "get_settings", paths }),
 		setSetting: (path: string, value: unknown) => rpcCommand({ type: "set_setting", path, value }),
@@ -247,11 +237,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getMarketplaces: () => rpcCommand({ type: "get_marketplaces" }),
 		getPromptTemplates: () => rpcCommand({ type: "get_prompt_templates" }),
 		getMemoryReport: () => rpcCommand({ type: "get_memory_report" }),
-		getMemoryOverview: (cwd?: string) => rpcCommand({ type: "get_memory_overview", cwd }),
-		getMemoryActivity: (cwd?: string) => rpcCommand({ type: "get_memory_activity", cwd }),
-		editMemory: (edit: RpcMemoryEdit, cwd?: string) => rpcCommand({ type: "edit_memory", edit, cwd }, 30_000),
-		updateMemory: (cwd?: string, minIdleMinutes?: number) =>
-			rpcCommand({ type: "update_memory", cwd, minIdleMinutes }),
 		getSecurityDashboard: () => rpcCommand({ type: "get_security_dashboard" }, 60_000),
 		getSecurityScan: (scanId: string) => rpcCommand({ type: "get_security_scan", scanId }, 30_000),
 		securityStart: (target: RpcSecurityTargetInput) => rpcCommand({ type: "security_start", target }, 120_000),
@@ -326,6 +311,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		// Voice (speech in/out) — AgentVoice region; keep at the end of the rpc object.
 		// Generous timeouts: the first call on a fresh sidecar loads the STT/TTS
 		// model into the worker, far beyond the default 8s RPC timeout.
+		transcribeAudio: (audioBase64: string, mimeType: string) =>
+			rpcCommand({ type: "transcribe_audio", audioBase64, mimeType }, 120_000),
 		synthesizeSpeech: (text: string) => rpcCommand({ type: "synthesize_speech", text }, 60_000),
 	};
 }
