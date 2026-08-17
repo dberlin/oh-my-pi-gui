@@ -51,6 +51,7 @@ import { useQueueStore } from "./queue";
 import { useSessionStore } from "./session";
 import { useSubagentsStore } from "./subagents";
 import {
+	adjacentTabId,
 	pushTabExtensionUiRequest,
 	restoreTabComposer,
 	type SessionTab,
@@ -1767,6 +1768,35 @@ describe("useSessionTabs hook", () => {
 		});
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
+	});
+});
+
+describe("adjacentTabId (⌘[ / ⌘])", () => {
+	function stripTab(id: string): SessionTab {
+		return { id, cwd: `/work/${id}`, target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false };
+	}
+
+	const strip = [stripTab("a"), stripTab("b"), stripTab("c")];
+
+	it("steps forward and backward through the strip", () => {
+		expect(adjacentTabId(strip, "a", 1)).toBe("b");
+		expect(adjacentTabId(strip, "b", 1)).toBe("c");
+		expect(adjacentTabId(strip, "c", -1)).toBe("b");
+		expect(adjacentTabId(strip, "b", -1)).toBe("a");
+	});
+
+	it("wraps at both ends", () => {
+		expect(adjacentTabId(strip, "c", 1)).toBe("a");
+		expect(adjacentTabId(strip, "a", -1)).toBe("c");
+	});
+
+	it("returns null when there is nowhere to go", () => {
+		expect(adjacentTabId([], "a", 1)).toBeNull();
+		expect(adjacentTabId([stripTab("only")], "only", 1)).toBeNull();
+		expect(adjacentTabId([stripTab("only")], "only", -1)).toBeNull();
+		// An active id outside the strip must not switch blind to a random tab.
+		expect(adjacentTabId(strip, "missing", 1)).toBeNull();
+		expect(adjacentTabId(strip, null, 1)).toBeNull();
 	});
 });
 

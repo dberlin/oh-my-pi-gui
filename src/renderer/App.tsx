@@ -61,7 +61,7 @@ import { useAgentViewStore } from "./stores/agent-view";
 import { useModelStore } from "./stores/model";
 import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
-import { useSessionTabs, useTabsStore } from "./stores/tabs";
+import { adjacentTabId, useSessionTabs, useTabsStore } from "./stores/tabs";
 import { toast } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
 import { subscribeUpdaterStatus } from "./stores/updater";
@@ -221,6 +221,14 @@ export function AppGlobalActions() {
 				case "tab.close": {
 					const tabs = useTabsStore.getState();
 					if (tabs.activeTabId) void tabs.closeTab(tabs.activeTabId);
+					return;
+				}
+				case "tab.previous":
+				case "tab.next": {
+					// ⌘[ / ⌘] — step through the tab strip, wrapping at both ends.
+					const tabs = useTabsStore.getState();
+					const target = adjacentTabId(tabs.tabs, tabs.activeTabId, actionId === "tab.next" ? 1 : -1);
+					if (target) void tabs.switchTab(target);
 					return;
 				}
 				case "tab.newWorktree":

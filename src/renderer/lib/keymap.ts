@@ -253,6 +253,8 @@ export const KEYMAP_ACTIONS = [
 	{ id: "tab.newChat", labelKey: "hotkeys.row.tabNewChat", defaults: ["⇧⌘T"], overlaySafe: false },
 	{ id: "tab.newWorktree", labelKey: "hotkeys.row.tabNewWorktree", defaults: ["⌥T"], overlaySafe: false },
 	{ id: "tab.close", labelKey: "hotkeys.row.tabClose", defaults: ["⌥W", "⌘W", "⌃W"], overlaySafe: false },
+	{ id: "tab.previous", labelKey: "hotkeys.row.tabPrevious", defaults: ["⌘["], overlaySafe: false },
+	{ id: "tab.next", labelKey: "hotkeys.row.tabNext", defaults: ["⌘]"], overlaySafe: false },
 	{ id: "settings", labelKey: "hotkeys.row.settings", defaults: ["⌘,", "⌃,"], overlaySafe: true },
 	{ id: "sidebar.toggle", labelKey: "hotkeys.row.sidebar", defaults: ["⌘B", "⌃B"], overlaySafe: true },
 	{ id: "panel.toggle", labelKey: "hotkeys.row.panel", defaults: ["⌘J", "⌃J"], overlaySafe: true },

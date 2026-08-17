@@ -5,6 +5,7 @@
 ### Added
 
 - Added remote SSH sessions with host-scoped history, remote directory browsing, and existing RPC UI parity.
+- **Tab switching shortcuts**: ⌘[ and ⌘] step to the previous and next tab, wrapping at both ends. Like the other tab keys they live in the renderer keymap, so they can be remapped and never fire while an overlay is open.
 
 ## [0.9.0] - 2026-08-22
 
@@ -84,6 +85,7 @@
 - **Undefined theme tokens**: the conversation-navigator focus ring referenced `--omp-focus-ring` and the security finding detail referenced `--omp-shadow` — neither token exists; both now map to defined tokens (`--omp-accent`, `--omp-shadow-md`).
 - **Sidebar interactions**: the dragged sidebar width persists across sessions; clicking elsewhere or pressing Escape cancels a pending inline delete confirm; Escape clears the search box; session status dots carry translated tooltips (previously raw English status strings).
 - Sustained valid RPC output no longer trips a GUI-side SSH stdout rate limit and terminates the remote session; per-frame validation and stream backpressure remain enforced.
+- **Single-press quit**: ⌘Q exits on the first press again. Draining sidecars cancels the initial quit, and the follow-up `app.quit()` was issued from inside that cancelled sequence, where Electron ignores it; it now lands on a fresh macrotask.
 
 ## [0.8.1] - 2026-08-16
 ### Changed

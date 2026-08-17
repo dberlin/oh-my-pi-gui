@@ -2155,6 +2155,8 @@ export const zh: Record<string, string> = {
 	"hotkeys.row.tabNewChat": "新建聊天标签页",
 	"hotkeys.row.tabNewWorktree": "新建 worktree 标签页",
 	"hotkeys.row.tabClose": "关闭当前标签页",
+	"hotkeys.row.tabPrevious": "上一个标签页",
+	"hotkeys.row.tabNext": "下一个标签页",
 	"hotkeys.row.prCenter": "PR 中心",
 	"hotkeys.row.settings": "设置",
 	"hotkeys.row.sidebar": "切换侧栏",

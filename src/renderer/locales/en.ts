@@ -2195,6 +2195,8 @@ export const en: Record<string, string> = {
 	"hotkeys.row.tabNewChat": "New chat tab",
 	"hotkeys.row.tabNewWorktree": "New worktree tab",
 	"hotkeys.row.tabClose": "Close active tab",
+	"hotkeys.row.tabPrevious": "Previous tab",
+	"hotkeys.row.tabNext": "Next tab",
 	"hotkeys.row.prCenter": "PR Center",
 	"hotkeys.row.settings": "Settings",
 	"hotkeys.row.sidebar": "Toggle sidebar",

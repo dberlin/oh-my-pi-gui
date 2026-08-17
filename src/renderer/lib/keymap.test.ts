@@ -109,6 +109,8 @@ describe("compileKeymap", () => {
 		expect(map.get("⌥W")).toBe("tab.close");
 		expect(map.get("⌘W")).toBe("tab.close");
 		expect(map.get("⌃W")).toBe("tab.close");
+		expect(map.get("⌘[")).toBe("tab.previous");
+		expect(map.get("⌘]")).toBe("tab.next");
 	});
 
 	it("replaces an action's defaults with its override — never a union", () => {
@@ -127,6 +129,10 @@ describe("compileKeymap", () => {
 });
 
 describe("detectConflicts", () => {
+	it("ships a conflict-free default table", () => {
+		expect(detectConflicts(KEYMAP_ACTIONS, {})).toEqual([]);
+	});
+
 	it("flags one chord claimed by two user bindings as an error", () => {
 		const conflicts = detectConflicts(KEYMAP_ACTIONS, { retry: ["⌃⇧R"], dequeue: ["ctrl+shift+r"] });
 		expect(conflicts).toEqual([{ kind: "error", chord: "⇧⌃R", actionIds: ["retry", "dequeue"] }]);
