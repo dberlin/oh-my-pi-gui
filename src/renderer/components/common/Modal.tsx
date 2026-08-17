@@ -119,7 +119,7 @@ export function Modal({
 
 	return createPortal(
 		<div
-			className={`omp-dialog-overlay fixed inset-0 z-50 flex justify-center bg-(--omp-overlay-bg) p-4 backdrop-blur-[3px] ${placement === "top" ? "items-start pt-[12dvh]" : "items-center"}`}
+			className={`omp-dialog-overlay fixed inset-0 z-50 flex justify-center bg-(--omp-overlay-bg) p-4 backdrop-blur-[6px] ${placement === "top" ? "items-start pt-[12dvh]" : "items-center"}`}
 			onMouseDown={event => {
 				if (event.target === event.currentTarget) onClose();
 			}}
@@ -128,7 +128,7 @@ export function Modal({
 			<div
 				aria-label={ariaLabel}
 				aria-modal="true"
-				className={`omp-dialog-panel omp-scale-in flex flex-col overflow-hidden rounded-[14px] border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg) ${SIZE_CLASSES[size]} ${panelClassName ?? ""}`.trim()}
+				className={`omp-dialog-panel omp-scale-in flex flex-col overflow-hidden rounded-2xl border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg) ${SIZE_CLASSES[size]} ${panelClassName ?? ""}`.trim()}
 				onKeyDown={event => {
 					if (event.key === "Escape") event.stopPropagation();
 				}}

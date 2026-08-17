@@ -72,7 +72,7 @@ describe("ThinkingBlock", () => {
 		useSettingsStore.setState({ proseOnlyThinking: false });
 		await mountExpandedThinking("Plan:\n\n```ts\nconst ok = true;\n```");
 
-		expect(container.querySelector("code.language-ts")).not.toBeNull();
+		expect(container.querySelector("code.language-typescript")).not.toBeNull();
 		expect(container.textContent).toContain("const ok = true;");
 	});
 

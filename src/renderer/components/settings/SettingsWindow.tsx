@@ -27,7 +27,7 @@ import {
 	Webhook,
 	X,
 } from "lucide-react";
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SettingEntry, SettingsSchemaResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
@@ -482,14 +482,6 @@ export function SettingsWindow() {
 			}
 			ref={dialogRef}
 			role="dialog"
-			style={
-				{
-					"--omp-accent": "#0f8f83",
-					"--omp-btn-primary-bg": "#0b8378",
-					"--omp-input-focus-border": "#0f8f83",
-					"--omp-selected-bg": "color-mix(in srgb, #0f8f83 9%, transparent)",
-				} as CSSProperties
-			}
 		>
 			<div className="flex min-h-0 flex-1">
 				<nav className="settings-sidebar flex shrink-0 flex-col border-r border-(--omp-border-muted)">

@@ -1,6 +1,8 @@
 import { Code2 } from "lucide-react";
-import { resultText } from "../../lib/format";
+import { AnsiText, hasAnsi } from "../../lib/ansi";
+import { cx, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -33,14 +35,15 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult }
 						{isError ? t("tools.eval.error") : t("tools.eval.output")}
 					</div>
 					<pre
-						className={
-							"max-h-48 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45] " +
-							(isError
+						className={cx(
+							"whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
+							PREVIEW_SCROLL_SM,
+							isError
 								? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-								: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]")
-						}
+								: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
+						)}
 					>
-						{output}
+						{hasAnsi(output) ? <AnsiText text={output} /> : output}
 					</pre>
 				</div>
 			)}

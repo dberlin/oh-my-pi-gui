@@ -95,7 +95,7 @@ describe("StreamingText presentation", () => {
 		const unfinished = "```ts\nconst answer = 42;\n";
 		const completed = `${unfinished}\`\`\`\n`;
 		await mount(unfinished);
-		expect(container.querySelector("code.language-ts")).toBeNull();
+		expect(container.querySelector("code.language-typescript")).toBeNull();
 		expect(container.querySelector(".omp-streaming-tail")?.textContent).toContain("const answer = 42;");
 
 		await act(async () => {
@@ -103,7 +103,7 @@ describe("StreamingText presentation", () => {
 		});
 		await flushFrame();
 
-		expect(container.querySelector("code.language-ts")?.textContent).toContain("const answer = 42;");
+		expect(container.querySelector("code.language-typescript")?.textContent).toContain("const answer = 42;");
 		expect(container.querySelector(".omp-streaming-tail")?.textContent).toBe("");
 	});
 });

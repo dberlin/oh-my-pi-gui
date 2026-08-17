@@ -120,6 +120,8 @@ export const IPC_COMMANDS = {
 	STATS_FETCH: "stats:fetch",
 	/** Open external URL */
 	SYSTEM_OPEN_EXTERNAL: "system:open-external",
+	/** Open a file path in the system editor (relative resolves against the workspace) */
+	SYSTEM_OPEN_PATH: "system:open-path",
 	/** Show save dialog */
 	SYSTEM_SAVE_DIALOG: "system:save-dialog",
 	/** Show open dialog */
@@ -535,6 +537,13 @@ export interface IpcFsReadResult {
 	binary: boolean;
 	/** Total file size in bytes. */
 	size: number;
+	error?: string;
+}
+
+export interface IpcOpenPathResult {
+	ok: boolean;
+	/** The absolute path that was opened/revealed, when successful. */
+	resolvedPath?: string;
 	error?: string;
 }
 
@@ -1001,6 +1010,8 @@ export interface OmpApi {
 	};
 	system: {
 		openExternal(url: string): Promise<void>;
+		/** Open a file in the system editor; relative paths resolve against the workspace. */
+		openPath(path: string): Promise<IpcOpenPathResult>;
 		showSaveDialog(defaultPath?: string): Promise<string | null>;
 		showOpenDialog(
 			filters?: { name: string; extensions: string[] }[],

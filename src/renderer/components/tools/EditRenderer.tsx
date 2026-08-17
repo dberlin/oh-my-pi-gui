@@ -2,8 +2,10 @@ import { ArrowRightLeft, Circle, FilePlus2, Pencil, Trash2 } from "lucide-react"
 import { DiffView } from "../../lib/diff";
 import { basename, cx, dirname } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
 import { editArgumentPaths } from "./edit-args";
+import { PathLink } from "./PathLink";
 import { resultBodyText, resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -107,17 +109,19 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }
 			</span>
 			{path && (
 				<>
-					<span className="truncate text-[var(--omp-text)]">
+					<PathLink path={path} className="truncate text-[var(--omp-text)]">
 						{basename(path)}
 						{firstChangedLine ? `:${firstChangedLine}` : ""}
-					</span>
+					</PathLink>
 					<span className="truncate text-[var(--omp-dim)]">{dirname(path)}</span>
 				</>
 			)}
 			{moveTo && (
 				<>
 					<span className="shrink-0 text-[var(--omp-dim)]">→</span>
-					<span className="truncate text-[var(--omp-text)]">{basename(moveTo)}</span>
+					<PathLink path={moveTo} className="truncate text-[var(--omp-text)]">
+						{basename(moveTo)}
+					</PathLink>
 					<span className="truncate text-[var(--omp-dim)]">{dirname(moveTo)}</span>
 				</>
 			)}
@@ -179,7 +183,7 @@ function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
 				firstChangedLine={file.firstChangedLine}
 				diff={file.diff}
 			/>
-			<DiffView diff={file.diff} filePath={displayPath} className="max-h-72 overflow-auto rounded" />
+			<DiffView diff={file.diff} filePath={displayPath} className={cx("rounded", PREVIEW_SCROLL_LG)} />
 		</div>
 	);
 }
@@ -269,7 +273,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 						firstChangedLine={firstChangedLine}
 						diff={detailDiff}
 					/>
-					<DiffView diff={detailDiff} filePath={rawPath} className="max-h-72 overflow-auto rounded" />
+					<DiffView diff={detailDiff} filePath={rawPath} className={cx("rounded", PREVIEW_SCROLL_LG)} />
 				</div>
 			);
 		}
@@ -292,7 +296,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={op} path={rawPath} moveTo={rename} diff={argDiff} />
-				<DiffView diff={argDiff} filePath={rawPath} className="max-h-72 overflow-auto rounded" />
+				<DiffView diff={argDiff} filePath={rawPath} className={cx("rounded", PREVIEW_SCROLL_LG)} />
 			</div>
 		);
 	}
@@ -334,7 +338,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 								<DiffView
 									diff={entryDiff}
 									filePath={entryPath ?? rawPath}
-									className="max-h-72 overflow-auto rounded"
+									className={cx("rounded", PREVIEW_SCROLL_LG)}
 								/>
 							</div>
 						);
@@ -348,7 +352,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 								<DiffView
 									diff={oldNewDiff(entryOld, entryNew)}
 									filePath={entryPath ?? rawPath}
-									className="max-h-72 overflow-auto rounded"
+									className={cx("rounded", PREVIEW_SCROLL_LG)}
 								/>
 							</div>
 						);
@@ -395,7 +399,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={op} path={rawPath} moveTo={rename} diff={fallbackDiff} />
-				<DiffView diff={fallbackDiff} filePath={rawPath} className="max-h-72 overflow-auto rounded" />
+				<DiffView diff={fallbackDiff} filePath={rawPath} className={cx("rounded", PREVIEW_SCROLL_LG)} />
 			</div>
 		);
 	}

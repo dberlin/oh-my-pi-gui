@@ -32,7 +32,7 @@
 /* Stable blocks parse once. Only the unfinished plain-text tail changes each
    presentation frame, avoiding full-prefix Markdown work and layout churn. */
 .omp-streaming-block {
-	animation: omp-stream-block-settle var(--omp-motion-fast) var(--omp-ease) both;
+	animation: omp-stream-block-settle var(--omp-motion-med) var(--omp-ease-enter) both;
 }
 
 .omp-streaming-tail {
@@ -49,8 +49,8 @@
 
 @keyframes omp-stream-tail-reveal {
 	from {
-		opacity: 0.72;
-		filter: blur(0.22px);
+		opacity: 0.8;
+		filter: blur(0.3px);
 	}
 	to {
 		opacity: 1;
@@ -59,8 +59,14 @@
 }
 
 @keyframes omp-stream-block-settle {
-	from { opacity: 0.86; }
-	to { opacity: 1; }
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
 /* ThinkingBlock still renders one formatted live block. Keep its caret beside
@@ -229,9 +235,10 @@
 	font-weight: 600;
 }
 .markdown-body blockquote {
-	margin: 0.75em 0;
-	padding: 0.15em 0 0.15em 1em;
-	border-left: 2px solid var(--omp-md-quote-border);
+	margin: 0.85em 0;
+	padding: 0.25em 0 0.25em 1.1em;
+	border-left: 3px solid var(--omp-md-quote-border);
+	border-radius: 2px;
 	color: var(--omp-md-quote);
 }
 .markdown-body hr {
@@ -240,16 +247,9 @@
 	height: 1px;
 	background: var(--omp-md-hr);
 }
-.markdown-body pre {
-	margin: 0.75em 0;
-	padding: 12px 14px;
-	background: var(--omp-code-bg);
-	border: 1px solid var(--omp-md-code-block-border);
-	border-radius: 8px;
-	overflow-x: auto;
-	font-size: 12.5px;
-	line-height: 1.5;
-}
+/* Fenced code blocks render through the shared CodeBlock component (badge,
+   copy, gutter), so no raw <pre> box styling lives here. This rule only guards
+   against the inline-code chip leaking into a block. */
 .markdown-body pre code {
 	background: none;
 	border: none;
@@ -259,11 +259,11 @@
 }
 .markdown-body code {
 	font-family: var(--font-mono);
-	font-size: 0.875em;
+	font-size: 0.85em;
 	background: var(--omp-code-bg);
 	border: 1px solid var(--omp-border-muted);
-	border-radius: 5px;
-	padding: 0.12em 0.4em;
+	border-radius: 6px;
+	padding: 0.14em 0.42em;
 	color: var(--omp-md-code);
 }
 .markdown-body table {
@@ -291,7 +291,7 @@
 }
 .markdown-body img {
 	max-width: 100%;
-	border-radius: 8px;
+	border-radius: 12px;
 	border: 1px solid var(--omp-border-muted);
 }
 .markdown-body a {
@@ -665,10 +665,10 @@
 
 .omp-transcript-editorial .omp-user-bubble {
 	border: 1px solid var(--omp-transcript-user-border);
-	border-radius: 8px;
-	background: transparent;
+	border-radius: 12px;
+	background: var(--omp-transcript-user-bg);
 	box-shadow: none !important;
-	padding: 11px 14px;
+	padding: 12px 15px;
 }
 
 .omp-transcript-editorial .omp-user-bubble-layout {
@@ -962,14 +962,6 @@
 	padding-bottom: 0;
 	border-bottom: 0;
 	font-size: 1.28em;
-}
-
-.omp-transcript-editorial .markdown-body pre {
-	border: 0;
-	border-left: 2px solid var(--omp-transcript-rail);
-	border-radius: 0 8px 8px 0;
-	background: var(--omp-transcript-code-bg);
-	box-shadow: none;
 }
 
 .omp-transcript-editorial .markdown-body code {

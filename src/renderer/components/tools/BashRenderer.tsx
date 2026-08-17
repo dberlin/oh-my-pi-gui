@@ -1,6 +1,8 @@
 import { Terminal } from "lucide-react";
+import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_MD } from "../../lib/preview";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -27,15 +29,19 @@ function asNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-/** Mirror of stripTrailingNotice in bash.ts. */
-function stripTrailingNotice(text: string, notice: string): string {
-	const idx = text.lastIndexOf(notice);
-	if (idx === -1) return text;
-	let start = idx;
-	let end = idx + notice.length;
-	if (text[start - 1] === "\n") start -= 1;
-	if (text[end] === "\n") end += 1;
-	return (text.slice(0, start) + text.slice(end)).trimEnd();
+/**
+ * Trailer notices the agent appends to the text body. Matched by anchored
+ * regex rather than the exact mirror strings: the `details` block decides
+ * WHETHER a notice exists (only strip when the wire carries the field), the
+ * pattern tolerates rewording on the agent side. Order matches the agent's
+ * append order — each strip can expose the previous trailer.
+ */
+const BACKGROUND_NOTICE_RE = /\n?Backgrounded as job [^\n]*; result will be delivered automatically\.\s*$/;
+const EXIT_CODE_NOTICE_RE = /\n?Command exited with code -?\d+\s*$/;
+const WALL_TIME_NOTICE_RE = /\n?Wall time: \d+(?:\.\d+)? seconds\s*$/;
+
+function stripTrailer(text: string, re: RegExp): string {
+	return text.replace(re, "").trimEnd();
 }
 
 const RAW_ARTIFACT_RE = /\n?\[raw output: artifact:\/\/(\d+)\]\s*$/;
@@ -88,16 +94,14 @@ function parseBashResult(result: unknown, isError: boolean | undefined): BashPar
 			? (meta.truncation as Record<string, unknown>)
 			: undefined;
 
-	// Strip trailer notices in the same order as the TUI renderer.
+	// Strip trailer notices only when `details` confirms they were appended;
+	// re-stated below from the structured fields instead.
 	if (asyncInfo?.state === "running" && backgroundJobId) {
-		text = stripTrailingNotice(
-			text,
-			`Backgrounded as job ${backgroundJobId}; result will be delivered automatically.`,
-		);
+		text = stripTrailer(text, BACKGROUND_NOTICE_RE);
 	}
 	if (meta) text = stripGeneratedOutputNotice(text);
-	if (exitCode != null) text = stripTrailingNotice(text, `Command exited with code ${exitCode}`);
-	if (wallTimeMs != null) text = stripTrailingNotice(text, `Wall time: ${(wallTimeMs / 1000).toFixed(2)} seconds`);
+	if (exitCode != null) text = stripTrailer(text, EXIT_CODE_NOTICE_RE);
+	if (wallTimeMs != null) text = stripTrailer(text, WALL_TIME_NOTICE_RE);
 
 	let artifactId = typeof truncation?.artifactId === "string" ? truncation.artifactId : undefined;
 	const artifactMatch = text.match(RAW_ARTIFACT_RE);
@@ -157,8 +161,15 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult }
 				)}
 			</div>
 			{hasOutput && (
-				<div className="max-h-64 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.5]">
-					<div className="whitespace-pre-wrap text-[var(--omp-tool-output)]">{parsed.output}</div>
+				<div
+					className={cx(
+						"rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.5]",
+						PREVIEW_SCROLL_MD,
+					)}
+				>
+					<div className="whitespace-pre-wrap text-[var(--omp-tool-output)]">
+						{hasAnsi(parsed.output) ? <AnsiText text={parsed.output} /> : parsed.output}
+					</div>
 				</div>
 			)}
 			{parsed.stats.length > 0 && (

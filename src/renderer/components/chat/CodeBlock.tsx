@@ -10,7 +10,7 @@ export interface CodeBlockProps {
 	code?: string;
 	/** Language hint for highlighting and the badge. */
 	language?: string;
-	/** Pre-highlighted HTML (e.g. rehype-highlight output) — rendered verbatim. */
+	/** Pre-highlighted HTML (hljs output) — rendered verbatim. */
 	highlightedHtml?: string;
 	/** Show the language badge. */
 	showLanguage?: boolean;

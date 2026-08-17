@@ -746,7 +746,7 @@ export function InputArea() {
 				<WorkspaceDock />
 
 				<div
-					className="overflow-hidden rounded-lg border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)] transition-[border-color] duration-150 focus-within:border-[var(--omp-input-focus-border)]"
+					className="overflow-hidden rounded-xl border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--omp-input-focus-border)] focus-within:shadow-[var(--omp-shadow-glow)]"
 					style={modeColor ? { borderColor: modeColor } : undefined}
 				>
 					<div className="px-3.5 pb-1.5 pt-2.5">

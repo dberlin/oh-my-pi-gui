@@ -1,9 +1,11 @@
 import { Search } from "lucide-react";
-import { escapeHtml, escapeRegExp, resultDetails, resultText } from "../../lib/format";
+import { cx, escapeHtml, escapeRegExp, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { GREP_PREVIEW_MATCHES, PREVIEW_SCROLL_MD, PREVIEW_SCROLL_SM } from "../../lib/preview";
+import { PathLink } from "./PathLink";
 import type { ToolRendererProps } from "./ToolCard";
 
-const MAX_MATCHES = 200;
+const MAX_MATCHES = GREP_PREVIEW_MATCHES;
 
 // The grep tool result carries structured details (matches/files/truncated/
 // scope) plus a `displayContent` body in the shared grouped-file format:
@@ -212,13 +214,18 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 				</span>
 			</div>
 			{renderedGroups.length > 0 && (
-				<div className="max-h-64 overflow-auto rounded bg-[var(--omp-code-bg)] py-1 font-mono text-omp-sm leading-[1.5]">
+				<div
+					className={cx(
+						"rounded bg-[var(--omp-code-bg)] py-1 font-mono text-omp-sm leading-[1.5]",
+						PREVIEW_SCROLL_MD,
+					)}
+				>
 					{renderedGroups.map((group, gi) => (
 						<div key={gi}>
 							{group.file && (
-								<div className="truncate px-2 pt-1 text-[var(--omp-status-path)]" title={group.file}>
+								<PathLink path={group.file} className="block truncate px-2 pt-1 text-[var(--omp-status-path)]">
 									{group.file}
-								</div>
+								</PathLink>
 							)}
 							{group.lines.map((line, li) =>
 								line.kind === "gap" ? (
@@ -257,7 +264,12 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 			{renderedGroups.length === 0 &&
 				!isPartial &&
 				(text ? (
-					<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm text-[var(--omp-tool-output)]">
+					<pre
+						className={cx(
+							"whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm text-[var(--omp-tool-output)]",
+							PREVIEW_SCROLL_SM,
+						)}
+					>
 						{text}
 					</pre>
 				) : (

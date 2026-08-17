@@ -1,9 +1,11 @@
 import { FolderOpen } from "lucide-react";
-import { resultText } from "../../lib/format";
+import { cx, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { GLOB_PREVIEW_PATHS, PREVIEW_SCROLL_MD } from "../../lib/preview";
+import { PathLink } from "./PathLink";
 import type { ToolRendererProps } from "./ToolCard";
 
-const MAX_PATHS = 300;
+const MAX_PATHS = GLOB_PREVIEW_PATHS;
 
 /** Glob: matched-path count + the path list. */
 export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRendererProps) {
@@ -28,14 +30,20 @@ export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRen
 				</span>
 			</div>
 			{paths.length > 0 && (
-				<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.5]">
+				<div
+					className={cx(
+						"rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.5]",
+						PREVIEW_SCROLL_MD,
+					)}
+				>
 					{paths.map((p, i) => (
-						<div
+						<PathLink
 							key={i}
-							className="truncate whitespace-pre text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-selected-bg)]/50"
+							path={p.endsWith("/") ? p.slice(0, -1) : p}
+							className="block truncate whitespace-pre text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-selected-bg)]/50"
 						>
 							{p.endsWith("/") ? <span className="text-[var(--omp-status-path)]">{p}</span> : p}
-						</div>
+						</PathLink>
 					))}
 				</div>
 			)}

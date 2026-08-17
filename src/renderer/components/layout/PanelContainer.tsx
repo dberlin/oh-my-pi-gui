@@ -102,29 +102,30 @@ export function PanelContainer() {
 					<X size={17} />
 				</button>
 			</div>
-			<div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--omp-border-muted)] px-2">
-				{visibleTabs.map(({ id, labelKey, icon: Icon }) => {
-					const active = visiblePanelTab === id;
-					return (
-						<button
-							key={id}
-							type="button"
-							onClick={() => setPanelTab(id)}
-							className={cx(
-								"relative flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-omp-md font-medium transition-colors",
-								active
-									? "bg-[var(--omp-selected-bg)] text-[var(--omp-text)]"
-									: "text-[var(--omp-muted)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]",
-							)}
-						>
-							<Icon size={14} />
-							<span className="omp-inspector-tab-label">{t(labelKey)}</span>
-							{active && (
-								<span className="absolute inset-x-2 -bottom-[7px] h-0.5 rounded-full bg-[var(--omp-accent)]" />
-							)}
-						</button>
-					);
-				})}
+			<div className="flex h-11 shrink-0 items-center overflow-x-auto border-b border-[var(--omp-border-muted)] px-3">
+				<div
+					className="flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--omp-bg-secondary)] p-0.5" // surface-ok: segmented tab track is panel chrome
+				>
+					{visibleTabs.map(({ id, labelKey, icon: Icon }) => {
+						const active = visiblePanelTab === id;
+						return (
+							<button
+								key={id}
+								type="button"
+								onClick={() => setPanelTab(id)}
+								className={cx(
+									"omp-pressable relative flex h-7 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-omp-md font-medium",
+									active
+										? "bg-[var(--omp-bg-elevated)] text-[var(--omp-text)] shadow-(--omp-shadow-sm)"
+										: "text-[var(--omp-muted)] hover:text-[var(--omp-text)]",
+								)}
+							>
+								<Icon size={14} />
+								<span className="omp-inspector-tab-label">{t(labelKey)}</span>
+							</button>
+						);
+					})}
+				</div>
 			</div>
 			<div className="min-h-0 flex-1 overflow-hidden">
 				<PanelErrorBoundary key={`${activeTabId ?? "no-tab"}:${visiblePanelTab}`}>

@@ -22,6 +22,7 @@ import type {
 	IpcHostToolUpdatePayload,
 	IpcHostUriResultPayload,
 	IpcNotifyPayload,
+	IpcOpenPathResult,
 	IpcPrefsGetPayload,
 	IpcPrefsSetPayload,
 	IpcRpcCommandForTabPayload,
@@ -700,6 +701,27 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (typeof url === "string" && (url.startsWith("https://") || url.startsWith("http://"))) {
 			await shell.openExternal(url);
 		}
+	});
+
+	// Tool-card path links — open a file in the system editor. "~" expands,
+	// relative paths resolve inside the calling window's workspace (escapes
+	// refused), absolute paths pass through: the agent can legitimately touch
+	// files outside the workspace. When no editor association exists, reveal
+	// the file in the file manager instead of failing.
+	ipcMain.handle(IPC_COMMANDS.SYSTEM_OPEN_PATH, async (event, target: string): Promise<IpcOpenPathResult> => {
+		if (typeof target !== "string" || !target.trim()) return { ok: false, error: "Empty path" };
+		let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
+		if (!path.isAbsolute(resolved)) {
+			const rootAbs = cwdFor(deps, event);
+			if (!rootAbs) return { ok: false, error: "No workspace" };
+			const within = resolveWithin(rootAbs, resolved);
+			if (!within) return { ok: false, error: "Path escapes the workspace" };
+			resolved = within;
+		}
+		const openError = await shell.openPath(resolved);
+		if (!openError) return { ok: true, resolvedPath: resolved };
+		shell.showItemInFolder(resolved);
+		return { ok: true, resolvedPath: resolved };
 	});
 
 	ipcMain.handle(IPC_COMMANDS.SYSTEM_SAVE_DIALOG, async (event, defaultPath?: string) => {

@@ -23,11 +23,19 @@ export function formatTimeAgo(iso: string | undefined | null): string {
 	return new Date(then).toLocaleDateString(locale, { month: "short", day: "numeric" });
 }
 
-/** Full clock string for tooltips. */
+/** Compact clock label — no seconds; same-day times shrink to HH:MM. */
 export function formatClock(value: number | string | undefined | null): string {
 	const timestamp = toMs(value);
+	if (timestamp == null) return "";
+	const date = new Date(timestamp);
+	const now = new Date();
 	const locale = getCurrentLanguage() === "zh" ? "zh-CN" : "en-US";
-	return timestamp == null ? "" : new Date(timestamp).toLocaleString(locale);
+	const time: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
+	if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString(locale, time);
+	if (date.getFullYear() === now.getFullYear()) {
+		return date.toLocaleString(locale, { month: "short", day: "numeric", ...time });
+	}
+	return date.toLocaleString(locale, { year: "numeric", month: "short", day: "numeric", ...time });
 }
 
 /** Compact hour/minute label for dense visual timelines. */

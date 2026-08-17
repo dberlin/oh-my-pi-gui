@@ -2,10 +2,12 @@ import { Archive, Check, Copy, FileText, GitBranch, Terminal } from "lucide-reac
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
+import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { copyText, cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { branchSessionFromEntry, isRenderableMessageText } from "../../lib/messages";
+import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { toast } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { editArgumentSummary } from "../tools/edit-args";
@@ -154,8 +156,17 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 					</pre>
 				)}
 				{!running && (
-					<pre className="max-h-80 overflow-auto px-3.5 py-2.5 font-mono text-omp-sm leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]">
-						{message.output || t("chat.exec.noOutput")}
+					<pre
+						className={cx(
+							"px-3.5 py-2.5 font-mono text-omp-sm leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]",
+							PREVIEW_SCROLL_LG,
+						)}
+					>
+						{message.output && hasAnsi(message.output) ? (
+							<AnsiText text={message.output} />
+						) : (
+							message.output || t("chat.exec.noOutput")
+						)}
 						{message.truncated ? `\n${t("chat.exec.truncated")}` : ""}
 					</pre>
 				)}
@@ -194,7 +205,12 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 									{file.path}
 									{file.skippedReason ? ` — ${file.skippedReason}` : ""}
 								</summary>
-								<pre className="max-h-72 overflow-auto border-t border-[var(--omp-border-muted)] px-3 py-2.5 font-mono text-omp-xs leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]">
+								<pre
+									className={cx(
+										"border-t border-[var(--omp-border-muted)] px-3 py-2.5 font-mono text-omp-xs leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]",
+										PREVIEW_SCROLL_LG,
+									)}
+								>
 									{file.content.slice(0, FILE_PREVIEW_CHARS)}
 									{file.content.length > FILE_PREVIEW_CHARS ? `\n${t("chat.context.previewTruncated")}` : ""}
 								</pre>

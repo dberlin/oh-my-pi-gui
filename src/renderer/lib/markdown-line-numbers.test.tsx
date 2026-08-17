@@ -1,10 +1,11 @@
 /**
  * Contract tests for markdown code line numbers (plan B3): the
  * `codeLineNumbers` GUI pref gates a line-number gutter on markdown-rendered
- * code blocks only (the tool-renderers' CodeBlock has its own always-on
- * gutter). SSR drives the pref via the MarkdownRenderer `codeLineNumbers`
- * prop — the pref store's server snapshot is off, and subscriptions never
- * run under renderToStaticMarkup.
+ * code blocks. Fences render through the same shared CodeBlock as the tool
+ * cards (badge, copy, gutter) — the pref just threads into its
+ * `showLineNumbers`. SSR drives the pref via the MarkdownRenderer
+ * `codeLineNumbers` prop — the pref store's server snapshot is off, and
+ * subscriptions never run under renderToStaticMarkup.
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -22,16 +23,14 @@ function render(content: string, codeLineNumbers?: boolean): string {
 const FENCE = "```ts\nalpha\nbeta\ngamma\n```";
 /** The gutter rows for a three-line fence, rendered by LineNumberGutter. */
 const GUTTER_ROWS = "<div>1</div><div>2</div><div>3</div>";
-/** Metrics class combo unique to the markdown Pre gutter — the tool-renderers'
- * CodeBlock gutter (mermaid fallback) uses different metrics. */
-const MARKDOWN_GUTTER = "pl-3 pr-2 text-[0.9em] leading-[1.3]";
+/** Metrics class combo of the shared CodeBlock gutter. */
+const SHARED_GUTTER = "px-2.5 py-3 text-omp-md leading-[1.5]";
 
 describe("markdown code line numbers", () => {
 	it("renders the gutter beside block code when the pref is on", () => {
 		const html = render(FENCE, true);
 		expect(html).toContain(GUTTER_ROWS);
-		expect(html).toContain(MARKDOWN_GUTTER);
-		expect(html).toContain('aria-hidden="true"');
+		expect(html).toContain(SHARED_GUTTER);
 		// The code itself still renders, still inside a <pre>.
 		expect(html).toContain("alpha");
 		expect(html).toContain("<pre");
@@ -40,8 +39,7 @@ describe("markdown code line numbers", () => {
 	it("omits the gutter when the pref is off", () => {
 		const html = render(FENCE, false);
 		expect(html).not.toContain(GUTTER_ROWS);
-		expect(html).not.toContain(MARKDOWN_GUTTER);
-		expect(html).not.toContain('aria-hidden="true"');
+		expect(html).not.toContain(SHARED_GUTTER);
 		expect(html).toContain("alpha");
 	});
 
@@ -57,12 +55,12 @@ describe("markdown code line numbers", () => {
 		expect(html).toContain("npm test");
 	});
 
-	it("does not add a markdown gutter to mermaid fences", () => {
-		// MermaidBlock's SSR fallback shows the source in the tool-renderers'
-		// CodeBlock (its own pre-existing gutter) — the markdown Pre path must
-		// not add a second one.
+	it("mermaid fences render as diagrams, not numbered code", () => {
+		// MermaidBlock owns the fence; SSR falls back to the shared CodeBlock
+		// showing the mermaid source — exactly one gutter, marked as mermaid.
 		const html = render("```mermaid\ngraph TD\nA-->B\n```", true);
-		expect(html).not.toContain(MARKDOWN_GUTTER);
+		expect(html).toContain("graph TD");
+		expect(html).toContain(">mermaid</span>");
 	});
 
 	it("strips the fence's trailing newline when counting lines", () => {
@@ -71,5 +69,12 @@ describe("markdown code line numbers", () => {
 		const html = render(FENCE, true);
 		expect(html).toContain(GUTTER_ROWS);
 		expect(html).not.toContain("<div>4</div>");
+	});
+
+	it("fences carry the shared chrome: language badge and copy button", () => {
+		const html = render(FENCE, false);
+		// Language badge (uppercased) and the copy affordance share the header.
+		expect(html).toContain(">typescript</span>");
+		expect(html).toContain("<button");
 	});
 });

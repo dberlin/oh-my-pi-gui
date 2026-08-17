@@ -1,23 +1,36 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
 
 /* ============================================================================
-   Typography — native desktop type, optimized for long-form conversation
+   Typography — Inter for latin, PingFang/YaHei for CJK, JetBrains Mono for code
    ============================================================================ */
 
 @theme {
-	--font-display: "SF Pro Display", "Avenir Next", ui-sans-serif, system-ui, sans-serif;
-	--font-body: "SF Pro Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-	--font-mono: "SFMono-Regular", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+	--font-display: "Inter Variable", "SF Pro Display", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+	--font-body: "Inter Variable", "SF Pro Text", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", ui-monospace, monospace;
 
 	/* Unified type scale — UI text uses these steps (text-omp-*), never raw
 	   pixel classes; lint-surfaces.mjs enforces it. Weight conventions: 400
 	   body, 500 labels/rows, 600 section/page titles. */
-	--text-omp-xxs: 9.5px;
-	--text-omp-xs: 10.5px;
-	--text-omp-sm: 11.5px;
-	--text-omp-md: 12.5px;
-	--text-omp-lg: 13.5px;
-	--text-omp-xl: 15px;
+	--text-omp-xxs: 10px;
+	--text-omp-xs: 11px;
+	--text-omp-sm: 12px;
+	--text-omp-md: 13px;
+	--text-omp-lg: 14px;
+	--text-omp-xl: 15.5px;
+
+	/* Modern geometry — one step rounder than the Tailwind defaults, so every
+	   rounded-* call site picks up the softer language from a single place. */
+	--radius-sm: 0.375rem;
+	--radius-md: 0.5rem;
+	--radius-lg: 0.625rem;
+	--radius-xl: 0.875rem;
+	--radius-2xl: 1.125rem;
+	--radius-3xl: 1.5rem;
 }
 
 *,
@@ -37,7 +50,7 @@ body {
 	font-family: var(--font-body);
 	font-size: 14.5px;
 	line-height: 1.62;
-	letter-spacing: -0.003em;
+	letter-spacing: -0.006em;
 	color: var(--omp-text);
 	background: var(--omp-bg-primary);
 	-webkit-font-smoothing: antialiased;
@@ -139,23 +152,28 @@ kbd,
 }
 
 /* ============================================================================
-   Motion system — two speeds, no layout animation on rows
+   Motion system — spring-flavored entrances, instant-feeling state changes,
+   no layout animation on rows
    ============================================================================ */
 
 :root {
-	--omp-motion-fast: 120ms;
-	--omp-motion-med: 180ms;
-	--omp-ease: cubic-bezier(0.22, 1, 0.36, 1);
+	--omp-motion-instant: 90ms; /* motion-ok: token definition */
+	--omp-motion-fast: 150ms;
+	--omp-motion-med: 240ms;
+	--omp-motion-slow: 380ms; /* motion-ok: token definition */
+	--omp-ease: cubic-bezier(0.25, 1, 0.35, 1);
+	--omp-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+	--omp-ease-spring: cubic-bezier(0.34, 1.42, 0.64, 1);
 }
 
 @keyframes omp-fade-up {
 	from {
 		opacity: 0;
-		transform: translateY(6px);
+		transform: translateY(10px) scale(0.995);
 	}
 	to {
 		opacity: 1;
-		transform: translateY(0);
+		transform: translateY(0) scale(1);
 	}
 }
 
@@ -171,7 +189,7 @@ kbd,
 @keyframes omp-scale-in {
 	from {
 		opacity: 0;
-		transform: scale(0.96) translateY(4px);
+		transform: scale(0.93) translateY(10px);
 	}
 	to {
 		opacity: 1;
@@ -182,11 +200,42 @@ kbd,
 @keyframes omp-toast-in {
 	from {
 		opacity: 0;
-		transform: translateX(16px) scale(0.97);
+		transform: translateY(14px) scale(0.95);
 	}
 	to {
 		opacity: 1;
-		transform: translateX(0) scale(1);
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes omp-pop-in {
+	from {
+		opacity: 0;
+		transform: scale(0.95) translateY(-6px);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
+@keyframes omp-slide-in-right {
+	from {
+		opacity: 0;
+		transform: translateX(28px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+@keyframes omp-shimmer {
+	from {
+		background-position: 200% 0;
+	}
+	to {
+		background-position: -200% 0;
 	}
 }
 
@@ -194,9 +243,11 @@ kbd,
 	0%,
 	100% {
 		opacity: 1;
+		transform: scale(1);
 	}
 	50% {
-		opacity: 0.45;
+		opacity: 0.4;
+		transform: scale(0.82);
 	}
 }
 
@@ -210,23 +261,47 @@ kbd,
 }
 
 .omp-fade-up {
-	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease) both;
+	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
 }
 
 .omp-fade-in {
-	animation: omp-fade-in var(--omp-motion-med) var(--omp-ease) both;
+	animation: omp-fade-in var(--omp-motion-fast) var(--omp-ease) both;
 }
 
 .omp-scale-in {
-	animation: omp-scale-in var(--omp-motion-med) var(--omp-ease) both;
+	animation: omp-scale-in var(--omp-motion-med) var(--omp-ease-spring) both;
 }
 
 .omp-toast-in {
-	animation: omp-toast-in var(--omp-motion-med) var(--omp-ease) both;
+	animation: omp-toast-in var(--omp-motion-med) var(--omp-ease-spring) both;
+}
+
+.omp-pop-in {
+	animation: omp-pop-in var(--omp-motion-fast) var(--omp-ease-spring) both;
+}
+
+.omp-slide-in-right {
+	animation: omp-slide-in-right var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+.omp-dialog-overlay {
+	animation: omp-fade-in var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+.omp-skeleton {
+	border-radius: var(--radius-md);
+	background: linear-gradient(
+		100deg,
+		var(--omp-bg-tertiary) 40%,
+		var(--omp-bg-elevated) 50%,
+		var(--omp-bg-tertiary) 60%
+	);
+	background-size: 200% 100%;
+	animation: omp-shimmer 1.4s linear infinite; /* motion-ok: loading placeholder sweep */
 }
 
 .omp-pulse-dot {
-	animation: omp-pulse-dot 1.8s ease-in-out infinite; /* motion-ok: waiting signal */
+	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: waiting signal */
 }
 
 .omp-indeterminate-progress {
@@ -239,7 +314,7 @@ kbd,
 }
 
 .omp-disclosure-chevron {
-	transition: transform var(--omp-motion-fast) var(--omp-ease);
+	transition: transform var(--omp-motion-fast) var(--omp-ease-spring);
 }
 
 /* ============================================================================
@@ -252,7 +327,12 @@ kbd,
 		border-color var(--omp-motion-fast) var(--omp-ease),
 		color var(--omp-motion-fast) var(--omp-ease),
 		box-shadow var(--omp-motion-fast) var(--omp-ease),
-		opacity var(--omp-motion-fast) var(--omp-ease);
+		opacity var(--omp-motion-fast) var(--omp-ease),
+		transform var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-pressable:active {
+	transform: scale(0.96);
 }
 
 .omp-color-fade {
@@ -340,7 +420,51 @@ kbd,
 	transition:
 		border-color var(--omp-motion-fast) var(--omp-ease),
 		background-color var(--omp-motion-fast) var(--omp-ease),
-		box-shadow var(--omp-motion-fast) var(--omp-ease);
+		box-shadow var(--omp-motion-fast) var(--omp-ease),
+		transform var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-lift:hover {
+	border-color: var(--omp-border-strong);
+	box-shadow: var(--omp-shadow-md);
+	transform: translateY(-2px);
+}
+
+.omp-lift:active {
+	transform: translateY(0) scale(0.99);
+}
+
+/* Empty-state entrance — logo, title, subtitle and starter cards cascade in. */
+.omp-empty-canvas > * {
+	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+.omp-empty-canvas > *:nth-child(2) {
+	animation-delay: calc(var(--omp-motion-fast) * 0.35);
+}
+
+.omp-empty-canvas > *:nth-child(3) {
+	animation-delay: calc(var(--omp-motion-fast) * 0.7);
+}
+
+.omp-empty-canvas > *:nth-child(4) {
+	animation-delay: calc(var(--omp-motion-fast) * 1.05);
+}
+
+.omp-starter-grid > * {
+	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+.omp-starter-grid > *:nth-child(2) {
+	animation-delay: calc(var(--omp-motion-fast) * 0.9);
+}
+
+.omp-starter-grid > *:nth-child(3) {
+	animation-delay: calc(var(--omp-motion-fast) * 1.15);
+}
+
+.omp-starter-grid > *:nth-child(4) {
+	animation-delay: calc(var(--omp-motion-fast) * 1.4);
 }
 
 @media (min-width: 1120px) {
@@ -380,6 +504,7 @@ kbd,
 .omp-inspector {
 	container: omp-inspector / inline-size;
 	box-shadow: none;
+	animation: omp-slide-in-right var(--omp-motion-med) var(--omp-ease-enter) both;
 }
 
 .omp-inspector-tab-label {
@@ -434,6 +559,9 @@ kbd,
 	grid-template-columns: minmax(0, 1fr) minmax(13rem, 16rem);
 	align-items: start;
 	gap: 1rem;
+	/* Cap the row so the description and its control stay visually paired
+	   instead of stretching apart across wide windows. */
+	max-width: 56rem;
 }
 
 .settings-field-control {

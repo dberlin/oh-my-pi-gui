@@ -10,16 +10,16 @@ import {
 	useSyncExternalStore,
 } from "react";
 import ReactMarkdown, { type Components, defaultUrlTransform, type Options } from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
-import { LineNumberGutter } from "../components/chat/LineNumberGutter";
+import { CodeBlock as SharedCodeBlock } from "../components/chat/CodeBlock";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
 import { useT } from "./i18n";
+import { PREVIEW_SCROLL_CODE } from "./preview";
 
 interface MarkdownRendererProps {
 	content: string;
@@ -106,7 +106,7 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 	attributes: {
 		a: ["href"],
 		abbr: ["title"],
-		// `language-*` on code feeds rehype-highlight's language detection.
+		// `language-*` on code carries the fence's language tag for the Pre swap.
 		code: ["className"],
 		span: ["className"],
 		img: ["src", "alt", "title"],
@@ -129,15 +129,13 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 };
 
 // Order matters: rehype-raw parses embedded HTML into the tree, rehype-sanitize
-// then filters the whole tree against the strict schema, and katex/highlight
-// run last so their own generated markup (MathML, hljs classes) is not
-// sanitized away. Code `language-*` classes survive sanitize for highlight.
-const REHYPE_PLUGINS: Options["rehypePlugins"] = [
-	rehypeRaw,
-	[rehypeSanitize, SANITIZE_SCHEMA],
-	rehypeKatex,
-	rehypeHighlight,
-];
+// then filters the whole tree against the strict schema, and katex runs last so
+// its generated MathML is not sanitized away. Fenced code is NOT highlighted in
+// this pipeline: the `pre` component swaps every fence for the shared CodeBlock
+// (same lazy hljs path as the tool cards), which also owns the language badge,
+// copy button, and line-number gutter — one code chrome across the whole GUI.
+// Code `language-*` classes survive sanitize for that detection.
+const REHYPE_PLUGINS: Options["rehypePlugins"] = [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], rehypeKatex];
 
 // react-markdown's defaultUrlTransform blanks data:/file: URLs even when the
 // sanitize schema allows them. Images need both (inline base64, local files
@@ -260,19 +258,21 @@ function CodeBlock({ className, children, ...props }: ComponentPropsWithoutRef<"
 	if (typeof className === "string" && MERMAID_CLASS.test(className)) {
 		return <MermaidBlock code={textOf(children)} />;
 	}
-	const isInline = !className;
-	if (isInline) {
+	// Fenced (className-carrying) code reaches here only as Pre's child — Pre
+	// swaps the wrapper for the shared CodeBlock chrome and reads the language
+	// off this className, so keep it intact and unstyled.
+	if (className) {
 		return (
-			<code
-				{...props}
-				className="px-1 py-0.5 rounded bg-[var(--omp-code-bg)] text-[var(--omp-md-code)] font-mono text-[0.9em]"
-			>
+			<code {...props} className={className}>
 				{children}
 			</code>
 		);
 	}
 	return (
-		<code {...props} className={`${className ?? ""} font-mono text-[0.9em] leading-[1.3]`}>
+		<code
+			{...props}
+			className="px-1 py-0.5 rounded bg-[var(--omp-code-bg)] text-[var(--omp-md-code)] font-mono text-[0.9em]"
+		>
 			{children}
 		</code>
 	);
@@ -325,38 +325,29 @@ function Li({ children, ...props }: ComponentPropsWithoutRef<"li">) {
 	);
 }
 
-function Pre({ children, ...props }: ComponentPropsWithoutRef<"pre">) {
+const FENCE_LANGUAGE_RE = /(?:^|\s)language-(\S+)/;
+
+function Pre({ children }: ComponentPropsWithoutRef<"pre">) {
 	const showLineNumbers = useCodeLineNumbers();
 	// A mermaid fence swaps the whole block for a diagram with its own chrome —
 	// skip the <pre> wrapper so the diagram is not boxed like code.
 	if (isMermaidCodeElement(children)) return <>{children}</>;
-	if (!showLineNumbers) {
-		return (
-			<pre
-				{...props}
-				className="p-3 rounded-md bg-[var(--omp-code-bg)] border border-[var(--omp-md-code-block-border)] overflow-x-auto my-2 text-[var(--omp-md-code-block)]"
-			>
-				{children}
-			</pre>
-		);
-	}
-	// Line-number mode mirrors the tool-renderers' CodeBlock: shared sticky
-	// gutter + code pane. Gutter metrics (text size, leading, block padding)
-	// match the code element's text-[0.9em] leading-[1.3] so numbers and lines
-	// stay aligned; a fence's trailing newline never paints a visible line, so
-	// it is stripped before counting.
-	const text = textOf(children).replace(/\n$/, "");
-	let lineCount = 1;
-	for (let i = 0; i < text.length; i++) if (text[i] === "\n") lineCount++;
+	// Every other fence renders through the shared CodeBlock: same language
+	// badge, copy button, gutter, and lazy highlighting as the tool cards. The
+	// fence's trailing newline never paints a visible line — strip it.
+	const codeClass =
+		isValidElement<{ className?: unknown }>(children) && typeof children.props.className === "string"
+			? children.props.className
+			: "";
+	const language = FENCE_LANGUAGE_RE.exec(codeClass)?.[1] ?? "plaintext";
 	return (
-		<div className="rounded-md bg-[var(--omp-code-bg)] border border-[var(--omp-md-code-block-border)] my-2 text-[var(--omp-md-code-block)]">
-			<div className="flex">
-				<LineNumberGutter lineCount={lineCount} className="py-3 pl-3 pr-2 text-[0.9em] leading-[1.3]" />
-				<pre {...props} className="min-w-0 flex-1 overflow-x-auto p-3">
-					{children}
-				</pre>
-			</div>
-		</div>
+		<SharedCodeBlock
+			code={textOf(children).replace(/\n$/, "")}
+			language={language}
+			showLineNumbers={showLineNumbers}
+			maxHeightClass={PREVIEW_SCROLL_CODE}
+			className="my-2"
+		/>
 	);
 }
 
