@@ -19,7 +19,7 @@ export function isQuitting(): boolean {
 
 export function requestQuit(): void {
 	approved = true;
-	app.quit();
+	setImmediate(() => app.quit());
 }
 
 /** What a quit right now would cost. The resource-change restart quotes it. */
