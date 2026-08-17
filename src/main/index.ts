@@ -2,32 +2,34 @@
  * Main process entry point for the omp GUI.
  * App lifecycle: ready → window, sidecar, session index, IPC, tray, menu, deep links, updater.
  */
+
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, join } from "node:path";
+import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
 import Store from "electron-store";
 import type { SessionKind, SessionTarget } from "../shared/ipc-types";
+import { setupDeepLinks } from "./deep-link";
+import { registerIpcHandlers } from "./ipc";
 import { LocalSshSettingsService } from "./local-ssh-settings";
 import { LogWatcher } from "./log-watcher";
+import { createMenu } from "./menu";
+import { createQuitSequence } from "./quit-sequence";
 import { RemoteAcpClient } from "./remote-acp";
 import { RemoteHostCatalog, type RemoteHostCatalogPrefs } from "./remote-host-catalog";
+import { nodeRemoteProcessRunner, RemoteSshService } from "./remote-ssh";
+import { writeRuntimeLog } from "./runtime-log";
 import { SessionIndex } from "./session-index";
+import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { SidecarManager } from "./sidecar";
 import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
-import { WindowManager } from "./window";
-import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
-import { createMenu } from "./menu";
-import { createTray, destroyTray } from "./tray";
-import { delimiter, join } from "node:path";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { nodeRemoteProcessRunner, RemoteSshService } from "./remote-ssh";
-import { registerIpcHandlers } from "./ipc";
-import { resolveWindowSpawnTarget } from "./window-spawn-target";
-import { setupDeepLinks } from "./deep-link";
-import { setupUpdater } from "./updater";
-import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { type PersistedTabLayout, sanitizePersistedTabLayout } from "./tab-layout";
-import { writeRuntimeLog } from "./runtime-log";
+import { createTray, destroyTray } from "./tray";
+import { setupUpdater } from "./updater";
+import { WindowManager } from "./window";
+import { resolveWindowSpawnTarget } from "./window-spawn-target";
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -200,8 +202,6 @@ let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
 let remoteServices: { ssh: RemoteSshService; catalog: RemoteHostCatalog; acp: RemoteAcpClient } | null = null;
-let shutdownStarted = false;
-let shutdownComplete = false;
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
 	if (typeof value === "string") return { message: value };
@@ -416,29 +416,34 @@ app.on("window-all-closed", () => {
 	}
 });
 
-// Cleanup on quit
-app.on("before-quit", event => {
-	if (shutdownComplete) return;
-	event.preventDefault();
-	if (shutdownStarted) return;
-	shutdownStarted = true;
-	statsServer?.kill();
-	sessionIndex?.stop();
-	logWatcher?.stop();
-	destroyTray();
-	const sidecars = sidecarPool?.disposeAll() ?? Promise.resolve();
-	const ssh = remoteServices?.ssh;
-	remoteServices = null;
-	void sidecars
-		.catch(error => {
+// Cleanup on quit. Sequencing lives in quit-sequence.ts: the first request is
+// cancelled so disposal can finish, then the re-quit is deferred to a fresh
+// macrotask (quitting inline would be ignored and cost a second ⌘Q press).
+const requestQuit = createQuitSequence({
+	cleanup: async () => {
+		statsServer?.kill();
+		sessionIndex?.stop();
+		logWatcher?.stop();
+		destroyTray();
+		const sidecars = sidecarPool?.disposeAll() ?? Promise.resolve();
+		const ssh = remoteServices?.ssh;
+		remoteServices = null;
+		try {
+			await sidecars;
+		} catch (error) {
 			writeRuntimeLog({ source: "sidecar-shutdown", ...errorMessage(error) });
-		})
-		.then(() => ssh?.dispose())
-		.catch(error => {
+		}
+		try {
+			await ssh?.dispose();
+		} catch (error) {
 			writeRuntimeLog({ source: "remote-ssh-shutdown", ...errorMessage(error) });
-		})
-		.finally(() => {
-			shutdownComplete = true;
-			app.quit();
-		});
+		}
+	},
+	quit: () => app.quit(),
+	schedule: run => setImmediate(run),
+	onError: error => writeRuntimeLog({ source: "shutdown", ...errorMessage(error) }),
+});
+
+app.on("before-quit", event => {
+	requestQuit(() => event.preventDefault());
 });
