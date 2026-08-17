@@ -1,11 +1,11 @@
 /**
- * Batches agent session events at 16ms cadence for renderer delivery.
+ * Batches agent session events at roughly one 30Hz presentation frame.
  * Never drops message_update or lifecycle events.
  * Drops intermediate tool_execution_update under backpressure (>1000 buffered).
  */
 import type { AgentSessionEvent } from "../shared/rpc-types";
 
-const BATCH_INTERVAL_MS = 16;
+const BATCH_INTERVAL_MS = 32;
 const MAX_BUFFER_SIZE = 1000;
 
 type FlushCallback = (events: AgentSessionEvent[]) => void;

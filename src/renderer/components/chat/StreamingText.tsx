@@ -1,28 +1,42 @@
-import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
+import { useMemo } from "react";
+import { STREAM_FORMAT_FLUSH_MS, useStreamingTextFrame } from "../../hooks/use-throttled-text";
 import { MarkdownRenderer } from "../../lib/markdown";
+import { segmentStreamingMarkdown } from "../../lib/streaming-markdown";
 import { useMessagesStore } from "../../stores/messages";
 
 /**
  * Live tail of the assistant's in-flight reply. The store accumulates
- * text_delta events into `streamingText` (RAF-batched upstream); the blinking
- * cursor is pure CSS. Markdown re-parses are throttled to STREAM_FLUSH_MS so
- * a 16ms token batch doesn't trigger a full re-parse each frame. Unmounts
- * when message_end finalizes the message and ChatStream renders the
- * completed MessageBubble instead.
+ * text_delta events into `streamingText`. Presentation is aligned to browser
+ * frames, then split into immutable Markdown blocks plus a cheap unfinished
+ * tail. Completed blocks parse once; the live suffix receives a subtle reveal
+ * instead of making the whole growing response re-parse and jump.
  */
 export function StreamingText() {
 	const streamingText = useMessagesStore(s => s.streamingText);
-	const throttledText = useThrottledText(streamingText, STREAM_FORMAT_FLUSH_MS);
+	const frame = useStreamingTextFrame(streamingText, STREAM_FORMAT_FLUSH_MS);
+	const segments = useMemo(() => segmentStreamingMarkdown(frame.text), [frame.text]);
 	if (!streamingText) return null;
-	// Geometry matches the finalized MessageBubble (StreamingRows already pads
-	// px-6; no inner max-width) so the reply doesn't jump when it finalizes.
-	// The caret is a sibling of the markdown output; components.css pulls the
-	// wrapper + trailing paragraph inline so the caret stays on the last text
-	// line instead of wrapping below the final block.
+
+	const deltaOffset = Math.max(0, Math.min(segments.tail.length, frame.deltaStart - segments.tailStart));
+	const settledTail = segments.tail.slice(0, deltaOffset);
+	const revealedTail = segments.tail.slice(deltaOffset);
+
 	return (
 		<div className="omp-streaming">
-			<MarkdownRenderer content={throttledText} />
-			<span aria-hidden className="omp-caret" />
+			{segments.blocks.map(block => (
+				<div className="omp-streaming-block" key={block.end}>
+					<MarkdownRenderer content={block.content} />
+				</div>
+			))}
+			<div className="omp-streaming-tail">
+				{settledTail}
+				{revealedTail ? (
+					<span className="omp-streaming-reveal" key={frame.revision}>
+						{revealedTail}
+					</span>
+				) : null}
+				<span aria-hidden className="omp-caret" />
+			</div>
 		</div>
 	);
 }
