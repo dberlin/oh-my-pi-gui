@@ -9,7 +9,7 @@ import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electr
 import Store from "electron-store";
 import { nativeAccelerator } from "../shared/hotkeys";
 import type { SessionKind, SessionTarget } from "../shared/ipc-types";
-import { installQuitGuard, requestQuit } from "./app-quit";
+import { installQuitGuard, isQuitting, requestQuit } from "./app-quit";
 import { bundledOmpFilename, resolveOmpCandidate } from "./bundled-omp-path";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -19,6 +19,7 @@ import { registerIpcHandlers } from "./ipc";
 import { LocalSshSettingsService } from "./local-ssh-settings";
 import { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
+import { createQuitSequence } from "./quit-sequence";
 import { RemoteAcpClient } from "./remote-acp";
 import { RemoteHostCatalog, type RemoteHostCatalogPrefs } from "./remote-host-catalog";
 import { nodeRemoteProcessRunner, RemoteSshService } from "./remote-ssh";
@@ -220,8 +221,6 @@ let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
 let remoteServices: { ssh: RemoteSshService; catalog: RemoteHostCatalog; acp: RemoteAcpClient } | null = null;
-let shutdownStarted = false;
-let shutdownComplete = false;
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
 	if (typeof value === "string") return { message: value };
@@ -504,36 +503,36 @@ app.on("window-all-closed", () => {
 	}
 });
 
-function beginShutdown(): void {
-	if (shutdownStarted) return;
-	shutdownStarted = true;
-	statsServer?.kill();
-	sessionIndex?.stop();
-	logWatcher?.stop();
-	destroyTray();
-	const sidecars = sidecarPool?.disposeAll() ?? Promise.resolve();
-	const ssh = remoteServices?.ssh;
-	remoteServices = null;
-	void sidecars
-		.catch(error => {
+// Drain approved quits, then defer the final Electron request to a fresh macrotask.
+const drainBeforeQuit = createQuitSequence({
+	cleanup: async () => {
+		statsServer?.kill();
+		sessionIndex?.stop();
+		logWatcher?.stop();
+		destroyTray();
+		const sidecars = sidecarPool?.disposeAll() ?? Promise.resolve();
+		const ssh = remoteServices?.ssh;
+		remoteServices = null;
+		try {
+			await sidecars;
+		} catch (error) {
 			writeRuntimeLog({ source: "sidecar-shutdown", ...errorMessage(error) });
-		})
-		.then(() => ssh?.dispose())
-		.catch(error => {
+		}
+		try {
+			await ssh?.dispose();
+		} catch (error) {
 			writeRuntimeLog({ source: "remote-ssh-shutdown", ...errorMessage(error) });
-		})
-		.finally(() => {
-			shutdownComplete = true;
-			app.quit();
-		});
-}
+		}
+	},
+	quit: requestQuit,
+	schedule: run => setImmediate(run),
+	onError: error => writeRuntimeLog({ source: "shutdown", ...errorMessage(error) }),
+});
 
-// Gate every quit path on active-session confirmation, then keep Electron
-// alive until local and remote children have both finished terminating.
 installQuitGuard(
 	() => (sidecarPool ? sidecarPool.tabInventory() : []),
-	beginShutdown,
+	() => drainBeforeQuit(() => {}),
 );
 app.on("before-quit", event => {
-	if (shutdownStarted && !shutdownComplete) event.preventDefault();
+	if (isQuitting()) drainBeforeQuit(() => event.preventDefault());
 });
