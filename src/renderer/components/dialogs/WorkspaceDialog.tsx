@@ -4,21 +4,22 @@
  * the user jump to any of them (`setProject` → sidecar restarts there) or add
  * a new directory (native picker). Far richer than the bare breadcrumb picker.
  */
-import type { SshSessionTarget } from "../../../shared/ipc-types";
-import { Button, Modal, Spinner } from "../common";
+
 import { Check, Folder, FolderPlus, Server } from "lucide-react";
-import { RemoteWorkspaceDialog } from "./RemoteWorkspaceDialog";
-import { basename, cx } from "../../lib/format";
-import { moveSessionTo, pickWorkspaceDirectory } from "../../lib/workspace-dirs";
-import { toast } from "../../stores/toast";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRemoteStore } from "../../stores/remote";
+import type { SshSessionTarget } from "../../../shared/ipc-types";
 import { useSessionList } from "../../hooks/use-session-list";
+import { basename, cx } from "../../lib/format";
+import { useT } from "../../lib/i18n";
+import { moveSessionTo, pickWorkspaceDirectory } from "../../lib/workspace-dirs";
+import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
-import { useT } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
+import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
+import { Button, Modal, Spinner } from "../common";
+import { RemoteWorkspaceDialog } from "./RemoteWorkspaceDialog";
 
 interface WorkspaceRow {
 	cwd: string;
