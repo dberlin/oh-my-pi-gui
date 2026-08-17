@@ -22,3 +22,4 @@ tmp/
 electron-builder.trial.yml
 dev-app-update.yml
 .gitattributes
+.superpowers/
