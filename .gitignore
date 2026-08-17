@@ -30,3 +30,4 @@ dev-app-update.yml
 playwright-report/
 test-results/
 .gitattributes
+.superpowers/
