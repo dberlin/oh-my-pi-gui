@@ -5,6 +5,7 @@
 ### Changed
 
 - **Frame-paced streaming presentation**: live replies now coalesce IPC bursts onto browser frames, promote complete Markdown paragraphs/code/math into parse-once blocks, keep only the unfinished suffix lightweight, and reveal new text with a subtle fade plus a smooth breathing caret instead of 200ms chunk jumps. Agent-event delivery now runs at a stable ~30 Hz, while finalized content and manual scroll positions remain unchanged.
+- **Responsive composer controls**: thinking level, fast mode, approval mode, and session modes now stay expanded across the toolbar whenever its measured width can hold them; only narrow composers fall back to the compact overflow menu, including live transitions when sidebars or the window resize.
 
 ## [0.8.1] - 2026-08-16
 

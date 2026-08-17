@@ -123,6 +123,10 @@ function buttonWithText(text: string): TestElement | undefined {
 	return buttons.find(button => button.textContent?.trim().startsWith(text));
 }
 
+function setWindowWidth(width: number): void {
+	Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+}
+
 function findTextarea(): TestElement {
 	const textarea = document.querySelector("textarea") as unknown as TestElement | null;
 	if (!textarea) throw new Error("composer textarea not found");
@@ -197,6 +201,7 @@ afterEach(async () => {
 	useSettingsStore.getState().reset();
 	useTabsStore.getState().reset();
 	useUiStore.getState().closeComposerEditor();
+	setWindowWidth(1200);
 	vi.restoreAllMocks();
 });
 
@@ -320,13 +325,31 @@ describe("InputArea queue shorthand submit", () => {
 
 describe("InputArea run settings", () => {
 	async function openRunSettings(): Promise<void> {
-		const more = document.querySelector('button[aria-haspopup="menu"]') as unknown as TestElement | null;
+		const more = document.querySelector(
+			"button[data-run-settings-overflow-trigger]",
+		) as unknown as TestElement | null;
 		if (!more) throw new Error("run settings trigger missing");
 		await click(more);
 	}
 
-	it("lets a nested thinking portal dispatch before the parent menu dismisses", async () => {
+	async function mountCompact(): Promise<void> {
+		setWindowWidth(600);
 		await mount();
+	}
+
+	it("keeps all primary run controls inline when the composer has room", async () => {
+		await mount();
+
+		expect(document.querySelector("[data-run-settings-inline]")).not.toBeNull();
+		expect(document.querySelector("[data-run-settings-overflow-trigger]")).toBeNull();
+		expect(buttonWithText("high")).toBeDefined();
+		expect(buttonWithText("Fast")).toBeDefined();
+		expect(buttonWithText("Full access")).toBeDefined();
+		expect(buttonWithText("Modes")).toBeDefined();
+	});
+
+	it("lets a nested thinking portal dispatch before the parent menu dismisses", async () => {
+		await mountCompact();
 		await openRunSettings();
 
 		const thinking = buttonWithText("high");
@@ -347,7 +370,7 @@ describe("InputArea run settings", () => {
 	});
 
 	it("lets the nested approval portal persist its selected mode", async () => {
-		await mount();
+		await mountCompact();
 		await openRunSettings();
 		const approval = buttonWithText("Full access");
 		if (!approval) throw new Error("approval trigger missing");
@@ -363,7 +386,7 @@ describe("InputArea run settings", () => {
 	});
 
 	it("lets the nested modes portal dispatch its selected action", async () => {
-		await mount();
+		await mountCompact();
 		await openRunSettings();
 		const modes = buttonWithText("Modes");
 		if (!modes) throw new Error("modes trigger missing");

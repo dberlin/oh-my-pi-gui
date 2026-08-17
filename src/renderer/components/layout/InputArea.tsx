@@ -65,7 +65,6 @@ export function InputArea() {
 	const cwd = useSessionStore(s => s.cwd);
 	const steeringMode = useSettingsStore(s => s.steeringMode);
 	const model = useModelStore(s => s.model);
-	const fastModeEnabled = useModelStore(s => s.fastModeEnabled);
 	const fastModeActive = useModelStore(s => s.fastModeActive);
 	const openModelPicker = useUiStore(s => s.openModelPicker);
 	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
@@ -95,9 +94,32 @@ export function InputArea() {
 	const [runSettingsPos, setRunSettingsPos] = useState<{ left: number; bottom: number } | null>(null);
 	const runSettingsTriggerRef = useRef<HTMLButtonElement>(null);
 	const runSettingsMenuRef = useRef<HTMLDivElement>(null);
+	const composerToolbarRef = useRef<HTMLDivElement>(null);
+	const [compactRunSettings, setCompactRunSettings] = useState(false);
 	const approvalMode = useSettingsStore(s => s.approvalMode);
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const runSettingsActive = fastModeActive || planModeEnabled || approvalMode !== "yolo";
+
+	useLayoutEffect(() => {
+		const toolbar = composerToolbarRef.current;
+		if (!toolbar) return;
+		const inlineMinWidth = isChat ? 560 : 820;
+		const measure = () => {
+			const measured = toolbar.getBoundingClientRect().width;
+			const width = Number.isFinite(measured) && measured > 0 ? measured : window.innerWidth;
+			const compact = width < inlineMinWidth;
+			setCompactRunSettings(current => (current === compact ? current : compact));
+			if (!compact) setRunSettingsOpen(false);
+		};
+		measure();
+		const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+		observer?.observe(toolbar);
+		window.addEventListener("resize", measure);
+		return () => {
+			observer?.disconnect();
+			window.removeEventListener("resize", measure);
+		};
+	}, [isChat]);
 
 	useLayoutEffect(() => {
 		if (!runSettingsOpen || !runSettingsTriggerRef.current) return;
@@ -810,6 +832,7 @@ export function InputArea() {
 					{argHint && <div className="px-3.5 pb-1 font-mono text-omp-sm text-[var(--omp-dim)]">💡 {argHint}</div>}
 
 					<div
+						ref={composerToolbarRef}
 						aria-busy={!routeReady}
 						className="omp-composer-toolbar flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5"
 						inert={!routeReady}
@@ -870,51 +893,50 @@ export function InputArea() {
 							<ChevronDown size={13} className="shrink-0 text-[var(--omp-dim)]" />
 						</button>
 
-						<div className="relative">
-							<button
-								ref={runSettingsTriggerRef}
-								type="button"
-								aria-expanded={runSettingsOpen}
-								aria-haspopup="menu"
-								title={t("input.moreModes")}
-								aria-label={t("input.moreModes")}
-								onClick={() => setRunSettingsOpen(open => !open)}
-								className="omp-pressable relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								<MoreHorizontal size={16} />
-								{runSettingsActive && (
-									<span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
-								)}
-							</button>
-							{runSettingsOpen &&
-								runSettingsPos &&
-								createPortal(
-									<div
-										ref={runSettingsMenuRef}
-										role="menu"
-										style={{ left: runSettingsPos.left, bottom: runSettingsPos.bottom }}
-										className="fixed z-[100] flex min-w-56 flex-col gap-1 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1.5 shadow-[var(--omp-shadow-md)]"
-									>
-										<ThinkingControl />
-										<button
-											type="button"
-											role="menuitem"
-											onClick={() => void useModelStore.getState().toggleFastMode()}
-											title={`${fastModeEnabled ? t("input.fast.on") : t("input.fast.off")}${fastModeActive ? t("input.fast.active") : ""}`}
-											className={cx(
-												"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
-												fastModeActive ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
-											)}
+						{compactRunSettings ? (
+							<div className="relative">
+								<button
+									ref={runSettingsTriggerRef}
+									type="button"
+									aria-expanded={runSettingsOpen}
+									aria-haspopup="menu"
+									data-run-settings-overflow-trigger
+									title={t("input.moreModes")}
+									aria-label={t("input.moreModes")}
+									onClick={() => setRunSettingsOpen(open => !open)}
+									className="omp-pressable relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+								>
+									<MoreHorizontal size={16} />
+									{runSettingsActive && (
+										<span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
+									)}
+								</button>
+								{runSettingsOpen &&
+									runSettingsPos &&
+									createPortal(
+										<div
+											ref={runSettingsMenuRef}
+											role="menu"
+											data-run-settings-menu
+											style={{ left: runSettingsPos.left, bottom: runSettingsPos.bottom }}
+											className="fixed z-[100] flex min-w-56 flex-col gap-1 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1.5 shadow-[var(--omp-shadow-md)]"
 										>
-											<Zap size={14} fill={fastModeActive ? "currentColor" : "none"} />
-											<span>{t("input.fast.label")}</span>
-										</button>
-										{!isChat && <ApprovalControl />}
-										{!isChat && <ComposerModes />}
-									</div>,
-									document.body,
-								)}
-						</div>
+											<ThinkingControl />
+											<FastModeControl menuItem />
+											{!isChat && <ApprovalControl />}
+											{!isChat && <ComposerModes />}
+										</div>,
+										document.body,
+									)}
+							</div>
+						) : (
+							<div data-run-settings-inline className="flex shrink-0 items-center gap-0.5">
+								<ThinkingControl />
+								<FastModeControl />
+								{!isChat && <ApprovalControl />}
+								{!isChat && <ComposerModes />}
+							</div>
+						)}
 
 						<div className="flex-1" />
 
@@ -967,5 +989,27 @@ export function InputArea() {
 				<div className="mt-2 text-center text-omp-sm text-[var(--omp-dim)]">{t("input.hint")}</div>
 			</div>
 		</div>
+	);
+}
+
+function FastModeControl({ menuItem = false }: { menuItem?: boolean }) {
+	const t = useT();
+	const enabled = useModelStore(s => s.fastModeEnabled);
+	const active = useModelStore(s => s.fastModeActive);
+	return (
+		<button
+			type="button"
+			role={menuItem ? "menuitem" : undefined}
+			onClick={() => void useModelStore.getState().toggleFastMode()}
+			title={`${enabled ? t("input.fast.on") : t("input.fast.off")}${active ? t("input.fast.active") : ""}`}
+			className={cx(
+				"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
+				menuItem && "w-full",
+				active ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
+			)}
+		>
+			<Zap size={14} fill={active ? "currentColor" : "none"} />
+			<span>{t("input.fast.label")}</span>
+		</button>
 	);
 }
