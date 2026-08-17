@@ -36,8 +36,8 @@ import {
 	type IpcTabInfo,
 	type IpcTabStatusPayload,
 	type IpcTabWorktree,
-	type SessionTarget,
 	type SessionKind,
+	type SessionTarget,
 } from "../shared/ipc-types";
 import {
 	type AgentSessionEvent,
@@ -60,12 +60,11 @@ import {
 	type SidecarStatusPayload,
 	type SubagentFrame,
 } from "../shared/rpc-types";
+import { normalizeSessionTarget } from "../shared/session-target";
 import type { WindowTabFact } from "./quit-guard";
 import type { SidecarManager } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
-
-import { normalizeSessionTarget } from "../shared/session-target";
 
 export type SidecarFactory = (options: {
 	cwd: string;
