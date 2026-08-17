@@ -4,7 +4,7 @@
  * the sidecar decides atomically whether to start or queue at a turn boundary;
  * typed slash commands always route through prompt without becoming literal
  * steers/follow-ups; session-replacing commands are blocked while a turn runs;
- * and local-only resolutions trigger a rehydrate because no agent events fire.
+ * and local-only mutations rehydrate without erasing live-only command output.
  */
 
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
@@ -108,6 +108,22 @@ describe("planComposerSubmit", () => {
 		await submit.request();
 		expect(omp.rpc.compact).toHaveBeenCalledOnce();
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("routes typed /usage through the sidecar text report with its actual advertised shape", async () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/usage",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: [{ name: "usage", description: "Show provider usage", source: "builtin" }],
+		});
+		if (submit.kind !== "send") throw new Error("expected send");
+
+		await submit.request();
+
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("/usage", []);
 	});
 
 	it("routes /compact through its dedicated RPC even while streaming — never steer/followUp", async () => {
@@ -396,6 +412,13 @@ describe("settleComposerResponse", () => {
 		await settleComposerResponse({ ...success({}), command: "compact" });
 		expect(omp.rpc.getState).toHaveBeenCalled();
 		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+	});
+
+	it("does not rehydrate usage subcommands because their command output is live-only", async () => {
+		const omp = installMockOmp();
+		await settleComposerResponse(success({ agentInvoked: false }), "/usage reset active");
+		expect(omp.rpc.getState).not.toHaveBeenCalled();
+		expect(omp.rpc.getMessages).not.toHaveBeenCalled();
 	});
 
 	it("does not rehydrate when the agent was invoked (events stream normally)", async () => {

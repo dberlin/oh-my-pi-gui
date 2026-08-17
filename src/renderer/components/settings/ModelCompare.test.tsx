@@ -7,7 +7,7 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { ModelRoleEntry, ProviderInfo, UsageReport } from "../../../shared/rpc-types";
+import type { ModelRoleEntry, ProviderInfo } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { buildModelRows, formatCost, ModelCompare, type WireModel } from "./ModelCompare";
 
@@ -21,10 +21,6 @@ function provider(partial: Partial<ProviderInfo> & { id: string }): ProviderInfo
 
 function role(partial: Partial<ModelRoleEntry> & { id: string }): ModelRoleEntry {
 	return { name: partial.id, tag: partial.id.toUpperCase(), color: "default", source: "settings", ...partial };
-}
-
-function report(partial: Partial<UsageReport> & { provider: string }): UsageReport {
-	return { fetchedAt: Date.now(), limits: [], ...partial };
 }
 
 describe("formatCost", () => {
@@ -46,7 +42,6 @@ describe("buildModelRows", () => {
 			models: [model({ provider: "anthropic", id: "claude-opus" }), model({ provider: "local", id: "llama" })],
 			providers: [provider({ id: "anthropic", name: "Anthropic", authenticated: true, authKind: "oauth" })],
 			roles: [],
-			usage: [],
 		});
 		expect(rows[0]).toMatchObject({
 			providerName: "Anthropic",
@@ -63,11 +58,9 @@ describe("buildModelRows", () => {
 			models: [model({ provider: "openai", id: "gpt-5" })],
 			providers: null,
 			roles: null,
-			usage: null,
 		});
 		expect(rows[0].authKnown).toBe(false);
 		expect(rows[0].roles).toEqual([]);
-		expect(rows[0].quota).toBeNull();
 	});
 
 	it("matches role assignments by exact provider/id key only", () => {
@@ -81,33 +74,9 @@ describe("buildModelRows", () => {
 				role({ id: "default", model: "anthropic/claude-opus" }),
 				role({ id: "smol", model: "claude-opus" }), // bare id — must not match
 			],
-			usage: null,
 		});
 		expect(rows[0].roles.map(r => r.id)).toEqual(["default"]);
 		expect(rows[1].roles).toEqual([]);
-	});
-
-	it("picks the tightest usage limit per provider, preferring usedFraction then used/limit", () => {
-		const usage = [
-			report({
-				provider: "anthropic",
-				limits: [
-					{ id: "weekly", label: "Weekly", usedFraction: 0.4 },
-					{ id: "hourly", label: "Hourly", usedFraction: 0.9 },
-				],
-			}),
-			report({ provider: "openai", limits: [{ id: "req", label: "Requests", used: 30, limit: 60 }] }),
-		];
-		const rows = buildModelRows({
-			models: [model({ provider: "anthropic", id: "a" }), model({ provider: "openai", id: "b" })],
-			providers: null,
-			roles: null,
-			usage,
-		});
-		expect(rows[0].quota?.limit.id).toBe("hourly");
-		expect(rows[0].quota?.fraction).toBe(0.9);
-		expect(rows[1].quota?.limit.id).toBe("req");
-		expect(rows[1].quota?.fraction).toBe(0.5);
 	});
 
 	it("reads optional wire metadata defensively: missing cost/context become null, name equal to id is dropped", () => {
@@ -124,7 +93,6 @@ describe("buildModelRows", () => {
 			],
 			providers: null,
 			roles: null,
-			usage: null,
 		});
 		expect(rows[0]).toMatchObject({ name: "Rich Model", contextWindow: 200_000, costIn: 3, costOut: 15 });
 		expect(rows[1]).toMatchObject({ name: null, contextWindow: null, costIn: null, costOut: null });

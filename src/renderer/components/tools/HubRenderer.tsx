@@ -4,6 +4,7 @@ import { cx, formatDuration, resultText } from "../../lib/format";
 import { translate, useT } from "../../lib/i18n";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
+import { isPeerIrcInvocation } from "./tool-presentation";
 
 /**
  * Hub wire shape: `{ content: [{ type: "text", text }], details }` where
@@ -224,6 +225,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			: null;
 	const hubState = launch && typeof details?.state === "string" ? details.state : undefined;
 	const timedOut = launch && details?.timedOut === true;
+	const terminalOutput = terminalRows.join("\n");
 	const matched = launch && typeof details?.matched === "string" ? details.matched : undefined;
 	const waited = launch ? undefined : asMessage(details?.waited);
 	const inbox = launch
@@ -232,6 +234,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 				.map(asMessage)
 				.filter((m): m is HubMessage => m != null);
 	const cancelled = launch ? [] : extractCancelled(details);
+	const peerIrc = isPeerIrcInvocation({ name: "hub", args, result, partialResult });
 	const text = resultText(effective);
 	const hasStructured =
 		peers.length > 0 ||
@@ -257,23 +260,27 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
-				<Icon size={12} className="shrink-0 text-[var(--omp-status-subagents)]" />
-				<span className="font-semibold text-[var(--omp-text)]">{op || "hub"}</span>
-				{typeof args.to === "string" && <span className="text-[var(--omp-md-link)]">→ {args.to}</span>}
-				{typeof args.name === "string" && <span className="text-[var(--omp-status-path)]">{args.name}</span>}
-				{hubState && (
-					<span
-						className="ml-auto shrink-0 text-omp-xs"
-						style={{ color: STATE_COLOR[hubState] ?? "var(--omp-dim)" }}
-					>
-						{stateLabel(hubState)}
-					</span>
-				)}
-				{timedOut && (
-					<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-warning)]">{t("tools.hub.timedOut")}</span>
-				)}
-			</div>
+			{!peerIrc && (
+				<div className="flex items-center gap-1.5 font-mono text-omp-sm">
+					<Icon size={12} className="shrink-0 text-[var(--omp-status-subagents)]" />
+					<span className="font-semibold text-[var(--omp-text)]">{op || "hub"}</span>
+					{typeof args.to === "string" && <span className="text-[var(--omp-md-link)]">→ {args.to}</span>}
+					{typeof args.name === "string" && <span className="text-[var(--omp-status-path)]">{args.name}</span>}
+					{hubState && (
+						<span
+							className="ml-auto shrink-0 text-omp-xs"
+							style={{ color: STATE_COLOR[hubState] ?? "var(--omp-dim)" }}
+						>
+							{stateLabel(hubState)}
+						</span>
+					)}
+					{timedOut && (
+						<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-warning)]">
+							{t("tools.hub.timedOut")}
+						</span>
+					)}
+				</div>
+			)}
 			{spec && (
 				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.6] text-[var(--omp-tool-output)]">
 					<div className="truncate">
@@ -437,11 +444,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 
 			{terminalRows.length > 0 && (
 				<pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
-					{hasAnsi(terminalRows.join("\n")) ? (
-						<AnsiText text={terminalRows.join("\n")} />
-					) : (
-						terminalRows.join("\n")
-					)}
+					{hasAnsi(terminalOutput) ? <AnsiText text={terminalOutput} /> : terminalOutput}
 				</pre>
 			)}
 
@@ -454,7 +457,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
 					)}
 				>
-					{text}
+					{hasAnsi(text) ? <AnsiText text={text} /> : text}
 				</pre>
 			)}
 		</div>

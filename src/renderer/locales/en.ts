@@ -664,24 +664,6 @@ export const en: Record<string, string> = {
 	"unavailable.tuiOnly": "TUI-only — not yet available via RPC",
 	"unavailable.tuiOnlyShort": "TUI-only",
 
-	// Usage window
-	"usage.title": "Usage",
-	"usage.providerQuotas": "Provider quotas",
-	"usage.sessionTallies": "Session tallies",
-	"usage.refresh": "Refresh",
-	"usage.noApi": "No provider usage API available. Showing local session tallies below.",
-	"usage.inputTokens": "Input tokens",
-	"usage.outputTokens": "Output tokens",
-	"usage.cacheRead": "Cache read",
-	"usage.cacheWrite": "Cache write",
-	"usage.totalTokens": "Total tokens",
-	"usage.orchestration": "Orchestration",
-	"usage.premiumRequests": "Premium requests",
-	"usage.cost": "Cost",
-	"usage.resetsIn": "resets in {time}",
-	"usage.resetting": "resetting…",
-	"usage.resetsAvailable": "{count} resets available",
-
 	// First-run onboarding
 	"onboarding.title": "Welcome to omp",
 	"onboarding.heading": "Connect a model before your first session",
@@ -767,7 +749,6 @@ export const en: Record<string, string> = {
 	"modelCompare.col.model": "Model",
 	"modelCompare.col.context": "Context",
 	"modelCompare.col.cost": "Cost /1M in · out",
-	"modelCompare.col.quota": "Quota",
 	"modelCompare.col.roles": "Roles",
 	"modelCompare.col.actions": "Actions",
 	"modelCompare.use": "Use",
@@ -2684,11 +2665,6 @@ export const en: Record<string, string> = {
 	"todoSnapshot.title": "Todos updated",
 	"todoSnapshot.cleared": "Todos cleared",
 	"todoSnapshot.progress": "{done}/{total} done",
-
-	// Usage window additions
-	"usage.notConnected": "Sidecar not connected",
-	"usage.valueUsed": "{value} used",
-	"usage.valueUnknown": "unknown",
 
 	// Providers window additions
 	"providers.notConnected": "Sidecar not connected",

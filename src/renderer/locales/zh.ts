@@ -657,24 +657,6 @@ export const zh: Record<string, string> = {
 	"unavailable.tuiOnly": "仅限 TUI — 尚未通过 RPC 提供",
 	"unavailable.tuiOnlyShort": "仅限 TUI",
 
-	// Usage window
-	"usage.title": "用量",
-	"usage.providerQuotas": "提供商配额",
-	"usage.sessionTallies": "会话统计",
-	"usage.refresh": "刷新",
-	"usage.noApi": "无提供商用量 API 可用。下方显示本地会话统计。",
-	"usage.inputTokens": "输入令牌",
-	"usage.outputTokens": "输出令牌",
-	"usage.cacheRead": "缓存读取",
-	"usage.cacheWrite": "缓存写入",
-	"usage.totalTokens": "总令牌",
-	"usage.orchestration": "编排",
-	"usage.premiumRequests": "高级请求",
-	"usage.cost": "成本",
-	"usage.resetsIn": "{time} 后重置",
-	"usage.resetting": "重置中…",
-	"usage.resetsAvailable": "{count} 次重置可用",
-
 	// First-run onboarding
 	"onboarding.title": "欢迎使用 omp",
 	"onboarding.heading": "开始第一个会话前，先连接一个模型",
@@ -758,7 +740,6 @@ export const zh: Record<string, string> = {
 	"modelCompare.col.model": "模型",
 	"modelCompare.col.context": "上下文",
 	"modelCompare.col.cost": "费用 /1M 输入 · 输出",
-	"modelCompare.col.quota": "配额",
 	"modelCompare.col.roles": "角色",
 	"modelCompare.col.actions": "操作",
 	"modelCompare.use": "使用",
@@ -2643,11 +2624,6 @@ export const zh: Record<string, string> = {
 	"todoSnapshot.title": "待办已更新",
 	"todoSnapshot.cleared": "待办已清空",
 	"todoSnapshot.progress": "{done}/{total} 已完成",
-
-	// Usage window additions
-	"usage.notConnected": "Sidecar 未连接",
-	"usage.valueUsed": "已用 {value}",
-	"usage.valueUnknown": "未知",
 
 	// Providers window additions
 	"providers.notConnected": "Sidecar 未连接",

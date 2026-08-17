@@ -7,8 +7,10 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { PassThrough, type Readable } from "node:stream";
 import Store from "electron-store";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../renderer/lib/launch-profile";
+import type { SessionTarget, SshSessionTarget } from "../shared/ipc-types";
 import type {
 	AgentSessionEvent,
 	CommandOutputFrame,
@@ -27,31 +29,16 @@ import type {
 	SidecarStatus,
 	SubagentFrame,
 } from "../shared/rpc-types";
+import { sameSessionTarget } from "../shared/session-target";
 import { EventBatcher } from "./event-batcher";
-import { RpcClient } from "./rpc-client";
-
-import { PassThrough, type Readable } from "node:stream";
-import type { SessionTarget, SshSessionTarget } from "../shared/ipc-types";
 import type { RemoteHostCatalog } from "./remote-host-catalog";
 import type { RemoteChildHandle, RemoteSshService } from "./remote-ssh";
-
-import { sameSessionTarget } from "../shared/session-target";
 import { attachNdjsonParser, RPC_MAX_FRAME_BYTES, supportsRpcProtocolV2 } from "./rpc-bridge";
-
-/**
- * routes frames to RpcClient and EventBatcher.
- */
-
-/**
- * routes frames to RpcClient and EventBatcher.
- */
+import { RpcClient } from "./rpc-client";
 
 const MAX_RESTART_ATTEMPTS = 3;
 const RESTART_DELAYS = [1000, 2000, 4000];
 const REMOTE_STDERR_CAP_BYTES = 16_384;
-export const REMOTE_STDOUT_RATE_WINDOW_MS = 1_000;
-export const REMOTE_STDOUT_UTF8_BYTE_BUDGET = 16 * 1024 * 1024;
-export const REMOTE_STDOUT_FRAME_BUDGET = 4_096;
 const REMOTE_HOST_TOOL_AUTHORITY_MAX_LENGTH = 128;
 const REMOTE_HOST_TOOL_DENIAL = "Host tools are unavailable for remote SSH sessions";
 const INVALID_REMOTE_HOST_TOOL_REQUEST = "Invalid remote host-tool request";
@@ -197,6 +184,11 @@ interface RemoteStdoutGuard {
 	detach: () => void;
 }
 
+/**
+ * Validates remote protocol framing without imposing an aggregate throughput
+ * ceiling. The per-frame bound and stream pause/resume keep retained data
+ * bounded; valid long-lived RPC output must never become a transport failure.
+ */
 export function createRemoteStdoutGuard(
 	stdout: Readable,
 	onFailure: (reason: string) => void,
@@ -207,9 +199,6 @@ export function createRemoteStdoutGuard(
 	let failed = false;
 	let blocked = false;
 	let ended = false;
-	let windowStartedAt = Date.now();
-	let windowBytes = 0;
-	let windowFrames = 0;
 
 	const detach = (): void => {
 		stdout.off("data", onData);
@@ -237,29 +226,10 @@ export function createRemoteStdoutGuard(
 			return false;
 		}
 	};
-	const consumeBudget = (lineBytes: number): boolean => {
-		const now = Date.now();
-		if (now - windowStartedAt >= REMOTE_STDOUT_RATE_WINDOW_MS) {
-			windowStartedAt = now;
-			windowBytes = 0;
-			windowFrames = 0;
-		}
-		if (windowBytes + lineBytes > REMOTE_STDOUT_UTF8_BYTE_BUDGET || windowFrames + 1 > REMOTE_STDOUT_FRAME_BUDGET) {
-			return false;
-		}
-		windowBytes += lineBytes;
-		windowFrames++;
-		return true;
-	};
 	const drainPending = (): void => {
 		let newline = pending.indexOf("\n");
 		while (newline >= 0 && !failed) {
 			const line = pending.slice(0, newline);
-			const lineBytes = Buffer.byteLength(line, "utf8") + 1;
-			if (!consumeBudget(lineBytes)) {
-				reject("Remote stdout rate limit exceeded");
-				return;
-			}
 			if (!validateLine(line)) {
 				reject("Invalid NDJSON on remote stdout");
 				return;

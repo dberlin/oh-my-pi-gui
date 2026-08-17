@@ -47,7 +47,6 @@ import {
 	type Row,
 	type TimelineMarkerSeed,
 } from "./chat-stream-utils";
-import { ExecutionGroup } from "./ExecutionGroup";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -594,24 +593,16 @@ export function ProcessGroup({
 	row: Extract<HistoryRow, { kind: "process" }>;
 }) {
 	return (
-		<div className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
-			<ExecutionGroup stepCount={row.stepCount}>
-				<div className="omp-process-group">
-					{row.messages.map((message, index) => (
-						<MessageBubble
-							compact
-							key={
-								typeof message.id === "string"
-									? message.id
-									: `${String(message.timestamp ?? "process")}-${index}`
-							}
-							message={message}
-							readOnly={readOnly}
-							resolveToolCall={resolveToolCall}
-						/>
-					))}
-				</div>
-			</ExecutionGroup>
+		<div className="omp-process-group py-2">
+			{row.messages.map((message, index) => (
+				<MessageBubble
+					compact
+					key={typeof message.id === "string" ? message.id : `${String(message.timestamp ?? "process")}-${index}`}
+					message={message}
+					readOnly={readOnly}
+					resolveToolCall={resolveToolCall}
+				/>
+			))}
 		</div>
 	);
 }
@@ -763,15 +754,12 @@ export function StreamingRows({
 	return (
 		<div className="omp-streaming-turn flex flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
 			{hasThinking ? (
-				<ExecutionGroup live stepCount={1}>
-					<div className="omp-process-group omp-process-group--live">
-						<ThinkingBlock
-							live
-							streamingTextStarted={isRenderableMessageText(streamingText)}
-							text={streamingThinking}
-						/>
-					</div>
-				</ExecutionGroup>
+				<ThinkingBlock
+					compact
+					live
+					streamingTextStarted={isRenderableMessageText(streamingText)}
+					text={streamingThinking}
+				/>
 			) : null}
 			{hasToolCards ? <div className={hasThinking ? "mt-1" : undefined}>{toolCards}</div> : null}
 			<div className={hasThinking || hasToolCards ? "mt-1" : undefined}>

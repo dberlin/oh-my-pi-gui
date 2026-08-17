@@ -303,7 +303,7 @@ export function useComposerSubmit({
 						}
 						if (!originStillActive()) return;
 						dropReferencedPastes(message);
-						await settleComposerResponse(response);
+						await settleComposerResponse(response, expandedMessage);
 					})
 					.catch(error => {
 						restoreTabComposer(originTabId, originSessionId, message, previousImages);

@@ -618,6 +618,40 @@ describe("ToolCard adaptive rendering", () => {
 		const expandedAnswer = card.querySelector(".markdown-body");
 		expect(expandedAnswer?.textContent).toBe(answer);
 	});
+	it("keeps peer IRC messages visible while process Hub sends stay collapsed", async () => {
+		const peerArgs = { op: "send", to: "PlanReviewer", message: "PEER_IRC_BODY" };
+		const processArgs = { op: "send", name: "debugger", text: "PROCESS_STDIN_BODY" };
+		const peerCard = await mountCard({
+			toolCallId: "hub-peer-send",
+			toolName: "hub",
+			args: peerArgs,
+			entry: completedEntry(
+				"hub",
+				peerArgs,
+				resultEnvelope("Delivered.", {
+					op: "send",
+					to: "PlanReviewer",
+					receipts: [{ to: "PlanReviewer", outcome: "woken" }],
+				}),
+			),
+		});
+		const processCard = await mountCard({
+			toolCallId: "hub-process-send",
+			toolName: "hub",
+			args: processArgs,
+			entry: completedEntry("hub", processArgs, resultEnvelope("PROCESS_RESULT", { op: "send", state: "ready" })),
+		});
+
+		expect(peerCard.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+		expect(peerCard.querySelector(".omp-tool-name")?.textContent).toBe("IRC");
+		expect(peerCard.querySelector(".omp-tool-summary")?.textContent).toBe("→ PlanReviewer");
+		expect(peerCard.querySelector(".omp-tool-preview")?.textContent).toContain("PEER_IRC_BODY");
+		expect(peerCard.textContent).toContain("IRC");
+		expect(processCard.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+		expect(processCard.querySelector(".omp-tool-name")?.textContent).toBe("hub");
+		expect(processCard.querySelector(".omp-tool-preview")).toBeNull();
+		expect(processCard.textContent).not.toContain("PROCESS_RESULT");
+	});
 
 	it("keeps a collapsed Bash framed body unmounted", async () => {
 		const args = { command: "printf shell-output" };

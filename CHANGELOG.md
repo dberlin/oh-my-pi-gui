@@ -72,6 +72,9 @@
 - **Responsive composer controls**: thinking level, fast mode, approval mode, and session modes now stay expanded across the toolbar whenever its measured width can hold them; only narrow composers fall back to the compact overflow menu, including live transitions when sidebars or the window resize.
 - **Compact composer placement**: removed the redundant keyboard-shortcut caption below the composer and tightened its outer spacing so the input sits closer to the window footer.
 - **Simplified window chrome**: removed the redundant bottom status strip and moved the keyboard-shortcuts entry into the top toolbar, giving the transcript and composer the full window height.
+- Peer IRC sends and receives now stay visible in the transcript instead of hiding inside collapsed Hub cards, while job and process operations remain compact.
+- Compact reasoning now renders directly as muted italic text with its own expansion control instead of nesting under a completed-steps disclosure.
+- Provider usage now uses the sidecar's transcript `/usage` report instead of the unsupported quota modal, and unsupported RPC commands fail immediately with actionable errors instead of misleading timeouts.
 
 ### Fixed
 
@@ -80,6 +83,7 @@
 - **Escape-sequence gate**: output carrying only OSC escapes (window titles, hyperlinks) is parsed and stripped now too, instead of printing raw `\x1b]…` bytes.
 - **Undefined theme tokens**: the conversation-navigator focus ring referenced `--omp-focus-ring` and the security finding detail referenced `--omp-shadow` — neither token exists; both now map to defined tokens (`--omp-accent`, `--omp-shadow-md`).
 - **Sidebar interactions**: the dragged sidebar width persists across sessions; clicking elsewhere or pressing Escape cancels a pending inline delete confirm; Escape clears the search box; session status dots carry translated tooltips (previously raw English status strings).
+- Sustained valid RPC output no longer trips a GUI-side SSH stdout rate limit and terminates the remote session; per-frame validation and stream backpressure remain enforced.
 
 ## [0.8.1] - 2026-08-16
 ### Changed

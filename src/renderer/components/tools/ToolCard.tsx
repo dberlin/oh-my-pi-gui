@@ -7,7 +7,7 @@ import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { GenericRenderer } from "./GenericRenderer";
 import { getToolRenderer, type ToolRendererView } from "./index";
-import { resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
+import { isPeerIrcInvocation, resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
 
 export interface ToolRendererProps {
 	args: Record<string, unknown>;
@@ -131,6 +131,8 @@ function ToolCardContent({
 	}, [isPartial]);
 	const duration = entry ? durationBetween(entry.startTime, isPartial ? now : entry.endTime) : null;
 	const definition = getToolRenderer(effective);
+	const peerIrc = isPeerIrcInvocation(effective);
+	const displayName = peerIrc ? "IRC" : effective.name;
 	const summary = toolPresentationSummary(effective);
 	const view: ToolRendererView = expanded ? "expanded" : "preview";
 	const rendererProps: ToolRendererProps = {
@@ -141,7 +143,7 @@ function ToolCardContent({
 		partialResult: effective.partialResult,
 		view,
 	};
-	const showsCollapsedPreview = !isPartial && (effective.mode === "help" || effective.mcp != null);
+	const showsCollapsedPreview = peerIrc || (!isPartial && (effective.mode === "help" || effective.mcp != null));
 	const renderer =
 		definition.component === GenericRenderer ? (
 			<GenericRenderer {...rendererProps} />
@@ -192,7 +194,7 @@ function ToolCardContent({
 			<button
 				type="button"
 				aria-expanded={expanded}
-				aria-label={`${effective.name}${summary ? ` ${summary}` : ""}, ${statusText}`}
+				aria-label={`${displayName}${summary ? ` ${summary}` : ""}, ${statusText}`}
 				onClick={() => setExpanded(value => !value)}
 				className="omp-tool-header flex w-full items-center gap-2 py-2 pl-3.5 pr-2.5 text-left transition-colors duration-150 hover:bg-[var(--omp-selected-bg)]/40"
 			>
@@ -208,7 +210,7 @@ function ToolCardContent({
 					<Check aria-hidden size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-success)]" />
 				)}
 				<span className="omp-tool-name shrink-0 font-mono text-omp-md font-semibold tracking-tight text-[var(--omp-text)]">
-					{effective.name}
+					{displayName}
 				</span>
 				{summary && (
 					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-omp-sm text-[var(--omp-tool-output)]">

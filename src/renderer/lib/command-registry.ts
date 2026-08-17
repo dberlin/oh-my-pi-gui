@@ -86,7 +86,6 @@ export interface CommandRegistryContext {
 	availableCommands: AvailableCommand[];
 	openModelPicker: () => void;
 	openSettings: (tab?: string) => void;
-	openUsage: () => void;
 	openProviders: () => void;
 	openCommandPalette: () => void;
 	openModelRoles: () => void;
@@ -127,7 +126,7 @@ export interface CommandRegistryContext {
 		compact: (instructions?: string) => Promise<RpcResponse>;
 		newSession: () => Promise<unknown>;
 		handoff: () => Promise<unknown>;
-		prompt: (message: string) => Promise<unknown>;
+		prompt: (message: string) => Promise<RpcResponse>;
 		setPlanMode: (enabled: boolean) => Promise<RpcResponse>;
 		setPrewalk: (enabled: boolean) => Promise<RpcResponse>;
 		exportHtml: (path?: string) => Promise<unknown>;
@@ -146,6 +145,11 @@ export interface CommandRegistryContext {
 
 /** Helper to build a prompt affordance. */
 const p = (text: string, hint?: string): CommandAffordance => ({ kind: "prompt", text, hint });
+
+export async function requestUsageReport(prompt: (message: string) => Promise<RpcResponse>): Promise<void> {
+	const response = await prompt("/usage");
+	if (!response.success) throw new Error(response.error);
+}
 
 /**
  * Locale key stem for a command name: hyphens camelCase, spaces become dots
@@ -814,7 +818,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.usage"),
 		description: t("cmd.usage.desc"),
 		category: "providers",
-		affordance: { kind: "window", open: ctx.openUsage },
+		affordance: { kind: "action", run: () => requestUsageReport(ctx.rpc.prompt) },
 	});
 	add({
 		name: "login",
@@ -1572,7 +1576,6 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 		availableCommands,
 		openModelPicker: ui.openModelPicker,
 		openSettings: ui.openSettings,
-		openUsage: ui.openUsage,
 		openProviders: ui.openProviders,
 		openCommandPalette: ui.openCommandPalette,
 		openModelRoles: ui.openModelRoles,

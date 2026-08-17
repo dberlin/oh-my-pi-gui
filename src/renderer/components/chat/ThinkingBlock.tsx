@@ -1,8 +1,8 @@
 import { Brain, ChevronRight } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ThinkingLevel } from "../../../shared/rpc-types";
 import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
-import { cx, durationBetween, formatTokens } from "../../lib/format";
+import { cx, durationBetween, formatTokens, sanitizeDisplayText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import {
@@ -17,11 +17,15 @@ import { useModelStore } from "../../stores/model";
 import { useSettingsStore } from "../../stores/settings";
 import { useUiStore } from "../../stores/ui";
 
+const COMPACT_PREVIEW_LENGTH = 360;
+
 export interface ThinkingBlockProps {
 	/** Finalized or live thinking text from the owning transcript projection. */
 	text?: string;
 	/** Apply live animation, throttling, and speed behavior to `text`. */
 	live?: boolean;
+	/** Render a TUI-like direct reasoning preview instead of descriptor chrome. */
+	compact?: boolean;
 	/** Whether reply text has started, which settles the hidden-thinking pulse. */
 	streamingTextStarted?: boolean;
 	/** Start/end (epoch ms or ISO) for the duration badge. */
@@ -66,6 +70,7 @@ export function ThinkingBlock({
 	startTime,
 	endTime,
 	level,
+	compact = false,
 }: ThinkingBlockProps) {
 	const t = useT();
 	const storeLevel = useModelStore(s => s.thinkingLevel);
@@ -74,6 +79,7 @@ export function ThinkingBlock({
 	const proseOnly = useSettingsStore(s => s.proseOnlyThinking);
 	const thinkingExpanded = useUiStore(s => s.thinkingExpanded);
 	const [open, setOpen] = useState(thinkingExpanded);
+	const compactRegionId = useId();
 	// The Settings → GUI toggle applies to already-mounted blocks too; a manual
 	// chevron click then overrides until the pref changes again.
 	useEffect(() => setOpen(thinkingExpanded), [thinkingExpanded]);
@@ -86,6 +92,10 @@ export function ThinkingBlock({
 	// on every 16 ms event batch, even while the block was collapsed.
 	const displayContent = useThrottledText(content, live ? STREAM_FORMAT_FLUSH_MS : 0);
 	const formatted = useMemo(() => formatThinkingForDisplay(displayContent, proseOnly), [displayContent, proseOnly]);
+	const compactPreview = useMemo(
+		() => (compact ? sanitizeDisplayText(formatted, COMPACT_PREVIEW_LENGTH) : ""),
+		[compact, formatted],
+	);
 
 	const resolvedLevel: ThinkingLevel = level ?? storeLevel ?? "medium";
 	// Theme tokens only go up to xhigh; "max" shares its color.
@@ -178,6 +188,48 @@ export function ThinkingBlock({
 	}
 
 	if (!hasDisplayableThinking(content, formatted)) return null;
+	if (compact) {
+		return (
+			<div className="omp-thinking-block omp-thinking-block--compact mb-2 flex items-start gap-1.5 text-[var(--omp-dim)]">
+				<button
+					type="button"
+					aria-expanded={open}
+					aria-controls={compactRegionId}
+					aria-label={t(open ? "chat.thinking.hide" : "chat.thinking.show")}
+					onClick={() => setOpen(value => !value)}
+					className="omp-thinking-compact-toggle omp-pressable mt-0.5 shrink-0 rounded p-0.5 text-[var(--omp-dim)] hover:text-[var(--omp-muted)]"
+				>
+					<ChevronRight
+						aria-hidden
+						className={cx("omp-thinking-chevron omp-disclosure-chevron", open && "rotate-90")}
+						size={12}
+					/>
+				</button>
+				<div
+					id={compactRegionId}
+					className={cx(
+						"omp-thinking-preview min-w-0 flex-1 font-mono text-omp-sm leading-[1.55] italic",
+						open ? "max-h-64 overflow-y-auto" : "line-clamp-3",
+						isLive && "omp-streaming",
+					)}
+				>
+					<MarkdownRenderer content={open ? formatted : compactPreview} />
+					{isLive && <span aria-hidden className="omp-caret" />}
+				</div>
+				{showGauge && (
+					<span
+						className="omp-thinking-gauge shrink-0 font-mono text-omp-xs not-italic"
+						style={{ color: rateColor }}
+					>
+						{t("chat.thinking.speed", { rate: rate.toFixed(1) })}
+					</span>
+				)}
+				{duration && (
+					<span className="omp-thinking-duration shrink-0 font-mono text-omp-xs not-italic">{duration}</span>
+				)}
+			</div>
+		);
+	}
 
 	const trimmed = formatted.trim();
 	const words = trimmed ? trimmed.split(/\s+/).length : 0;

@@ -345,7 +345,7 @@ export const MessageBubble = memo(function MessageBubble({
 			}
 			case "thinking": {
 				if (isRenderableMessageText(block.thinking)) {
-					blocks.push(<ThinkingBlock key={blocks.length} text={block.thinking} />);
+					blocks.push(<ThinkingBlock compact={compact} key={blocks.length} text={block.thinking} />);
 					sawNonToolBlock = true;
 				}
 				break;

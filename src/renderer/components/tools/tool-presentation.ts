@@ -171,6 +171,27 @@ export function resolveToolPresentation(input: ToolPresentationInput): Effective
 		...(mcp ? { mcp } : {}),
 	};
 }
+export function isPeerIrcInvocation(
+	invocation: Pick<EffectiveToolInvocation, "name" | "args" | "result" | "partialResult">,
+): boolean {
+	if (invocation.name !== "hub") return false;
+	const op = invocation.args.op;
+	if (op === "send") {
+		return (
+			typeof invocation.args.to === "string" &&
+			invocation.args.to.length > 0 &&
+			typeof invocation.args.name !== "string"
+		);
+	}
+	if (op === "inbox") return true;
+	if (op !== "wait" || typeof invocation.args.name === "string") return false;
+	const effectiveResult = invocation.result ?? invocation.partialResult;
+	const details = asRecord(asRecord(effectiveResult)?.details);
+	if (details && "waited" in details) return true;
+	if (details && ("jobs" in details || "agents" in details)) return false;
+	if (Array.isArray(invocation.args.ids) && invocation.args.ids.length > 0) return false;
+	return typeof invocation.args.from === "string" && invocation.args.from.length > 0;
+}
 
 function pickString(args: Record<string, unknown>, ...keys: string[]): string | undefined {
 	for (const key of keys) {
@@ -192,6 +213,15 @@ function boundedSummary(summary: string): string {
 
 export function toolPresentationSummary(invocation: EffectiveToolInvocation): string {
 	if (invocation.mcp) return `${invocation.mcp.serverName}/${invocation.mcp.toolName}`;
+	if (isPeerIrcInvocation(invocation)) {
+		const op = invocation.args.op;
+		if (op === "send") return `→ ${pickString(invocation.args, "to") ?? "?"}`;
+		if (op === "inbox") return "inbox";
+		const effectiveResult = invocation.result ?? invocation.partialResult;
+		const details = asRecord(asRecord(effectiveResult)?.details);
+		const waited = asRecord(details?.waited);
+		return `← ${pickString(waited ?? invocation.args, "from") ?? "anyone"}`;
+	}
 	const args = invocation.args;
 	switch (invocation.name) {
 		case "browser": {

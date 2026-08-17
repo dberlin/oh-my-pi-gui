@@ -11,13 +11,7 @@ import type { SshSessionTarget } from "../shared/ipc-types";
 import type { CommandOutputFrame, PromptResultFrame, SidecarStatus } from "../shared/rpc-types";
 import type { RemoteHostCatalog } from "./remote-host-catalog";
 import { type RemoteProcessRunner, RemoteSshService } from "./remote-ssh";
-import {
-	createRemoteStdoutGuard,
-	REMOTE_STDOUT_FRAME_BUDGET,
-	REMOTE_STDOUT_RATE_WINDOW_MS,
-	REMOTE_STDOUT_UTF8_BYTE_BUDGET,
-	SidecarManager,
-} from "./sidecar";
+import { createRemoteStdoutGuard, SidecarManager } from "./sidecar";
 
 async function waitForReady(sidecar: SidecarManager): Promise<void> {
 	const ready = Promise.withResolvers<void>();
@@ -933,24 +927,26 @@ describe("SidecarManager remote SSH lifecycle", () => {
 		}
 	});
 
-	it("terminates a remote child once when one window exceeds the UTF-8 byte budget", async () => {
+	it("keeps a remote child attached through a high-throughput valid NDJSON burst", async () => {
 		const stdout = new PassThrough();
 		const stderr = new PassThrough();
 		const terminate = vi.fn(async () => {});
 		const { sidecar, spawned } = createStreamingRemoteSidecar(stdout, stderr, terminate);
 		const payloadBytes = 512 * 1024;
 		const line = `${JSON.stringify({ type: "notice", message: "界".repeat(Math.floor(payloadBytes / 3)) })}\n`;
-		const lineBytes = Buffer.byteLength(line, "utf8");
-		const count = Math.floor(REMOTE_STDOUT_UTF8_BYTE_BUDGET / lineBytes) + 1;
+		let frames = 0;
+		sidecar.on("frame", () => {
+			frames++;
+		});
 		try {
 			sidecar.start();
 			await spawned;
-			stdout.write(line.repeat(count));
+			stdout.write(line.repeat(33));
 
-			expect(lineBytes).toBeLessThan(1_048_576);
-			expect(lineBytes * count).toBeGreaterThan(REMOTE_STDOUT_UTF8_BYTE_BUDGET);
-			expect(terminate).toHaveBeenCalledTimes(1);
-			expect(sidecar.status).toBe("error");
+			expect(Buffer.byteLength(line, "utf8") * 33).toBeGreaterThan(16 * 1024 * 1024);
+			expect(frames).toBe(33);
+			expect(sidecar.status).not.toBe("error");
+			expect(terminate).not.toHaveBeenCalled();
 		} finally {
 			await sidecar.dispose();
 			stdout.destroy();
@@ -958,18 +954,23 @@ describe("SidecarManager remote SSH lifecycle", () => {
 		}
 	});
 
-	it("terminates a remote child once when one window exceeds the frame budget", async () => {
+	it("keeps a remote child attached through a high-volume valid NDJSON burst", async () => {
 		const stdout = new PassThrough();
 		const stderr = new PassThrough();
 		const terminate = vi.fn(async () => {});
 		const { sidecar, spawned } = createStreamingRemoteSidecar(stdout, stderr, terminate);
+		let frames = 0;
+		sidecar.on("frame", () => {
+			frames++;
+		});
 		try {
 			sidecar.start();
 			await spawned;
-			stdout.write(REMOTE_NOTICE_LINE.repeat(REMOTE_STDOUT_FRAME_BUDGET + 1));
+			stdout.write(REMOTE_NOTICE_LINE.repeat(5_000));
 
-			expect(terminate).toHaveBeenCalledTimes(1);
-			expect(sidecar.status).toBe("error");
+			expect(frames).toBe(5_000);
+			expect(sidecar.status).not.toBe("error");
+			expect(terminate).not.toHaveBeenCalled();
 		} finally {
 			await sidecar.dispose();
 			stdout.destroy();
@@ -977,34 +978,12 @@ describe("SidecarManager remote SSH lifecycle", () => {
 		}
 	});
 
-	it("resets remote stdout frame and UTF-8 byte budgets after the fixed window", async () => {
-		vi.useFakeTimers();
-		const stdout = new PassThrough();
-		const validated = new PassThrough();
-		validated.resume();
-		const failures: string[] = [];
-		const guard = createRemoteStdoutGuard(stdout, reason => failures.push(reason), validated);
-		const framesPerWindow = Math.floor(REMOTE_STDOUT_FRAME_BUDGET / 2) + 1;
-		try {
-			stdout.write(REMOTE_NOTICE_LINE.repeat(framesPerWindow));
-			await vi.advanceTimersByTimeAsync(REMOTE_STDOUT_RATE_WINDOW_MS);
-			stdout.write(REMOTE_NOTICE_LINE.repeat(framesPerWindow));
-
-			expect(framesPerWindow * 2).toBeGreaterThan(REMOTE_STDOUT_FRAME_BUDGET);
-			expect(failures).toEqual([]);
-		} finally {
-			guard.detach();
-			stdout.destroy();
-			vi.useRealTimers();
-		}
-	});
-
-	it("does not apply remote stdout budgets to a local sidecar", async () => {
-		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-local-output-budget-"));
+	it("handles high-volume valid NDJSON from a local sidecar", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-local-high-output-"));
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
 		await fs.writeFile(
 			binaryPath,
-			`#!/usr/bin/env bun\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nfor (let frame = 0; frame <= ${REMOTE_STDOUT_FRAME_BUDGET}; frame++) process.stdout.write(${JSON.stringify(REMOTE_NOTICE_LINE)});\nprocess.stdin.resume();\n`,
+			`#!/usr/bin/env bun\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nfor (let frame = 0; frame < 5_000; frame++) process.stdout.write(${JSON.stringify(REMOTE_NOTICE_LINE)});\nprocess.stdin.resume();\n`,
 		);
 		await fs.chmod(binaryPath, 0o755);
 		const sidecar = new SidecarManager({ binaryPath, cwd: tempDir });
@@ -1012,12 +991,12 @@ describe("SidecarManager remote SSH lifecycle", () => {
 		const received = Promise.withResolvers<void>();
 		sidecar.on("frame", () => {
 			frames++;
-			if (frames === REMOTE_STDOUT_FRAME_BUDGET + 1) received.resolve();
+			if (frames === 5_000) received.resolve();
 		});
 		try {
 			sidecar.start();
 			await received.promise;
-			expect(frames).toBe(REMOTE_STDOUT_FRAME_BUDGET + 1);
+			expect(frames).toBe(5_000);
 			expect(sidecar.status).toBe("ready");
 		} finally {
 			await sidecar.dispose();

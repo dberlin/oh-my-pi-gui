@@ -29,7 +29,6 @@ const baseCtx: CommandRegistryContext = {
 	availableCommands: [],
 	openModelPicker: () => {},
 	openSettings: () => {},
-	openUsage: () => {},
 	openProviders: () => {},
 	openCommandPalette: () => {},
 	openModelRoles: () => {},
@@ -65,7 +64,7 @@ const baseCtx: CommandRegistryContext = {
 		compact: async () => ok(),
 		newSession: async () => {},
 		handoff: async () => {},
-		prompt: async () => {},
+		prompt: async () => ok(),
 		setPlanMode: async () => ok(),
 		setPrewalk: async () => ok({ enabled: true }),
 		exportHtml: async () => {},
@@ -209,6 +208,18 @@ describe("one-shot action wiring", () => {
 		if (affordance.kind !== "action") throw new Error("expected action");
 		await affordance.run();
 		expect(lastToast()?.variant).toBe("error");
+		expect(hydrateSession).not.toHaveBeenCalled();
+	});
+
+	it("usage leaves the live command output in the transcript", async () => {
+		const prompt = vi.fn(async () => ok({ agentInvoked: false }));
+		ctx = { ...ctx, rpc: { ...ctx.rpc, prompt } };
+		const affordance = wired("usage");
+		if (affordance.kind !== "action") throw new Error("expected action");
+
+		await affordance.run();
+
+		expect(prompt).toHaveBeenCalledWith("/usage");
 		expect(hydrateSession).not.toHaveBeenCalled();
 	});
 

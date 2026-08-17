@@ -1,11 +1,11 @@
 /**
  * Model comparison window: sortable/filterable matrix of every available model
- * across providers — auth status, context window, cost per 1M tokens, provider
- * quota, role assignments, and the current session model.
+ * across providers — auth status, context window, cost per 1M tokens, role
+ * assignments, and the current session model.
  *
  * Row click sets the session model (set_model); the per-row role picker assigns
  * the model to a role (set_model_role). Current model + role assignments are
- * highlighted; provider quota from get_usage renders inline per provider.
+ * highlighted.
  *
  * Wire note: `get_available_models` serializes full catalog `Model` objects —
  * `name`, `cost {input,output,cacheRead,cacheWrite}` ($/1M tokens),
@@ -24,16 +24,13 @@ import type {
 	ModelRolesResult,
 	ProviderInfo,
 	ProvidersResult,
-	UsageLimit,
-	UsageReport,
-	UsageResult,
 } from "../../../shared/rpc-types";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
-import { Badge, Button, Modal, ProgressBar, Spinner } from "../common";
+import { Badge, Button, Modal, Spinner } from "../common";
 
 // ============================================================================
 // Wire shapes (full catalog Model — superset of ModelInfo, all optional)
@@ -82,25 +79,6 @@ export interface Row {
 	costIn: number | null;
 	costOut: number | null;
 	roles: ModelRoleEntry[];
-	quota: { limit: UsageLimit; fraction: number } | null;
-}
-
-function limitFraction(limit: UsageLimit): number | null {
-	if (limit.usedFraction !== undefined) return limit.usedFraction;
-	if (limit.used !== undefined && limit.limit !== undefined && limit.limit > 0) return limit.used / limit.limit;
-	if (limit.remainingFraction !== undefined) return 1 - limit.remainingFraction;
-	return null;
-}
-
-/** The most-consumed limit in a provider report — the one that gates usage first. */
-function tightestLimit(report: UsageReport): { limit: UsageLimit; fraction: number } | null {
-	let best: { limit: UsageLimit; fraction: number } | null = null;
-	for (const limit of report.limits) {
-		const fraction = limitFraction(limit);
-		if (fraction === null) continue;
-		if (!best || fraction > best.fraction) best = { limit, fraction };
-	}
-	return best;
 }
 
 /** "$3" / "$0.15" / "$75" — trims insignificant zeros. */
@@ -118,23 +96,16 @@ function cmpNumber(a: number | null, b: number | null, dir: 1 | -1): number {
 	return (a - b) * dir;
 }
 
-/**
- * Joins the four RPC feeds into table rows. `providers`/`roles`/`usage` may be
- * null when their call failed — rows still render with degraded auth/role/quota
- * cells rather than dropping models.
- */
+/** Joins the model, provider, and role RPC feeds into table rows. */
 export function buildModelRows(input: {
 	models: WireModel[];
 	providers: ProviderInfo[] | null;
 	roles: ModelRoleEntry[] | null;
-	usage: UsageReport[] | null;
 }): Row[] {
 	const providerById = new Map((input.providers ?? []).map(provider => [provider.id, provider]));
-	const usageByProvider = new Map((input.usage ?? []).map(report => [report.provider, report]));
 	return input.models.map(model => {
 		const key = `${model.provider}/${model.id}`;
 		const provider = providerById.get(model.provider);
-		const report = usageByProvider.get(model.provider);
 		return {
 			key,
 			provider: model.provider,
@@ -149,19 +120,17 @@ export function buildModelRows(input: {
 			costIn: typeof model.cost?.input === "number" ? model.cost.input : null,
 			costOut: typeof model.cost?.output === "number" ? model.cost.output : null,
 			roles: input.roles?.filter(role => role.model === key) ?? [],
-			quota: report ? tightestLimit(report) : null,
 		};
 	});
 }
 
-type SortKey = "provider" | "model" | "context" | "cost" | "quota" | "roles";
+type SortKey = "provider" | "model" | "context" | "cost" | "roles";
 
 const COMPARATORS: Record<SortKey, (a: Row, b: Row, dir: 1 | -1) => number> = {
 	provider: (a, b, dir) => a.provider.localeCompare(b.provider) * dir || a.id.localeCompare(b.id),
 	model: (a, b, dir) => a.id.localeCompare(b.id) * dir || a.provider.localeCompare(b.provider),
 	context: (a, b, dir) => cmpNumber(a.contextWindow, b.contextWindow, dir),
 	cost: (a, b, dir) => cmpNumber(a.costIn, b.costIn, dir) || cmpNumber(a.costOut, b.costOut, dir),
-	quota: (a, b, dir) => cmpNumber(a.quota?.fraction ?? null, b.quota?.fraction ?? null, dir),
 	roles: (a, b, dir) => cmpNumber(a.roles.length, b.roles.length, dir),
 };
 
@@ -258,7 +227,6 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 	const [providers, setProviders] = useState<ProviderInfo[] | null>(null);
 	const [roles, setRoles] = useState<ModelRoleEntry[] | null>(null);
 	const [roleMeta, setRoleMeta] = useState<ModelRoleMetadata[] | null>(null);
-	const [usage, setUsage] = useState<UsageReport[] | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [fatalError, setFatalError] = useState<string | null>(null);
 	const [failedSections, setFailedSections] = useState<string[]>([]);
@@ -277,12 +245,11 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 			setLoading(false);
 			return;
 		}
-		const [modelsR, providersR, rolesR, metaR, usageR] = await Promise.allSettled([
+		const [modelsR, providersR, rolesR, metaR] = await Promise.allSettled([
 			window.omp.rpc.getAvailableModels(),
 			window.omp.rpc.getProviders(),
 			window.omp.rpc.getModelRoles(),
 			window.omp.rpc.getModelRoleMetadata(),
-			window.omp.rpc.getUsage(),
 		]);
 		const failed: string[] = [];
 
@@ -320,13 +287,6 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 			setRoleMeta(null);
 		}
 
-		if (usageR.status === "fulfilled" && usageR.value.success) {
-			setUsage((usageR.value.data as UsageResult | undefined)?.reports ?? []);
-		} else {
-			setUsage(null);
-			failed.push("usage");
-		}
-
 		setFailedSections(failed);
 		setLoading(false);
 	}, [sidecarReady, t]);
@@ -348,8 +308,8 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 	const metaById = useMemo(() => new Map((roleMeta ?? []).map(m => [m.id, m])), [roleMeta]);
 
 	const rows = useMemo<Row[]>(
-		() => (models === null ? [] : buildModelRows({ models, providers, roles, usage })),
-		[models, providers, roles, usage],
+		() => (models === null ? [] : buildModelRows({ models, providers, roles })),
+		[models, providers, roles],
 	);
 
 	const providerOptions = useMemo(() => {
@@ -513,7 +473,6 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 								sort={sort}
 								sortKey="cost"
 							/>
-							<SortHeader label={t("modelCompare.col.quota")} onSort={handleSort} sort={sort} sortKey="quota" />
 							<SortHeader label={t("modelCompare.col.roles")} onSort={handleSort} sort={sort} sortKey="roles" />
 							<th className="px-3 py-2 text-right text-omp-xs font-semibold tracking-wider whitespace-nowrap text-(--omp-muted) uppercase">
 								{t("modelCompare.col.actions")}
@@ -580,18 +539,6 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 													{formatCost(row.costOut)}
 												</span>
 											)
-										) : (
-											<span className="text-(--omp-dim)">—</span>
-										)}
-									</td>
-									<td className="min-w-[110px] px-3 py-2">
-										{row.quota ? (
-											<span
-												className="block"
-												title={`${row.quota.limit.label}${row.quota.limit.windowLabel ? ` · ${row.quota.limit.windowLabel}` : ""}`}
-											>
-												<ProgressBar height={4} value={row.quota.fraction} />
-											</span>
 										) : (
 											<span className="text-(--omp-dim)">—</span>
 										)}

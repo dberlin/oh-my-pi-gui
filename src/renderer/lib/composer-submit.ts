@@ -4,8 +4,8 @@
  * surface are resolved through the same GUI affordance registry as the
  * command palette, so they can never leak into model context as literal text.
  * Session-replacing commands are blocked while a turn runs. Local-only
- * server commands rehydrate after settlement so transcript/context state
- * reflects the mutation.
+ * mutations rehydrate after settlement, except commands whose output exists
+ * only in the live event stream.
  */
 
 import type { AvailableCommand, ImageContent, RpcResponse } from "../../shared/rpc-types";
@@ -130,13 +130,18 @@ export function planComposerSubmit(input: {
 	return { kind: "send", request: () => window.omp.rpc.prompt(message, images) };
 }
 
-/** Post-success settle: rehydrate after local-only slash commands. */
-export async function settleComposerResponse(response: RpcResponse): Promise<void> {
+/** Post-success settle: rehydrate local mutations, except live-only command output. */
+export async function settleComposerResponse(response: RpcResponse, message?: string): Promise<void> {
 	if (!response.success) return;
 	const data: unknown = response.data;
+	const liveOnlyUsage = /^\/usage(?:\s|$)/i.test(message ?? "");
 	if (
 		response.command === "compact" ||
-		(data !== null && typeof data === "object" && "agentInvoked" in data && data.agentInvoked === false)
+		(!liveOnlyUsage &&
+			data !== null &&
+			typeof data === "object" &&
+			"agentInvoked" in data &&
+			data.agentInvoked === false)
 	) {
 		await hydrateSession();
 	}

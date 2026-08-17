@@ -2,6 +2,7 @@ import { ChevronRight, Clock3, Coins, Database, FolderOpen, Gauge, PanelLeft } f
 import { useEffect, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useSessionList } from "../../hooks/use-session-list";
+import { requestUsageReport } from "../../lib/command-registry";
 import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
@@ -34,6 +35,12 @@ export function TitleBar() {
 	const tools = useToolsStore(s => s.activeTools);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const toggleSidebar = useUiStore(s => s.toggleSidebar);
+	const togglePanel = useUiStore(s => s.togglePanel);
+	const openCommandPalette = useUiStore(s => s.openCommandPalette);
+	const openProviders = useUiStore(s => s.openProviders);
+	const openSettings = useUiStore(s => s.openSettings);
+	const openPrCenter = useUiStore(s => s.openPrCenter);
+	const openAgentHub = useUiStore(s => s.openAgentHub);
 	const { sessions } = useSessionList("local");
 	const projectName = !isChat && cwd ? basename(cwd) : t("titlebar.openProject");
 
@@ -104,6 +111,12 @@ export function TitleBar() {
 		isStreaming,
 		now,
 	});
+
+	const showUsage = () => {
+		void requestUsageReport(window.omp.rpc.prompt).catch(error => {
+			toast({ variant: "error", title: t("palette.failed"), message: String(error) });
+		});
+	};
 
 	const commitName = () => {
 		const name = draft.trim();

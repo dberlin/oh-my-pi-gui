@@ -114,6 +114,43 @@ export function messageIdentityKey(message: AgentMessage): string {
 				: null;
 	return JSON.stringify([message.role, stableId, message.timestamp]);
 }
+function isIrcTranscriptMessage(value: unknown): value is AgentMessage {
+	if (value == null || typeof value !== "object" || Array.isArray(value)) return false;
+	const record = value as Record<string, unknown>;
+	return (
+		record.role === "custom" &&
+		(record.customType === "irc:incoming" ||
+			record.customType === "irc:autoreply" ||
+			record.customType === "irc:relay") &&
+		"content" in record
+	);
+}
+
+function ircMessageIdentityKey(message: AgentMessage): string {
+	if (!isIrcTranscriptMessage(message)) return "";
+	const details =
+		message.details != null && typeof message.details === "object" && !Array.isArray(message.details)
+			? (message.details as Record<string, unknown>)
+			: undefined;
+	const stableId =
+		typeof details?.id === "string"
+			? details.id
+			: [details?.from ?? null, details?.to ?? null, details?.replyTo ?? null, message.content];
+	return JSON.stringify([message.customType, stableId, message.timestamp]);
+}
+
+function hasProjectedIrcMessage(
+	current: readonly AgentMessage[],
+	pending: readonly AgentMessage[],
+	message: AgentMessage,
+): boolean {
+	const key = ircMessageIdentityKey(message);
+	return (
+		key.length > 0 &&
+		(current.some(item => isIrcTranscriptMessage(item) && ircMessageIdentityKey(item) === key) ||
+			pending.some(item => isIrcTranscriptMessage(item) && ircMessageIdentityKey(item) === key))
+	);
+}
 
 /** True when `fetched` starts with the same delivery identities as `current`. */
 export function sameIdentityPrefix(current: AgentMessage[], fetched: AgentMessage[]): boolean {
@@ -192,7 +229,24 @@ export function applyMessageProjectionEvents(
 				deliveredKeysCopied = true;
 				break;
 			}
+			case "irc_message": {
+				if (!isIrcTranscriptMessage(event.message)) break;
+				if (hasProjectedIrcMessage(projection.messages, newMessages, event.message)) break;
+				newMessages.push(event.message);
+				if (!deliveredKeysCopied) {
+					deliveredKeys = new Set(deliveredKeys);
+					deliveredKeysCopied = true;
+				}
+				deliveredKeys.add(messageIdentityKey(event.message));
+				break;
+			}
 			case "message_start": {
+				if (
+					isIrcTranscriptMessage(event.message) &&
+					hasProjectedIrcMessage(projection.messages, newMessages, event.message)
+				) {
+					break;
+				}
 				streamingStart =
 					event.message.timestamp === undefined || event.message.timestamp === null
 						? { ...event.message, timestamp: Date.now() }
@@ -211,6 +265,12 @@ export function applyMessageProjectionEvents(
 				break;
 			}
 			case "message_end": {
+				if (
+					isIrcTranscriptMessage(event.message) &&
+					hasProjectedIrcMessage(projection.messages, newMessages, event.message)
+				) {
+					break;
+				}
 				newMessages.push(event.message);
 				if (!deliveredKeysCopied) {
 					deliveredKeys = new Set(deliveredKeys);

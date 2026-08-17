@@ -68,7 +68,6 @@ export type RpcCommand =
 	| { id?: string; type: "get_login_providers" }
 	| { id?: string; type: "login"; providerId: string }
 	| { id?: string; type: "logout"; providerId: string }
-	| { id?: string; type: "get_usage" }
 	| { id?: string; type: "get_settings_schema" }
 	| { id?: string; type: "get_settings"; paths?: string[] }
 	| { id?: string; type: "set_setting"; path: string; value: unknown }
@@ -1502,49 +1501,6 @@ export interface LoginProvider {
 	name: string;
 	available: boolean;
 	authenticated: boolean;
-}
-
-// ============================================================================
-// Usage (provider quotas + local session tallies)
-// ============================================================================
-
-export interface UsageLimit {
-	id: string;
-	label: string;
-	usedFraction?: number;
-	used?: number;
-	limit?: number;
-	unit?: string;
-	remainingFraction?: number;
-	windowLabel?: string;
-	resetsAt?: number;
-	status?: string;
-	notes?: string[];
-}
-
-export interface UsageReport {
-	provider: string;
-	fetchedAt: number;
-	limits: UsageLimit[];
-	notes?: string[];
-	account?: string;
-	resetCreditsAvailable?: number;
-}
-
-export interface UsageSessionStats {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	totalTokens: number;
-	orchestrationTokens: number;
-	premiumRequests: number;
-	cost: number;
-}
-
-export interface UsageResult {
-	reports: UsageReport[];
-	session: UsageSessionStats;
 }
 
 // ============================================================================

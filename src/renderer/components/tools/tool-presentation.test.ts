@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
+import { isPeerIrcInvocation, resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
 
 describe("resolveToolPresentation", () => {
 	it("passes a direct Bash invocation through unchanged", () => {
@@ -791,6 +791,35 @@ describe("resolveToolPresentation", () => {
 			args: { i: "Inspect state" },
 			transport: "xdev",
 		});
+	});
+});
+
+describe("isPeerIrcInvocation", () => {
+	it("uses the settled winner when a wait races peer traffic against jobs", () => {
+		const args = { op: "wait", from: "PlanReviewer", ids: ["review-job"] };
+		const jobWinner = resolveToolPresentation({
+			name: "hub",
+			args,
+			result: {
+				content: [{ type: "text", text: "Job completed." }],
+				details: { op: "wait", jobs: [{ id: "review-job", status: "completed" }] },
+			},
+			partialResult: null,
+			isError: false,
+		});
+		const peerWinner = resolveToolPresentation({
+			name: "hub",
+			args,
+			result: {
+				content: [{ type: "text", text: "Message received." }],
+				details: { op: "wait", waited: { from: "PlanReviewer", body: "Done.", ts: 100 } },
+			},
+			partialResult: null,
+			isError: false,
+		});
+
+		expect(isPeerIrcInvocation(jobWinner)).toBe(false);
+		expect(isPeerIrcInvocation(peerWinner)).toBe(true);
 	});
 });
 

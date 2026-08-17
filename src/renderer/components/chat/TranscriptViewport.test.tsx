@@ -316,8 +316,22 @@ describe("TranscriptViewport compact tool visibility", () => {
 		expect(specializedBody?.textContent).toContain("src/final.ts");
 		expect(specializedBody?.textContent).toContain("1 match");
 	});
+	it("shows finalized compact thoughts directly without a completed-steps disclosure", async () => {
+		useMessagesStore.setState({
+			messages: [assistant([{ type: "thinking", thinking: "Finalized compact thought" }], 100)],
+		});
+		useSessionStore.setState({ status: "ready" });
+		useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact" });
 
-	it("keeps live compact reasoning disclosed while tools remain visible before streaming answer text", async () => {
+		await mount(<ChatStream />);
+
+		if (!container) throw new Error("TranscriptViewport mount missing");
+		expect(container.querySelector(".omp-execution-group")).toBeNull();
+		expect(container.querySelector(".omp-thinking-block")?.textContent).toContain("Finalized compact thought");
+		expect(container.querySelector(".omp-thinking-preview.italic")).not.toBeNull();
+	});
+
+	it("shows live compact reasoning directly while tools and answer text remain visible", async () => {
 		seedLiveCompactGrep();
 
 		await mount(<ChatStream />);
@@ -325,15 +339,14 @@ describe("TranscriptViewport compact tool visibility", () => {
 		if (!container) throw new Error("TranscriptViewport mount missing");
 		const liveRow = container.querySelector('[data-transcript-kind="streaming"]');
 		const liveTurn = liveRow?.querySelector(".omp-streaming-turn");
-		const reasoningDisclosure = liveTurn?.querySelector(".omp-execution-group");
+		const reasoning = liveTurn?.querySelector(".omp-thinking-block");
 		const toolCard = liveTurn?.querySelector(".omp-tool-card");
 		const answerContainer = liveTurn?.children[2];
-		expect(reasoningDisclosure?.querySelector(".omp-thinking-block")?.textContent).toContain(
-			"Live compact reasoning",
-		);
+		expect(liveTurn?.querySelector(".omp-execution-group")).toBeNull();
+		expect(reasoning?.textContent).toContain("Live compact reasoning");
 		expect(toolCard?.querySelector(".omp-tool-name")?.textContent).toBe("grep");
-		expect(reasoningDisclosure?.querySelector(".omp-tool-card")).toBeNull();
-		expect(liveTurn?.children[0]).toBe(reasoningDisclosure);
+		expect(reasoning?.querySelector(".omp-tool-card")).toBeNull();
+		expect(liveTurn?.children[0]).toBe(reasoning);
 		expect(liveTurn?.children[1]?.querySelector(".omp-tool-card")).toBe(toolCard);
 		expect(answerContainer?.querySelector(".omp-streaming")).not.toBeNull();
 		expect(answerContainer?.textContent).toContain("Streaming answer after tools");

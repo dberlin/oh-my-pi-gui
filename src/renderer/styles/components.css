@@ -1097,6 +1097,30 @@
 	line-height: 1.65;
 	color: var(--omp-text);
 }
+.omp-transcript-editorial .omp-thinking-block--compact {
+	margin-block: 3px 7px;
+}
+
+.omp-transcript-editorial .omp-thinking-preview .markdown-body {
+	font-size: var(--text-omp-sm);
+	line-height: 1.55;
+	color: var(--omp-dim);
+	font-style: italic;
+}
+
+.omp-transcript-editorial .omp-thinking-preview .markdown-body :is(h1, h2, h3, h4, h5, h6, strong) {
+	color: inherit;
+	font-weight: 400;
+}
+
+.omp-transcript-editorial .omp-thinking-preview .markdown-body p {
+	margin-block: 0 0.35em;
+}
+
+.omp-transcript-editorial .omp-thinking-preview .markdown-body p:last-child {
+	margin-bottom: 0;
+}
+
 
 /* Reasoning stays visually subordinate to the assistant response. */
 .omp-transcript-editorial .omp-thinking-body .markdown-body {

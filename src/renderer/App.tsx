@@ -47,6 +47,7 @@ import { hydrateSession, useRpcEvents } from "./hooks/use-rpc-events";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
 import { useSidebarRecency } from "./hooks/use-sidebar-recency";
 import { useTraySync } from "./hooks/use-tray-sync";
+import { requestUsageReport } from "./lib/command-registry";
 import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
@@ -115,7 +116,6 @@ const PrCenterWindow = lazy(() =>
 const ProviderConfigDialog = lazy(() =>
 	import("./components/settings/ProviderConfigDialog").then(m => ({ default: m.ProviderConfigDialog })),
 );
-const UsageWindow = lazy(() => import("./components/settings/UsageWindow").then(m => ({ default: m.UsageWindow })));
 const ModelRolesWindow = lazy(() =>
 	import("./components/settings/ModelRolesWindow").then(m => ({ default: m.ModelRolesWindow })),
 );
@@ -365,7 +365,9 @@ export function AppGlobalActions() {
 				return;
 			}
 			if (action === "open-usage") {
-				ui.openUsage();
+				void requestUsageReport(window.omp.rpc.prompt).catch(error => {
+					toast({ variant: "error", title: t("palette.failed"), message: String(error) });
+				});
 				return;
 			}
 			// Window/layout/navigation actions and read-only export stay available in
@@ -689,7 +691,6 @@ export function App() {
 			<HandoffDialog />
 			<Suspense fallback={null}>
 				<SettingsWindow />
-				<UsageWindow />
 				<ProvidersWindow />
 				<ModelRolesWindow />
 				<ModelCompare open={modelCompareOpen} onClose={closeModelCompare} />
