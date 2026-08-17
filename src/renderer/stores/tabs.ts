@@ -225,6 +225,21 @@ export function tabDisplayTitle(
 	return indexedSession ? sessionDisplayTitle(indexedSession, untitled) : tabChipLabel(tab, tabs);
 }
 
+/**
+ * Neighbour of the active tab in strip order, wrapping at both ends (⌘[ / ⌘]).
+ * Null when there is nowhere to go — no tabs, a single tab, or an active id
+ * that is not in the strip — so callers can no-op instead of switching blind.
+ */
+export function adjacentTabId(
+	tabs: readonly SessionTab[],
+	activeTabId: string | null,
+	direction: 1 | -1,
+): string | null {
+	if (tabs.length < 2) return null;
+	const index = tabs.findIndex(tab => tab.id === activeTabId);
+	if (index < 0) return null;
+	return tabs[(index + direction + tabs.length) % tabs.length]?.id ?? null;
+}
 function reconcileSessionTarget(snapshot: unknown, existing?: SessionTarget): SessionTarget {
 	return existing ?? normalizeSessionTarget(snapshot);
 }

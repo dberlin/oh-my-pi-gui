@@ -78,7 +78,7 @@ import { useSessionStore } from "./stores/session";
 import { SessionRuntimeProvider } from "./stores/session-runtime-context";
 import { useSettingsStore } from "./stores/settings";
 import { ensureTabRuntime } from "./stores/tab-runtime";
-import { useSessionTabs, useTabsStore } from "./stores/tabs";
+import { adjacentTabId, useSessionTabs, useTabsStore } from "./stores/tabs";
 import { toast } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
 import { subscribeUpdaterStatus } from "./stores/updater";
@@ -261,6 +261,14 @@ export function AppGlobalActions() {
 				case "tab.newChat":
 					void useTabsStore.getState().openTab({ kind: "chat" });
 					return;
+				case "tab.previous":
+				case "tab.next": {
+					// ⌘[ / ⌘] — step through the tab strip, wrapping at both ends.
+					const tabs = useTabsStore.getState();
+					const target = adjacentTabId(tabs.tabs, tabs.activeTabId, actionId === "tab.next" ? 1 : -1);
+					if (target) void tabs.switchTab(target);
+					return;
+				}
 				case "tab.newWorktree":
 					// ⌥T — new worktree tab (create dialog, plan/20).
 					useUiStore.getState().openWorktreeDialog();
