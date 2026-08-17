@@ -111,7 +111,7 @@ const AgentRow = memo(function AgentRow({
 				className={cx(
 					"relative flex min-w-0 items-start gap-1.5 overflow-hidden rounded-lg border py-2 pr-2.5 pl-2 text-left transition-colors duration-150",
 					selected
-						? "border-(--omp-border-strong) bg-(--omp-bg-tertiary)"
+						? "border-(--omp-border-strong) bg-(--omp-bg-tertiary)" /* surface-ok: selected-row state wash, same fill as the hover twin below */
 						: "border-(--omp-border-muted) bg-transparent hover:bg-(--omp-bg-tertiary)",
 					agent?.status === "cancelled" && "opacity-70",
 				)}

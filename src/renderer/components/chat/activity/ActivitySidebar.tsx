@@ -140,7 +140,7 @@ function CompactActivityLauncher({ activeTabId }: { activeTabId: string }) {
 						data-activity-live-indicator="todo"
 					/>
 				)}
-				<span className="absolute right-0 bottom-0 text-[9px] tabular-nums">{todoCount}</span>
+				<span className="absolute right-0 bottom-0 text-omp-xxs tabular-nums">{todoCount}</span>
 			</button>
 			<button
 				aria-label={`${t("dock.agents")} ${agentCount}${hasLiveAgent ? `, ${t("sidebar.signal.running")}` : ""}`}
@@ -157,7 +157,7 @@ function CompactActivityLauncher({ activeTabId }: { activeTabId: string }) {
 						data-activity-live-indicator="agents"
 					/>
 				)}
-				<span className="absolute right-0 bottom-0 text-[9px] tabular-nums">{agentCount}</span>
+				<span className="absolute right-0 bottom-0 text-omp-xxs tabular-nums">{agentCount}</span>
 			</button>
 		</aside>
 	);
@@ -251,7 +251,9 @@ export function ActivitySidebar({ compact, activeTabId }: { compact: boolean; ac
 	return (
 		<aside
 			aria-label={t("activitySidebar.title")}
-			className="grid h-full min-h-0 grid-rows-[40px_auto_minmax(0,1fr)] border-l border-(--omp-border) bg-(--omp-bg-primary)"
+			className={
+				"grid h-full min-h-0 grid-rows-[40px_auto_minmax(0,1fr)] border-l border-(--omp-border) bg-(--omp-bg-primary)" /* surface-ok: activity rail is navigation chrome and must paint the canvas fill over scrolled transcript rows */
+			}
 			data-activity-rail
 			ref={railRef}
 		>

@@ -4,6 +4,11 @@
  * the single-tab floor, "+" spawns a new tab in the current cwd. Same
  * linkedom + react-dom harness as the InputArea tests.
  */
+
+import { parseHTML } from "linkedom";
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type {
 	IpcSpawnTabPayload,
 	IpcTabInfo,
@@ -13,11 +18,6 @@ import type {
 } from "../../../shared/ipc-types";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
-import { TabBar } from "./TabBar";
-import { act, type ReactElement } from "react";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
@@ -29,6 +29,7 @@ import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import { TabBar } from "./TabBar";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;

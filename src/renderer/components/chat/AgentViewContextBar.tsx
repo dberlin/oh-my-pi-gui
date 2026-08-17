@@ -49,7 +49,9 @@ export function AgentViewContextBar() {
 	return (
 		<header
 			aria-label={t("agentView.ariaLabel")}
-			className="omp-agent-view-context-bar flex h-9 shrink-0 items-center gap-2 border-b border-(--omp-border-muted) bg-(--omp-bg-secondary) px-4"
+			className={
+				"omp-agent-view-context-bar flex h-9 shrink-0 items-center gap-2 border-b border-(--omp-border-muted) bg-(--omp-bg-secondary) px-4" /* surface-ok: chrome bar framing the transcript canvas, not content */
+			}
 			data-agent-view={target.kind}
 			role="group"
 		>

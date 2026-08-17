@@ -24,7 +24,7 @@ export function ThinkRenderer({ result, isError, isPartial, partialResult, view 
 					className={
 						isError
 							? "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--omp-tool-error-bg)] px-2.5 py-2 font-mono text-omp-sm leading-[1.5] text-[var(--omp-error)]"
-							: "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--omp-bg-tertiary)] px-2.5 py-2 font-mono text-omp-sm leading-[1.5] text-[var(--omp-tool-output)]"
+							: "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--omp-code-bg)] px-2.5 py-2 font-mono text-omp-sm leading-[1.5] text-[var(--omp-tool-output)]"
 					}
 				>
 					{body}
