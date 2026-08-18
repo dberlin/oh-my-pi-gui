@@ -6,6 +6,8 @@
 
 - **Frame-paced streaming presentation**: live replies now coalesce IPC bursts onto browser frames, promote complete Markdown paragraphs/code/math into parse-once blocks, keep only the unfinished suffix lightweight, and reveal new text with a subtle fade plus a smooth breathing caret instead of 200ms chunk jumps. Agent-event delivery now runs at a stable ~30 Hz, while finalized content and manual scroll positions remain unchanged.
 - **Responsive composer controls**: thinking level, fast mode, approval mode, and session modes now stay expanded across the toolbar whenever its measured width can hold them; only narrow composers fall back to the compact overflow menu, including live transitions when sidebars or the window resize.
+- **Compact composer placement**: removed the redundant keyboard-shortcut caption below the composer and tightened its outer spacing so the input sits closer to the window footer.
+- **Simplified window chrome**: removed the redundant bottom status strip and moved the keyboard-shortcuts entry into the top toolbar, giving the transcript and composer the full window height.
 
 ### Fixed
 

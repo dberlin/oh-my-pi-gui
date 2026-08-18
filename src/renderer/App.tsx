@@ -36,7 +36,6 @@ import { InputArea } from "./components/layout/InputArea";
 import { PanelContainer } from "./components/layout/PanelContainer";
 import { Sidebar } from "./components/layout/Sidebar";
 import { SidecarBanner } from "./components/layout/SidecarBanner";
-import { StatusFooter } from "./components/layout/StatusFooter";
 import { TabBar } from "./components/layout/TabBar";
 import { TitleBar } from "./components/layout/TitleBar";
 import { UpdateBanner } from "./components/layout/UpdateBanner";
@@ -565,7 +564,6 @@ export function App() {
 				<UpdateBanner />
 				<ChatStream />
 				<InputArea key={activeTabId ?? "no-tab"} />
-				<StatusFooter />
 			</main>
 
 			{panelVisible && <PanelContainer />}

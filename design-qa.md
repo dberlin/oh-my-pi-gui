@@ -48,6 +48,36 @@ final result: passed
 
 ---
 
+# Status footer removal QA
+
+- Source visual truth: `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-08e63516-cdeb-4af0-8c0b-804e2e7b364b.png`
+- Implementation screenshot: `/tmp/omp-footer-removed-implementation.png`
+- Focused comparison: `/tmp/omp-footer-removal-comparison.png`
+- Source pixels: 3232 x 416; implementation pixels: 2800 x 1744.
+- Implementation viewport: 1400 x 872 CSS px at device scale factor 2.
+- State: the source is a dark-theme conversation crop and the implementation is an isolated light-theme new chat. The comparison is scoped to the top shortcut entry, bottom status strip, and composer placement.
+
+## Full-view and focused comparison evidence
+
+The full implementation capture shows no footer row beneath the composer. The focused composite pairs the source footer problem with the implementation's top toolbar and bottom composer: the keyboard-shortcuts icon now sits between the workspace-panel and settings controls, while the composer uses the reclaimed bottom height directly.
+
+## Required fidelity surfaces
+
+- Fonts and typography: unchanged; removing the footer also removes its tiny secondary status typography.
+- Spacing and layout rhythm: the 28 px footer track and top border are gone, leaving no empty band under the main composer.
+- Colors and visual tokens: the new toolbar button reuses the existing title-bar icon color, hover, radius, and spacing tokens.
+- Image quality and asset fidelity: the existing Lucide keyboard icon moved intact; no new image asset or approximation was introduced.
+- Copy and content: the shortcut tooltip is localized in English and Chinese; no footer-only path, branch, or mode copy remains visible.
+
+## Interaction and comparison history
+
+- Pass 1 removed `StatusFooter`, moved the shortcut button to `TitleBar`, and retained composer mode controls plus the existing top plan indicator.
+- The live Electron shortcut button opened the keyboard-shortcuts dialog successfully.
+- Post-fix visual evidence confirms the footer is absent and the top icon aligns with adjacent global controls. No actionable P0, P1, or P2 finding remains.
+
+final result: passed
+---
+
 # Compact execution and goal surfaces QA
 
 - source visual truth: `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-97a03058-9bfa-430f-88ab-bf28a3d3da7c.png`
@@ -261,5 +291,36 @@ final result: passed
 
 - The persistent Todo dock and background-task result cards are separate product surfaces and were not restyled as part of this execution-history request.
 - The source and implementation contain different conversation content, so copy wrapping and document length were evaluated as hierarchy and density rather than literal line-for-line fidelity.
+
+final result: passed
+
+---
+
+# Composer bottom spacing QA
+
+- Source visual truth: `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-e82967bb-566e-4300-b75a-e71b04c73491.png`
+- Implementation screenshot: `/tmp/omp-composer-layout-implementation.png`
+- Focused comparison: `/tmp/omp-composer-layout-comparison.png`
+- Source pixels: 3189 x 838; implementation pixels: 2880 x 1900.
+- Implementation window: 1400 x 900 CSS px at macOS display density.
+- Normalization: both composer/footer regions were cropped and resized to 1200 px wide for the focused comparison.
+- State: the source is an existing dark-theme conversation and the isolated implementation is a light-theme new chat. Only the requested composer/footer spacing and caption removal were compared; message content and theme were excluded.
+
+## Full-view and focused comparison evidence
+
+Both full screenshots were opened before comparison. The focused composite shows the source above and the implementation below. The redundant shortcut caption and its caption-sized lower band are absent. The implementation retains a narrow 4 px breathing space before the status footer, preventing the composer from touching the footer border.
+
+## Required fidelity surfaces
+
+- Fonts and typography: composer typography and control weights are unchanged; only the shortcut caption was removed.
+- Spacing and layout rhythm: bottom padding is reduced from 20 px to 4 px and top padding from 12 px to 8 px, placing the composer lower without overlap.
+- Colors and visual tokens: unchanged; theme color differences in the two saved states are outside this scoped change.
+- Image quality and asset fidelity: no image assets are present in the modified region.
+- Copy and content: the keyboard-shortcut caption was removed as requested; placeholder and toolbar labels remain intact.
+
+## Findings and comparison history
+
+- No actionable P0, P1, or P2 difference remains for the requested bottom-spacing change.
+- Pass 1 removed the caption and tightened outer padding. The post-fix Electron capture confirmed the lower composer position, so no further visual iteration was required.
 
 final result: passed

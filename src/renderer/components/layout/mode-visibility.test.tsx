@@ -1,8 +1,7 @@
 /**
  * Contract tests for mode-state visibility: the compact composer Modes entry
- * surfaces the active-mode count and keeps each control reachable in its menu;
- * StatusFooter keeps its glanceable active badges. State comes from the
- * session store (including loop/vibe hydration and loop updates).
+ * surfaces the active-mode count and keeps each control reachable in its menu.
+ * State comes from the session store (including loop/vibe hydration and loop updates).
  */
 
 import { parseHTML } from "linkedom";
@@ -12,10 +11,8 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
-import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { ComposerModes } from "./ComposerModes";
-import { StatusFooter } from "./StatusFooter";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -53,7 +50,7 @@ interface MockOmp {
 	};
 }
 
-/** StatusFooter reads statusLine.preset at mount; ComposerModes needs no RPC on render. */
+/** ComposerModes needs no RPC on render; the mock preserves the window bridge contract. */
 function installMockOmp(preset?: string): MockOmp {
 	const omp: MockOmp = {
 		rpc: {
@@ -96,7 +93,6 @@ afterEach(async () => {
 	}
 	container?.remove();
 	useSessionStore.getState().reset();
-	useTabsStore.getState().reset();
 	useUiStore.setState({ modesOpen: false, modesTab: "vibe" });
 });
 
@@ -179,80 +175,5 @@ describe("ComposerModes menu", () => {
 		});
 		expect(useUiStore.getState().modesOpen).toBe(true);
 		expect(useUiStore.getState().modesTab).toBe("loop");
-	});
-});
-
-describe("StatusFooter mode badges", () => {
-	it("renders a badge per active mode with detail tooltips", async () => {
-		installMockOmp();
-		useSessionStore.setState({
-			cwd: "/tmp/project",
-			planModeEnabled: true,
-			goal: { objective: "Ship the activity dock" },
-			goalState: { status: "active" },
-			loopMode: { enabled: true, state: "waiting" },
-			vibeModeEnabled: true,
-			agentsPaused: true,
-		});
-		await mount(<StatusFooter />);
-
-		const text = document.body.textContent ?? "";
-		for (const label of ["Plan", "Goal", "Loop", "Vibe", "Paused"]) {
-			expect(text).toContain(label);
-		}
-		expect(document.body.innerHTML).toContain("Goal: Ship the activity dock");
-		// Unbounded loop: no limit on the wire, so the tooltip says so.
-		expect(document.body.innerHTML).toContain("Loop mode: Unbounded");
-		expect(document.body.innerHTML).toContain("All agents are paused");
-	});
-
-	it("renders no badges when every mode is off", async () => {
-		installMockOmp();
-		useSessionStore.setState({ cwd: "/tmp/project" });
-		await mount(<StatusFooter />);
-
-		const text = document.body.textContent ?? "";
-		for (const label of ["Plan", "Goal", "Loop", "Vibe", "Paused"]) {
-			expect(text).not.toContain(label);
-		}
-	});
-
-	it("hides badges under the minimal preset (model + context only)", async () => {
-		installMockOmp("minimal");
-		useSessionStore.setState({ cwd: "/tmp/project", planModeEnabled: true, agentsPaused: true });
-		await mount(<StatusFooter />);
-
-		const text = document.body.textContent ?? "";
-		expect(text).not.toContain("Paused");
-		expect(text).not.toContain("Plan");
-	});
-
-	it("suppresses agent-mode badges in a chat tab but keeps the paused gate", async () => {
-		installMockOmp();
-		useTabsStore.setState({
-			tabs: [{ kind: "chat", id: "t0", cwd: "/tmp/project", status: "ready", unreadDone: false }],
-			activeTabId: "t0",
-			bundles: new Map(),
-		});
-		useSessionStore.setState({
-			cwd: "/tmp/project",
-			planModeEnabled: true,
-			goal: { objective: "Ship the activity dock" },
-			goalState: { status: "active" },
-			loopMode: { enabled: true, state: "waiting" },
-			vibeModeEnabled: true,
-			agentsPaused: true,
-		});
-		await mount(<StatusFooter />);
-
-		const text = document.body.textContent ?? "";
-		for (const label of ["Plan", "Goal", "Loop", "Vibe"]) {
-			expect(text).not.toContain(label);
-		}
-		// Pause is transport-level, not a tool mode — it survives in chat tabs.
-		expect(text).toContain("Paused");
-		// A chat sidecar still needs an internal cwd, but it is not a selected
-		// workspace and must not leak into the status footer.
-		expect(text).not.toContain("/tmp/project");
 	});
 });

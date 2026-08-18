@@ -5,6 +5,7 @@ import {
 	Coins,
 	FolderOpen,
 	GitPullRequest,
+	Keyboard,
 	PanelLeft,
 	PanelRight,
 	Plug,
@@ -49,6 +50,7 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 	const openSettings = useUiStore(s => s.openSettings);
 	const openPrCenter = useUiStore(s => s.openPrCenter);
 	const openAgentHub = useUiStore(s => s.openAgentHub);
+	const openHotkeys = useUiStore(s => s.openHotkeys);
 	const { sessions } = useSessionList("local");
 	const projectName = !isChat && cwd ? basename(cwd) : t("titlebar.openProject");
 
@@ -216,6 +218,9 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 			</button>
 			<button type="button" onClick={togglePanel} title={t("titlebar.workspace")} className={iconButton}>
 				<PanelRight size={18} className={cx(panelVisible && "text-[var(--omp-text)]")} />
+			</button>
+			<button type="button" onClick={openHotkeys} title={t("titlebar.hotkeys")} className={iconButton}>
+				<Keyboard size={17} />
 			</button>
 			<button type="button" onClick={() => openSettings()} title={t("titlebar.settings")} className={iconButton}>
 				<Settings size={17} />
