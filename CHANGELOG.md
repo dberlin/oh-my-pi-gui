@@ -2,8 +2,11 @@
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-08-18
+
 ### Changed
 
+- **Bundled agent upgraded to omp 17.3.7**: packaged sidecars now include brokered extension file-write/delete fallbacks, restored configurable stats-dashboard binding, refreshed GPT context/pricing data, paid xAI/SuperGrok defaults for Grok 4.6, and the corrected xAI chat User-Agent from monorepo commit `e9e2fa8b10`.
 - **Frame-paced streaming presentation**: live replies now coalesce IPC bursts onto browser frames, promote complete Markdown paragraphs/code/math into parse-once blocks, keep only the unfinished suffix lightweight, and reveal new text with a subtle fade plus a smooth breathing caret instead of 200ms chunk jumps. Agent-event delivery now runs at a stable ~30 Hz, while finalized content and manual scroll positions remain unchanged.
 - **Responsive composer controls**: thinking level, fast mode, approval mode, and session modes now stay expanded across the toolbar whenever its measured width can hold them; only narrow composers fall back to the compact overflow menu, including live transitions when sidebars or the window resize.
 - **Compact composer placement**: removed the redundant keyboard-shortcut caption below the composer and tightened its outer spacing so the input sits closer to the window footer.
