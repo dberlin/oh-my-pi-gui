@@ -2,6 +2,7 @@ import { Braces } from "lucide-react";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_MD, PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
 import { PathLink } from "./PathLink";
 import { resultDetails } from "./result";
@@ -333,7 +334,9 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult, v
 						)}
 					</div>
 					{parsed.items.length > 0 && (
-						<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
+						<div
+							className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]`}
+						>
 							{diagnosticItems.map((item, i) => (
 								<div key={i} className="flex gap-2 transition-colors hover:bg-[var(--omp-selected-bg)]/50">
 									<span
@@ -367,7 +370,9 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult, v
 			)}
 
 			{parsed.kind === "references" && (
-				<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
+				<div
+					className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]`}
+				>
 					{referenceGroups.map(group => (
 						<div key={group.file}>
 							<div className="flex gap-2">
@@ -400,7 +405,9 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult, v
 			)}
 
 			{parsed.kind === "symbols" && (
-				<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
+				<div
+					className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]`}
+				>
 					{symbolItems.map((sym, i) => (
 						<div key={i} className="flex gap-2" style={{ paddingLeft: `${Math.min(sym.indent, 8) * 10}px` }}>
 							<span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]">
@@ -425,7 +432,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult, v
 			{parsed.kind === "generic" && text && (
 				<pre
 					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
+						`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]`,
 						isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",

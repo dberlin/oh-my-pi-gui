@@ -3,6 +3,7 @@ import { useState } from "react";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_MD, PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -170,7 +171,9 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 			)}
 
 			{frames.length > 0 && (
-				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
+				<div
+					className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]`}
+				>
 					{frames.map((f, i) => (
 						<div key={i} className="flex gap-2 transition-colors hover:bg-[var(--omp-selected-bg)]/50">
 							<span className="w-5 shrink-0 text-right tabular-nums text-[var(--omp-dim)]">{i}</span>
@@ -208,7 +211,9 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 						{t("tools.debug.variables")}
 					</button>
 					{varsOpen && (
-						<div className="mt-0.5 max-h-40 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
+						<div
+							className={`mt-0.5 ${PREVIEW_SCROLL_SM} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]`}
+						>
 							{variables.map(row => (
 								<div key={row.name} className="flex gap-2">
 									<span className="shrink-0 text-[var(--omp-syntax-variable)]">{row.name}</span>
@@ -224,7 +229,9 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 			)}
 
 			{breakpoints.length > 0 && (
-				<div className="max-h-32 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
+				<div
+					className={`${PREVIEW_SCROLL_SM} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]`}
+				>
 					{breakpoints.map((bp, i) => (
 						<div key={i} className="flex gap-2">
 							<span
@@ -246,7 +253,9 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 			)}
 
 			{output && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre
+					className={`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]`}
+				>
 					{hasAnsi(output) ? <AnsiText text={output} /> : output}
 				</pre>
 			)}
@@ -254,7 +263,7 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 			{!hasStructured && !output && text && (
 				<pre
 					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
+						`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]`,
 						isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",

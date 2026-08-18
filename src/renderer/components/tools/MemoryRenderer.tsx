@@ -1,6 +1,7 @@
 import { Brain } from "lucide-react";
 import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_MD } from "../../lib/preview";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -105,8 +106,8 @@ export function MemoryRenderer({
 				<pre
 					className={
 						isError
-							? "max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]"
-							: "max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]"
+							? `${PREVIEW_SCROLL_MD} whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]`
+							: `${PREVIEW_SCROLL_MD} whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]`
 					}
 				>
 					{recallBody || text}

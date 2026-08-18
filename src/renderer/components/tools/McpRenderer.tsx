@@ -2,6 +2,7 @@ import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { copyText, extractImageDataUrl } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
+import { PREVIEW_SCROLL_MD } from "../../lib/preview";
 import { useSettingsStore } from "../../stores/settings";
 import { resultBodyText, resultDetails } from "./result";
 import { StructuredDataView } from "./StructuredDataView";
@@ -173,7 +174,7 @@ export function McpRenderer({ args, result, isError, isPartial, partialResult, v
 						{t("tools.generic.args")}
 					</div>
 					{expanded ? (
-						<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1.5">
+						<div className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1.5`}>
 							<StructuredDataView defaultExpandedDepth={2} value={args} />
 						</div>
 					) : (
@@ -201,7 +202,7 @@ export function McpRenderer({ args, result, isError, isPartial, partialResult, v
 						<>
 							{parsed.parsed ? (
 								<div
-									className={`max-h-64 overflow-auto rounded px-2 py-1.5 ${
+									className={`${PREVIEW_SCROLL_MD} rounded px-2 py-1.5 ${
 										isError ? "bg-[var(--omp-tool-error-bg)]" : "bg-[var(--omp-code-bg)]"
 									}`}
 								>
@@ -210,7 +211,7 @@ export function McpRenderer({ args, result, isError, isPartial, partialResult, v
 							) : body ? (
 								renderMarkdown ? (
 									<div
-										className={`max-h-64 overflow-auto rounded px-2 py-1.5 ${
+										className={`${PREVIEW_SCROLL_MD} rounded px-2 py-1.5 ${
 											isError
 												? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 												: "bg-[var(--omp-code-bg)]"
@@ -220,7 +221,7 @@ export function McpRenderer({ args, result, isError, isPartial, partialResult, v
 									</div>
 								) : (
 									<pre
-										className={`max-h-64 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45] ${
+										className={`${PREVIEW_SCROLL_MD} whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45] ${
 											isError
 												? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 												: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]"

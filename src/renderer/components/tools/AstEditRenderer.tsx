@@ -2,6 +2,7 @@ import { FileCode2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import type { ToolRendererProps } from "./ToolCard";
 
 /**
@@ -245,7 +246,9 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 			{/* States */}
 			{isPartial && <div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.astedit.editing")}</div>}
 			{isError && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]">
+				<pre
+					className={`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]`}
+				>
 					{text || t("tools.astedit.failed")}
 				</pre>
 			)}
