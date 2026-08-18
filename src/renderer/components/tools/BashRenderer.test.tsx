@@ -81,6 +81,46 @@ describe("BashRenderer", () => {
 		expect(container.textContent).toContain("Backgrounded: bg-7");
 	});
 
+	it("strips the wall-time notice when intermediate notices follow it", async () => {
+		// Wire order: wall time is appended BEFORE timeout/pty notices, so it
+		// sits mid-body — an end-anchored strip would leak it into the output.
+		await mount(
+			<BashRenderer
+				args={{ command: "sleep 1" }}
+				result={bashResult(
+					"done\n\nWall time: 0.42 seconds\nTimeout clamped to 5s (requested 999s; allowed range 5-3600s).\n\nCommand exited with code 2",
+					{ exitCode: 2, wallTimeMs: 420, timeoutSeconds: 5, requestedTimeoutSeconds: 999 },
+				)}
+				isError
+			/>,
+		);
+		expect(container.textContent).toContain("done");
+		expect(container.textContent).not.toContain("Wall time:");
+		expect(container.textContent).not.toContain("Command exited with code");
+		expect(container.textContent).toContain("Wall: 0.42s");
+		expect(container.textContent).toContain("Exit: 2");
+	});
+
+	it("strips the exit-code trailer when the artifact footer rides outside it", async () => {
+		// The byte-cap appends `[raw output: artifact://N]` AFTER every notice,
+		// so the exit-code strip only works once the footer is removed first.
+		await mount(
+			<BashRenderer
+				args={{ command: "huge-output" }}
+				result={bashResult("tail of output\nCommand exited with code 1\n[raw output: artifact://42]", {
+					exitCode: 1,
+					meta: { truncation: { direction: "tail" } },
+				})}
+				isError
+			/>,
+		);
+		expect(container.textContent).toContain("tail of output");
+		expect(container.textContent).not.toContain("Command exited with code");
+		expect(container.textContent).not.toContain("[raw output: artifact://42]");
+		expect(container.textContent).toContain("Artifact: 42");
+		expect(container.textContent).toContain("Exit: 1");
+	});
+
 	it("keeps plain output as a single text node (no span explosion)", async () => {
 		await mount(<BashRenderer args={{ command: "ls" }} result={bashResult("a\nb\nc")} />);
 		expect(container.textContent).toContain("a\nb\nc");

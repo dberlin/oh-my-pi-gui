@@ -208,8 +208,10 @@ export function parseAnsi(input: string): AnsiSegment[] {
 	return segments;
 }
 
-/** Fast pre-check so renderers can keep a plain-text fast path. */
-const HAS_ANSI_RE = /\x1b\[/;
+/** Fast pre-check so renderers can keep a plain-text fast path. Any ESC —
+ * not just CSI — counts: OSC-only output (window titles, hyperlinks) and
+ * stray C0 controls also need the parser to strip them. */
+const HAS_ANSI_RE = /\x1b/;
 
 export function hasAnsi(text: string): boolean {
 	return HAS_ANSI_RE.test(text);

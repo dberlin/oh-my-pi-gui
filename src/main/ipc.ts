@@ -718,6 +718,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			if (!within) return { ok: false, error: "Path escapes the workspace" };
 			resolved = within;
 		}
+		// A stale tool card can reference a file that no longer exists (or never
+		// did outside the workspace). Both openPath and showItemInFolder fail
+		// silently on missing paths, so detect it here and let the link toast.
+		try {
+			await fsp.access(resolved);
+		} catch {
+			return { ok: false, error: "File not found" };
+		}
 		const openError = await shell.openPath(resolved);
 		if (!openError) return { ok: true, resolvedPath: resolved };
 		shell.showItemInFolder(resolved);

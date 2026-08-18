@@ -472,7 +472,7 @@ export function SecuritySettingsPage() {
 			</div>
 
 			{selectedFinding && (
-				<section className="security-finding-detail relative -mt-px grid gap-4 rounded-b-lg border border-(--omp-border-muted) p-3 shadow-[0_-8px_24px_color-mix(in_srgb,var(--omp-shadow)_8%,transparent)]">
+				<section className="security-finding-detail relative -mt-px grid gap-4 rounded-b-lg border border-(--omp-border-muted) p-3 shadow-[0_-8px_24px_color-mix(in_srgb,var(--omp-shadow-md)_8%,transparent)]">
 					<button
 						aria-label={t("common.close")}
 						className="absolute top-2 right-2 text-(--omp-dim) hover:text-(--omp-text)"

@@ -33,15 +33,29 @@ function asNumber(value: unknown): number | undefined {
  * Trailer notices the agent appends to the text body. Matched by anchored
  * regex rather than the exact mirror strings: the `details` block decides
  * WHETHER a notice exists (only strip when the wire carries the field), the
- * pattern tolerates rewording on the agent side. Order matches the agent's
- * append order — each strip can expose the previous trailer.
+ * pattern tolerates rewording on the agent side. Wire append order (bash.ts
+ * + enforceInlineByteCap + wrappedExecute): wall time first, then
+ * intermediate notices (timeout clamp, pty, truncation), then the exit-code
+ * line, then — when the inline byte cap spills — the
+ * `[raw output: artifact://N]` footer, and finally wrappedExecute's
+ * `[Showing …]` limit line OUTERMOST. Strip in reverse wire order so each
+ * end-anchored match sees the real end of the text.
  */
 const BACKGROUND_NOTICE_RE = /\n?Backgrounded as job [^\n]*; result will be delivered automatically\.\s*$/;
 const EXIT_CODE_NOTICE_RE = /\n?Command exited with code -?\d+\s*$/;
-const WALL_TIME_NOTICE_RE = /\n?Wall time: \d+(?:\.\d+)? seconds\s*$/;
+const WALL_TIME_NOTICE_RE = /\n?Wall time: \d+(?:\.\d+)? seconds/;
 
 function stripTrailer(text: string, re: RegExp): string {
 	return text.replace(re, "").trimEnd();
+}
+
+/** Strip the LAST occurrence of a non-terminal notice (wall time). */
+function stripLastOccurrence(text: string, re: RegExp): string {
+	const matches = [...text.matchAll(new RegExp(re.source, "g"))];
+	if (matches.length === 0) return text;
+	const last = matches[matches.length - 1];
+	const index = last.index ?? 0;
+	return (text.slice(0, index) + text.slice(index + last[0].length)).trimEnd();
 }
 
 const RAW_ARTIFACT_RE = /\n?\[raw output: artifact:\/\/(\d+)\]\s*$/;
@@ -95,20 +109,21 @@ function parseBashResult(result: unknown, isError: boolean | undefined): BashPar
 			: undefined;
 
 	// Strip trailer notices only when `details` confirms they were appended;
-	// re-stated below from the structured fields instead.
-	if (asyncInfo?.state === "running" && backgroundJobId) {
-		text = stripTrailer(text, BACKGROUND_NOTICE_RE);
-	}
+	// re-stated below from the structured fields instead. Reverse wire order:
+	// wrappedExecute's notice, then the artifact footer, then the inner
+	// background/exit/wall lines.
 	if (meta) text = stripGeneratedOutputNotice(text);
-	if (exitCode != null) text = stripTrailer(text, EXIT_CODE_NOTICE_RE);
-	if (wallTimeMs != null) text = stripTrailer(text, WALL_TIME_NOTICE_RE);
-
 	let artifactId = typeof truncation?.artifactId === "string" ? truncation.artifactId : undefined;
 	const artifactMatch = text.match(RAW_ARTIFACT_RE);
 	if (artifactMatch) {
 		artifactId = artifactMatch[1];
 		text = text.slice(0, artifactMatch.index).trimEnd();
 	}
+	if (asyncInfo?.state === "running" && backgroundJobId) {
+		text = stripTrailer(text, BACKGROUND_NOTICE_RE);
+	}
+	if (exitCode != null) text = stripTrailer(text, EXIT_CODE_NOTICE_RE);
+	if (wallTimeMs != null) text = stripLastOccurrence(text, WALL_TIME_NOTICE_RE);
 
 	const stats: string[] = [];
 	if (asyncInfo?.state === "running" && backgroundJobId) stats.push(`Backgrounded: ${backgroundJobId}`);

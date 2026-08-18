@@ -46,6 +46,15 @@ const STATUS_COLOR: Record<SessionInfo["status"], string> = {
 	unknown: "var(--omp-dim)",
 };
 
+const STATUS_LABEL_KEY: Record<SessionInfo["status"], string> = {
+	complete: "sidebar.status.complete",
+	interrupted: "sidebar.status.interrupted",
+	aborted: "sidebar.status.aborted",
+	error: "sidebar.status.error",
+	pending: "sidebar.status.pending",
+	unknown: "sidebar.status.unknown",
+};
+
 interface WorkspaceGroup {
 	cwd: string;
 	name: string;
@@ -82,6 +91,19 @@ export function Sidebar() {
 	const SIDEBAR_MIN = 180;
 	const SIDEBAR_MAX = 420;
 	const [sidebarWidth, setSidebarWidth] = useState(236);
+	const sidebarWidthRef = useRef(236);
+	// Layout widths persist like every other chrome pref; restored on mount.
+	useEffect(() => {
+		void window.omp.prefs
+			.get("sidebarWidth")
+			.then(value => {
+				if (typeof value !== "number" || !Number.isFinite(value)) return;
+				const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, value));
+				sidebarWidthRef.current = clamped;
+				setSidebarWidth(clamped);
+			})
+			.catch(() => {});
+	}, []);
 	const sidebarDragging = useRef(false);
 	const startSidebarDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
 		sidebarDragging.current = true;
@@ -93,10 +115,13 @@ export function Sidebar() {
 		const host = e.currentTarget.parentElement;
 		if (!host) return;
 		const hostRect = host.getBoundingClientRect();
-		setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX - hostRect.left)));
+		const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX - hostRect.left));
+		sidebarWidthRef.current = clamped;
+		setSidebarWidth(clamped);
 	}, []);
 	const endSidebarDrag = useCallback(() => {
 		sidebarDragging.current = false;
+		void window.omp.prefs.set("sidebarWidth", sidebarWidthRef.current).catch(() => {});
 	}, []);
 	const [contentPaths, setContentPaths] = useState<ReadonlySet<string>>(new Set());
 	const searchGenerationRef = useRef(0);
@@ -157,6 +182,38 @@ export function Sidebar() {
 		}, 200);
 		return () => clearTimeout(timer);
 	}, [query]);
+
+	// Click elsewhere or Escape cancels a pending inline delete confirm
+	// ("✕ or clicking elsewhere cancels" — the ✕ half lives on the buttons).
+	const confirmingAny = confirmingDeletePath !== null || confirmingGroupDeleteCwd !== null;
+	useEffect(() => {
+		if (!confirmingAny) return;
+		const cancel = () => {
+			setConfirmingDeletePath(null);
+			setConfirmingGroupDeleteCwd(null);
+		};
+		const onPointerDown = (event: PointerEvent) => {
+			// Clicks inside the row's action cluster belong to the ✓/✕ buttons —
+			// a pointerdown there must not unmount the button before its click.
+			const target = event.target;
+			if (
+				target instanceof Element &&
+				target.closest(".omp-sidebar-session-actions, .omp-sidebar-workspace-actions")
+			) {
+				return;
+			}
+			cancel();
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") cancel();
+		};
+		window.addEventListener("pointerdown", onPointerDown);
+		window.addEventListener("keydown", onKey);
+		return () => {
+			window.removeEventListener("pointerdown", onPointerDown);
+			window.removeEventListener("keydown", onKey);
+		};
+	}, [confirmingAny]);
 
 	// Filter once, then split the navigation model by immutable session kind.
 	// Agent sessions remain workspace-owned; chats are a global peer section.
@@ -362,7 +419,7 @@ export function Sidebar() {
 								? t("sidebar.signal.waiting")
 								: signal === "running"
 									? t("sidebar.signal.running")
-									: session.status
+									: t(STATUS_LABEL_KEY[session.status])
 						}
 						className={cx("mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full", signal === "waiting" && "omp-pulse-dot")}
 						style={{
@@ -499,6 +556,13 @@ export function Sidebar() {
 						<input
 							value={query}
 							onChange={event => setQuery(event.target.value)}
+							onKeyDown={event => {
+								if (event.key === "Escape" && query) {
+									event.stopPropagation();
+									setQuery("");
+									event.currentTarget.blur();
+								}
+							}}
 							placeholder={t("sidebar.search")}
 							className="h-8 w-full rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] pl-8 pr-2 text-omp-md text-[var(--omp-text)] outline-none transition-colors placeholder:text-[var(--omp-dim)] focus:border-[var(--omp-input-focus-border)]"
 						/>

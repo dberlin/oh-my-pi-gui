@@ -537,7 +537,7 @@
 	content: "";
 	position: absolute;
 	inset: 1px -24px 1px -4px;
-	border: 1px solid var(--omp-focus-ring);
+	border: 1px solid var(--omp-accent);
 	border-radius: 5px;
 }
 

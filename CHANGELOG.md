@@ -7,6 +7,14 @@
 - **Frame-paced streaming presentation**: live replies now coalesce IPC bursts onto browser frames, promote complete Markdown paragraphs/code/math into parse-once blocks, keep only the unfinished suffix lightweight, and reveal new text with a subtle fade plus a smooth breathing caret instead of 200ms chunk jumps. Agent-event delivery now runs at a stable ~30 Hz, while finalized content and manual scroll positions remain unchanged.
 - **Responsive composer controls**: thinking level, fast mode, approval mode, and session modes now stay expanded across the toolbar whenever its measured width can hold them; only narrow composers fall back to the compact overflow menu, including live transitions when sidebars or the window resize.
 
+### Fixed
+
+- **Tool-card path links**: clicking a path whose file no longer exists now surfaces an error toast instead of failing silently (`openPath`/reveal both no-op on missing paths).
+- **Bash trailer stripping**: the wall-time notice is removed wherever it sits (the agent appends it before intermediate notices like timeout-clamp and pty fallback) instead of leaking into the output block when it is not the final line.
+- **Escape-sequence gate**: output carrying only OSC escapes (window titles, hyperlinks) is parsed and stripped now too, instead of printing raw `\x1b]…` bytes.
+- **Undefined theme tokens**: the conversation-navigator focus ring referenced `--omp-focus-ring` and the security finding detail referenced `--omp-shadow` — neither token exists; both now map to defined tokens (`--omp-accent`, `--omp-shadow-md`).
+- **Sidebar interactions**: the dragged sidebar width persists across sessions; clicking elsewhere or pressing Escape cancels a pending inline delete confirm; Escape clears the search box; session status dots carry translated tooltips (previously raw English status strings).
+
 ## [0.8.1] - 2026-08-16
 
 ### Changed
