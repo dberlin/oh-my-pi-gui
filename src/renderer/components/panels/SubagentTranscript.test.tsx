@@ -1,8 +1,9 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, RpcResponse, SubagentSnapshot } from "../../../shared/rpc-types";
+import { loadHljs } from "../../lib/highlight";
 import { I18nProvider } from "../../lib/i18n";
 import { type AgentViewLoader, useAgentViewStore } from "../../stores/agent-view";
 import { useMessagesStore } from "../../stores/messages";
@@ -185,6 +186,12 @@ async function click(element: TestElement | null): Promise<void> {
 		element.dispatchEvent(event);
 	});
 }
+
+beforeAll(async () => {
+	// CodeBlock highlights through a lazy import; without this the .hljs-*
+	// assertions race the chunk under full-suite load.
+	await loadHljs();
+});
 
 afterEach(async () => {
 	if (root) {
