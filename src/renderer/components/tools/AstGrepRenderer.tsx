@@ -2,6 +2,7 @@ import { Braces } from "lucide-react";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_MD } from "../../lib/preview";
 import type { ToolRendererProps } from "./ToolCard";
 
 const PREVIEW_MATCHES = 6;
@@ -63,7 +64,9 @@ export function AstGrepRenderer({ args, result, isPartial, partialResult, view }
 			</div>
 			{text ? (
 				<>
-					<pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
+					<pre
+						className={`${PREVIEW_SCROLL_MD} whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]`}
+					>
 						{hasAnsi(renderedText) ? <AnsiText text={renderedText} /> : renderedText}
 					</pre>
 					{omitted > 0 && (

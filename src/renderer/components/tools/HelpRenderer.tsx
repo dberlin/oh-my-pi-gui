@@ -1,5 +1,6 @@
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { resultText } from "../../lib/format";
+import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import type { ToolRendererProps } from "./ToolCard";
 
 const PREVIEW_DOCUMENTATION_LIMIT = 2_400;
@@ -18,7 +19,7 @@ export function HelpRenderer({ isPartial, partialResult, result, view }: ToolRen
 
 	return (
 		<pre
-			className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]"
+			className={`${PREVIEW_SCROLL_LG} whitespace-pre-wrap break-words rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]`}
 			data-tool-help-documentation
 		>
 			{bounded ? hasAnsi(bounded) ? <AnsiText text={bounded} /> : bounded : "—"}

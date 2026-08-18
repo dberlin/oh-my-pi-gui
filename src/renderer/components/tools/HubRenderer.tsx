@@ -2,6 +2,7 @@ import { Radio, Send, SquareTerminal, Users } from "lucide-react";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, formatDuration, resultText } from "../../lib/format";
 import { translate, useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_MD, PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 import { isPeerIrcInvocation } from "./tool-presentation";
@@ -330,7 +331,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{inbox.length > 0 && (
-				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1">
+				<div className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1`}>
 					{inbox.map((m, i) => (
 						<div key={i} className="py-0.5">
 							<span className="font-mono text-omp-xs font-semibold text-[var(--omp-text)]">{m.from ?? "?"}</span>
@@ -344,7 +345,9 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{peers.length > 0 && (
-				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]">
+				<div
+					className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]`}
+				>
 					{peers.map(peer => (
 						<div key={peer.id} className="flex items-center gap-2">
 							<span
@@ -367,7 +370,9 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{jobs.length > 0 && (
-				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]">
+				<div
+					className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]`}
+				>
 					{jobs.map(job => (
 						<div key={job.id} className="flex items-center gap-2">
 							<span
@@ -407,7 +412,9 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{procs.length > 0 && (
-				<div className="max-h-48 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]">
+				<div
+					className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]`}
+				>
 					{procs.map(proc => (
 						<div key={proc.name} className="flex items-center gap-2">
 							<span
@@ -443,7 +450,9 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{terminalRows.length > 0 && (
-				<pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre
+					className={`${PREVIEW_SCROLL_MD} whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]`}
+				>
 					{hasAnsi(terminalOutput) ? <AnsiText text={terminalOutput} /> : terminalOutput}
 				</pre>
 			)}
@@ -451,7 +460,7 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			{!hasStructured && text && (
 				<pre
 					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
+						`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]`,
 						isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",

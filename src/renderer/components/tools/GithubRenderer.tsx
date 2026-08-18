@@ -2,7 +2,7 @@ import { CircleDot, ExternalLink, GitPullRequest } from "lucide-react";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { openLink } from "../../lib/open-link";
+import { PREVIEW_SCROLL_MD, PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -249,7 +249,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 					<button
 						type="button"
 						title={t("tools.github.openInBrowser")}
-						onClick={event => openLink(externalUrl, event)}
+						onClick={() => void window.omp.system.openExternal(externalUrl)}
 						className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] transition-colors hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-md-link)]"
 					>
 						<ExternalLink size={11} />
@@ -285,7 +285,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 						<button
 							type="button"
 							title={t("tools.github.openInBrowser")}
-							onClick={event => openLink(externalUrl, event)}
+							onClick={() => void window.omp.system.openExternal(externalUrl)}
 							className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] transition-colors hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-md-link)]"
 						>
 							<ExternalLink size={11} />
@@ -334,7 +334,9 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 								<span className="text-[var(--omp-dim)]">{log.context}</span>
 							</div>
 							{log.available && log.tail ? (
-								<pre className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-omp-xs leading-[1.45] text-[var(--omp-muted)]">
+								<pre
+									className={`mt-0.5 ${PREVIEW_SCROLL_SM} whitespace-pre-wrap font-mono text-omp-xs leading-[1.45] text-[var(--omp-muted)]`}
+								>
 									{hasAnsi(log.tail) ? <AnsiText text={log.tail} /> : log.tail}
 								</pre>
 							) : (
@@ -346,7 +348,9 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 			)}
 
 			{body && (
-				<pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre
+					className={`${PREVIEW_SCROLL_MD} whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]`}
+				>
 					{body}
 				</pre>
 			)}
