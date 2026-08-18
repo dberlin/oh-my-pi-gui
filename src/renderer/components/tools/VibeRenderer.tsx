@@ -2,6 +2,7 @@ import { List, Rocket, Send, Skull, Tv } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cx, formatDuration, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_MD, PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -153,7 +154,9 @@ function ComposerCard({ message, ack, ackColor }: { message: string; ack: string
 	const lines = composerLines(message);
 	return (
 		<div className="overflow-hidden rounded-md border border-[var(--omp-border-muted)]">
-			<div className="max-h-32 overflow-auto bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.5]">
+			<div
+				className={`${PREVIEW_SCROLL_SM} bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.5]`}
+			>
 				{lines.map((line, i) => (
 					<div key={i} className="flex gap-1.5">
 						<span className="shrink-0 font-semibold text-[var(--omp-accent)]">{i === 0 ? ">" : " "}</span>
@@ -281,7 +284,9 @@ function ScreenCard({ screen, now, settledStatus }: { screen: VibeScreen; now: n
 function SessionTable({ screens }: { screens: VibeScreen[] }) {
 	const t = useT();
 	return (
-		<div className="max-h-56 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]">
+		<div
+			className={`${PREVIEW_SCROLL_MD} rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.7]`}
+		>
 			{screens.map(screen => {
 				const stateColor = STATE_COLOR[screen.state ?? ""] ?? "var(--omp-dim)";
 				const turnsLabel = `${screen.turns}t${screen.queued > 0 ? `+${screen.queued}q` : ""}`;
@@ -445,7 +450,9 @@ function VibeView({ op, args, result, isError, isPartial, partialResult }: ToolR
 			)}
 
 			{op === "wait" && !isPartial && text.trim() && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre
+					className={`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]`}
+				>
 					{text}
 				</pre>
 			)}
@@ -475,7 +482,7 @@ function VibeView({ op, args, result, isError, isPartial, partialResult }: ToolR
 			{(!hasStructured || isError) && text && (
 				<pre
 					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
+						`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]`,
 						isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",

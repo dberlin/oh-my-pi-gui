@@ -1,6 +1,7 @@
 import { Globe } from "lucide-react";
 import { extractImageDataUrl, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import type { ToolRendererProps } from "./ToolCard";
 
 /** Browser automation: action description + screenshot thumbnail when present. */
@@ -29,7 +30,7 @@ export function BrowserRenderer({ args, result, isError, isPartial, partialResul
 			{text && !screenshot && (
 				<pre
 					className={
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45] " +
+						`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45] ` +
 						(isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]")

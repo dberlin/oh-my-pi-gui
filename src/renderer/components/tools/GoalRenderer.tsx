@@ -1,6 +1,7 @@
 import { Target } from "lucide-react";
 import { cx, formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { resultBodyText, resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -78,7 +79,9 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 					<span className="font-semibold text-[var(--omp-text)]">{t("tools.goal.title")}</span>
 					<span className="text-[var(--omp-muted)]">{describeOp(t, op)}</span>
 				</div>
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]">
+				<pre
+					className={`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]`}
+				>
 					{fallback || t("tools.goal.failed")}
 				</pre>
 			</div>
@@ -131,12 +134,16 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 				</div>
 			)}
 			{report && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
+				<pre
+					className={`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-muted)]`}
+				>
 					{report}
 				</pre>
 			)}
 			{!objective && !report && goal == null && fallback && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
+				<pre
+					className={`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]`}
+				>
 					{fallback}
 				</pre>
 			)}

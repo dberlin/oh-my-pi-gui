@@ -2,6 +2,7 @@ import { Bot, Check, Wrench, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { basename, cx, formatDuration, formatTokens, headLines, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 import {
@@ -621,7 +622,9 @@ function ResultOutputPreview({ text }: { text: string }) {
 	const { head, omitted } = headLines(text, OUTPUT_PREVIEW_LINES);
 	return (
 		<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1">
-			<pre className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-omp-xs leading-[1.45] text-[var(--omp-tool-output)]">
+			<pre
+				className={`${PREVIEW_SCROLL_SM} whitespace-pre-wrap font-mono text-omp-xs leading-[1.45] text-[var(--omp-tool-output)]`}
+			>
 				{head}
 			</pre>
 			{omitted > 0 && (
@@ -760,7 +763,9 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 			</div>
 			{description && <div className="text-omp-sm text-[var(--omp-muted)]">{description}</div>}
 			{taskText && (
-				<div className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
+				<div
+					className={`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]`}
+				>
 					{taskText}
 				</div>
 			)}
@@ -811,7 +816,7 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 			{details == null && text && (
 				<pre
 					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
+						`${PREVIEW_SCROLL_SM} whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]`,
 						isError
 							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
 							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",

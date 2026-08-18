@@ -76,6 +76,7 @@
 - Peer IRC sends and receives now stay visible in the transcript instead of hiding inside collapsed Hub cards, while job and process operations remain compact.
 - Compact reasoning now renders directly as muted italic text with its own expansion control instead of nesting under a completed-steps disclosure.
 - Provider usage now uses the sidecar's transcript `/usage` report instead of the unsupported quota modal, and unsupported RPC commands fail immediately with actionable errors instead of misleading timeouts.
+- **Consistent preview ceilings**: every tool renderer now draws its scroll cap from the shared `PREVIEW_SCROLL_*` tiers instead of a per-renderer `max-h-*`, so cards line up across the transcript and a global height change lands in one place. Ast-grep, Debug, GitHub, Goal, Help, Hub, Image, Lsp, MCP, Memory, Resolve, Task, Think, and Vibe cards shift by up to 96px as a result.
 
 ### Fixed
 
