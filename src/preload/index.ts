@@ -462,6 +462,7 @@ const api: OmpApi = {
 		restart: (sessionPath?: string) => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_RESTART, { sessionPath }),
 		selectProject: () => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_SELECT_PROJECT),
 		setProject: (cwd: string) => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_SET_PROJECT, { cwd }),
+		defaultWorkspace: () => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE) as Promise<string>,
 		getStatus: () => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_STATUS_GET),
 	},
 

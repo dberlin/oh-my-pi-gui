@@ -48,6 +48,107 @@ final result: passed
 
 ---
 
+# Sidebar navigation and session metrics QA
+
+- Source visual truth:
+  - `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-0b93b2bc-bee6-438f-b872-fbf807f604f1.png`
+  - `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-35478bd8-997a-4932-a099-e19023e73902.png`
+  - `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-77f00f71-a50b-44c6-9d17-899f201a99e0.png`
+- Browser-rendered Electron implementation: `/tmp/omp-gui-design-qa/implementation-full.png`
+- Focused comparison evidence:
+  - `/tmp/omp-gui-design-qa/compare-sidebar.png`
+  - `/tmp/omp-gui-design-qa/compare-titlebar.png`
+  - `/tmp/omp-gui-design-qa/compare-usage.png`
+- Viewport and implementation pixels: 1195 x 768 CSS px at device scale 1; screenshot is 1195 x 768 px.
+- Source pixels: sidebar 1334 x 2784, titlebar 4024 x 1786, context usage 626 x 214. Each focused source region was proportionally normalized beside the matching implementation crop; the full screenshot was not stretched.
+- State: light theme, Work lane, fresh empty agent session, navigation expanded, context usage available.
+
+## Full-view and focused comparison evidence
+
+The Electron development build was captured from `localhost:5173` with the real preload and sidecar. The full view confirms that the former titlebar actions now form one plain navigation group directly below the primary New task action, while the right side of the titlebar is reserved for session tokens, cost, cache hit rate, and execution time. Focused composites compare each requested surface in one image rather than from separate views.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing omp Inter and JetBrains Mono families remain intact. Navigation uses the same compact hierarchy as the reference; numeric metrics and context totals are tabular monospace for stable live updates.
+- Spacing and layout rhythm: the navigation is one borderless vertical list with a single full-width collapse bar. The title metrics fit the 48 px titlebar without adding another row. The context total remains inside the existing composer toolbar.
+- Colors and visual tokens: all surfaces use existing omp foreground, muted, selected, progress, success, and border tokens; no foreign palette or hard-coded light-theme color was introduced.
+- Image quality and asset fidelity: no raster assets are needed. Existing Lucide icons provide the reference-equivalent navigation and metric symbols at the product's native stroke weight.
+- Copy and content: all former titlebar actions are present in the menu. The titlebar exposes session tokens, cost, cache hit rate, and real active execution time. The context popover explicitly labels used and remaining tokens.
+
+## Interaction and runtime checks
+
+- React interaction coverage verifies that the full navigation group collapses and re-expands through its one disclosure button.
+- The context trigger exposes the live used/window total; its detailed progressbar updates from session context telemetry and the popover shows both used and remaining values.
+- Execution duration merges overlapping model and parallel-tool intervals, so concurrent tools are not double-counted; a live request advances once per second.
+- The development window accessibility tree exposed all navigation actions, all four titlebar values, and the `16.3k/1.0M` context control. The dev console/terminal showed no renderer exception.
+
+## Comparison history and findings
+
+- Pass 1: the three requested regions were implemented and captured together with their source references. No actionable P0, P1, or P2 mismatch remained; theme and exact product copy differences are intentional because the implementation reuses omp's existing design system and real actions.
+- No further visual iteration was required. Focused regions were necessary because titlebar and composer controls were too small to judge from the full-view image alone.
+
+## Verification
+
+- Biome passed on all 11 touched implementation and test files.
+- Type check passed.
+- Full suite passed: 887 tests across 106 files.
+- Production Electron build passed.
+
+final result: passed
+
+---
+
+# Code / Work sidebar QA
+
+- Source visual truth:
+	- `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-e666d19d-dde2-4428-b1d3-08a77f3db74e.png`
+	- `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-3897aa4f-c23f-405d-a9a3-4152a91740e2.png`
+	- `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-6533da82-562a-493b-bb06-cdde5f62dc89.png`
+	- `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-86c718fd-25cb-4464-8ff5-a3625056dfa6.png`
+- Implementation screenshots:
+  - Code / Work menu: `/tmp/omp-code-work-menu.png`
+  - Work empty state: `/tmp/omp-work-mode.png`
+  - Full Work agent: `/tmp/omp-work-agent-created.png`
+  - Global session search: `/tmp/omp-global-session-search.png`
+  - Full-transcript content search: `/tmp/omp-global-content-search.png`
+  - Combined comparison: `/tmp/omp-code-work-search-comparison.png`
+- Source pixels: 838 x 890 (mode selector) and 2534 x 1732 (search overlay).
+- Implementation viewport: 1800 x 1102 CSS px at device scale factor 2; captures are 3600 x 2204 px.
+- Normalization: both source states and both implementation states were fitted into equal 1000 x 700 cells in a 2000 x 1400 comparison canvas. The mode implementation used a focused 520 x 430 px crop before fitting; the search comparison used the full captures.
+- State: dark theme, Chinese locale, hydrated Code and Chat session lists, split Agent/quick-Chat creation, Work empty state, newly created Work agent, global session search, and a transcript-only content match.
+
+## Full-view and focused comparison evidence
+
+The combined comparison puts the source mode/search states and the live Electron implementation into one visual input. The implementation preserves the source hierarchy: compact product-mode trigger at the top left, one two-option mode menu, a dedicated search control, a split Agent/quick-Chat creation row, and a centered global result surface. It intentionally keeps omp's dark theme, typography, tokens, and existing command palette instead of copying Codex chrome or duplicating quick actions inside session search.
+
+## Required fidelity surfaces
+
+- Fonts and typography: live captures confirm existing display/UI/mono families, weights, line heights, truncation, and Chinese labels remain consistent; menu descriptions are secondary without losing readability.
+- Spacing and layout rhythm: the 48 px header, compact two-row mode menu, 36 px split Agent/Chat row, and centered search surface align cleanly without clipping, overflow, or crowding at 1800 x 1102 CSS px.
+- Colors and visual tokens: selected mode, elevated menu, search highlight, borders, dim text, and overlay scrim all use existing dark-theme semantic tokens with clear hierarchy.
+- Image quality and asset fidelity: no logo or raster asset remains in the modified header; Code, Work, search, and add controls use the installed Lucide icon set.
+- Copy and content: English and Chinese locale parity tests pass; Code / Work descriptions and creation labels are localized. The Work tab and breadcrumb resolve to `work` without exposing an unrelated project.
+
+## Findings and comparison history
+
+- Initial capture attempt was blocked by the desktop Computer Use kernel asset service. The retry used Electron's own remote-debugging protocol, captured all requested states, and produced the combined comparison.
+- No actionable P0, P1, or P2 visual mismatch remains.
+- Intentional difference: session search does not duplicate the command palette's quick actions. The search icon owns global session/content search; `⌘K` continues to own commands.
+
+## Interaction checks
+
+- Component tests verify Code / Work selection and Work creates a full `agent` tab with `defaultWorkspace: true`.
+- Component tests verify saved Chats render in the global Chat section, the adjacent quick action creates `kind=chat`, the active Chat stays in Code even when its internal cwd is the Work directory, and tab-strip Chat creation remains a visible one-click action.
+- Live Electron verification created a Work tab whose authoritative main-process state was `cwd=/Users/zach/.omp/work`, `kind=agent`, `active=true`; the temporary tab was then closed.
+- The header search opened with global scope and 16 cross-project results. Querying `df9da5c9-dirty`, which is absent from the visible title metadata, returned one result marked `内容匹配`, proving the full-transcript path.
+- Store and main-process tests verify Work never passes the chat kind and a lone legacy startup placeholder is not restored.
+- Repeated Code / Work switching produced no runtime exceptions, warning/error log entries, or root error boundary.
+- The production Electron build succeeds.
+
+final result: passed
+
+---
+
 # Status footer removal QA
 
 - Source visual truth: `/var/folders/4g/qdz4d625641d0d8x4td6t2qm0000gp/T/codex-clipboard-08e63516-cdeb-4af0-8c0b-804e2e7b364b.png`

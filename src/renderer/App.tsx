@@ -365,7 +365,6 @@ export function App() {
 					void useTabsStore.getState().openTab();
 					return;
 				case "tab.newChat":
-					// ⇧⌘T — new chat tab (tool-free conversation).
 					void useTabsStore.getState().openTab({ kind: "chat" });
 					return;
 				case "tab.newWorktree":
@@ -558,7 +557,7 @@ export function App() {
 			{sidebarVisible && <Sidebar />}
 
 			<main className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">
-				<TitleBar onToggleStats={() => useUiStore.getState().openStatsDashboard()} />
+				<TitleBar />
 				<TabBar />
 				<SidecarBanner />
 				<UpdateBanner />

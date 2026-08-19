@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-08-20
+
+### Changed
+
+- **Bundled agent upgraded to omp 17.3.8**: packaged sidecars now include Qwen reasoning-effort fallback handling, catalog routing fixes, compaction boundary hardening, MCP OAuth reauthentication discovery, model and provider refreshes, and updated usage aggregation from monorepo commit `943bb49462`.
+- **Code / Work navigation**: the sidebar now switches between project-bound Code sessions and a full-agent Work lane backed by a GUI-managed default workspace; the main sidebar action creates an Agent, its adjacent quick-chat action creates a tool-free Chat, and saved Chats remain visible in their global sidebar section. Chat creation also remains available from the tab strip, shortcuts, command palette, and native menu.
+- **Unified session search entry**: the sidebar header now opens the existing global session picker with metadata, fuzzy, project-path, recency, and full-transcript matching instead of maintaining a weaker duplicate inline filter.
+- **In-app file preview**: local file links in rendered responses now open the Files drawer; Markdown renders as formatted content, while SQL and other text files use the code view with external-open and @mention actions retained.
+- **Live session metrics**: the title bar now shows total tokens, cost, cache-hit rate, and actual execution time for the active session, while management actions move into the collapsible sidebar navigation.
+- **Context usage meter**: the composer shows live used/available tokens and the popover adds an accessible progress bar plus explicit used and remaining totals.
+- **Opt-in provider discovery**: new custom providers no longer fetch `/v1/models` automatically; model discovery is an explicit choice, preventing a single manually configured model from expanding into hundreds of upstream entries.
+- **Simplified settings navigation**: removed the decorative workspace/logo header so settings navigation starts directly with its useful sections.
+
+### Fixed
+
+- **Wide click targets**: press feedback no longer scales full-row buttons away from the pointer, so execution summaries, task/agent disclosures, and other wide menu rows reliably receive their click at either edge.
+- **Workspace dock disclosures**: task and multi-agent card headers now collapse from the full row or right chevron even after entering focused "view all" mode; the separate back action remains available for returning to the summary without collapsing.
+- **Workspace drawer resizing**: the right-side divider now measures from the window edge instead of recursively shrinking against the drawer's own width, so dragging left grows it and dragging right reduces it without snapping closed.
+- **Stable execution disclosures**: reasoning/tool summaries now stay exactly where the user leaves them across live status updates, virtualization, and live-to-final row replacement instead of auto-opening and auto-closing during a run.
+- **Extension status output**: transient extension status pills no longer float over composer controls; extension widget text still uses the shared terminal-output renderer instead of exposing raw escape codes.
+- **Model pricing input**: zero, leading-zero decimals, and arbitrary fractional prices such as `0.014` remain editable instead of being erased or rewritten mid-entry.
+- **Transcript action placement**: user-message timestamps and copy actions render below the bubble instead of escaping into the right side of wide layouts.
+
 ## [0.8.2] - 2026-08-18
 
 ### Changed

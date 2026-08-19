@@ -82,6 +82,7 @@ export function ChatStream() {
 	const transcriptDetail = useUiStore(s => s.transcriptDetail);
 	const switchPending = useUiStore(s => s.switchPending);
 	const [preCompactionOpen, setPreCompactionOpen] = useState(false);
+	const [expandedProcessKeys, setExpandedProcessKeys] = useState<Set<string>>(() => new Set());
 	const [pinned, setPinned] = useState(true);
 	const [visibleRowIndex, setVisibleRowIndex] = useState(Number.MAX_SAFE_INTEGER);
 	// Virtualizer measurements and programmatic scrollToIndex both emit scroll
@@ -94,6 +95,7 @@ export function ChatStream() {
 		// Scroll intent belongs to one transcript. Carrying an unpinned offset
 		// into another session made the virtualizer land in arbitrary history.
 		setPreCompactionOpen(false);
+		setExpandedProcessKeys(new Set());
 		userScrollIntentRef.current = false;
 		setPinned(true);
 		setVisibleRowIndex(Number.MAX_SAFE_INTEGER);
@@ -331,6 +333,15 @@ export function ChatStream() {
 		},
 		[virtualizer],
 	);
+	const updateProcessExpanded = useCallback((key: string, expanded: boolean) => {
+		setExpandedProcessKeys(current => {
+			if (current.has(key) === expanded) return current;
+			const next = new Set(current);
+			if (expanded) next.add(key);
+			else next.delete(key);
+			return next;
+		});
+	}, []);
 
 	// Messages hydrate via hydrateSession (use-rpc-events) on sidecar ready —
 	// no separate fetch here (that would double-download the transcript).
@@ -398,6 +409,7 @@ export function ChatStream() {
 					{virtualizer.getVirtualItems().map(item => {
 						const row = rows[item.index];
 						if (!row) return null;
+						const rowKey = rowKeys[item.index] ?? String(item.key);
 						return (
 							<div
 								key={item.key}
@@ -422,9 +434,16 @@ export function ChatStream() {
 									) : row.kind === "readGroup" ? (
 										<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
 									) : row.kind === "process" ? (
-										<ProcessGroup row={row} />
+										<ProcessGroup
+											expanded={expandedProcessKeys.has(rowKey)}
+											onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
+											row={row}
+										/>
 									) : row.kind === "streaming" ? (
-										<StreamingRows />
+										<StreamingRows
+											expanded={expandedProcessKeys.has(rowKey)}
+											onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
+										/>
 									) : row.kind === "queued" ? (
 										<QueuedMessageBubble item={row.item} lane={row.lane} />
 									) : row.kind === "todoSnapshot" ? (
@@ -510,10 +529,23 @@ function TimelineMarker({
 	);
 }
 
-function ProcessGroup({ row }: { row: Extract<HistoryRow, { kind: "process" }> }) {
+function ProcessGroup({
+	expanded,
+	onExpandedChange,
+	row,
+}: {
+	expanded: boolean;
+	onExpandedChange: (expanded: boolean) => void;
+	row: Extract<HistoryRow, { kind: "process" }>;
+}) {
 	return (
 		<div className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
-			<ExecutionGroup stepCount={row.stepCount} toolCallIds={row.toolCallIds}>
+			<ExecutionGroup
+				expanded={expanded}
+				onExpandedChange={onExpandedChange}
+				stepCount={row.stepCount}
+				toolCallIds={row.toolCallIds}
+			>
 				<div className="omp-process-group">
 					{row.messages.map((message, index) => (
 						<MessageBubble
@@ -538,7 +570,13 @@ function ProcessGroup({ row }: { row: Extract<HistoryRow, { kind: "process" }> }
  * emitted, and the live text tail. Replaces itself with a finalized
  * MessageBubble on message_end.
  */
-function StreamingRows() {
+function StreamingRows({
+	expanded,
+	onExpandedChange,
+}: {
+	expanded: boolean;
+	onExpandedChange: (expanded: boolean) => void;
+}) {
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
 	const streamingThinking = useMessagesStore(s => s.streamingThinking);
 	const activeTools = useToolsStore(s => s.activeTools);
@@ -659,7 +697,9 @@ function StreamingRows() {
 		<div className="omp-streaming-turn flex flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
 			{hasProcess ? (
 				<ExecutionGroup
+					expanded={expanded}
 					live
+					onExpandedChange={onExpandedChange}
 					stepCount={toolCalls.length + liveTools.length + (hasThinking ? 1 : 0)}
 					toolCallIds={allCards.map(card => card.id)}
 				>

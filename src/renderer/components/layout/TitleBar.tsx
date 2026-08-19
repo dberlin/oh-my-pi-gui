@@ -1,36 +1,23 @@
-import {
-	BarChart3,
-	Bot,
-	ChevronRight,
-	Coins,
-	FolderOpen,
-	GitPullRequest,
-	Keyboard,
-	PanelLeft,
-	PanelRight,
-	Plug,
-	Search,
-	Settings,
-} from "lucide-react";
+import { ChevronRight, Clock3, Coins, Database, FolderOpen, Gauge, PanelLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { SessionStats } from "../../../shared/rpc-types";
 import { useSessionList } from "../../hooks/use-session-list";
-import { basename, cx } from "../../lib/format";
+import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
+import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
-
-export interface TitleBarProps {
-	onToggleStats: () => void;
-}
+import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
 
 /**
  * Native desktop toolbar. Session controls stay here; model and execution
  * controls live beside the composer where they affect the next message.
  */
-export function TitleBar({ onToggleStats }: TitleBarProps) {
+export function TitleBar() {
 	const t = useT();
 	const sessionId = useSessionStore(s => s.sessionId);
 	const sessionName = useSessionStore(s => s.sessionName);
@@ -40,33 +27,72 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 	const isChat = useActiveTabKind() === "chat";
 
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
+	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
+	const messages = useMessagesStore(s => s.messages);
+	const streamingMessage = useMessagesStore(s => s.streamingMessage);
+	const tools = useToolsStore(s => s.activeTools);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
-	const panelVisible = useUiStore(s => s.panelVisible);
 	const toggleSidebar = useUiStore(s => s.toggleSidebar);
-	const togglePanel = useUiStore(s => s.togglePanel);
-	const openCommandPalette = useUiStore(s => s.openCommandPalette);
-	const openUsage = useUiStore(s => s.openUsage);
-	const openProviders = useUiStore(s => s.openProviders);
-	const openSettings = useUiStore(s => s.openSettings);
-	const openPrCenter = useUiStore(s => s.openPrCenter);
-	const openAgentHub = useUiStore(s => s.openAgentHub);
-	const openHotkeys = useUiStore(s => s.openHotkeys);
 	const { sessions } = useSessionList("local");
 	const projectName = !isChat && cwd ? basename(cwd) : t("titlebar.openProject");
 
 	const [editingName, setEditingName] = useState(false);
 	const [workspaceOpen, setWorkspaceOpen] = useState(false);
 	const [draft, setDraft] = useState("");
+	const [stats, setStats] = useState<SessionStats | null>(null);
+	const [now, setNow] = useState(() => Date.now());
 	const nameInputRef = useRef<HTMLInputElement>(null);
+	const statsMessageCount = messages.length;
 
 	useEffect(() => {
 		if (editingName) nameInputRef.current?.select();
 	}, [editingName]);
 
+	useEffect(() => {
+		if (!sessionId || status !== "ready") {
+			setStats(null);
+			return;
+		}
+		let cancelled = false;
+		const requestedMessageCount = statsMessageCount;
+		void window.omp.rpc
+			.getSessionStats()
+			.then(response => {
+				if (
+					!cancelled &&
+					response.success &&
+					useMessagesStore.getState().messages.length === requestedMessageCount
+				) {
+					setStats(response.data as SessionStats);
+				}
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [sessionId, statsMessageCount, status]);
+
+	const hasRunningTool = [...tools.values()].some(tool => tool.endTime === null);
+	useEffect(() => {
+		setNow(Date.now());
+		if (!isStreaming && !hasRunningTool) return;
+		const timer = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => window.clearInterval(timer);
+	}, [hasRunningTool, isStreaming]);
+
 	const current = sessions.find(s => s.id === sessionId);
 	// `||` everywhere: empty-string titles (never-generated auto-title slot)
 	// fall through like null, ending at the "New Session" placeholder.
 	const displayName = sessionName || current?.title || t("sidebar.newSession");
+	const cacheHit = sessionCacheHitPercent(stats);
+	const executionDuration = sessionExecutionDurationMs({
+		messages,
+		streamingMessage,
+		tools,
+		awaitingModelSince,
+		isStreaming,
+		now,
+	});
 
 	const commitName = () => {
 		const name = draft.trim();
@@ -138,23 +164,7 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 				)}
 			</div>
 
-			<div className="flex-1" />
-
-			<button
-				type="button"
-				onClick={openCommandPalette}
-				className="omp-titlebar-command no-drag omp-pressable hidden h-9 min-w-44 items-center gap-2 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] px-3 text-omp-md text-[var(--omp-muted)] shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border)] hover:text-[var(--omp-text)] lg:flex"
-			>
-				<Search size={14} />
-				<span>{t("titlebar.commands")}</span>
-				<kbd className="ml-auto rounded border border-[var(--omp-border-muted)] px-1.5 py-0.5 font-mono text-omp-xs text-[var(--omp-dim)]">
-					⌘K
-				</kbd>
-			</button>
-
-			<div
-				className="omp-titlebar-status no-drag mx-1 flex shrink-0 items-center gap-2 rounded-full border border-[var(--omp-border-muted)] bg-[var(--omp-bg-secondary)] px-2.5 py-1.5 text-omp-sm font-medium text-[var(--omp-muted)]" // surface-ok: status indicator pill
-			>
+			<div className="omp-titlebar-status no-drag flex shrink-0 items-center gap-1.5 px-1 text-omp-sm font-medium text-[var(--omp-muted)]">
 				<span
 					className={cx(
 						"h-2 w-2 rounded-full",
@@ -176,55 +186,27 @@ export function TitleBar({ onToggleStats }: TitleBarProps) {
 					{t("titlebar.plan")}
 				</span>
 			)}
-			<button
-				type="button"
-				onClick={openPrCenter}
-				title={t("titlebar.prCenter")}
-				className={cx(iconButton, "omp-titlebar-secondary")}
-			>
-				<GitPullRequest size={17} />
-			</button>
-			<button
-				type="button"
-				onClick={() => openAgentHub()}
-				title={t("titlebar.agentHub")}
-				className={cx(iconButton, "omp-titlebar-secondary")}
-			>
-				<Bot size={17} />
-			</button>
-			<button
-				type="button"
-				onClick={onToggleStats}
-				title={t("titlebar.stats")}
-				className={cx(iconButton, "omp-titlebar-secondary")}
-			>
-				<BarChart3 size={17} />
-			</button>
-			<button
-				type="button"
-				onClick={openUsage}
-				title={t("titlebar.usage")}
-				className={cx(iconButton, "omp-titlebar-secondary")}
-			>
-				<Coins size={17} />
-			</button>
-			<button
-				type="button"
-				onClick={openProviders}
-				title={t("titlebar.providers")}
-				className={cx(iconButton, "omp-titlebar-secondary")}
-			>
-				<Plug size={17} />
-			</button>
-			<button type="button" onClick={togglePanel} title={t("titlebar.workspace")} className={iconButton}>
-				<PanelRight size={18} className={cx(panelVisible && "text-[var(--omp-text)]")} />
-			</button>
-			<button type="button" onClick={openHotkeys} title={t("titlebar.hotkeys")} className={iconButton}>
-				<Keyboard size={17} />
-			</button>
-			<button type="button" onClick={() => openSettings()} title={t("titlebar.settings")} className={iconButton}>
-				<Settings size={17} />
-			</button>
+
+			<div className="flex-1" />
+
+			<div className="omp-session-metrics no-drag flex shrink-0 items-center gap-3 font-mono text-omp-sm tabular-nums text-[var(--omp-muted)]">
+				<span className="flex items-center gap-1" title={t("titlebar.metric.tokens")}>
+					<Database aria-hidden="true" size={14} />
+					{stats ? formatTokens(stats.tokens.total) : "—"}
+				</span>
+				<span className="flex items-center gap-1" title={t("titlebar.metric.cost")}>
+					<Coins aria-hidden="true" size={14} />
+					{stats ? formatCost(stats.cost, 4) : "—"}
+				</span>
+				<span className="flex items-center gap-1" title={t("titlebar.metric.cacheHit")}>
+					<Gauge aria-hidden="true" size={14} />
+					{formatPercent(cacheHit, 0)}
+				</span>
+				<span className="flex items-center gap-1" title={t("titlebar.metric.duration")}>
+					<Clock3 aria-hidden="true" size={14} />
+					{executionDuration > 0 ? formatDuration(executionDuration) : t("time.secondsShort", { count: 0 })}
+				</span>
+			</div>
 			<WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} />
 		</header>
 	);

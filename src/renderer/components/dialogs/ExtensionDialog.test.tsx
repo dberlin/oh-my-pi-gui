@@ -150,6 +150,30 @@ describe("ExtensionDialog askDialog", () => {
 });
 
 describe("ExtensionDialog non-dialog mutations", () => {
+	it("hides transient extension status and renders widget ANSI without control codes", async () => {
+		await mount();
+		await act(async () => {
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "status-ansi",
+				method: "setStatus",
+				statusKey: "mode",
+				statusText: "\x1b[38;5;39m●\x1b[39m ponytail: \x1b[1mFULL\x1b[0m",
+			});
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "widget-ansi",
+				method: "setWidget",
+				widgetKey: "progress",
+				widgetLines: ["\x1b[32mPASS\x1b[0m"],
+			});
+		});
+
+		expect(document.body.textContent).not.toContain("ponytail");
+		expect(document.body.textContent).toContain("PASS");
+		expect(document.body.textContent).not.toContain("[32m");
+	});
+
 	it("fills the composer for set_editor_text and applies extension window titles", async () => {
 		await mount();
 		let editorText: string | undefined;

@@ -80,6 +80,7 @@ describe("ContextUsagePopover", () => {
 
 		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
 		expect(trigger.getAttribute("aria-label")).toBe("Show context usage, 16% used");
+		expect(trigger.textContent).toContain("161.9k/1.0M");
 		expect(document.querySelector('[role="dialog"]')).toBeNull();
 
 		await act(async () => trigger.click());
@@ -87,6 +88,7 @@ describe("ContextUsagePopover", () => {
 		const dialog = document.querySelector('[role="dialog"]');
 		expect(dialog?.textContent).toContain("Context used 16%");
 		expect(dialog?.textContent).toContain("~161.9k / 1.0M");
+		expect(dialog?.textContent).toContain("Context remaining838.1k");
 		expect(dialog?.textContent).toContain("System context~1.5k");
 		expect(dialog?.textContent).toContain("Tools~6.4k");
 		expect(dialog?.textContent).toContain("Conversation messages~154.0k");

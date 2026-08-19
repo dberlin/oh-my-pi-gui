@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
 
 describe("resolveWindowSpawnTarget", () => {
-	it("opens an untargeted window as a fresh global chat instead of inheriting the last workspace", () => {
+	it("opens an untargeted window as a fresh agent in the default Work workspace", () => {
 		expect(resolveWindowSpawnTarget(undefined, undefined, undefined, "/last-project", "/neutral-home")).toEqual({
 			cwd: "/neutral-home",
-			kind: "chat",
+			kind: "agent",
 			fresh: true,
 			placeholder: true,
 		});

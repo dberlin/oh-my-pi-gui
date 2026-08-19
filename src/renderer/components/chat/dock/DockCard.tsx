@@ -53,8 +53,14 @@ export function DockCard({ id, icon: Icon, title, badge, actions, children }: Do
 	}, [clearFocus, focusSeq]);
 
 	const toggle = () => {
-		if (hiddenForFocus || focused) {
+		if (hiddenForFocus) {
 			clearFocus();
+			if (collapsed) toggleDockCard(id);
+			return;
+		}
+		if (focused) {
+			clearFocus();
+			if (!collapsed) toggleDockCard(id);
 			return;
 		}
 		toggleDockCard(id);
@@ -80,7 +86,7 @@ export function DockCard({ id, icon: Icon, title, badge, actions, children }: Do
 			>
 				<button
 					aria-expanded={expanded}
-					aria-label={focused ? t("dock.backToSummary") : expanded ? t("dock.collapse") : t("dock.expand")}
+					aria-label={expanded ? t("dock.collapse") : t("dock.expand")}
 					className="omp-pressable flex min-w-0 flex-1 items-center gap-2 rounded-md text-left"
 					onClick={toggle}
 					type="button"

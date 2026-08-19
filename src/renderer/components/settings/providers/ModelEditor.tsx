@@ -12,6 +12,8 @@ import { Button } from "../../common";
 
 /** Protocols accepted by models.yml (re-export from shared types). */
 const PROVIDER_PROTOCOLS = CUSTOM_PROVIDER_APIS;
+const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+type CostField = (typeof COST_FIELDS)[number];
 
 export interface ModelRow extends Omit<CustomProviderModelInput, "id"> {
 	key: number;
@@ -30,6 +32,12 @@ interface ModelEditorProps {
 function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove }: ModelEditorProps) {
 	const t = useT();
 	const [expanded, setExpanded] = useState(false);
+	const [costDrafts, setCostDrafts] = useState<Record<CostField, string>>(() => ({
+		input: model.cost?.input?.toString() ?? "",
+		output: model.cost?.output?.toString() ?? "",
+		cacheRead: model.cost?.cacheRead?.toString() ?? "",
+		cacheWrite: model.cost?.cacheWrite?.toString() ?? "",
+	}));
 	// Local record-rows for the per-model headers editor (avoids empty-key
 	// collisions in the Record form while editing).
 	const [headerRows, setHeaderRows] = useState<Array<[string, string]>>(() => Object.entries(model.headers ?? {}));
@@ -45,10 +53,13 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 	const INPUT_CLASS =
 		"w-full rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2.5 py-1.5 text-omp-sm text-(--omp-text) outline-none transition-colors placeholder:text-(--omp-dim) hover:border-(--omp-border-strong) focus:border-(--omp-input-focus-border) disabled:cursor-not-allowed disabled:opacity-60";
 
-	const updateCost = (field: keyof NonNullable<ModelRow["cost"]>, value: string) => {
-		const num = value.trim() === "" ? undefined : Number.parseFloat(value);
-		const cost = { ...model.cost, [field]: num && num >= 0 ? num : undefined };
-		if (!cost.input && !cost.output && !cost.cacheRead && !cost.cacheWrite) {
+	const updateCost = (field: CostField, value: string) => {
+		const num = Number.parseFloat(value);
+		const cost = {
+			...model.cost,
+			[field]: value.trim() !== "" && Number.isFinite(num) && num >= 0 ? num : undefined,
+		};
+		if (COST_FIELDS.every(costField => cost[costField] === undefined)) {
 			onUpdate(model.key, { cost: undefined });
 		} else {
 			onUpdate(model.key, { cost });
@@ -351,15 +362,18 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 						<span className="text-omp-sm font-medium text-(--omp-text)">{t("providerCfg.form.costTitle")}</span>
 						<span className="block text-omp-xs text-(--omp-dim)">{t("providerCfg.form.costHint")}</span>
 						<div className="grid grid-cols-2 gap-2">
-							{(["input", "output", "cacheRead", "cacheWrite"] as const).map(field => (
+							{COST_FIELDS.map(field => (
 								<label key={field} className="flex flex-col gap-1">
 									<span className="text-omp-xs text-(--omp-text)">{t(`providerCfg.form.cost.${field}`)}</span>
 									<input
 										type="number"
-										value={model.cost?.[field] ?? ""}
-										onChange={e => updateCost(field, e.target.value)}
+										value={costDrafts[field]}
+										onChange={e => {
+											setCostDrafts(current => ({ ...current, [field]: e.target.value }));
+											updateCost(field, e.target.value);
+										}}
 										placeholder="0.00"
-										step="0.01"
+										step="any"
 										min="0"
 										className={INPUT_CLASS}
 										disabled={readonly || disabled}

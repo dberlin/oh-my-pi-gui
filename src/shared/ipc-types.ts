@@ -141,6 +141,8 @@ export const IPC_COMMANDS = {
 	/** Choose a project directory and restart the sidecar there */
 	SIDECAR_SELECT_PROJECT: "sidecar:select-project",
 	SIDECAR_SET_PROJECT: "sidecar:set-project",
+	/** Resolve and create the GUI-owned Work-mode workspace. */
+	SIDECAR_DEFAULT_WORKSPACE: "sidecar:default-workspace",
 	/** List custom models.yml providers */
 	MODELS_PROVIDERS_LIST: "models:providers-list",
 	/** Upsert a custom provider into models.yml */
@@ -522,7 +524,7 @@ export interface IpcFsListResult {
 }
 
 export interface IpcFsReadPayload {
-	/** Workspace-relative file path. */
+	/** Workspace-relative path, or an absolute/~/ path selected for local preview. */
 	path: string;
 	/** Max bytes to read; hard-capped in main. */
 	maxBytes?: number;
@@ -662,6 +664,8 @@ export interface IpcSpawnTabPayload {
 	sessionPath?: string;
 	/** Session kind for the new tab; omitted = "agent". Immutable once spawned. */
 	kind?: SessionKind;
+	/** Spawn a full agent in the GUI-owned default Work workspace. */
+	defaultWorkspace?: boolean;
 	/**
 	 * Worktree binding minted by a prior worktree_create RPC: cwd is the
 	 * worktree path and the tab carries the binding for chip rendering and
@@ -684,6 +688,8 @@ export interface IpcSpawnTabResult {
 	 * spawning a second sidecar for the same file (F-OWN).
 	 */
 	tabId: string | null;
+	/** Resolved cwd when main selected the default Work workspace. */
+	cwd?: string;
 	/** Present iff tabId is null: the tab/window owning the requested sessionPath. */
 	ownerTabId?: string;
 	ownerWinId?: number;
@@ -1028,6 +1034,7 @@ export interface OmpApi {
 		restart(sessionPath?: string): Promise<void>;
 		selectProject(): Promise<string | null>;
 		setProject(cwd: string): Promise<boolean>;
+		defaultWorkspace(): Promise<string>;
 		getStatus(): Promise<IpcSidecarStatusPayload>;
 	};
 	tray: {

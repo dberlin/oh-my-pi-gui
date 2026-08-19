@@ -7,6 +7,7 @@
  * `codeLineNumbers` prop — the pref store's server snapshot is off, and
  * subscriptions never run under renderToStaticMarkup.
  */
+import { parseHTML } from "linkedom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { I18nProvider } from "./i18n";
@@ -59,7 +60,7 @@ describe("markdown code line numbers", () => {
 		// MermaidBlock owns the fence; SSR falls back to the shared CodeBlock
 		// showing the mermaid source — exactly one gutter, marked as mermaid.
 		const html = render("```mermaid\ngraph TD\nA-->B\n```", true);
-		expect(html).toContain("graph TD");
+		expect(parseHTML(html).document.documentElement.textContent).toContain("graph TD");
 		expect(html).toContain(">mermaid</span>");
 	});
 

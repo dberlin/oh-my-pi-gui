@@ -125,11 +125,9 @@ export function sanitizePersistedTabLayout(
 		retained.push({ descriptor, sourceIndex });
 	}
 
-	// A placeholder is only useful when it is the window's sole idle surface.
-	// Once any explicit tab exists, do not resurrect the startup blank on the
-	// next launch/package update.
-	const hasExplicitTab = retained.some(entry => entry.descriptor.placeholder !== true);
-	const effective = hasExplicitTab ? retained.filter(entry => entry.descriptor.placeholder !== true) : retained;
+	// Startup placeholders are disposable. Never restore the legacy tool-free
+	// chat after Work mode became the default full-agent surface.
+	const effective = retained.filter(entry => entry.descriptor.placeholder !== true);
 	if (effective.length === 0) return null;
 	let activeIndex = effective.findIndex(entry => entry.sourceIndex === requestedActiveIndex);
 	if (activeIndex < 0) activeIndex = effective.findIndex(entry => entry.sourceIndex > requestedActiveIndex);

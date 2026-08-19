@@ -16,7 +16,6 @@ import {
 	Blocks,
 	BookOpen,
 	Braces,
-	ChevronDown,
 	HardDriveDownload,
 	Network,
 	Search,
@@ -38,7 +37,7 @@ import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { CodeBlock } from "../chat/CodeBlock";
-import { Button, Input, PiLogo, Spinner, type TabItem, TextArea } from "../common";
+import { Button, Input, Spinner, type TabItem, TextArea } from "../common";
 import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
 import { ExtensionSettingsPage } from "../panels/ExtensionsPanel";
 import { InventorySettingsPage, type TabId as InventoryTabId } from "../panels/InventoryPanel";
@@ -110,7 +109,6 @@ export function SettingsWindow() {
 	const [launchRestarting, setLaunchRestarting] = useState(false);
 	const [codeLineNumbers, setCodeLineNumbers] = useState(false);
 	const cwd = useSessionStore(state => state.cwd);
-	const workspaceName = cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "oh-my-pi";
 	// Never restart out from under a model run, compaction, or foreground
 	// composer execution. Bash/eval pending bubbles are the live execution
 	// signal and disappear only after their RPC settles.
@@ -485,13 +483,6 @@ export function SettingsWindow() {
 		>
 			<div className="flex min-h-0 flex-1">
 				<nav className="settings-sidebar flex shrink-0 flex-col border-r border-(--omp-border-muted)">
-					<div className="flex h-14 shrink-0 items-center gap-2 border-b border-(--omp-border-muted) px-4">
-						<PiLogo className="!bg-[#1f2529]" size={24} tile />
-						<span className="settings-nav-label min-w-0 flex-1 truncate text-omp-lg font-semibold tracking-[-0.01em] text-(--omp-text)">
-							{workspaceName}
-						</span>
-						<ChevronDown aria-hidden="true" className="settings-nav-label text-(--omp-dim)" size={13} />
-					</div>
 					<div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
 						{navGroups.map((group, groupIndex) => (
 							<section className={groupIndex === 0 ? "" : "settings-nav-group mt-4"} key={group.id}>

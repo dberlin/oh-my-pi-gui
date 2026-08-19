@@ -38,6 +38,7 @@ import type {
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
 import type { RpcCommand, RpcSessionState } from "../shared/rpc-types";
+import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { mainT } from "./i18n";
 import type { LogWatcher } from "./log-watcher";
@@ -634,6 +635,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				sidecarPool: deps.sidecarPool,
 				sessionIndex,
 				fallbackCwd: () => cwdFor(deps, event) ?? process.cwd(),
+				defaultWorkspace: ensureDefaultWorkspace,
 			},
 			win,
 			payload,
@@ -840,6 +842,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return true;
 	});
 
+	ipcMain.handle(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE, () => ensureDefaultWorkspace());
+
 	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDERS_LIST, () => {
 		return listModelsProviders();
 	});
@@ -909,11 +913,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (typeof payload.path !== "string" || payload.path.length === 0) {
 			return fail("Invalid path");
 		}
-		const cwd = cwdFor(deps, event);
-		if (!cwd) return fail("No workspace");
-		const abs = resolveWithin(cwd, payload.path);
-		if (!abs) {
-			return fail("Path escapes the workspace");
+		const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
+		let abs: string;
+		if (path.isAbsolute(raw)) abs = path.normalize(raw);
+		else {
+			const cwd = cwdFor(deps, event);
+			if (!cwd) return fail("No workspace");
+			const within = resolveWithin(cwd, raw);
+			if (!within) return fail("Path escapes the workspace");
+			abs = within;
 		}
 		const maxBytes = clampInt(payload.maxBytes, 1, FS_READ_MAX_BYTES_CAP, FS_READ_DEFAULT_MAX_BYTES);
 		try {

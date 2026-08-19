@@ -1,7 +1,7 @@
 /**
  * Shared context menu: portal-rendered at cursor/trigger coordinates, with
  * full keyboard support (arrows navigate, Enter selects, Escape closes) and
- * outside-press dismissal. Used by the sidebar "+" type dropdown, workspace
+ * outside-press dismissal. Used by the sidebar mode selector, workspace
  * group menus, and session row menus — one implementation, three surfaces.
  */
 
@@ -14,6 +14,7 @@ export interface ContextMenuItem {
 	/** Stable id for keyboard focus tracking. */
 	id: string;
 	label: string;
+	description?: string;
 	icon?: LucideIcon;
 	/** Right-aligned hint text (e.g. a chord). */
 	hint?: string;
@@ -124,7 +125,14 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
 							className={cx("shrink-0", item.danger ? "text-[var(--omp-error)]" : "text-[var(--omp-muted)]")}
 						/>
 					)}
-					<span className="flex-1 truncate">{item.label}</span>
+					<span className="min-w-0 flex-1">
+						<span className="block truncate">{item.label}</span>
+						{item.description && (
+							<span className="mt-0.5 block text-omp-xs font-normal text-[var(--omp-dim)]">
+								{item.description}
+							</span>
+						)}
+					</span>
 					{item.hint && <span className="text-omp-xs text-[var(--omp-dim)]">{item.hint}</span>}
 				</button>
 			))}

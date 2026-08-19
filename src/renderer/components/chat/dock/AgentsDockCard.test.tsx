@@ -148,11 +148,13 @@ describe("AgentsDockCard", () => {
 		expect(containerText()).toContain("Todo");
 		expect(container.querySelector('[data-testid="other-card-body"]')).toBeNull();
 
-		const back = container.querySelector('[aria-label="Back to summary"]');
+		const agentsHeader = container.querySelector('section[aria-label="Agents"] button[aria-label="Collapse"]');
+		const agentsChevron = agentsHeader?.querySelectorAll("svg").item(1);
 		await act(async () => {
-			(back as unknown as { click: () => void }).click();
+			agentsChevron?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 		});
-		expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(5);
+		expect(container.querySelector('[role="tree"]')).toBeNull();
+		expect(useUiStore.getState().dockCollapsed.agents).toBe(true);
 		expect(container.querySelector('[data-testid="other-card-body"]')).not.toBeNull();
 	});
 

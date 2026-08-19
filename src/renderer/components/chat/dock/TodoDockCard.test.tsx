@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { useTodoStore } from "../../../stores/todo";
+import { useUiStore } from "../../../stores/ui";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -49,6 +50,7 @@ afterEach(async () => {
 	container?.remove();
 	setTodos.mockClear();
 	useTodoStore.getState().reset();
+	useUiStore.setState({ dockCollapsed: {}, dockFocus: null });
 });
 
 describe("TodoDockCard", () => {
@@ -68,5 +70,24 @@ describe("TodoDockCard", () => {
 		expect(container.textContent).toContain("Refine compact renderer");
 		expect(container.textContent).toContain("Run visual QA");
 		expect(container.textContent).not.toContain("Implementation");
+	});
+
+	it("collapses when the task header row is clicked", async () => {
+		useTodoStore.getState().setPhases([
+			{
+				name: "Compatibility",
+				tasks: [{ content: "Update model compatibility", status: "completed" }],
+			},
+		]);
+		await mount();
+
+		const header = container.querySelector('section[aria-label="Tasks"] button[aria-label="Collapse"]');
+		const title = [...(header?.querySelectorAll("span") ?? [])].find(node => node.textContent === "Tasks");
+		await act(async () => {
+			title?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+
+		expect(container.textContent).not.toContain("Update model compatibility");
+		expect(useUiStore.getState().dockCollapsed.todo).toBe(true);
 	});
 });

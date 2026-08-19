@@ -18,6 +18,7 @@ import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { CodeBlock as SharedCodeBlock } from "../components/chat/CodeBlock";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
+import { useUiStore } from "../stores/ui";
 import { useT } from "./i18n";
 import { PREVIEW_SCROLL_CODE } from "./preview";
 
@@ -118,7 +119,7 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 		th: ["align"],
 	},
 	protocols: {
-		href: ["http", "https", "mailto"],
+		href: ["http", "https", "mailto", "file"],
 		// data: keeps inline base64 images; file: is resolved to a workspace /
 		// absolute read by the MarkdownImage component (protocol stripped).
 		src: ["http", "https", "data", "file"],
@@ -143,8 +144,27 @@ const REHYPE_PLUGINS: Options["rehypePlugins"] = [rehypeRaw, [rehypeSanitize, SA
 // defer to the default everywhere else.
 const URL_TRANSFORM: NonNullable<Options["urlTransform"]> = (url, key, node) => {
 	if (key === "src" && node?.tagName === "img" && /^(data|blob|file):/i.test(url)) return url;
+	if (key === "href" && node?.tagName === "a" && /^file:/i.test(url)) return url;
 	return defaultUrlTransform(url);
 };
+
+function filePathFromHref(href: string): string | null {
+	if (/^(?:https?:|mailto:|#|\/\/)/i.test(href)) return null;
+	if (/^file:\/\//i.test(href)) {
+		const classified = classifyImageSrc(href);
+		return classified.kind === "local" ? classified.path : null;
+	}
+	// Preserve non-file schemes such as local:// and artifact:// for their own
+	// handlers; a Windows drive prefix is a path, not a URL scheme.
+	if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^[a-z]:[\\/]/i.test(href)) return null;
+	const raw = href.replace(/[?#].*$/, "");
+	if (!raw) return null;
+	try {
+		return decodeURIComponent(raw);
+	} catch {
+		return raw;
+	}
+}
 
 function ExternalLink({ href, children, ...props }: ComponentPropsWithoutRef<"a">) {
 	return (
@@ -152,10 +172,11 @@ function ExternalLink({ href, children, ...props }: ComponentPropsWithoutRef<"a"
 			{...props}
 			href={href}
 			onClick={e => {
+				if (!href || href.startsWith("#")) return;
 				e.preventDefault();
-				if (href) {
-					window.omp.system.openExternal(href);
-				}
+				const filePath = filePathFromHref(href);
+				if (filePath) useUiStore.getState().openFilePreview(filePath);
+				else window.omp.system.openExternal(href);
 			}}
 			className="text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
 		>

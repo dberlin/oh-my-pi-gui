@@ -144,6 +144,7 @@ export function ContextUsagePopover() {
 	const breakdown = loadedKey === usageKey ? report?.breakdown : undefined;
 	const contextWindow = breakdown?.contextWindow || contextUsage?.contextWindow || 0;
 	const usedTokens = breakdown?.usedTokens ?? contextUsage?.tokens ?? 0;
+	const remainingTokens = Math.max(0, contextWindow - usedTokens);
 	const percent = contextWindow > 0 ? Math.min(100, (usedTokens / contextWindow) * 100) : (contextUsage?.percent ?? 0);
 	const categories = useMemo<UsageCategory[]>(() => {
 		if (!breakdown) return [];
@@ -170,7 +171,7 @@ export function ContextUsagePopover() {
 				aria-controls="omp-context-usage-popover"
 				aria-expanded={open}
 				aria-label={t("contextUsage.open", { percent: Math.round(percent) })}
-				className={`omp-context-usage-trigger omp-pressable flex h-7 w-7 items-center justify-center rounded-full ${
+				className={`omp-context-usage-trigger omp-pressable flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-1.5 ${
 					open
 						? "text-[var(--omp-link)] ring-1 ring-[var(--omp-link)]"
 						: "text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-muted)]"
@@ -190,6 +191,9 @@ export function ContextUsagePopover() {
 				type="button"
 			>
 				<CircleGauge aria-hidden="true" size={14} strokeWidth={2} />
+				<span className="font-mono text-omp-xs tabular-nums">
+					{formatTokens(usedTokens)}/{formatTokens(contextWindow)}
+				</span>
 			</button>
 
 			{open &&
@@ -220,6 +224,7 @@ export function ContextUsagePopover() {
 							aria-valuemax={100}
 							aria-valuemin={0}
 							aria-valuenow={Math.round(percent)}
+							aria-valuetext={`${formatTokens(usedTokens)} ${t("contextUsage.used")}, ${formatTokens(remainingTokens)} ${t("contextUsage.remaining")}`}
 							className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-[var(--omp-progress-bg)]"
 							role="progressbar"
 						>
@@ -241,6 +246,21 @@ export function ContextUsagePopover() {
 									style={{ width: `${percent}%` }}
 								/>
 							)}
+						</div>
+
+						<div className="mt-3 grid grid-cols-2 gap-2">
+							<div className="rounded-lg border border-[var(--omp-border-muted)] px-2.5 py-2">
+								<span className="block text-omp-xs text-[var(--omp-dim)]">{t("contextUsage.used")}</span>
+								<span className="font-mono text-omp-lg font-semibold tabular-nums text-[var(--omp-text)]">
+									{formatTokens(usedTokens)}
+								</span>
+							</div>
+							<div className="rounded-lg border border-[var(--omp-border-muted)] px-2.5 py-2">
+								<span className="block text-omp-xs text-[var(--omp-dim)]">{t("contextUsage.remaining")}</span>
+								<span className="font-mono text-omp-lg font-semibold tabular-nums text-[var(--omp-text)]">
+									{formatTokens(remainingTokens)}
+								</span>
+							</div>
 						</div>
 
 						{loading && categories.length === 0 ? (

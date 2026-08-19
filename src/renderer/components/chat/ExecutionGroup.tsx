@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, LoaderCircle } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useToolsStore } from "../../stores/tools";
@@ -7,17 +7,27 @@ import { useToolsStore } from "../../stores/tools";
 interface ExecutionGroupProps {
 	children: ReactNode;
 	className?: string;
+	expanded: boolean;
 	live?: boolean;
+	onExpandedChange: (expanded: boolean) => void;
 	stepCount: number;
 	toolCallIds: readonly string[];
 }
 
 /**
- * One quiet disclosure for a reasoning/tool phase. Work opens while it is
- * active, then returns to a single summary line regardless of its outcome.
- * Errors remain called out in the summary and can be inspected on demand.
+ * One quiet disclosure for a reasoning/tool phase. Its open state is owned by
+ * ChatStream so streaming updates and live-to-final row replacement cannot
+ * override the user's choice.
  */
-export function ExecutionGroup({ children, className, live = false, stepCount, toolCallIds }: ExecutionGroupProps) {
+export function ExecutionGroup({
+	children,
+	className,
+	expanded,
+	live = false,
+	onExpandedChange,
+	stepCount,
+	toolCallIds,
+}: ExecutionGroupProps) {
 	const t = useT();
 	const activeTools = useToolsStore(state => state.activeTools);
 	const status = useMemo(() => {
@@ -32,15 +42,6 @@ export function ExecutionGroup({ children, className, live = false, stepCount, t
 	}, [activeTools, toolCallIds]);
 	const active = live || status.running > 0;
 	const state = active ? "running" : status.failed > 0 ? "failed" : "complete";
-	const [expanded, setExpanded] = useState(active);
-	const wasActiveRef = useRef(active);
-
-	useEffect(() => {
-		const wasActive = wasActiveRef.current;
-		if (active && !wasActive) setExpanded(true);
-		else if (!active && wasActive) setExpanded(false);
-		wasActiveRef.current = active;
-	}, [active]);
 
 	const summary =
 		status.failed > 0
@@ -54,7 +55,7 @@ export function ExecutionGroup({ children, className, live = false, stepCount, t
 			<button
 				aria-expanded={expanded}
 				className="omp-execution-group-header omp-pressable flex w-full min-w-0 items-center gap-2 text-left"
-				onClick={() => setExpanded(value => !value)}
+				onClick={() => onExpandedChange(!expanded)}
 				type="button"
 			>
 				{active ? (

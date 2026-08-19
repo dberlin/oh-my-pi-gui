@@ -16,6 +16,7 @@ import { EditorView } from "@codemirror/view";
 import { Check, ExternalLink } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
+import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
@@ -28,61 +29,35 @@ import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
 const NON_DIALOG_METHODS = new Set(["notify", "setStatus", "setWidget", "setTitle", "set_editor_text", "cancel"]);
 
 /**
- * Floating surfaces for extension-pushed state: `setStatus` renders as a row
- * of status segments above the composer, `setWidget` as text-line panels just
- * above those. Both live below modal z-index and clear when the extension
- * clears them (empty text/lines) or the session resets.
+ * Floating surface for extension-pushed widgets. Transient `setStatus` text is
+ * intentionally not rendered: the GUI has no status line, and floating pills
+ * obscure composer controls.
  */
 function ExtensionSurfaces() {
-	const statusWidgets = useExtensionUiStore(state => state.statusWidgets);
 	const widgetPanels = useExtensionUiStore(state => state.widgetPanels);
-	const statuses = Object.entries(statusWidgets);
 	const widgets = Object.entries(widgetPanels);
-	if (statuses.length === 0 && widgets.length === 0) return null;
+	if (widgets.length === 0) return null;
 	return (
-		<>
-			{widgets.length > 0 && (
-				<div className="pointer-events-none fixed bottom-9 left-1/2 z-40 flex max-h-[40vh] w-[min(560px,92vw)] -translate-x-1/2 flex-col gap-1.5 overflow-y-auto">
-					{widgets.map(([key, lines]) => (
+		<div className="pointer-events-none fixed bottom-9 left-1/2 z-40 flex max-h-[40vh] w-[min(560px,92vw)] -translate-x-1/2 flex-col gap-1.5 overflow-y-auto">
+			{widgets.map(([key, lines]) => (
+				<div
+					aria-label={key}
+					className="pointer-events-auto rounded-md border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2.5 py-1.5 shadow-lg shadow-black/40"
+					key={key}
+					role="region"
+				>
+					<div className="mb-0.5 text-omp-xxs font-medium tracking-widest text-(--omp-dim) uppercase">{key}</div>
+					{lines.map((line, index) => (
 						<div
-							aria-label={key}
-							className="pointer-events-auto rounded-md border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2.5 py-1.5 shadow-lg shadow-black/40"
-							key={key}
-							role="region"
+							className="font-mono text-omp-xs leading-snug break-words whitespace-pre-wrap text-(--omp-text)"
+							key={index}
 						>
-							<div className="mb-0.5 text-omp-xxs font-medium tracking-widest text-(--omp-dim) uppercase">
-								{key}
-							</div>
-							{lines.map((line, index) => (
-								<div
-									className="font-mono text-omp-xs leading-snug break-words whitespace-pre-wrap text-(--omp-text)"
-									key={index}
-								>
-									{line === "" ? "\u00A0" : line}
-								</div>
-							))}
+							{line === "" ? "\u00A0" : <AnsiText text={line} />}
 						</div>
 					))}
 				</div>
-			)}
-			{statuses.length > 0 && (
-				<div
-					aria-live="polite"
-					className="pointer-events-none fixed bottom-2 left-1/2 z-40 flex max-w-[92vw] -translate-x-1/2 items-center gap-1.5 overflow-x-auto"
-					role="status"
-				>
-					{statuses.map(([key, text]) => (
-						<span
-							className="pointer-events-auto shrink-0 rounded-md border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2 py-0.5 text-omp-xs whitespace-nowrap text-(--omp-muted) shadow-md shadow-black/30"
-							key={key}
-							title={key}
-						>
-							{text}
-						</span>
-					))}
-				</div>
-			)}
-		</>
+			))}
+		</div>
 	);
 }
 

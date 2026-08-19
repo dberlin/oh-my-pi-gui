@@ -1,17 +1,20 @@
 /**
  * Files panel: workspace file tree sourced via the dedicated `fs:list` /
  * `fs:read` main-process IPC (node:fs — cross-platform, works with no live
- * agent session), preview modal, and @mention insertion via the
+ * agent session), in-drawer preview, and @mention insertion via the
  * "omp:insert-mention" window event.
  */
 
-import { AtSign, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
+import { ArrowLeft, AtSign, ExternalLink as ExternalLinkIcon, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FsTreeEntry } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
+import { MarkdownRenderer } from "../../lib/markdown";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../lib/tab-routing";
-import { Button, Modal, Spinner } from "../common";
+import { useUiStore } from "../../stores/ui";
+import { Button, Spinner } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
+import { PathLink } from "../tools/PathLink";
 
 const MAX_FILES = 2000;
 const MAX_DEPTH = 8;
@@ -35,6 +38,9 @@ function countFiles(entries: FsTreeEntry[]): number {
 
 export function FilesPanel() {
 	const t = useT();
+	const filePreviewPath = useUiStore(s => s.filePreviewPath);
+	const openFilePreview = useUiStore(s => s.openFilePreview);
+	const closeFilePreview = useUiStore(s => s.closeFilePreview);
 	const [tree, setTree] = useState<FsTreeEntry[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [truncated, setTruncated] = useState(false);
@@ -103,6 +109,11 @@ export function FilesPanel() {
 		[t],
 	);
 
+	useEffect(() => {
+		if (filePreviewPath) void openPreview(filePreviewPath);
+		else setPreview(null);
+	}, [filePreviewPath, openPreview]);
+
 	const insertMention = useCallback((path: string) => {
 		window.dispatchEvent(new CustomEvent("omp:insert-mention", { detail: { path } }));
 	}, []);
@@ -110,7 +121,7 @@ export function FilesPanel() {
 	// Wire file activation: clicking a file previews it, clicking a dir toggles.
 	const onNodeClick = useCallback(
 		(id: string) => {
-			if (id.startsWith("file:")) void openPreview(id.slice(5));
+			if (id.startsWith("file:")) openFilePreview(id.slice(5));
 			else if (id.startsWith("dir:")) {
 				setExpanded(prev => {
 					const next = new Set(prev);
@@ -120,7 +131,7 @@ export function FilesPanel() {
 				});
 			}
 		},
-		[openPreview],
+		[openFilePreview],
 	);
 
 	const nodes = useMemo<TreeNode[]>(() => {
@@ -139,6 +150,74 @@ export function FilesPanel() {
 	}, [tree, expanded, onNodeClick]);
 
 	const fileCount = useMemo(() => countFiles(tree), [tree]);
+	const activePreview = preview?.path === filePreviewPath ? preview : null;
+	const previewIsMarkdown = filePreviewPath ? /\.mdx?$/i.test(filePreviewPath) : false;
+
+	if (filePreviewPath) {
+		return (
+			<div className="flex h-full flex-col">
+				<div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-(--omp-border-muted) px-3 py-2">
+					<button
+						type="button"
+						onClick={closeFilePreview}
+						aria-label={t("filesPanel.back")}
+						className="omp-pressable flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+					>
+						<ArrowLeft size={14} />
+					</button>
+					<File className="shrink-0 text-(--omp-dim)" size={12} />
+					<span className="min-w-0 flex-1 truncate font-mono text-omp-xs" title={filePreviewPath}>
+						{filePreviewPath}
+					</span>
+					<PathLink
+						path={filePreviewPath}
+						className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 text-omp-xs text-(--omp-muted)"
+					>
+						<ExternalLinkIcon size={12} />
+						<span>{t("filesPanel.openExternal")}</span>
+					</PathLink>
+					<button
+						type="button"
+						onClick={() => {
+							insertMention(filePreviewPath);
+							closeFilePreview();
+						}}
+						className="omp-pressable inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-omp-xs text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+					>
+						<AtSign size={12} />
+						<span>{t("filesPanel.insertMention")}</span>
+					</button>
+				</div>
+				<div className="min-h-0 flex-1 overflow-auto bg-(--omp-code-bg)">
+					{!activePreview || activePreview.loading ? (
+						<div className="flex items-center gap-2 p-4">
+							<Spinner size="sm" />
+							<span className="text-omp-sm text-(--omp-dim)">{t("filesPanel.reading")}</span>
+						</div>
+					) : previewIsMarkdown ? (
+						<div className="p-4 text-omp-md text-(--omp-text)">
+							<MarkdownRenderer content={activePreview.content ?? ""} />
+							{activePreview.truncated && (
+								<div className="mt-3 text-omp-xs text-(--omp-dim)">
+									{t("filesPanel.truncated", { kb: PREVIEW_MAX_BYTES / 1000 })}
+								</div>
+							)}
+						</div>
+					) : (
+						<pre className="p-3 font-mono text-omp-sm leading-[1.5] break-words whitespace-pre-wrap text-(--omp-text)">
+							{activePreview.content}
+							{activePreview.truncated && (
+								<span className="text-(--omp-dim)">
+									{"\n"}
+									{t("filesPanel.truncated", { kb: PREVIEW_MAX_BYTES / 1000 })}
+								</span>
+							)}
+						</pre>
+					)}
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex h-full flex-col">
@@ -188,57 +267,6 @@ export function FilesPanel() {
 					/>
 				)}
 			</div>
-
-			<Modal
-				bodyClassName="p-0"
-				onClose={() => setPreview(null)}
-				open={preview !== null}
-				panelClassName="w-[680px]"
-				title={
-					preview && (
-						<span className="flex items-center gap-2 font-mono text-xs">
-							<File className="shrink-0 text-(--omp-dim)" size={12} />
-							<span className="truncate">{preview.path}</span>
-						</span>
-					)
-				}
-			>
-				{preview && (
-					<div className="flex h-[60vh] flex-col">
-						<div className="flex items-center justify-end gap-2 border-b border-(--omp-border-muted) px-3 py-2">
-							<Button
-								icon={<AtSign size={12} />}
-								onClick={() => {
-									insertMention(preview.path);
-									setPreview(null);
-								}}
-								size="sm"
-								variant="secondary"
-							>
-								{t("filesPanel.insertMention")}
-							</Button>
-						</div>
-						<div className="min-h-0 flex-1 overflow-auto bg-(--omp-code-bg) p-3">
-							{preview.loading ? (
-								<div className="flex items-center gap-2 py-8">
-									<Spinner size="sm" />
-									<span className="text-omp-sm text-(--omp-dim)">{t("filesPanel.reading")}</span>
-								</div>
-							) : (
-								<pre className="font-mono text-omp-sm leading-[1.5] break-words whitespace-pre-wrap text-(--omp-text)">
-									{preview.content}
-									{preview.truncated && (
-										<span className="text-(--omp-dim)">
-											{"\n"}
-											{t("filesPanel.truncated", { kb: PREVIEW_MAX_BYTES / 1000 })}
-										</span>
-									)}
-								</pre>
-							)}
-						</div>
-					</div>
-				)}
-			</Modal>
 		</div>
 	);
 }

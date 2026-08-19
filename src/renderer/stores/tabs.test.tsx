@@ -335,6 +335,25 @@ describe("tabs store switch", () => {
 		expect(useTabsStore.getState().activeTabId).toBe("t1");
 	});
 
+	it("opens Work as an agent in the main-owned default workspace", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
+		await useTabsStore.getState().reconcileTabs();
+		useSessionStore.setState({ cwd: "/alpha" });
+		omp.tabs.spawn.mockResolvedValue({ tabId: "t-work", cwd: "/Users/test/.omp/work" });
+
+		const tabId = await useTabsStore.getState().openTab({ work: true });
+
+		expect(tabId).toBe("t-work");
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({
+			cwd: undefined,
+			sessionPath: undefined,
+			kind: "agent",
+			defaultWorkspace: true,
+			worktree: undefined,
+		});
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t-work")?.cwd).toBe("/Users/test/.omp/work");
+	});
+
 	it("hydrates a fresh tab when its ready push beats full route wiring", async () => {
 		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
 		await useTabsStore.getState().reconcileTabs();

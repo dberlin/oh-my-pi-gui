@@ -34,15 +34,9 @@ import { ProviderConfigRow } from "./providers/ProviderConfigRow";
 /** Protocols accepted by models.yml (re-export from shared types). */
 export const PROVIDER_PROTOCOLS = CUSTOM_PROVIDER_APIS;
 
-const UPSTREAM_MODEL_LIST_PROTOCOLS: ReadonlySet<CustomProviderApi> = new Set([
-	"openai-completions",
-	"openai-responses",
-	"anthropic-messages",
-]);
-
-/** Default discovery for protocols that expose a standard `/v1/models` list. */
-export function defaultProviderDiscovery(api: CustomProviderApi): CustomProviderDiscoveryType | undefined {
-	return UPSTREAM_MODEL_LIST_PROTOCOLS.has(api) ? "openai-models-list" : undefined;
+/** New providers only contact a model-list endpoint when the user opts in. */
+export function defaultProviderDiscovery(): undefined {
+	return undefined;
 }
 
 /** Manual model rows are optional when the provider can discover them upstream. */
@@ -121,7 +115,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 	const [auth, setAuth] = useState<"apiKey" | "none" | "oauth" | undefined>(editing?.auth);
 	const [authHeader, setAuthHeader] = useState(editing?.authHeader ?? false);
 	const [discoveryType, setDiscoveryType] = useState<CustomProviderDiscoveryType | undefined>(() =>
-		editing ? editing.discovery?.type : defaultProviderDiscovery(PROVIDER_PROTOCOLS[0]),
+		editing ? editing.discovery?.type : defaultProviderDiscovery(),
 	);
 	const [discoveryTimeout, setDiscoveryTimeout] = useState<number | undefined>(editing?.discovery?.timeoutMs);
 	const [disableStrictTools, setDisableStrictTools] = useState(editing?.disableStrictTools ?? false);
@@ -332,13 +326,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 						className={SELECT_CLASS}
 						value={api}
 						disabled={readonly || submitting}
-						onChange={event => {
-							const nextApi = event.target.value as CustomProviderApi;
-							setApi(nextApi);
-							if (!editing && (discoveryType === undefined || discoveryType === "openai-models-list")) {
-								setDiscoveryType(defaultProviderDiscovery(nextApi));
-							}
-						}}
+						onChange={event => setApi(event.target.value as CustomProviderApi)}
 					>
 						{PROVIDER_PROTOCOLS.map(protocol => (
 							<option key={protocol} value={protocol}>
@@ -433,7 +421,7 @@ function ProviderForm({ editing, existing, directEdit, onBack, onSaved, onCancel
 								setDiscoveryType((event.target.value || undefined) as CustomProviderDiscoveryType | undefined)
 							}
 						>
-							<option value="">{t("common.noneParenthesized")}</option>
+							<option value="">{t("providerCfg.form.discoveryNone")}</option>
 							<option value="ollama">Ollama</option>
 							<option value="llama.cpp">llama.cpp</option>
 							<option value="lm-studio">LM Studio</option>

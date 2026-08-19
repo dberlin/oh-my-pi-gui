@@ -10,21 +10,19 @@ export interface WindowSpawnTarget {
 /**
  * Resolve the sidecar target for a newly created window.
  *
- * A window created without an explicit workspace/session is an idle global
- * chat. Its cwd is only an internal process requirement and must not inherit
- * the last workspace; `fresh` also prevents CLI auto-resume from attaching an
- * unrelated transcript. Explicit targets retain the existing agent/default
- * behavior.
+ * A window created without an explicit workspace/session starts a full agent
+ * in the GUI-owned Work workspace. It does not inherit the last Code project,
+ * and `fresh` prevents CLI auto-resume from attaching an unrelated transcript.
  */
 export function resolveWindowSpawnTarget(
 	cwd: string | undefined,
 	pendingSessionPath: string | undefined,
 	kind: SessionKind | undefined,
 	fallbackCwd: string,
-	idleCwd: string,
+	defaultWorkspaceCwd: string,
 ): WindowSpawnTarget {
 	const idle = cwd === undefined && pendingSessionPath === undefined && kind === undefined;
-	if (idle) return { cwd: idleCwd, kind: "chat", fresh: true, placeholder: true };
+	if (idle) return { cwd: defaultWorkspaceCwd, kind: "agent", fresh: true, placeholder: true };
 	return {
 		cwd: cwd && cwd.length > 0 ? cwd : fallbackCwd,
 		kind: kind ?? "agent",

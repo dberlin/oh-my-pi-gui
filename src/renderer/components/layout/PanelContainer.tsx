@@ -67,11 +67,8 @@ export function PanelContainer() {
 	const onDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
 		if (!dragging.current) return;
 		// Panel is right-anchored: dragging left grows it.
-		const host = e.currentTarget.parentElement;
-		if (!host) return;
-		const hostRect = host.getBoundingClientRect();
-		const hostLimit = Math.min(MAX_WIDTH, Math.round(hostRect.width * 0.55));
-		const next = Math.min(hostLimit, Math.max(MIN_WIDTH, hostRect.right - e.clientX));
+		const hostLimit = Math.min(MAX_WIDTH, Math.round(window.innerWidth * 0.55));
+		const next = Math.min(hostLimit, Math.max(MIN_WIDTH, window.innerWidth - e.clientX));
 		setWidth(next);
 	}, []);
 

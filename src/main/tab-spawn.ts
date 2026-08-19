@@ -20,6 +20,8 @@ export type SpawnTabDeps = {
 	sessionIndex: Pick<SessionIndex, "kindFor">;
 	/** Caller's cwd resolution (ipc.ts's cwdFor with process.cwd() fallback). */
 	fallbackCwd: () => string;
+	/** GUI-owned Work workspace, created on demand. */
+	defaultWorkspace: () => string;
 };
 
 export async function spawnTabForWindow(
@@ -43,11 +45,17 @@ export async function spawnTabForWindow(
 		kind = fileKind;
 	}
 	if (deps.sidecarPool.atCap) return null;
-	const cwd = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : deps.fallbackCwd();
+	const cwd = payload.defaultWorkspace
+		? deps.defaultWorkspace()
+		: typeof payload?.cwd === "string" && payload.cwd.length > 0
+			? payload.cwd
+			: deps.fallbackCwd();
 	const tabId = nextSnowflake();
 	// A no-path tab is an explicit New Tab action. It must start empty even
 	// when the CLI's persistent autoResume setting is enabled for the project.
 	return deps.sidecarPool.acquire(cwd, win, tabId, sessionPath, kind, payload?.worktree, !sessionPath)
-		? { tabId }
+		? payload.defaultWorkspace
+			? { tabId, cwd }
+			: { tabId }
 		: null;
 }

@@ -1,5 +1,5 @@
 import { parseHTML } from "linkedom";
-import { act, type ReactNode } from "react";
+import { act, type ReactNode, useState } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
@@ -36,6 +36,29 @@ function toolEntry(status: "running" | "error", isError = false): ToolEntry {
 	};
 }
 
+function StatefulExecutionGroup({
+	children,
+	live,
+	toolCallIds,
+}: {
+	children: ReactNode;
+	live: boolean;
+	toolCallIds: string[];
+}) {
+	const [expanded, setExpanded] = useState(false);
+	return (
+		<ExecutionGroup
+			expanded={expanded}
+			live={live}
+			onExpandedChange={setExpanded}
+			stepCount={2}
+			toolCallIds={toolCallIds}
+		>
+			{children}
+		</ExecutionGroup>
+	);
+}
+
 async function mount(
 	toolCallIds: string[] = [],
 	live = false,
@@ -47,9 +70,9 @@ async function mount(
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<ExecutionGroup live={live} stepCount={2} toolCallIds={toolCallIds}>
+				<StatefulExecutionGroup live={live} toolCallIds={toolCallIds}>
 					{children}
-				</ExecutionGroup>
+				</StatefulExecutionGroup>
 			</I18nProvider>,
 		);
 	});
@@ -88,9 +111,14 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector('[data-testid="details"]')).not.toBeNull();
 	});
 
-	it("opens active work and collapses it when execution settles", async () => {
+	it("never overrides the user's disclosure while execution activity changes", async () => {
 		useToolsStore.setState({ activeTools: new Map([["tool-1", toolEntry("running")]]) });
 		await mount(["tool-1"]);
+		expect(container.querySelector('[data-testid="details"]')).toBeNull();
+
+		await act(async () => {
+			(container.querySelector("button") as unknown as { click: () => void }).click();
+		});
 		expect(container.querySelector('[data-testid="details"]')).not.toBeNull();
 
 		await act(async () => {
@@ -98,6 +126,12 @@ describe("ExecutionGroup", () => {
 		});
 
 		expect(container.textContent).toContain("1 failed · 2 steps");
+		expect(container.querySelector('[data-testid="details"]')).not.toBeNull();
+
+		await act(async () => {
+			(container.querySelector("button") as unknown as { click: () => void }).click();
+			useToolsStore.setState({ activeTools: new Map([["tool-1", toolEntry("running")]]) });
+		});
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 	});
 
@@ -116,6 +150,9 @@ describe("ExecutionGroup", () => {
 				<ToolCard toolCallId="tool-2" toolName="bash" args={{ command: "bun check" }} runningIndicator="dot" />
 			</>,
 		);
+		await act(async () => {
+			(container.querySelector(".omp-execution-group-header") as unknown as { click: () => void }).click();
+		});
 		await act(async () => {
 			for (const button of container.querySelectorAll(".omp-tool-header")) {
 				(button as unknown as { click: () => void }).click();

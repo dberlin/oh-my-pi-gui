@@ -34,7 +34,7 @@ export function SessionPickerDialog() {
 
 	const [query, setQuery] = useState("");
 	const [sessions, setSessions] = useState<SessionInfo[]>([]);
-	const [scope, setScope] = useState<SessionScope>("local");
+	const [scope, setScope] = useState<SessionScope>("global");
 	const [sortMode, setSortMode] = useState<SessionSortMode>("recent");
 	// null = follow the scope default (paths shown in all-projects scope).
 	const [showPath, setShowPath] = useState<boolean | null>(null);
@@ -55,6 +55,7 @@ export function SessionPickerDialog() {
 	useEffect(() => {
 		if (!open) return;
 		setQuery("");
+		setScope("global");
 		setSortMode("recent");
 		setShowPath(null);
 		setLoading(true);
@@ -68,14 +69,6 @@ export function SessionPickerDialog() {
 		let cancelled = false;
 		void (async () => {
 			try {
-				const local = await window.omp.sessions.list("local");
-				if (cancelled) return;
-				listsRef.current.local = local;
-				if (local.length > 0) {
-					setSessions(local);
-					setScope("local");
-					return;
-				}
 				const global = await window.omp.sessions.list("global");
 				if (cancelled) return;
 				listsRef.current.global = global;

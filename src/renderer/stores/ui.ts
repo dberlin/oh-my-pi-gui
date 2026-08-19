@@ -15,6 +15,8 @@ interface UiStore {
 	sidebarVisible: boolean;
 	panelVisible: boolean;
 	panelTab: PanelTab;
+	/** Local file currently shown in the Files drawer. */
+	filePreviewPath: string | null;
 	commandPaletteOpen: boolean;
 	modelPickerOpen: boolean;
 	settingsOpen: boolean;
@@ -84,6 +86,8 @@ interface UiStore {
 	togglePanel: () => void;
 	toggleToolsExpandAll: () => void;
 	setPanelTab: (tab: PanelTab) => void;
+	openFilePreview: (path: string) => void;
+	closeFilePreview: () => void;
 	/** Per-card collapse overrides for the center dock (absent = expanded). */
 	dockCollapsed: Partial<Record<DockCardId, boolean>>;
 	toggleDockCard: (id: DockCardId) => void;
@@ -196,6 +200,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	sidebarVisible: true,
 	panelVisible: false,
 	panelTab: "diff",
+	filePreviewPath: null,
 	commandPaletteOpen: false,
 	modelPickerOpen: false,
 	settingsOpen: false,
@@ -223,6 +228,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		}
 		set({ panelTab: tab, panelVisible: true });
 	},
+	openFilePreview: path => set({ filePreviewPath: path, panelTab: "files", panelVisible: true }),
+	closeFilePreview: () => set({ filePreviewPath: null }),
 	dockCollapsed: {},
 	toggleDockCard: id =>
 		set({
@@ -380,6 +387,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			worktreeDialog: null,
 			worktreeClosePrompt: null,
 			prCenterOpen: false,
+			filePreviewPath: null,
 			sessionPickerOpen: false,
 			branchPickerOpen: false,
 			sessionTreeOpen: false,

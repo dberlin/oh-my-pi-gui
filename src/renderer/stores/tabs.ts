@@ -361,6 +361,8 @@ interface TabsStore {
 		cwd?: string;
 		sessionPath?: string;
 		kind?: SessionKind;
+		/** Full agent in the GUI-owned default Work workspace. */
+		work?: boolean;
 		worktree?: IpcTabWorktree;
 	}) => Promise<string | null>;
 	/** Park the current tab's session state, restore the target's, re-point
@@ -455,9 +457,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		let result: IpcSpawnTabResult | null;
 		try {
 			result = await window.omp.tabs.spawn({
-				cwd: cwd || undefined,
+				cwd: args?.work ? undefined : cwd || undefined,
 				sessionPath: args?.sessionPath,
 				kind,
+				...(args?.work ? { defaultWorkspace: true } : {}),
 				worktree: args?.worktree,
 			});
 		} catch (error) {
@@ -494,6 +497,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			return ownerTabId;
 		}
 		const { tabId } = result;
+		const resolvedCwd = result.cwd ?? cwd;
 		// Upsert eagerly — the fresh sidecar's first TAB_STATUS can beat the reply.
 		set(state => {
 			const existing = state.tabs.find(tab => tab.id === tabId);
@@ -509,7 +513,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			}
 			const tab: SessionTab = {
 				id: tabId,
-				cwd,
+				cwd: resolvedCwd,
 				status: "starting",
 				kind,
 				placeholder: false,

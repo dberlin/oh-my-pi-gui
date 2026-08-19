@@ -86,6 +86,16 @@ describe("persisted tab layout", () => {
 		});
 	});
 
+	it("drops a lone startup placeholder so the next launch uses Work", () => {
+		const value = {
+			version: 1,
+			activeIndex: 0,
+			tabs: [{ cwd: "/neutral", kind: "chat", placeholder: true }],
+		};
+
+		expect(sanitizePersistedTabLayout(value, pathChecks(["/neutral"], []))).toBeNull();
+	});
+
 	it("migrates an empty first chat from layouts saved before placeholder metadata existed", () => {
 		const value = {
 			version: 1,

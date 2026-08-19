@@ -310,11 +310,7 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 }
 
 /**
- * New-tab affordance: TWO visible one-click buttons — chat is a first-class
- * type, so it gets a first-class surface. + spawns an agent tab (dominant
- * path); 💬+ spawns a chat tab. The type stays immutable once spawned; the
- * pick is explicit by which button is hit. (An earlier right-click menu
- * failed the real-user test: right-click is undiscoverable.)
+ * New-tab affordance: agent, tool-free chat, and worktree.
  */
 function NewTabMenu() {
 	const t = useT();

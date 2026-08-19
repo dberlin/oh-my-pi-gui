@@ -38,6 +38,7 @@ function harness(options: { atCap?: boolean } = {}): Harness {
 			} as unknown as Pick<SidecarPool, "sessionOwner" | "atCap" | "acquire">,
 			sessionIndex: { kindFor },
 			fallbackCwd: () => "/fallback",
+			defaultWorkspace: () => "/default-workspace",
 		},
 	};
 }
@@ -123,6 +124,23 @@ describe("spawnTabForWindow refusal contracts", () => {
 		expect(result?.tabId).toEqual(expect.any(String));
 		expect(acquire).toHaveBeenCalledWith(
 			"/work",
+			expect.anything(),
+			expect.any(String),
+			undefined,
+			"agent",
+			undefined,
+			true,
+		);
+		expect(kindFor).not.toHaveBeenCalled();
+	});
+
+	it("spawns Work as a full agent in the GUI default workspace", async () => {
+		const { deps, acquire, kindFor } = harness();
+		const result = await spawnTabForWindow(deps, fakeWindow(), { defaultWorkspace: true });
+
+		expect(result).toEqual({ tabId: expect.any(String), cwd: "/default-workspace" });
+		expect(acquire).toHaveBeenCalledWith(
+			"/default-workspace",
 			expect.anything(),
 			expect.any(String),
 			undefined,

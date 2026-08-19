@@ -393,7 +393,7 @@ describe("TabBar", () => {
 		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/beta", sessionPath: undefined, kind: "agent" });
 	});
 
-	it("the chat button spawns a chat tab in one click — chat is a first-class, visible type", async () => {
+	it("the chat button spawns a chat tab in one click", async () => {
 		useTabsStore.setState({
 			tabs: [{ kind: "agent", id: "t0", cwd: "/beta", status: "ready", unreadDone: false }],
 			activeTabId: "t0",
@@ -408,7 +408,7 @@ describe("TabBar", () => {
 		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/beta", sessionPath: undefined, kind: "chat" });
 	});
 
-	it("both creation buttons are visible with labeled affordances (no hidden menu)", async () => {
+	it("agent and chat creation buttons are visible with labeled affordances", async () => {
 		useTabsStore.setState({
 			tabs: [{ kind: "agent", id: "t0", cwd: "/beta", status: "ready", unreadDone: false }],
 			activeTabId: "t0",
@@ -416,7 +416,7 @@ describe("TabBar", () => {
 		});
 		await mount(<TabBar />);
 
-		// Discoverability contract: both types are one visible click away —
+		// Discoverability contract: both session types are one visible click away —
 		// nothing behind right-click or a collapsed menu.
 		expect(container.querySelector('[aria-label="New Agent Tab"]')).not.toBeNull();
 		expect(container.querySelector('[aria-label="New Chat Tab"]')).not.toBeNull();

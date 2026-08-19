@@ -695,11 +695,8 @@
 }
 
 .omp-transcript-editorial .omp-user-bubble-actions {
-	position: absolute;
-	left: calc(100% + 8px);
-	top: 50%;
-	width: max-content;
-	transform: translateY(-50%);
+	justify-content: flex-end;
+	margin-top: 8px;
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity var(--omp-motion-fast) var(--omp-ease);
@@ -1138,10 +1135,6 @@
 		display: none;
 	}
 	.omp-transcript-editorial .omp-user-bubble-actions {
-		position: static;
-		justify-content: flex-end;
-		margin-top: 8px;
-		transform: none;
 		opacity: 1;
 		pointer-events: auto;
 	}

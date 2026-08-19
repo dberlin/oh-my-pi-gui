@@ -10,6 +10,7 @@ import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electr
 import Store from "electron-store";
 import type { SessionKind } from "../shared/ipc-types";
 import { setupDeepLinks } from "./deep-link";
+import { ensureDefaultWorkspace } from "./default-workspace";
 import { registerIpcHandlers } from "./ipc";
 import { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
@@ -243,7 +244,13 @@ function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKi
 			win.close();
 		}
 	}
-	const target = resolveWindowSpawnTarget(cwd, pendingSessionPath, kind, resolveInitialCwd(), homedir());
+	const target = resolveWindowSpawnTarget(
+		cwd,
+		pendingSessionPath,
+		kind,
+		resolveInitialCwd(),
+		ensureDefaultWorkspace(),
+	);
 	const win = windowManager.createWindow({ cwd: target.cwd, pendingSessionPath });
 	const sidecar = sidecarPool.acquire(
 		target.cwd,
