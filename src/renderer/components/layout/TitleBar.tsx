@@ -15,9 +15,10 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
+import { useGitStatus } from "../../hooks/use-git-status";
 import { useSessionList } from "../../hooks/use-session-list";
 import { requestUsageReport } from "../../lib/command-registry";
-import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
+import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { onEscape } from "../../lib/keymap";
@@ -66,6 +67,7 @@ export function TitleBar() {
 	const openSessionInfo = useUiStore(s => s.openSessionInfo);
 	const openBranchPicker = useUiStore(s => s.openBranchPicker);
 	const openSessionTree = useUiStore(s => s.openSessionTree);
+	const { status: git, refresh: refreshGit } = useGitStatus();
 	const { sessions } = useSessionList("local");
 	const projectName = !isChat && cwd ? basename(cwd) : t("titlebar.openProject");
 
@@ -365,7 +367,51 @@ export function TitleBar() {
 
 			<div className="flex-1" />
 
-			<div className="omp-session-metrics no-drag flex shrink-0 items-center gap-3 font-mono text-omp-sm tabular-nums text-[var(--omp-muted)]">
+			<button
+				type="button"
+				onClick={openCommandPalette}
+				className="omp-titlebar-command no-drag omp-pressable hidden h-9 min-w-44 items-center gap-2 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] px-3 text-omp-md text-[var(--omp-muted)] shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border)] hover:text-[var(--omp-text)] lg:flex"
+			>
+				<Search size={14} />
+				<span>{t("titlebar.commands")}</span>
+				<kbd className="ml-auto rounded border border-[var(--omp-border-muted)] px-1.5 py-0.5 font-mono text-omp-xs text-[var(--omp-dim)]">
+					⌘K
+				</kbd>
+			</button>
+
+			{/* Workspace readouts inherited from the removed bottom status strip.
+			    Chat tabs have no project of their own, so they stay bare. */}
+			{!isChat && cwd && (
+				<span
+					className="omp-titlebar-cwd no-drag hidden min-w-0 shrink items-center gap-1 px-1 text-omp-sm text-[var(--omp-muted)] xl:flex"
+					title={t("titlebar.cwdTooltip", { path: cwd })}
+				>
+					<FolderOpen aria-hidden="true" className="shrink-0" size={13} />
+					<span className="truncate">{shortenPath(cwd)}</span>
+				</span>
+			)}
+
+			{!isChat && git?.isRepo && git.branch && (
+				<button
+					className="omp-titlebar-git no-drag omp-pressable hidden min-w-0 shrink items-center gap-1 rounded-lg px-1.5 py-1 text-omp-sm text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] lg:flex"
+					onClick={refreshGit}
+					title={t("titlebar.gitTooltip", {
+						branch: git.branch,
+						staged: String(git.staged),
+						unstaged: String(git.unstaged),
+						untracked: String(git.untracked),
+					})}
+					type="button"
+				>
+					<GitBranch aria-hidden="true" className="shrink-0" size={13} />
+					<span className="max-w-40 truncate">{git.branch}</span>
+					{git.unstaged > 0 && <span className="shrink-0 text-[var(--omp-warning)]">*{git.unstaged}</span>}
+					{git.staged > 0 && <span className="shrink-0 text-[var(--omp-success)]">+{git.staged}</span>}
+					{git.untracked > 0 && <span className="shrink-0 text-[var(--omp-dim)]">?{git.untracked}</span>}
+				</button>
+			)}
+
+			<div className="omp-session-metrics no-drag hidden shrink-0 items-center gap-3 font-mono text-omp-sm tabular-nums text-[var(--omp-muted)] lg:flex">
 				<span
 					className="flex items-center gap-1"
 					title={t(visibleStats?.history ? "titlebar.metric.historyTokens" : "titlebar.metric.tokens")}
