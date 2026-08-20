@@ -1,0 +1,49 @@
+appId: sh.omp.gui
+productName: omp
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**/*
+  - "!node_modules/**/*"
+extraResources:
+  - from: resources/omp.x64
+    to: omp
+asar: true
+compression: maximum
+
+mac:
+  category: public.app-category.developer-tools
+  icon: resources/icon.icns
+  # Seal the complete bundle even when no Developer ID certificate is available.
+  # This preserves macOS's user-override flow instead of presenting the app as damaged.
+  identity: "-"
+  target:
+    - target: dmg
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: omp uses the microphone for voice dictation in the composer.
+  notarize: false
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+publish:
+  provider: github
+  owner: nornzach
+  repo: oh-my-pi-gui
+
+electronLanguages:
+  - en
