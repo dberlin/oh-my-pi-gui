@@ -582,7 +582,6 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			return ownerTabId;
 		}
 		const { tabId } = result;
-		const resolvedCwd = result.cwd ?? cwd;
 		// Upsert eagerly — the fresh sidecar's first TAB_STATUS can beat the reply.
 		set(state => {
 			const existing = state.tabs.find(tab => tab.id === tabId);

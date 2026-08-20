@@ -16,6 +16,8 @@ export const zh: Record<string, string> = {
 	"titlebar.metric.cost": "会话成本",
 	"titlebar.metric.cacheHit": "缓存命中率",
 	"titlebar.metric.duration": "真实执行时间",
+	"titlebar.cwdTooltip": "工作目录：{path}",
+	"titlebar.gitTooltip": "分支:{branch}——暂存 {staged}、未暂存 {unstaged}、未跟踪 {untracked}。点击刷新",
 	"titlebar.rename": "重命名会话",
 	"titlebar.openProject": "打开项目",
 	"titlebar.abortHint": "请先中止当前回合再切换项目",

@@ -14,6 +14,7 @@
 - **Bundled agent upgraded**: packaged sidecars now carry omp 17.4.0 plus the marketplace RPC features from monorepo commit `a7b2784898` — plugin metadata/themes on the catalog, and post-mutation activation verdicts computed from the installed-plugin runtime snapshot.
 - **Assisted updates for unsigned macOS builds**: ad-hoc-signed apps now download the architecture-matched DMG, show progress, verify its release-metadata SHA-512, open it in Finder, and explain the safe manual replacement flow. Certificate-signed builds retain Squirrel's restart-and-install path ([#3](https://github.com/nornzach/oh-my-pi-gui/issues/3)).
 - **Sidebar keeps the inline rail**: the 0.8.3 Code/Work lane switcher and picker-only search are not carried here; the sidebar keeps its one-row inline search, workspace groups, and the remote SSH host section.
+- **Title bar carries the status strip's readouts**: alongside the 0.8.3 session metrics the toolbar now shows the working directory and the git branch with its staged/unstaged/untracked counts (click to refresh), and it keeps the PR, Agent Hub, stats, usage, providers, workspace-panel, and settings actions that 0.8.3 moved into its sidebar navigation.
 
 ### Added
 

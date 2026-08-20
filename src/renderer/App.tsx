@@ -665,7 +665,7 @@ export function App() {
 			{sidebarVisible && <Sidebar />}
 
 			<main className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">
-				<TitleBar />
+				<TitleBar onToggleStats={() => useUiStore.getState().openStatsDashboard()} />
 				<TabBar />
 				<AppWorkspace activeTabId={activeTabId} />
 			</main>

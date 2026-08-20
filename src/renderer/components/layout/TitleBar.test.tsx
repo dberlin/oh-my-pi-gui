@@ -62,7 +62,7 @@ async function mount(): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<TitleBar />
+				<TitleBar onToggleStats={() => {}} />
 			</I18nProvider>,
 		);
 	});

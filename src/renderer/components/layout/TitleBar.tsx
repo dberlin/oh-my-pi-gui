@@ -1,9 +1,26 @@
-import { ChevronRight, Clock3, Coins, Database, FolderOpen, Gauge, PanelLeft } from "lucide-react";
+import {
+	BarChart3,
+	Bot,
+	ChevronRight,
+	Clock3,
+	Coins,
+	Database,
+	FolderOpen,
+	Gauge,
+	GitBranch,
+	GitPullRequest,
+	PanelLeft,
+	PanelRight,
+	Plug,
+	Search,
+	Settings,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
+import { useGitStatus } from "../../hooks/use-git-status";
 import { useSessionList } from "../../hooks/use-session-list";
 import { requestUsageReport } from "../../lib/command-registry";
-import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
+import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
@@ -18,7 +35,11 @@ import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-me
  * Native desktop toolbar. Session controls stay here; model and execution
  * controls live beside the composer where they affect the next message.
  */
-export function TitleBar() {
+interface TitleBarProps {
+	onToggleStats: () => void;
+}
+
+export function TitleBar({ onToggleStats }: TitleBarProps) {
 	const t = useT();
 	const sessionId = useSessionStore(s => s.sessionId);
 	const sessionName = useSessionStore(s => s.sessionName);
@@ -41,6 +62,8 @@ export function TitleBar() {
 	const openSettings = useUiStore(s => s.openSettings);
 	const openPrCenter = useUiStore(s => s.openPrCenter);
 	const openAgentHub = useUiStore(s => s.openAgentHub);
+	const panelVisible = useUiStore(s => s.panelVisible);
+	const { status: git, refresh: refreshGit } = useGitStatus();
 	const { sessions } = useSessionList("local");
 	const projectName = !isChat && cwd ? basename(cwd) : t("titlebar.openProject");
 
@@ -221,7 +244,51 @@ export function TitleBar() {
 
 			<div className="flex-1" />
 
-			<div className="omp-session-metrics no-drag flex shrink-0 items-center gap-3 font-mono text-omp-sm tabular-nums text-[var(--omp-muted)]">
+			<button
+				type="button"
+				onClick={openCommandPalette}
+				className="omp-titlebar-command no-drag omp-pressable hidden h-9 min-w-44 items-center gap-2 rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] px-3 text-omp-md text-[var(--omp-muted)] shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border)] hover:text-[var(--omp-text)] lg:flex"
+			>
+				<Search size={14} />
+				<span>{t("titlebar.commands")}</span>
+				<kbd className="ml-auto rounded border border-[var(--omp-border-muted)] px-1.5 py-0.5 font-mono text-omp-xs text-[var(--omp-dim)]">
+					⌘K
+				</kbd>
+			</button>
+
+			{/* Workspace readouts inherited from the removed bottom status strip.
+			    Chat tabs have no project of their own, so they stay bare. */}
+			{!isChat && cwd && (
+				<span
+					className="omp-titlebar-cwd no-drag hidden min-w-0 shrink items-center gap-1 px-1 text-omp-sm text-[var(--omp-muted)] xl:flex"
+					title={t("titlebar.cwdTooltip", { path: cwd })}
+				>
+					<FolderOpen aria-hidden="true" className="shrink-0" size={13} />
+					<span className="truncate">{shortenPath(cwd)}</span>
+				</span>
+			)}
+
+			{!isChat && git?.isRepo && git.branch && (
+				<button
+					className="omp-titlebar-git no-drag omp-pressable hidden min-w-0 shrink items-center gap-1 rounded-lg px-1.5 py-1 text-omp-sm text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] lg:flex"
+					onClick={refreshGit}
+					title={t("titlebar.gitTooltip", {
+						branch: git.branch,
+						staged: String(git.staged),
+						unstaged: String(git.unstaged),
+						untracked: String(git.untracked),
+					})}
+					type="button"
+				>
+					<GitBranch aria-hidden="true" className="shrink-0" size={13} />
+					<span className="max-w-40 truncate">{git.branch}</span>
+					{git.unstaged > 0 && <span className="shrink-0 text-[var(--omp-warning)]">*{git.unstaged}</span>}
+					{git.staged > 0 && <span className="shrink-0 text-[var(--omp-success)]">+{git.staged}</span>}
+					{git.untracked > 0 && <span className="shrink-0 text-[var(--omp-dim)]">?{git.untracked}</span>}
+				</button>
+			)}
+
+			<div className="omp-session-metrics no-drag hidden shrink-0 items-center gap-3 font-mono text-omp-sm tabular-nums text-[var(--omp-muted)] lg:flex">
 				<span className="flex items-center gap-1" title={t("titlebar.metric.tokens")}>
 					<Database aria-hidden="true" size={14} />
 					{stats ? formatTokens(stats.tokens.total) : "—"}
@@ -239,6 +306,53 @@ export function TitleBar() {
 					{executionDuration > 0 ? formatDuration(executionDuration) : t("time.secondsShort", { count: 0 })}
 				</span>
 			</div>
+
+			<button
+				type="button"
+				onClick={openPrCenter}
+				title={t("titlebar.prCenter")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
+				<GitPullRequest size={17} />
+			</button>
+			<button
+				type="button"
+				onClick={() => openAgentHub()}
+				title={t("titlebar.agentHub")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
+				<Bot size={17} />
+			</button>
+			<button
+				type="button"
+				onClick={onToggleStats}
+				title={t("titlebar.stats")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
+				<BarChart3 size={17} />
+			</button>
+			<button
+				type="button"
+				onClick={showUsage}
+				title={t("titlebar.usage")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
+				<Coins size={17} />
+			</button>
+			<button
+				type="button"
+				onClick={openProviders}
+				title={t("titlebar.providers")}
+				className={cx(iconButton, "omp-titlebar-secondary")}
+			>
+				<Plug size={17} />
+			</button>
+			<button type="button" onClick={togglePanel} title={t("titlebar.workspace")} className={iconButton}>
+				<PanelRight size={18} className={cx(panelVisible && "text-[var(--omp-text)]")} />
+			</button>
+			<button type="button" onClick={() => openSettings()} title={t("titlebar.settings")} className={iconButton}>
+				<Settings size={17} />
+			</button>
 			<WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} />
 		</header>
 	);

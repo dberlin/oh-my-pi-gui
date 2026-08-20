@@ -16,6 +16,9 @@ export const en: Record<string, string> = {
 	"titlebar.metric.cost": "Session cost",
 	"titlebar.metric.cacheHit": "Cache hit rate",
 	"titlebar.metric.duration": "Actual execution time",
+	"titlebar.cwdTooltip": "Working directory: {path}",
+	"titlebar.gitTooltip":
+		"Branch: {branch} — {staged} staged, {unstaged} unstaged, {untracked} untracked. Click to refresh",
 	"titlebar.rename": "Rename session",
 	"titlebar.openProject": "Open project",
 	"titlebar.abortHint": "Abort the active turn before changing projects",
