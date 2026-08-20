@@ -293,7 +293,7 @@ export const zh: Record<string, string> = {
 	// Sidebar
 	"sidebar.sessions": "会话",
 	"sidebar.newSession": "新建会话",
-	"sidebar.search": "搜索会话",
+	"sidebar.search": "搜索会话…",
 	"sidebar.mode.aria": "选择工作模式",
 	"sidebar.mode.code": "代码",
 	"sidebar.mode.codeDescription": "在项目中构建、调试与发布",

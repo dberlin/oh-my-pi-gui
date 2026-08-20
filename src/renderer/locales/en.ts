@@ -298,7 +298,7 @@ export const en: Record<string, string> = {
 	// Sidebar
 	"sidebar.sessions": "Sessions",
 	"sidebar.newSession": "New session",
-	"sidebar.search": "Search sessions",
+	"sidebar.search": "Search sessions…",
 	"sidebar.mode.aria": "Choose workspace mode",
 	"sidebar.mode.code": "Code",
 	"sidebar.mode.codeDescription": "Build, debug, and ship in a project",

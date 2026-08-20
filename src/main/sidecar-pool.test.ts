@@ -1050,11 +1050,13 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 	it("does not retain fire-and-forget extension UI updates", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
-		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire({ cwd: "/a", win: fw.win, tabId: "tab-a" });
 
 		sidecars[0]?.emitEditorText("update-1");
 		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
-		expect(pool.routeSideChannel("update-1", { type: "extension_ui_response", id: "update-1" }, true)).toBe(false);
+		expect(pool.routeSideChannel(fw.win, "update-1", { type: "extension_ui_response", id: "update-1" }, true)).toBe(
+			"unknown",
+		);
 	});
 
 	it("routes an extension-ui response to the raising sidecar even after a tab switch", () => {

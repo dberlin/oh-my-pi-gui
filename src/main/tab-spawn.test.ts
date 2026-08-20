@@ -166,13 +166,14 @@ describe("spawnTabForWindow refusal contracts", () => {
 
 		expect(result).toEqual({ tabId: expect.any(String), cwd: "/default-workspace" });
 		expect(acquire).toHaveBeenCalledWith(
-			"/default-workspace",
-			expect.anything(),
-			expect.any(String),
-			undefined,
-			"agent",
-			undefined,
-			true,
+			expect.objectContaining({
+				cwd: "/default-workspace",
+				fresh: true,
+				kind: "agent",
+				sessionPath: undefined,
+				target: undefined,
+				worktree: undefined,
+			}),
 		);
 		expect(kindFor).not.toHaveBeenCalled();
 	});

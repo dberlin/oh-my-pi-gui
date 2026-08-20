@@ -240,17 +240,18 @@ afterEach(async () => {
 });
 
 describe("App workspace composition", () => {
-	it("keeps banners, context, one canvas, composer, and footer in full-width DOM order", async () => {
+	it("keeps banners, context, one canvas, and composer in full-width DOM order", async () => {
 		await mountWorkspace();
 
+		// No trailing FOOTER: the bottom status strip is gone, its readouts live
+		// in the TitleBar now.
 		const children = [...(container as Element).children] as HTMLElement[];
-		expect(children).toHaveLength(6);
+		expect(children).toHaveLength(5);
 		expect(children[0]?.textContent).toContain("sidecar unavailable");
 		expect(children[1]?.textContent).toContain("9.9.9");
 		expect(children[2]?.getAttribute("data-agent-view")).toBe("main");
 		expect(children[3]?.hasAttribute("data-workspace-canvas")).toBe(true);
 		expect(children[4]?.querySelector("textarea")).not.toBeNull();
-		expect(children[5]?.tagName).toBe("FOOTER");
 		expect((container as Element).querySelectorAll("[data-chat-canvas]")).toHaveLength(1);
 		expect((container as Element).querySelector('[data-testid="workspace-dock-scroll"]')).toBeNull();
 	});
