@@ -1000,12 +1000,13 @@ function FastModeControl({ menuItem = false }: { menuItem?: boolean }) {
 		<button
 			type="button"
 			role={menuItem ? "menuitem" : undefined}
+			aria-pressed={enabled}
 			onClick={() => void useModelStore.getState().toggleFastMode()}
 			title={`${enabled ? t("input.fast.on") : t("input.fast.off")}${active ? t("input.fast.active") : ""}`}
 			className={cx(
 				"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
 				menuItem && "w-full",
-				active ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
+				enabled ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
 			)}
 		>
 			<Zap size={14} fill={active ? "currentColor" : "none"} />
