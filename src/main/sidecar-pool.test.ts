@@ -1249,7 +1249,9 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 
 		sidecars[0]?.emitEditorText("update-1");
 		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
-		expect(pool.routeSideChannel(fw.win, "update-1", { type: "extension_ui_response", id: "update-1" }, true)).toBe("unknown");
+		expect(pool.routeSideChannel(fw.win, "update-1", { type: "extension_ui_response", id: "update-1" }, true)).toBe(
+			"unknown",
+		);
 	});
 
 	it("routes an extension-ui response to the raising sidecar even after a tab switch", () => {
