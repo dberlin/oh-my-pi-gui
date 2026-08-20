@@ -7,6 +7,7 @@ import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { groupReadRows } from "../../lib/read-group";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
 
 import { MessageBubble } from "./MessageBubble";
@@ -653,5 +654,51 @@ describe("MessageBubble read-only actions", () => {
 		const projected = render(true);
 		expect(projected.querySelector(branch)).toBeNull();
 		expect(projected.querySelector(`button[title="${translate("chat.copyMessage")}"]`)).not.toBeNull();
+	});
+});
+
+describe("MessageBubble reasoning disclosure", () => {
+	const reasoning: AgentMessage = {
+		role: "assistant",
+		responseId: "resp-thinking-1",
+		content: [{ type: "thinking", thinking: "Weighing the rebase options carefully." }],
+		timestamp: "2026-08-02T12:00:09.000Z",
+	};
+
+	async function renderBubble(): Promise<{ container: HTMLElement; unmount: () => Promise<void> }> {
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<MessageBubble compact message={reasoning} />
+				</I18nProvider>,
+			);
+		});
+		return {
+			container: container as unknown as HTMLElement,
+			unmount: async () => {
+				await act(async () => root.unmount());
+				container.remove();
+			},
+		};
+	}
+
+	it("keeps an opened reasoning block open when the row is virtualized away and back", async () => {
+		useUiStore.setState({ disclosureOpen: {}, thinkingExpanded: false });
+		const first = await renderBubble();
+		const toggle = first.container.querySelector(".omp-thinking-compact-toggle");
+		await act(async () => {
+			toggle?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+		await first.unmount();
+
+		const second = await renderBubble();
+		expect(second.container.querySelector(".omp-thinking-compact-toggle")?.getAttribute("aria-expanded")).toBe(
+			"true",
+		);
+		await second.unmount();
 	});
 });
