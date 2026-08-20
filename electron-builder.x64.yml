@@ -7,7 +7,7 @@ files:
   - out/**/*
   - "!node_modules/**/*"
 extraResources:
-  - from: resources/omp
+  - from: resources/omp.x64
     to: omp
 asar: true
 compression: maximum
@@ -19,14 +19,10 @@ mac:
   # This preserves macOS's user-override flow instead of presenting the app as damaged.
   identity: "-"
   target:
-    # arm64 only here — x64 builds go through electron-builder.x64.yml, which
-    # points extraResources at the x86_64 sidecar (resources/omp.x64) instead of
-    # the arm64 one below. Building x64 from this config would ship the wrong-arch
-    # sidecar.
     - target: dmg
-      arch: [arm64]
+      arch: [x64]
     - target: zip
-      arch: [arm64]
+      arch: [x64]
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: resources/entitlements.mac.plist
@@ -43,31 +39,6 @@ dmg:
       y: 220
       type: link
       path: /Applications
-
-win:
-  icon: resources/icon.ico
-  target:
-    - target: nsis
-      arch: [x64]
-    - target: portable
-      arch: [x64]
-
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  deleteAppDataOnUninstall: false
-
-linux:
-  icon: resources/icons
-  category: Development
-  target:
-    - target: AppImage
-      arch: [x64]
-    - target: deb
-      arch: [x64]
-  desktop:
-    entry:
-      StartupWMClass: omp-gui
 
 publish:
   provider: github
