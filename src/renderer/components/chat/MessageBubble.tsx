@@ -11,6 +11,7 @@ import { extractModelMentions, type ModelMentionChip } from "../../lib/model-men
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import type { ResolveToolCall } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { thinkingDisclosureKey } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
@@ -416,6 +417,7 @@ export const MessageBubble = memo(function MessageBubble({
 
 	// Assistant / system: render block by block.
 	const blocks: ReactNode[] = [];
+	let thinkingOrdinal = 0;
 	let sawNonToolBlock = false;
 	for (const block of content) {
 		switch (block.type) {
@@ -428,7 +430,14 @@ export const MessageBubble = memo(function MessageBubble({
 			}
 			case "thinking": {
 				if (isRenderableMessageText(block.thinking)) {
-					blocks.push(<ThinkingBlock compact={compact} key={blocks.length} text={block.thinking} />);
+					blocks.push(
+						<ThinkingBlock
+							compact={compact}
+							disclosureKey={thinkingDisclosureKey(message, thinkingOrdinal++)}
+							key={blocks.length}
+							text={block.thinking}
+						/>,
+					);
 					sawNonToolBlock = true;
 				}
 				break;

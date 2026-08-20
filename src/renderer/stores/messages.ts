@@ -167,6 +167,15 @@ interface IrcTranscriptMessage extends AgentMessage {
 	customType: "irc:incoming" | "irc:autoreply" | "irc:relay";
 }
 
+/**
+ * Stable id for a message's reasoning disclosure, shared by the live row and
+ * the finalized bubble so the reader's open/closed choice survives the swap.
+ * `ordinal` counts thinking blocks within the message, not content blocks —
+ * the renderer's block layout must not be able to shift the key.
+ */
+export function thinkingDisclosureKey(message: AgentMessage, ordinal: number): string {
+	return `${messageIdentityKey(message)}:thinking:${ordinal}`;
+}
 function isIrcTranscriptMessage(value: unknown): value is IrcTranscriptMessage {
 	if (value == null || typeof value !== "object" || Array.isArray(value)) return false;
 	const record = value as Record<string, unknown>;
