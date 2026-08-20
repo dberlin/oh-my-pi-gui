@@ -1,5 +1,5 @@
-import type { AgentMessage, ImageContent } from "../../shared/rpc-types";
-import { hydrateSession } from "../hooks/use-rpc-events";
+import type { AgentMessage, ImageContent, RpcResponse } from "../../shared/rpc-types";
+import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
 import { toast } from "../stores/toast";
@@ -47,6 +47,21 @@ export async function retryLastTurn(onEmpty: () => void): Promise<void> {
 	const streaming = useSessionStore.getState().isStreaming;
 	const response = streaming ? await window.omp.rpc.abortAndPrompt(text) : await window.omp.rpc.prompt(text);
 	if (!response.success) throw new Error(response.error);
+}
+
+/** Abort the active turn and synchronously retire any live retry UI. */
+export async function abortActiveTurn(): Promise<RpcResponse> {
+	const retrying = useSessionStore.getState().retryInfo !== null;
+	if (retrying) {
+		resetRetryPending();
+		useSessionStore.setState({ retryInfo: null, awaitingModelSince: null });
+		try {
+			await window.omp.rpc.abortRetry();
+		} catch {
+			// Generic abort below also cancels retry server-side.
+		}
+	}
+	return window.omp.rpc.abort();
 }
 
 /** Branch from a user entry, restoring its draft and refreshing the session. */

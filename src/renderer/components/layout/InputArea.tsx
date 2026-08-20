@@ -8,6 +8,7 @@ import { tryEmojiInlineReplace } from "../../lib/emoji";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { parseComposerMode } from "../../lib/input-modes";
+import { abortActiveTurn } from "../../lib/messages";
 import {
 	dropReferencedPastes,
 	expandPasteMarkers,
@@ -963,7 +964,7 @@ export function InputArea() {
 									<button
 										type="button"
 										disabled={!routeReady}
-										onClick={() => void window.omp.rpc.abort()}
+										onClick={() => void abortActiveTurn()}
 										title={t("input.abort")}
 										className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-error-dim)] text-[var(--omp-error)] hover:bg-[var(--omp-error)] hover:text-[var(--omp-btn-danger-text)]"
 									>

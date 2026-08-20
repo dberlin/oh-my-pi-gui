@@ -69,6 +69,15 @@ class FakeSidecar extends EventEmitter {
 			message: "ok?",
 		});
 	}
+	emitEditorText(id: string): void {
+		this.emit("extensionUi", {
+			type: "extension_ui_request",
+			id,
+			method: "set_editor_text",
+			text: "restore me",
+			prepend: true,
+		});
+	}
 	emitHostToolCall(id: string): void {
 		this.emit("hostToolCall", { type: "host_tool_call", id, name: "gui_tool", args: {} });
 	}
@@ -694,6 +703,16 @@ describe("SidecarPool session cwd tracking", () => {
 });
 
 describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
+	it("does not retain fire-and-forget extension UI updates", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+
+		sidecars[0]?.emitEditorText("update-1");
+		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
+		expect(pool.routeSideChannel("update-1", { type: "extension_ui_response", id: "update-1" }, true)).toBe(false);
+	});
+
 	it("routes an extension-ui response to the raising sidecar even after a tab switch", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

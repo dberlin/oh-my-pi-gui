@@ -48,7 +48,7 @@ import { useTraySync } from "./hooks/use-tray-sync";
 import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
-import { restoreQueuedMessages } from "./lib/messages";
+import { abortActiveTurn, restoreQueuedMessages } from "./lib/messages";
 import { acceptsActiveTabEvents } from "./lib/tab-routing";
 import { applyFontSize, applyTheme, watchSystemTheme } from "./lib/theme";
 import { applyThemeByName, getPersistedThemeSelection, initAgentThemeSync } from "./lib/themes";
@@ -423,7 +423,7 @@ export function App() {
 					!overlayOpen &&
 					!document.querySelector('[role="dialog"]')
 				)
-					void window.omp.rpc.abort();
+					void abortActiveTurn();
 				return;
 			}
 

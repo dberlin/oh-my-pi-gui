@@ -630,7 +630,11 @@ export function ExtensionDialog() {
 				}
 				removeRequest(req.id);
 			} else if (req.method === "set_editor_text") {
-				window.dispatchEvent(new CustomEvent("omp:fill-composer", { detail: { text: req.text } }));
+				window.dispatchEvent(
+					new CustomEvent("omp:fill-composer", {
+						detail: { text: req.text, images: req.images, prepend: req.prepend },
+					}),
+				);
 				removeRequest(req.id);
 			} else if (req.method === "setTitle") {
 				document.title = req.title;

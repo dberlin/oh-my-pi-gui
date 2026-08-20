@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { copyText, cx, formatClock } from "../../lib/format";
+import { copyText, cx, formatClock, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { branchSessionFromEntry, isRenderableMessageText } from "../../lib/messages";
@@ -68,6 +68,14 @@ function toolSummary(toolName: string, input: Record<string, unknown>): string {
 			return pick("path", "name", "i") ?? "";
 	}
 }
+
+const COMPACTION_METHOD_KEYS: Record<string, string> = {
+	remote: "chat.context.compactionMethod.remote",
+	soft: "chat.context.compactionMethod.soft",
+	handoff: "chat.context.compactionMethod.handoff",
+	snapcompact: "chat.context.compactionMethod.snapcompact",
+	shake: "chat.context.compactionMethod.shake",
+};
 
 function InlineImage({ image }: { image: ImageContent }) {
 	const t = useT();
@@ -178,11 +186,25 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 function ContextBubble({ message }: { message: AgentMessage }) {
 	const t = useT();
 	const isFiles = message.role === "fileMention";
+	const compactionMethodKey = message.method ? COMPACTION_METHOD_KEYS[message.method] : undefined;
+	const compactionMethod = message.method
+		? compactionMethodKey
+			? t(compactionMethodKey)
+			: message.method
+		: undefined;
 	const label =
 		message.role === "compactionSummary"
-			? message.tokensBefore
-				? t("chat.context.compactedFrom", { tokens: message.tokensBefore.toLocaleString() })
-				: t("chat.context.compacted")
+			? compactionMethod && message.tokensBefore !== undefined && message.tokensAfter !== undefined
+				? t("chat.context.compactedByFromTo", {
+						method: compactionMethod,
+						before: formatTokens(message.tokensBefore),
+						after: formatTokens(message.tokensAfter),
+					})
+				: compactionMethod
+					? t("chat.context.compactedBy", { method: compactionMethod })
+					: message.tokensBefore
+						? t("chat.context.compactedFrom", { tokens: message.tokensBefore.toLocaleString() })
+						: t("chat.context.compacted")
 			: message.role === "branchSummary"
 				? t("chat.context.branchSummary")
 				: t("chat.context.referencedFiles");

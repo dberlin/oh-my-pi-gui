@@ -158,6 +158,42 @@ describe("GUI settings visibility", () => {
 		expect(html).not.toContain("Status Line Separator");
 		expect(html).not.toContain(">Status Line</h3>");
 	});
+
+	it("renders fixed ordered arrays as choices instead of an arbitrary text field", () => {
+		const methodOrder = entry({
+			path: "compaction.methodOrder",
+			type: "array",
+			value: ["remote", "soft"],
+			default: ["remote", "soft"],
+			tab: "context",
+			group: "Compaction",
+			ordered: true,
+			options: [
+				{ value: "remote", label: "OpenAI server compaction" },
+				{ value: "soft", label: "Soft compaction" },
+				{ value: "shake", label: "Shake" },
+			],
+		});
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<SchemaTabContent
+					entries={[methodOrder]}
+					groups={["Compaction"]}
+					onCommitted={() => {}}
+					tabId="context"
+					values={{ "compaction.methodOrder": ["remote", "soft"] }}
+				/>
+			</I18nProvider>,
+		);
+
+		expect(html).toContain("<select");
+		expect(html).toContain('value="shake"');
+		expect(html).toContain(">OpenAI server compaction<");
+		expect(html).toContain(">Soft compaction<");
+		expect(html).not.toContain('value="remote"');
+		expect(html).not.toContain('value="soft"');
+		expect(html).not.toContain("<input");
+	});
 });
 
 describe("SchemaTabContent zh translations", () => {

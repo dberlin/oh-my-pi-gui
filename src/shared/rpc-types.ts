@@ -1079,7 +1079,14 @@ export type ExtensionUIRequest =
 			widgetPlacement?: string;
 	  }
 	| { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
-	| { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "set_editor_text";
+			text: string;
+			images?: ImageContent[];
+			prepend?: boolean;
+	  }
 	| {
 			type: "extension_ui_request";
 			id: string;
@@ -1394,6 +1401,8 @@ export interface AgentMessage {
 	summary?: string;
 	shortSummary?: string;
 	tokensBefore?: number;
+	tokensAfter?: number;
+	method?: string;
 	files?: Array<{
 		path: string;
 		content: string;

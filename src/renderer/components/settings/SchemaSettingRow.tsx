@@ -281,6 +281,10 @@ function SchemaSettingRow({
 							disabled={saving}
 							onCommit={next => void commit(next)}
 							ordered={entry.ordered === true}
+							options={entry.options?.map(option => ({
+								value: option.value,
+								label: lang === "zh" ? (ZH_SCHEMA_OPTION_TEXT[option.label] ?? option.label) : option.label,
+							}))}
 							values={value as string[]}
 						/>
 					</div>

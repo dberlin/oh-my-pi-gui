@@ -278,6 +278,17 @@ export const ZH_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	Snapcompact: "Snapcompact",
 	"Archive history onto dense bitmap images the model reads back; no LLM call":
 		"将历史记录归档为可供模型读回的高密度位图图像；无需调用 LLM",
+	"OpenAI server compaction": "OpenAI 服务端压缩",
+	"Use provider-native OpenAI-compatible server compaction when the active route supports it":
+		"当前路由支持时，使用提供商原生的 OpenAI 兼容服务端压缩",
+	"Archive history onto dense bitmap images the active vision model reads back; no LLM call":
+		"将历史记录归档为当前视觉模型可读回的高密度位图；无需调用 LLM",
+	"Generate a handoff document and continue from it as the compaction summary":
+		"生成交接文档，并将其作为压缩摘要继续当前会话",
+	"Soft compaction": "软压缩",
+	"Summarize in place with a compaction model without using server compaction":
+		"使用压缩模型原地总结，不调用服务端压缩",
+	"Drop recoverable heavy content in place without an LLM call": "原地移除可恢复的大块内容；无需调用 LLM",
 	"Disable automatic context maintenance (same behavior as Auto-compact off)":
 		"禁用自动上下文维护（与关闭 Auto-compact 的行为相同）",
 	"Legacy reserve-based threshold": "旧版基于预留量的阈值",

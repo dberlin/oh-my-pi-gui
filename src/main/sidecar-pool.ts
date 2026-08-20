@@ -36,23 +36,24 @@ import {
 	type IpcTabStatusPayload,
 	type IpcTabWorktree,
 } from "../shared/ipc-types";
-import type {
-	AgentSessionEvent,
-	AvailableCommand,
-	CommandOutputFrame,
-	ConfigUpdateFrame,
-	ExtensionErrorFrame,
-	ExtensionUIRequest,
-	HostToolCallRequest,
-	HostUriRequest,
-	ModelCatalogUpdateFrame,
-	PromptResultFrame,
-	RpcCommand,
-	RpcLiveUpdateFrame,
-	RpcResponse,
-	SessionInfoUpdateFrame,
-	SidecarStatus,
-	SubagentFrame,
+import {
+	type AgentSessionEvent,
+	type AvailableCommand,
+	BLOCKING_UI_METHODS,
+	type CommandOutputFrame,
+	type ConfigUpdateFrame,
+	type ExtensionErrorFrame,
+	type ExtensionUIRequest,
+	type HostToolCallRequest,
+	type HostUriRequest,
+	type ModelCatalogUpdateFrame,
+	type PromptResultFrame,
+	type RpcCommand,
+	type RpcLiveUpdateFrame,
+	type RpcResponse,
+	type SessionInfoUpdateFrame,
+	type SidecarStatus,
+	type SubagentFrame,
 } from "../shared/rpc-types";
 import type { SidecarManager } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
@@ -299,9 +300,9 @@ export class SidecarPool {
 			forwardActive(IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
 		});
 		wire("extensionUi", (request: ExtensionUIRequest) => {
-			// F-UI-ORIGIN: the response must reach THIS sidecar even if the user
-			// switches tabs while the dialog is open — track the request id.
-			this.#requestOwners.set(request.id, entry);
+			// Only response-bearing requests need an origin route. Fire-and-forget
+			// UI updates never reply, so retaining them here leaks the owning tab.
+			if (BLOCKING_UI_METHODS[request.method]) this.#requestOwners.set(request.id, entry);
 			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
 		});
 		wire("hostToolCall", (request: HostToolCallRequest) => {

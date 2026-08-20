@@ -195,6 +195,47 @@ describe("MessageBubble user content", () => {
 	});
 });
 
+describe("MessageBubble compaction summaries", () => {
+	it("shows the maintenance method and before-to-after context size", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "compactionSummary",
+						summary: "Kept the active work.",
+						method: "remote",
+						tokensBefore: 256_000,
+						tokensAfter: 20_000,
+						timestamp: "2026-08-20T00:00:00.000Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+
+		expect(html).toContain("Remote compacted · 256.0k → 20.0k");
+		expect(html).toContain("Kept the active work.");
+	});
+
+	it("preserves an unknown maintenance method and a zero-token starting point", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "compactionSummary",
+						summary: "Future compactor finished.",
+						method: "future",
+						tokensBefore: 0,
+						tokensAfter: 12,
+						timestamp: "2026-08-20T00:00:00.000Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+
+		expect(html).toContain("future · 0 → 12");
+	});
+});
+
 describe("MessageBubble noise filtering", () => {
 	const at = "2026-08-02T12:00:00.000Z";
 

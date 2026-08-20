@@ -20,12 +20,15 @@ export interface ArrayChipEditorProps {
 	placeholder?: string;
 	/** When true, render positions and move up/down controls (order is meaningful). */
 	ordered?: boolean;
+	/** Fixed schema choices; when present, prevent arbitrary values. */
+	options?: Array<{ value: string; label: string }>;
 }
 
-export function ArrayChipEditor({ values, onCommit, disabled, placeholder, ordered }: ArrayChipEditorProps) {
+export function ArrayChipEditor({ values, onCommit, disabled, placeholder, ordered, options }: ArrayChipEditorProps) {
 	const t = useT();
 	const [draft, setDraft] = useState("");
-	const inputRef = useRef<HTMLInputElement>(null);
+	const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+	const availableOptions = options?.filter(option => !values.includes(option.value));
 
 	const add = (raw: string) => {
 		const items = raw
@@ -70,7 +73,7 @@ export function ArrayChipEditor({ values, onCommit, disabled, placeholder, order
 					key={`${value}-${index}`}
 				>
 					{ordered && <span className="text-(--omp-dim)">{index + 1}.</span>}
-					{value}
+					{options?.find(option => option.value === value)?.label ?? value}
 					{ordered && !disabled && (
 						<span className="inline-flex flex-col">
 							<button
@@ -114,7 +117,25 @@ export function ArrayChipEditor({ values, onCommit, disabled, placeholder, order
 					)}
 				</span>
 			))}
-			{!disabled && (
+			{!disabled && availableOptions ? (
+				<select
+					aria-label={placeholder ?? t("settings.editors.chipPlaceholder")}
+					className="min-w-[130px] flex-1 bg-transparent text-omp-sm text-(--omp-text) outline-none"
+					disabled={availableOptions.length === 0}
+					onChange={event => add(event.target.value)}
+					ref={element => {
+						inputRef.current = element;
+					}}
+					value=""
+				>
+					<option value="">{placeholder ?? t("settings.editors.chipPlaceholder")}</option>
+					{availableOptions.map(option => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</select>
+			) : !disabled ? (
 				<input
 					className="min-w-[70px] flex-1 bg-transparent font-mono text-omp-sm text-(--omp-text) outline-none placeholder:text-(--omp-dim)"
 					disabled={disabled}
@@ -122,11 +143,13 @@ export function ArrayChipEditor({ values, onCommit, disabled, placeholder, order
 					onChange={e => setDraft(e.target.value)}
 					onKeyDown={onKeyDown}
 					placeholder={values.length === 0 ? (placeholder ?? t("settings.editors.chipPlaceholder")) : ""}
-					ref={inputRef}
+					ref={element => {
+						inputRef.current = element;
+					}}
 					spellCheck={false}
 					value={draft}
 				/>
-			)}
+			) : null}
 		</div>
 	);
 }

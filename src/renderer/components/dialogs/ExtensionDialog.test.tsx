@@ -176,11 +176,11 @@ describe("ExtensionDialog non-dialog mutations", () => {
 
 	it("fills the composer for set_editor_text and applies extension window titles", async () => {
 		await mount();
-		let editorText: string | undefined;
+		let editorDetail: { text?: string; images?: unknown[]; prepend?: boolean } | undefined;
 		window.addEventListener(
 			"omp:fill-composer",
 			(event: Event) => {
-				editorText = (event as CustomEvent<{ text?: string }>).detail.text;
+				editorDetail = (event as CustomEvent<{ text?: string; images?: unknown[]; prepend?: boolean }>).detail;
 			},
 			{ once: true },
 		);
@@ -191,6 +191,8 @@ describe("ExtensionDialog non-dialog mutations", () => {
 				id: "editor-1",
 				method: "set_editor_text",
 				text: "restored draft",
+				images: [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }],
+				prepend: true,
 			});
 			useExtensionUiStore.getState().pushRequest({
 				type: "extension_ui_request",
@@ -201,7 +203,11 @@ describe("ExtensionDialog non-dialog mutations", () => {
 		});
 		await flush();
 
-		expect(editorText).toBe("restored draft");
+		expect(editorDetail).toEqual({
+			text: "restored draft",
+			images: [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }],
+			prepend: true,
+		});
 		expect(document.title).toBe("Extension task");
 		expect(useExtensionUiStore.getState().pendingRequests).toEqual([]);
 	});

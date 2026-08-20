@@ -21,6 +21,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { RpcAgentDefinitionInfo, SubagentSnapshot } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { abortActiveTurn } from "../../lib/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Modal, Spinner, type TabItem, Tabs } from "../common";
@@ -724,7 +725,7 @@ function HubTab() {
 	const abortTurn = useCallback(async () => {
 		setAborting(true);
 		try {
-			const res = await window.omp.rpc.abort();
+			const res = await abortActiveTurn();
 			if (!res.success) {
 				toast({ variant: "error", title: t("agentHub.hub.abortFailed"), message: res.error });
 			}

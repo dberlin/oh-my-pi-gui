@@ -393,15 +393,18 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "自动提升上下文",
 		description: "上下文溢出时提升到更大上下文的模型，而不是压缩",
 	},
+	extendedContext: {
+		label: "扩展上下文",
+		description: "对超过标准计费阈值会加价的模型启用扩展上下文；关闭后会在标准计费窗口前触发压缩。",
+	},
 	"compaction.enabled": { label: "自动压缩", description: "上下文过大时自动压缩" },
 	"compaction.midTurnEnabled": {
 		label: "轮中压缩",
 		description: "在下一次提供商请求之前，于安全的轮中工具循环边界检查阈值",
 	},
-	"compaction.strategy": {
-		label: "压缩策略",
-		description:
-			"选择原地上下文满载维护、自动交接、手术式剔除（丢弃沉重内容）、snapcompact（将历史归档为密集图片），或关闭自动维护（off）",
+	"compaction.methodOrder": {
+		label: "压缩方法顺序",
+		description: "自动维护上下文时按此顺序尝试；当前方法不可用或失败后会继续下一个。",
 	},
 	"compaction.thresholdPercent": {
 		label: "压缩阈值",
@@ -415,10 +418,13 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "保存交接文档",
 		description: "为自动交接流程把生成的交接文档保存为 markdown 文件",
 	},
-	"compaction.remoteEnabled": { label: "远程压缩", description: "可用时使用远程压缩端点，而非本地摘要" },
 	"compaction.remoteStreamingV2Enabled": {
 		label: "远程压缩 V2",
 		description: "对兼容的远程压缩模型使用 Responses 流式压缩",
+	},
+	"compaction.asyncEnabled": {
+		label: "异步压缩",
+		description: "接近阈值时在后台预先生成压缩结果，达到阈值后立即接入当前会话。",
 	},
 	"compaction.idleEnabled": { label: "空闲压缩", description: "token 数超过阈值时在空闲时压缩上下文" },
 	"compaction.idleThresholdTokens": { label: "空闲压缩阈值", description: "触发空闲压缩的 token 数" },
@@ -1250,6 +1256,14 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"bash.autoBackground.thresholdMs": {
 		label: "自动后台阈值",
 		description: "bash 命令运行超过此毫秒数后自动转入后台（默认 60000）",
+	},
+	"eval.autoBackground.enabled": {
+		label: "Eval 自动转后台",
+		description: "自动把长时间运行的 eval 单元转入后台，完成后再投递结果。",
+	},
+	"eval.autoBackground.thresholdMs": {
+		label: "Eval 自动后台阈值",
+		description: "eval 单元运行超过此毫秒数后自动转入后台（默认 60000）。",
 	},
 	// 任务
 	"task.disabledAgents": {
