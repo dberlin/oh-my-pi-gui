@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **macOS first-launch override**: release bundles are now completely ad-hoc signed, preserving Gatekeeper's user-override flow instead of being rejected as a corrupted bundle when no Developer ID certificate is available.
+
 ## [0.8.3] - 2026-08-20
 
 ### Changed

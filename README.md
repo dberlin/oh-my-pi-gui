@@ -170,7 +170,7 @@ Releases are published **only** from this repo, to [`github.com/nornzach/oh-my-p
 2. Bump `version` in `package.json`, write the `CHANGELOG.md` section, update the Install links above.
 3. `bunx vitest run && bun run check:types && bun run build`.
 4. `bun run build:omp && bun run build:omp:x64` — smoke-test each binary (`resources/omp --smoke-test`, or launch with `--mode rpc-ui` and expect `{"type":"ready"}`).
-5. `bun run package:mac:arm64 -- --publish never` and `bun run package:mac:x64 -- --publish never`; mount both DMGs, verify the bundled sidecar is the matching arch (`file …/Contents/Resources/omp`), launch each app once (sidecar `ready`, settings toggle persists).
+5. `bun run package:mac:arm64 -- --publish never` and `bun run package:mac:x64 -- --publish never`; verify both app bundles are sealed (`codesign --verify --deep --strict --verbose=2 <path-to-omp.app>`), mount both DMGs, verify the bundled sidecar is the matching arch (`file …/Contents/Resources/omp`), and launch each app once (sidecar `ready`, settings toggle persists).
 6. Commit, tag `vX.Y.Z`, push `main` + tag, publish the GitHub Release with both DMGs and the changelog body.
 
 ---
