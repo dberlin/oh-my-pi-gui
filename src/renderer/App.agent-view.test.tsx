@@ -248,7 +248,6 @@ afterEach(async () => {
 
 describe("App workspace composition", () => {
 
-
 	it("keeps the transcript and composer mounted when a complete activity section crashes", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		useTodoStore.setState({ phases: null as never });

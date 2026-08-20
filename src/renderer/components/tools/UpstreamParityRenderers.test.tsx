@@ -95,6 +95,7 @@ describe("omp 18.1.9 renderer parity", () => {
 					},
 				}}
 				result={null}
+				view="expanded"
 			/>,
 		);
 
