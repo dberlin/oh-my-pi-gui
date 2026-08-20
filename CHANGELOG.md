@@ -2,9 +2,17 @@
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-08-21
+
+### Changed
+
+- **Bundled agent upgraded to omp 17.4.0**: packaged sidecars now include the latest upstream context-maintenance, provider, tool, and runtime fixes from monorepo commit `8a4f72647a`.
+- **Context-maintenance parity**: settings now expose current compaction ordering, asynchronous compaction, extended-context, and eval background options, while transcript summaries show the selected method and before/after token counts.
+
 ### Fixed
 
-- **macOS first-launch override**: release bundles are now completely ad-hoc signed, preserving Gatekeeper's user-override flow instead of being rejected as a corrupted bundle when no Developer ID certificate is available.
+- **Session and extension recovery**: aborting an active retry clears its pending UI and server retry state, and fire-and-forget extension UI updates no longer retain stale tab ownership.
+- **macOS first-launch override**: release bundles are now completely ad-hoc signed, preserving Gatekeeper's user-override flow instead of being rejected as a corrupted bundle when no Developer ID certificate is available ([#2](https://github.com/nornzach/oh-my-pi-gui/pull/2) by [@Brandon168](https://github.com/Brandon168)).
 
 ## [0.8.3] - 2026-08-20
 

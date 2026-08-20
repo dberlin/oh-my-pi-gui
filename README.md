@@ -76,12 +76,12 @@ The omp TUI is powerful, but some things are easier with a visual interface. omp
 
 ### Install
 
-Current release: [**v0.8.3**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.8.3)
+Current release: [**v0.8.4**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.8.4)
 
-- **Apple Silicon (M1/M2/M3/M4):** `omp-0.8.3-arm64.dmg`
-- **Intel:** `omp-0.8.3.dmg`
+- **Apple Silicon (M1/M2/M3/M4):** `omp-0.8.4-arm64.dmg`
+- **Intel:** `omp-0.8.4.dmg`
 
-Open the `.dmg` and drag **omp** into **Applications**. The build is unsigned, so on first launch macOS may block it: **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*).
+Open the `.dmg` and drag **omp** into **Applications**. The build is ad-hoc signed but not notarized, so on first launch macOS may block it: **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*).
 
 ### Quick Start
 
@@ -159,7 +159,7 @@ bun run check:types       # tsc
 | `replacing stale addon … version sentinel ≠ <ver>` | Informational: the monorepo's cached `pi_natives` was from an older release; the script replaced it automatically. No action needed. |
 | `Failed to download @oh-my-pi/pi-natives-<platform>@<ver>` | That natives version isn't on npm yet (fresh upstream bump). Build it from source: `bun --cwd=packages/natives run build` (Rust toolchain required), then re-run `build:omp`. |
 | Intel DMG crashes at launch / sidecar exits immediately | Wrong-arch sidecar packaged. Always use `bun run package:mac:x64` for Intel — the default `package:mac` config ships `resources/omp` (arm64). |
-| macOS blocks first launch | The build is unsigned: **right-click → Open**, or *System Settings → Privacy & Security → Open Anyway*. |
+| macOS blocks first launch | The build is ad-hoc signed but not notarized: **right-click → Open**, or *System Settings → Privacy & Security → Open Anyway*. |
 | Syncing the monorepo with upstream | Run `bash packages/gui/scripts/sync-upstream.sh` from the monorepo root — it merges upstream, re-provisions natives, rebuilds the sidecar, and runs the GUI build + tests. |
 
 ### Release process (maintainers)
@@ -230,12 +230,12 @@ omp TUI 很强大,但有些事情用可视化界面更方便。omp GUI 不替代
 
 ### 安装
 
-当前版本：[**v0.8.3**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.8.3)
+当前版本：[**v0.8.4**](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.8.4)
 
-- **Apple Silicon（M1/M2/M3/M4）：** `omp-0.8.3-arm64.dmg`
-- **Intel：** `omp-0.8.3.dmg`
+- **Apple Silicon（M1/M2/M3/M4）：** `omp-0.8.4-arm64.dmg`
+- **Intel：** `omp-0.8.4.dmg`
 
-打开 `.dmg`,把 **omp** 拖进 **应用程序**。构建未签名,首次打开 macOS 可能拦截:**右键 → 打开**(或 *系统设置 → 隐私与安全性 → 仍要打开*)。
+打开 `.dmg`,把 **omp** 拖进 **应用程序**。当前构建采用 ad-hoc 签名但未经 Apple 公证,首次打开 macOS 可能拦截:**右键 → 打开**(或 *系统设置 → 隐私与安全性 → 仍要打开*)。
 
 ### 快速上手
 
@@ -313,7 +313,7 @@ bun run check:types       # tsc 类型检查
 | 日志出现 `replacing stale addon … version sentinel ≠ <版本>` | 提示信息：monorepo 缓存的 `pi_natives` 来自旧版本,脚本已自动替换。无需处理。 |
 | 报 `Failed to download @oh-my-pi/pi-natives-<平台>@<版本>` | 该版本原生插件尚未发布到 npm（上游刚升版）。改用源码构建：`bun --cwd=packages/natives run build`（需要 Rust 工具链）,然后重跑 `build:omp`。 |
 | Intel DMG 启动即崩溃 / sidecar 立即退出 | 打进了错误架构的 sidecar。Intel 包必须用 `bun run package:mac:x64`——默认 `package:mac` 配置装的是 `resources/omp`（arm64）。 |
-| macOS 首次启动被拦截 | 构建未签名：**右键 → 打开**,或 *系统设置 → 隐私与安全性 → 仍要打开*。 |
+| macOS 首次启动被拦截 | 当前构建采用 ad-hoc 签名但未经 Apple 公证：**右键 → 打开**,或 *系统设置 → 隐私与安全性 → 仍要打开*。 |
 | 需要同步 monorepo 上游 | 在 monorepo 根目录运行 `bash packages/gui/scripts/sync-upstream.sh`——自动合并上游、重备原生插件、重建 sidecar,并执行 GUI 构建与测试。 |
 
 ### 发布流程（维护者）
