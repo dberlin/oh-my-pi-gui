@@ -9,6 +9,7 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { branchSessionFromEntry, isRenderableMessageText } from "../../lib/messages";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import type { ResolveToolCall } from "../../lib/read-group";
+import { thinkingDisclosureKey } from "../../stores/messages";
 import { toast } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
@@ -333,6 +334,7 @@ export const MessageBubble = memo(function MessageBubble({
 
 	// Assistant / system: render block by block.
 	const blocks: ReactNode[] = [];
+	let thinkingOrdinal = 0;
 	let sawNonToolBlock = false;
 	for (const block of content) {
 		switch (block.type) {
@@ -345,7 +347,14 @@ export const MessageBubble = memo(function MessageBubble({
 			}
 			case "thinking": {
 				if (isRenderableMessageText(block.thinking)) {
-					blocks.push(<ThinkingBlock compact={compact} key={blocks.length} text={block.thinking} />);
+					blocks.push(
+						<ThinkingBlock
+							compact={compact}
+							disclosureKey={thinkingDisclosureKey(message, thinkingOrdinal++)}
+							key={blocks.length}
+							text={block.thinking}
+						/>,
+					);
 					sawNonToolBlock = true;
 				}
 				break;

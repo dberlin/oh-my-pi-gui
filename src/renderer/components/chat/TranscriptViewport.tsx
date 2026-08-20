@@ -23,11 +23,12 @@ import { cx, formatShortClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isRenderableMessageText } from "../../lib/messages";
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry, type ResolveToolCall } from "../../lib/read-group";
+import { thinkingDisclosureKey } from "../../stores/messages";
 import { type QueueLane, useQueueStore } from "../../stores/queue";
 import { toast } from "../../stores/toast";
 import type { TodoSnapshot } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
-import type { TranscriptDetail } from "../../stores/ui";
+import { scopedDisclosureKey, type TranscriptDetail, useDisclosureScope, useUiStore } from "../../stores/ui";
 import { PiLogo } from "../common";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
@@ -121,6 +122,24 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 		transcriptDetail,
 		transcriptId,
 	} = projection;
+	// One live reasoning disclosure per transcript. message_end replaces the row
+	// with a finalized bubble keyed by message identity, so hand the choice over
+	// rather than letting the swap silently collapse it.
+	const liveThinkingKey = `${transcriptId}:live:thinking`;
+	const carryDisclosure = useUiStore(s => s.carryDisclosure);
+	const disclosureScope = useDisclosureScope();
+	const lastMessage = messages.at(-1);
+	useEffect(() => {
+		if (streamingMessage !== null || lastMessage === undefined) return;
+		const hasThinking =
+			Array.isArray(lastMessage.content) && lastMessage.content.some(block => block.type === "thinking");
+		if (!hasThinking) return;
+		carryDisclosure(
+			scopedDisclosureKey(disclosureScope, liveThinkingKey),
+			scopedDisclosureKey(disclosureScope, thinkingDisclosureKey(lastMessage, 0)),
+		);
+	}, [carryDisclosure, disclosureScope, lastMessage, liveThinkingKey, streamingMessage]);
+
 	const hasStreamingText = isRenderableMessageText(streamingText);
 	const hasStreamingThinking = isRenderableMessageText(streamingThinking);
 	const isStreaming = main?.isStreaming ?? streamingMessage !== null;
@@ -491,6 +510,7 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 									) : row.kind === "streaming" ? (
 										<StreamingRows
 											activeTools={activeTools}
+											liveThinkingKey={liveThinkingKey}
 											streamGeneration={streamGeneration}
 											resolveToolCall={resolveToolCall}
 											streamingMessage={streamingMessage}
@@ -501,7 +521,7 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 									) : row.kind === "queued" ? (
 										<QueuedMessageBubble item={row.item} lane={row.lane} />
 									) : row.kind === "todoSnapshot" ? (
-										<TodoSnapshotCard entry={row.entry} />
+										<TodoSnapshotCard disclosureKey={`todo:${item.key}`} entry={row.entry} />
 									) : row.kind === "expander" ? (
 										<button
 											type="button"
@@ -614,6 +634,7 @@ export function ProcessGroup({
  */
 export function StreamingRows({
 	activeTools,
+	liveThinkingKey,
 	resolveToolCall,
 	streamingMessage,
 	streamingText,
@@ -622,6 +643,8 @@ export function StreamingRows({
 	transcriptDetail,
 }: {
 	activeTools: ReadonlyMap<string, ToolEntry>;
+	/** Disclosure id handed to the finalized bubble when this turn settles. */
+	liveThinkingKey?: string;
 	streamGeneration?: number;
 	resolveToolCall?: ResolveToolCall;
 	streamingMessage: AgentMessage | null;
@@ -738,6 +761,7 @@ export function StreamingRows({
 			<div className="omp-streaming-turn flex flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4">
 				{hasThinking ? (
 					<ThinkingBlock
+						disclosureKey={liveThinkingKey}
 						live
 						streamingTextStarted={isRenderableMessageText(streamingText)}
 						text={streamingThinking}
@@ -756,6 +780,7 @@ export function StreamingRows({
 			{hasThinking ? (
 				<ThinkingBlock
 					compact
+					disclosureKey={liveThinkingKey}
 					live
 					streamingTextStarted={isRenderableMessageText(streamingText)}
 					text={streamingThinking}
@@ -945,9 +970,14 @@ function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: Que
  * shows the phase/task state at that time, read-only — the live dock card
  * above the composer carries the editable current list.
  */
-function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
+function TodoSnapshotCard({ disclosureKey, entry }: { disclosureKey: string; entry: TodoSnapshot }) {
 	const t = useT();
-	const [expanded, setExpanded] = useState(false);
+	// Archived snapshots leave the virtualizer's window constantly; the reader's
+	// expansion belongs to the row, not to this mount.
+	const scopedKey = scopedDisclosureKey(useDisclosureScope(), disclosureKey);
+	const expanded = useUiStore(s => s.disclosureOpen[scopedKey]) ?? false;
+	const setDisclosureOpen = useUiStore(s => s.setDisclosureOpen);
+	const setExpanded = (next: boolean) => setDisclosureOpen(scopedKey, next);
 	const total = entry.phases.reduce((n, phase) => n + phase.tasks.length, 0);
 	const done = entry.phases.reduce(
 		(n, phase) => n + phase.tasks.filter(task => task.status === "completed").length,
@@ -961,7 +991,7 @@ function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
 				aria-expanded={expanded}
 				className="omp-pressable flex items-center gap-1.5 rounded-lg border border-[var(--omp-border-muted)] px-2.5 py-1 text-omp-sm text-[var(--omp-muted)] hover:text-[var(--omp-text)]"
 				disabled={cleared}
-				onClick={() => setExpanded(value => !value)}
+				onClick={() => setExpanded(!expanded)}
 				type="button"
 			>
 				<ChevronRight

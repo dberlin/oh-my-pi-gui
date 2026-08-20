@@ -18,7 +18,7 @@ import {
 } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { ChatStream } from "./ChatStream";
-import { TranscriptViewport } from "./TranscriptViewport";
+import { type MainTranscriptAugments, type TranscriptProjectionView, TranscriptViewport } from "./TranscriptViewport";
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -742,5 +742,104 @@ describe("TranscriptViewport cross-path tool parity", () => {
 				),
 			).toBe(true);
 		}
+	});
+});
+
+describe("TranscriptViewport reasoning disclosure", () => {
+	const REASONING = "Weighing whether the rebase keeps the activity rail.";
+
+	function projection(streaming: boolean): TranscriptProjectionView {
+		const finalized: AgentMessage = {
+			role: "assistant",
+			responseId: "resp-live-1",
+			content: [{ type: "thinking", thinking: REASONING }],
+			timestamp: 400,
+		};
+		return {
+			transcriptId: "disclosure-transcript",
+			messages: streaming ? [] : [finalized],
+			streamingMessage: streaming ? { role: "assistant", content: [], timestamp: 400 } : null,
+			streamingText: "",
+			streamingThinking: streaming ? REASONING : "",
+			activeTools: new Map<string, ToolEntry>(),
+			streamGeneration: 1,
+			resolveToolCall: call => ({ key: call.id, entry: undefined }),
+			transcriptDetail: "compact",
+		};
+	}
+
+	/** The live row shows a compact preview, the finalized bubble a descriptor header. */
+	function disclosureState(): string | null | undefined {
+		if (!container) throw new Error("disclosure mount missing");
+		return (container as unknown as HTMLElement)
+			.querySelector(".omp-thinking-compact-toggle, .omp-thinking-header")
+			?.getAttribute("aria-expanded");
+	}
+
+	it("keeps the live reasoning block open after the turn finalizes", async () => {
+		useUiStore.setState({ disclosureOpen: {}, thinkingExpanded: false, transcriptDetail: "compact" });
+		await mount(<TranscriptViewport mode="subagent" projection={projection(true)} />);
+
+		if (!container) throw new Error("disclosure mount missing");
+		const toggle = (container as unknown as HTMLElement).querySelector(".omp-thinking-compact-toggle");
+		await act(async () => {
+			toggle?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		expect(disclosureState()).toBe("true");
+
+		// message_end swaps the live row for its finalized bubble — a different
+		// component instance rendering the same reasoning.
+		await act(async () => {
+			root?.render(
+				<I18nProvider>
+					<TranscriptViewport mode="subagent" projection={projection(false)} />
+				</I18nProvider>,
+			);
+		});
+
+		expect(disclosureState()).toBe("true");
+	});
+
+	it("keeps an archived todo snapshot expanded across a remount", async () => {
+		useUiStore.setState({ disclosureOpen: {}, transcriptDetail: "compact" });
+		const snapshotProjection: TranscriptProjectionView = {
+			...projection(false),
+			messages: [{ role: "user", content: [{ type: "text", text: "Start the rebase" }], timestamp: 200 }],
+		};
+		const main: MainTranscriptAugments = {
+			isStreaming: false,
+			awaitingModelSince: null,
+			retryInfo: null,
+			compactionInfo: null,
+			status: "ready",
+			collapseCompacted: false,
+			switchPending: false,
+			todoHistory: [
+				{
+					id: "todo-disclosure",
+					ts: 300,
+					phases: [{ name: "Rebase", tasks: [{ content: "Resolve the sidebar", status: "completed" }] }],
+				},
+			],
+			queued: { steering: [], followUp: [] },
+			isChat: false,
+		};
+
+		const snapshotToggle = () =>
+			(container as unknown as HTMLElement).querySelector('[data-transcript-kind="todoSnapshot"] button');
+
+		await mount(<TranscriptViewport main={main} mode="main" projection={snapshotProjection} />);
+		if (!container) throw new Error("todo snapshot mount missing");
+		await act(async () => {
+			snapshotToggle()?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		expect(snapshotToggle()?.getAttribute("aria-expanded")).toBe("true");
+
+		await act(async () => root?.unmount());
+		container?.remove();
+		await mount(<TranscriptViewport main={main} mode="main" projection={snapshotProjection} />);
+
+		if (!container) throw new Error("todo snapshot remount missing");
+		expect(snapshotToggle()?.getAttribute("aria-expanded")).toBe("true");
 	});
 });

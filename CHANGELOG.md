@@ -2,10 +2,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Sidebar keeps the inline rail**: the 0.8.3 Code/Work lane switcher and picker-only search are not carried here; the sidebar keeps its one-row inline search, workspace groups, and the remote SSH host section.
+- **Title bar carries the status strip's readouts**: alongside the 0.8.3 session metrics the toolbar now shows the working directory and the git branch with its staged/unstaged/untracked counts (click to refresh), and it keeps the PR, Agent Hub, stats, usage, providers, workspace-panel, and settings actions that 0.8.3 moved into its sidebar navigation.
+
 ### Added
 
 - Added remote SSH sessions with host-scoped history, remote directory browsing, and existing RPC UI parity.
 - **Tab switching shortcuts**: ⌘[ and ⌘] step to the previous and next tab, wrapping at both ends. Like the other tab keys they live in the renderer keymap, so they can be remapped and never fire while an overlay is open.
+
+### Fixed
+
+- **Disclosures stay where you leave them**: reasoning blocks, tool cards, and archived todo snapshots now keep their open/closed state in the ui store keyed per tab, so scrolling a row out of the virtualizer and back no longer collapses it. A reasoning block opened while the turn streams also stays open once the live row is replaced by its finalized bubble. ⌃O still overrides every tool card at once.
 
 ## [0.9.0] - 2026-08-22
 
@@ -13,8 +22,6 @@
 
 - **Bundled agent upgraded**: packaged sidecars now carry omp 17.4.0 plus the marketplace RPC features from monorepo commit `a7b2784898` — plugin metadata/themes on the catalog, and post-mutation activation verdicts computed from the installed-plugin runtime snapshot.
 - **Assisted updates for unsigned macOS builds**: ad-hoc-signed apps now download the architecture-matched DMG, show progress, verify its release-metadata SHA-512, open it in Finder, and explain the safe manual replacement flow. Certificate-signed builds retain Squirrel's restart-and-install path ([#3](https://github.com/nornzach/oh-my-pi-gui/issues/3)).
-- **Sidebar keeps the inline rail**: the 0.8.3 Code/Work lane switcher and picker-only search are not carried here; the sidebar keeps its one-row inline search, workspace groups, and the remote SSH host section.
-- **Title bar carries the status strip's readouts**: alongside the 0.8.3 session metrics the toolbar now shows the working directory and the git branch with its staged/unstaged/untracked counts (click to refresh), and it keeps the PR, Agent Hub, stats, usage, providers, workspace-panel, and settings actions that 0.8.3 moved into its sidebar navigation.
 
 ### Added
 

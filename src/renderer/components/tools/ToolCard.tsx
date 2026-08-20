@@ -4,7 +4,7 @@ import { cx, durationBetween } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { reportRuntimeError } from "../../lib/runtime-errors";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
-import { useUiStore } from "../../stores/ui";
+import { scopedDisclosureKey, TOOL_DISCLOSURE_PREFIX, useDisclosureScope, useUiStore } from "../../stores/ui";
 import { GenericRenderer } from "./GenericRenderer";
 import { getToolRenderer, type ToolRendererView } from "./index";
 import { isPeerIrcInvocation, resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
@@ -85,12 +85,14 @@ function ToolCardContent({
 }: Omit<ToolCardProps, "entry"> & { entry: ToolEntry | undefined }) {
 	const t = useT();
 	const expandAll = useUiStore(s => s.toolsExpandAll);
-	const [expanded, setExpanded] = useState(expandAll.expanded);
-
-	// ⌃O expand/collapse-all: every card snaps to the latest shared target.
-	useEffect(() => {
-		setExpanded(expandAll.expanded);
-	}, [expandAll]);
+	// The virtualizer unmounts rows that scroll out of view, so a card's own
+	// choice lives in the ui store rather than component state. ⌃O clears these
+	// overrides, which drops every card back onto the shared target below.
+	const disclosureKey = scopedDisclosureKey(useDisclosureScope(), `${TOOL_DISCLOSURE_PREFIX}${toolCallId}`);
+	const storedExpanded = useUiStore(s => s.disclosureOpen[disclosureKey]);
+	const setDisclosureOpen = useUiStore(s => s.setDisclosureOpen);
+	const expanded = storedExpanded ?? expandAll.expanded;
+	const setExpanded = (next: boolean) => setDisclosureOpen(disclosureKey, next);
 
 	const entryStatus = entry?.status ?? "running";
 	// "pending" (args still streaming) is a live sub-state: spinner, not a check.
@@ -195,7 +197,7 @@ function ToolCardContent({
 				type="button"
 				aria-expanded={expanded}
 				aria-label={`${displayName}${summary ? ` ${summary}` : ""}, ${statusText}`}
-				onClick={() => setExpanded(value => !value)}
+				onClick={() => setExpanded(!expanded)}
 				className="omp-tool-header flex w-full items-center gap-2 py-2 pl-3.5 pr-2.5 text-left transition-colors duration-150 hover:bg-[var(--omp-selected-bg)]/40"
 			>
 				{status === "running" && runningIndicator === "spinner" ? (

@@ -813,3 +813,46 @@ describe("ToolCard adaptive rendering", () => {
 		});
 	});
 });
+
+describe("ToolCard disclosure durability", () => {
+	const args = { path: "src/index.ts", content: "ok" };
+
+	async function mountWriteCard(): Promise<HTMLElement> {
+		return mountCard({
+			toolCallId: "durable-write",
+			toolName: "write",
+			args,
+			entry: completedEntry("write", args, "written"),
+		});
+	}
+
+	it("keeps an expanded card expanded when the row is virtualized away and back", async () => {
+		useUiStore.setState({ disclosureOpen: {}, toolsExpandAll: { expanded: false, seq: 0 } });
+		const card = await mountWriteCard();
+		await toggleCard(card);
+		expect(card.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe("true");
+
+		for (const mounted of mounts.splice(0).reverse()) {
+			await act(async () => mounted.root.unmount());
+			mounted.container.remove();
+		}
+
+		const remounted = await mountWriteCard();
+		expect(remounted.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe("true");
+	});
+
+	it("lets expand-all override a card's own choice", async () => {
+		useUiStore.setState({ disclosureOpen: {}, toolsExpandAll: { expanded: false, seq: 0 } });
+		const card = await mountWriteCard();
+		await toggleCard(card);
+
+		await act(async () => {
+			useUiStore.getState().toggleToolsExpandAll();
+		});
+		await act(async () => {
+			useUiStore.getState().toggleToolsExpandAll();
+		});
+
+		expect(card.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe("false");
+	});
+});

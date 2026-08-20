@@ -75,6 +75,16 @@ interface UiStore {
 	notifications: boolean;
 	/** Expand reasoning (thinking) blocks by default (Settings → GUI, default off). */
 	thinkingExpanded: boolean;
+	/**
+	 * Per-disclosure open state, keyed by the caller's stable id. Transcript rows
+	 * are unmounted by the virtualizer and the live row is replaced wholesale by
+	 * its finalized bubble, so a reader's choice cannot live in component state.
+	 * Absent = follow the default for that disclosure.
+	 */
+	disclosureOpen: Record<string, boolean>;
+	setDisclosureOpen: (key: string, open: boolean) => void;
+	/** Hand a recorded choice to the key that replaces it, dropping the old one. */
+	carryDisclosure: (fromKey: string, toKey: string) => void;
 	/** Transcript density: compact folds reasoning/tools; full shows every step. */
 	transcriptDetail: TranscriptDetail;
 	/** Expand/collapse-all signal for tool cards (⌃O); `seq` bumps per toggle so cards re-sync their local state. */
@@ -185,6 +195,23 @@ interface UiStore {
 	resetKeymapOverrides: () => void;
 }
 
+/** Namespace for per-tool-card disclosure keys, cleared wholesale by ⌃O. */
+export const TOOL_DISCLOSURE_PREFIX = "tool:";
+
+/**
+ * Bind a disclosure id to one tab. Two tabs can hold the same session — and so
+ * the same message and tool-call ids — but a disclosure opened in one must not
+ * open in the other, so the tab is part of the key rather than the value.
+ */
+export function scopedDisclosureKey(tabId: string | null, key: string): string {
+	return `${key}@${tabId ?? "no-tab"}`;
+}
+
+/** The tab that owns the disclosures currently on screen. */
+export function useDisclosureScope(): string | null {
+	return useTabsStore(state => state.activeTabId);
+}
+
 export const useUiStore = create<UiStore>()((set, get) => ({
 	sidebarVisible: true,
 	panelVisible: false,
@@ -198,6 +225,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	fontSize: 15,
 	notifications: true,
 	thinkingExpanded: false,
+	disclosureOpen: {},
 	transcriptDetail: "compact",
 	switchPending: null,
 	setSwitchPending: pending => set({ switchPending: pending }),
@@ -205,7 +233,14 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	togglePanel: () => set({ panelVisible: !get().panelVisible }),
 	toolsExpandAll: { expanded: false, seq: 0 },
 	toggleToolsExpandAll: () =>
-		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
+		// ⌃O is a shared target: drop every card's own choice so they all snap to
+		// it, then let each card override again from the new baseline.
+		set(state => ({
+			toolsExpandAll: { expanded: !state.toolsExpandAll.expanded, seq: state.toolsExpandAll.seq + 1 },
+			disclosureOpen: Object.fromEntries(
+				Object.entries(state.disclosureOpen).filter(([key]) => !key.startsWith(TOOL_DISCLOSURE_PREFIX)),
+			),
+		})),
 	setPanelTab: tab => {
 		// Chat tabs are tool-free: only files + logs can exist there, so a
 		// force-open of the diff tab is a no-op.
@@ -376,6 +411,14 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setFontSize: size => set({ fontSize: size }),
 	setNotifications: enabled => set({ notifications: enabled }),
 	setThinkingExpanded: enabled => set({ thinkingExpanded: enabled }),
+	setDisclosureOpen: (key, open) => set(state => ({ disclosureOpen: { ...state.disclosureOpen, [key]: open } })),
+	carryDisclosure: (fromKey, toKey) =>
+		set(state => {
+			const carried = state.disclosureOpen[fromKey];
+			if (carried === undefined) return state;
+			const { [fromKey]: _dropped, ...rest } = state.disclosureOpen;
+			return { disclosureOpen: { ...rest, [toKey]: carried } };
+		}),
 	setTranscriptDetail: detail => set({ transcriptDetail: detail }),
 	keymapOverrides: {} as KeymapOverrides,
 	keymapHydrated: false,

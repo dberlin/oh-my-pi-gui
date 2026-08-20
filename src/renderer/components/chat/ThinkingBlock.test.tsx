@@ -108,6 +108,43 @@ describe("ThinkingBlock", () => {
 		expect(expandedRegion?.querySelector(".markdown-body")).not.toBeNull();
 	});
 
+	it("keeps a manually opened block open when the same disclosure remounts", async () => {
+		useUiStore.getState().setThinkingExpanded(false);
+		await mount(<ThinkingBlock compact disclosureKey="msg-1:thinking:0" text={HEADLINED_THINKING} />);
+
+		const toggle = container.querySelector(".omp-thinking-compact-toggle");
+		await act(async () => {
+			toggle?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+
+		// The virtualizer unmounts rows that scroll out of view, and the live row
+		// is replaced wholesale by its finalized bubble. Neither may discard the
+		// reader's choice.
+		await act(async () => root.unmount());
+		container.remove();
+		await mount(<ThinkingBlock compact disclosureKey="msg-1:thinking:0" text={HEADLINED_THINKING} />);
+
+		expect(container.querySelector(".omp-thinking-compact-toggle")?.getAttribute("aria-expanded")).toBe("true");
+	});
+
+	it("scopes a disclosure choice to its own key", async () => {
+		useUiStore.getState().setThinkingExpanded(false);
+		await mount(<ThinkingBlock compact disclosureKey="msg-1:thinking:0" text={HEADLINED_THINKING} />);
+
+		await act(async () => {
+			container
+				.querySelector(".omp-thinking-compact-toggle")
+				?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+
+		await act(async () => root.unmount());
+		container.remove();
+		await mount(<ThinkingBlock compact disclosureKey="msg-2:thinking:0" text={HEADLINED_THINKING} />);
+
+		expect(container.querySelector(".omp-thinking-compact-toggle")?.getAttribute("aria-expanded")).toBe("false");
+	});
+
 	it("uses only the streaming caret as motion while visible reasoning grows", async () => {
 		useUiStore.getState().setThinkingExpanded(true);
 		await mount(<ThinkingBlock live text={HEADLINED_THINKING} />);

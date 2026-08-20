@@ -15,7 +15,7 @@ import {
 } from "../../lib/thinking";
 import { useModelStore } from "../../stores/model";
 import { useSettingsStore } from "../../stores/settings";
-import { useUiStore } from "../../stores/ui";
+import { scopedDisclosureKey, useDisclosureScope, useUiStore } from "../../stores/ui";
 
 const COMPACT_PREVIEW_LENGTH = 360;
 
@@ -26,6 +26,12 @@ export interface ThinkingBlockProps {
 	live?: boolean;
 	/** Render a TUI-like direct reasoning preview instead of descriptor chrome. */
 	compact?: boolean;
+	/**
+	 * Stable id for this disclosure. When given, the open/closed choice lives in
+	 * the ui store instead of component state, so it survives the virtualizer
+	 * unmounting the row and the live row being replaced by its finalized bubble.
+	 */
+	disclosureKey?: string;
 	/** Whether reply text has started, which settles the hidden-thinking pulse. */
 	streamingTextStarted?: boolean;
 	/** Start/end (epoch ms or ISO) for the duration badge. */
@@ -71,6 +77,7 @@ export function ThinkingBlock({
 	endTime,
 	level,
 	compact = false,
+	disclosureKey,
 }: ThinkingBlockProps) {
 	const t = useT();
 	const storeLevel = useModelStore(s => s.thinkingLevel);
@@ -78,11 +85,23 @@ export function ThinkingBlock({
 	const hideThinkingBlock = useSettingsStore(s => s.hideThinkingBlock);
 	const proseOnly = useSettingsStore(s => s.proseOnlyThinking);
 	const thinkingExpanded = useUiStore(s => s.thinkingExpanded);
-	const [open, setOpen] = useState(thinkingExpanded);
+	const scope = useDisclosureScope();
+	const scopedKey = disclosureKey === undefined ? undefined : scopedDisclosureKey(scope, disclosureKey);
+	const storedOpen = useUiStore(s => (scopedKey === undefined ? undefined : s.disclosureOpen[scopedKey]));
+	const setDisclosureOpen = useUiStore(s => s.setDisclosureOpen);
+	const [localOpen, setLocalOpen] = useState(thinkingExpanded);
 	const compactRegionId = useId();
 	// The Settings → GUI toggle applies to already-mounted blocks too; a manual
 	// chevron click then overrides until the pref changes again.
-	useEffect(() => setOpen(thinkingExpanded), [thinkingExpanded]);
+	useEffect(() => setLocalOpen(thinkingExpanded), [thinkingExpanded]);
+
+	// A keyed disclosure reads its choice from the store and falls back to the
+	// pref until the reader makes one; unkeyed callers keep component state.
+	const open = scopedKey === undefined ? localOpen : (storedOpen ?? thinkingExpanded);
+	const setOpen = (next: boolean) => {
+		if (scopedKey === undefined) setLocalOpen(next);
+		else setDisclosureOpen(scopedKey, next);
+	};
 
 	const content = text;
 	const isLive = live && content.length > 0;
@@ -196,7 +215,7 @@ export function ThinkingBlock({
 					aria-expanded={open}
 					aria-controls={compactRegionId}
 					aria-label={t(open ? "chat.thinking.hide" : "chat.thinking.show")}
-					onClick={() => setOpen(value => !value)}
+					onClick={() => setOpen(!open)}
 					className="omp-thinking-compact-toggle omp-pressable mt-0.5 shrink-0 rounded p-0.5 text-[var(--omp-dim)] hover:text-[var(--omp-muted)]"
 				>
 					<ChevronRight
@@ -244,7 +263,7 @@ export function ThinkingBlock({
 			<button
 				type="button"
 				aria-expanded={open}
-				onClick={() => setOpen(v => !v)}
+				onClick={() => setOpen(!open)}
 				className="omp-thinking-header flex w-full items-center gap-1.5 px-2 py-1 text-left text-omp-sm text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-bg-tertiary)]"
 			>
 				<ChevronRight
