@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Assisted updates for unsigned macOS builds**: ad-hoc-signed apps now download the architecture-matched DMG, show progress, verify its release-metadata SHA-512, open it in Finder, and explain the safe manual replacement flow. Certificate-signed builds retain Squirrel's restart-and-install path ([#3](https://github.com/nornzach/oh-my-pi-gui/issues/3)).
+
 ## [0.8.4] - 2026-08-21
 
 ### Changed

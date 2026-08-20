@@ -177,10 +177,10 @@ export const IPC_COMMANDS = {
 	EDITOR_OPEN_EXTERNAL: "editor:open-external",
 	/** Manual update check */
 	UPDATER_CHECK: "updater:check",
-	/** Start downloading the available update */
+	/** Download the updater-selected payload or architecture-matched macOS installer */
 	UPDATER_DOWNLOAD: "updater:download",
-	/** Quit and install the downloaded update */
-	UPDATER_INSTALL: "updater:install",
+	/** Apply an automatic update or reopen a downloaded manual installer */
+	UPDATER_APPLY: "updater:apply",
 	/** Current updater status (replay for renderer boot) */
 	UPDATER_GET_STATUS: "updater:getStatus",
 	/** Current app version (settings → updates row) */
@@ -216,18 +216,27 @@ export interface RuntimeErrorReport {
 	details?: Record<string, string | number | boolean | null>;
 }
 
+// Update status machine (electron-updater/manual macOS installer → renderer)
 // ============================================================================
-// Auto-update status machine (electron-updater → renderer)
-// ============================================================================
+
+export type UpdateInstallMode = "automatic" | "manual";
 
 export type UpdateStatus =
 	| { state: "idle" }
 	| { state: "checking" }
-	| { state: "available"; version: string; notes?: string }
-	| { state: "downloading"; percent: number; bytesPerSecond: number; transferred: number; total: number }
-	| { state: "downloaded"; version: string }
+	| { state: "available"; version: string; notes?: string; mode: UpdateInstallMode }
+	| {
+			state: "downloading";
+			version: string;
+			mode: UpdateInstallMode;
+			percent: number;
+			bytesPerSecond: number;
+			transferred: number;
+			total: number;
+	  }
+	| { state: "downloaded"; version: string; mode: UpdateInstallMode }
 	| { state: "not-available"; version: string }
-	| { state: "error"; message: string };
+	| { state: "error"; message: string; showInBanner?: boolean };
 
 export type MenuAction =
 	| "new-session"
@@ -970,7 +979,7 @@ export interface OmpApi {
 	updater: {
 		check(): Promise<UpdateStatus>;
 		download(): Promise<UpdateStatus>;
-		install(): Promise<void>;
+		apply(): Promise<void>;
 		getStatus(): Promise<UpdateStatus>;
 		version(): Promise<string>;
 	};

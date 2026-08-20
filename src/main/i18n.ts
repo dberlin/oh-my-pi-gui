@@ -22,7 +22,12 @@ type MainTextKey =
 	| "menu.togglePanel"
 	| "menu.toggleSidebar"
 	| "menu.view"
-	| "updates.noResult";
+	| "updates.downloadFailed"
+	| "updates.hashMismatch"
+	| "updates.installerMissing"
+	| "updates.noResult"
+	| "updates.openInstallerFailed"
+	| "updates.unsupportedArchitecture";
 
 const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"dialog.openProject": { en: "Open project", zh: "打开项目" },
@@ -43,9 +48,29 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"menu.togglePanel": { en: "Toggle Panel", zh: "显示或隐藏面板" },
 	"menu.toggleSidebar": { en: "Toggle Sidebar", zh: "显示或隐藏侧边栏" },
 	"menu.view": { en: "View", zh: "视图" },
+	"updates.downloadFailed": {
+		en: "The installer download failed.",
+		zh: "安装程序下载失败。",
+	},
+	"updates.hashMismatch": {
+		en: "The downloaded installer failed SHA-512 verification and was removed.",
+		zh: "下载的安装程序未通过 SHA-512 校验，已被删除。",
+	},
+	"updates.installerMissing": {
+		en: "This release does not include the required installer for this Mac.",
+		zh: "此版本不包含当前 Mac 所需的安装程序。",
+	},
 	"updates.noResult": {
 		en: "Update check completed without a result.",
 		zh: "更新检查已完成，但未返回结果。",
+	},
+	"updates.openInstallerFailed": {
+		en: "The installer was downloaded, but macOS could not open it.",
+		zh: "安装程序已下载，但 macOS 无法打开。",
+	},
+	"updates.unsupportedArchitecture": {
+		en: "This Mac architecture does not have a supported installer.",
+		zh: "当前 Mac 架构没有受支持的安装程序。",
 	},
 };
 

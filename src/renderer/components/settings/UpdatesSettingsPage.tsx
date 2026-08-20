@@ -1,4 +1,4 @@
-import { CheckCircle2, Download, RefreshCw, RotateCcw, ServerCog } from "lucide-react";
+import { CheckCircle2, Download, FolderOpen, RefreshCw, RotateCcw, ServerCog } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { UpdateStatus } from "../../../shared/ipc-types";
 import type { RpcOmpUpdateResult } from "../../../shared/rpc-types";
@@ -213,6 +213,9 @@ export function UpdatesSettingsPage() {
 					<div className="updates-copy min-w-0">
 						<h3 className="text-omp-md font-semibold text-(--omp-text)">{t("updates.gui.name")}</h3>
 						<p className="mt-0.5 text-omp-xs text-(--omp-dim)">{t("updates.gui.description")}</p>
+						{status.state === "downloaded" && status.mode === "manual" && (
+							<p className="mt-1 text-omp-xs text-(--omp-muted)">{t("updater.manualInstructions")}</p>
+						)}
 					</div>
 					<div className="updates-current">
 						<div className="text-omp-xxs uppercase tracking-wider text-(--omp-dim)">{t("updates.current")}</div>
@@ -232,7 +235,7 @@ export function UpdatesSettingsPage() {
 								size="sm"
 								variant="primary"
 							>
-								{t("updater.download")}
+								{status.mode === "manual" ? t("updater.downloadInstaller") : t("updater.download")}
 							</Button>
 						)}
 						{status.state === "downloading" && (
@@ -240,12 +243,12 @@ export function UpdatesSettingsPage() {
 						)}
 						{status.state === "downloaded" && (
 							<Button
-								icon={<RotateCcw size={13} />}
-								onClick={() => void window.omp.updater.install()}
+								icon={status.mode === "manual" ? <FolderOpen size={13} /> : <RotateCcw size={13} />}
+								onClick={() => void window.omp.updater.apply()}
 								size="sm"
 								variant="primary"
 							>
-								{t("updater.restart")}
+								{status.mode === "manual" ? t("updater.openInstaller") : t("updater.restart")}
 							</Button>
 						)}
 						{(status.state === "idle" || status.state === "checking") && (

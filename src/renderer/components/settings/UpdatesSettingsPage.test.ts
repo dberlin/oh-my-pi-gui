@@ -26,9 +26,9 @@ describe("updates overview state", () => {
 	});
 
 	it("reports attention when either deliverable has an update", () => {
-		expect(updateOverviewState({ state: "available", version: "0.7.2" }, CURRENT_CORE, undefined, false)).toBe(
-			"attention",
-		);
+		expect(
+			updateOverviewState({ state: "available", version: "0.7.2", mode: "manual" }, CURRENT_CORE, undefined, false),
+		).toBe("attention");
 		expect(
 			updateOverviewState(
 				{ state: "not-available", version: "0.7.1" },
