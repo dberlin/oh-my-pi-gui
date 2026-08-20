@@ -348,6 +348,17 @@ describe("InputArea run settings", () => {
 		expect(buttonWithText("Modes")).toBeDefined();
 	});
 
+	it("marks fast mode selected when enabled but unavailable to the active model", async () => {
+		useModelStore.setState({ fastModeEnabled: true, fastModeActive: false });
+		await mount();
+
+		const fast = buttonWithText("Fast");
+		if (!fast) throw new Error("fast mode trigger missing");
+		const button = fast as unknown as HTMLElement;
+		expect(button.getAttribute("aria-pressed")).toBe("true");
+		expect(button.className).toContain("text-[var(--omp-accent)]");
+	});
+
 	it("lets a nested thinking portal dispatch before the parent menu dismisses", async () => {
 		await mountCompact();
 		await openRunSettings();
