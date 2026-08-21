@@ -388,7 +388,7 @@ const api: OmpApi = {
 	updater: {
 		check: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_CHECK),
 		download: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_DOWNLOAD),
-		install: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_INSTALL),
+		apply: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_APPLY),
 		getStatus: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_GET_STATUS),
 		version: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_VERSION),
 	},
