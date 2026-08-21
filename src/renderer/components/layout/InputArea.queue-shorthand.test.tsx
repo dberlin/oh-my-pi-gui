@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
@@ -342,7 +342,7 @@ describe("InputArea run settings", () => {
 
 		expect(document.querySelector("[data-run-settings-inline]")).not.toBeNull();
 		expect(document.querySelector("[data-run-settings-overflow-trigger]")).toBeNull();
-		expect(buttonWithText("high")).toBeDefined();
+		expect(buttonWithText(translate("input.thinking.name.high"))).toBeDefined();
 		expect(buttonWithText("Fast")).toBeDefined();
 		expect(buttonWithText("Full access")).toBeDefined();
 		expect(buttonWithText("Modes")).toBeDefined();
@@ -363,11 +363,11 @@ describe("InputArea run settings", () => {
 		await mountCompact();
 		await openRunSettings();
 
-		const thinking = buttonWithText("high");
+		const thinking = buttonWithText(translate("input.thinking.name.high"));
 		if (!thinking) throw new Error("thinking trigger missing");
 		await click(thinking);
 
-		const max = buttonWithText("max");
+		const max = buttonWithText(translate("input.thinking.name.max"));
 		if (!max) throw new Error("max option missing");
 		// Browser ordering is pointerdown → pointerup → click. The regression
 		// closed the parent on the first event and unmounted this handler before

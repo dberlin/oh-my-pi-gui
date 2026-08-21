@@ -28,6 +28,28 @@ function closesFence(line: string, fence: FenceState): boolean {
 	while (candidate[length] === fence.marker) length++;
 	return length >= fence.length && candidate.slice(length).trim().length === 0;
 }
+const LIST_ITEM_RE = /^[ \t]{0,3}(?:[-*+]|\d{1,9}[.)])[ \t]/;
+/** A lone, possibly-still-growing marker token ("-", "2", "2.") — a list
+ * continuation candidate that must not yet end the block. */
+const PARTIAL_MARKER_RE = /^(?:[-*+]|\d{1,9}[.)]?)$/;
+
+/** Approximate visual columns of the line's leading whitespace (tab = 4). */
+function leadingColumns(line: string): number {
+	let columns = 0;
+	for (const ch of line) {
+		if (ch === " ") columns++;
+		else if (ch === "\t") columns += 4 - (columns % 4);
+		else break;
+	}
+	return columns;
+}
+
+/** Content column a list continuation must reach, or null when not a list. */
+function listContentColumn(line: string): number | null {
+	if (!LIST_ITEM_RE.test(line)) return null;
+	const marker = line.trimStart().split(/[ \t]/, 1)[0] ?? "";
+	return leadingColumns(line) + marker.length + 1;
+}
 
 /**
  * Split a growing Markdown stream into immutable blocks and one mutable tail.
@@ -43,11 +65,22 @@ export function segmentStreamingMarkdown(text: string): StreamingMarkdownSegment
 	let offset = 0;
 	let fence: FenceState | null = null;
 	let displayMath = false;
+	// Blank lines inside a list block are NOT stable boundaries: an indented
+	// continuation or a further item still belongs to the same <li>, so
+	// promotion defers until a line proves the list ended. Without this,
+	// `1. first\n\n   second` rendered `second` outside the list live and
+	// jumped at message_end.
+	let listColumn: number | null = null;
+	let sawFirstLine = false;
+	let pendingBoundary: number | null = null;
 
 	const promote = (end: number) => {
 		const content = text.slice(blockStart, end);
 		if (content.trim().length > 0) blocks.push({ end, content });
 		blockStart = end;
+		sawFirstLine = false;
+		listColumn = null;
+		pendingBoundary = null;
 	};
 
 	while (offset < text.length) {
@@ -58,6 +91,19 @@ export function segmentStreamingMarkdown(text: string): StreamingMarkdownSegment
 		const trimmed = line.trim();
 		let closedFence = false;
 		let closedMath = false;
+
+		// A pending list boundary resolves against the FIRST following
+		// non-blank line — even when that line opens a fence or math block,
+		// which would otherwise swallow the boundary and strand a finished
+		// list in the mutable tail for the whole fenced block. The check is
+		// partial-line-safe: a bare "2" or "2." may still grow into an item,
+		// so it counts as continuing instead of promoting (append-stable).
+		if (pendingBoundary !== null && trimmed.length > 0) {
+			const continuesList =
+				LIST_ITEM_RE.test(line) || PARTIAL_MARKER_RE.test(trimmed) || leadingColumns(line) >= (listColumn ?? 0);
+			if (!continuesList) promote(pendingBoundary);
+			pendingBoundary = null;
+		}
 
 		if (fence) {
 			if (closesFence(line, fence)) {
@@ -73,8 +119,23 @@ export function segmentStreamingMarkdown(text: string): StreamingMarkdownSegment
 			closedMath = !displayMath;
 		}
 
-		if (hasNewline && !fence && !displayMath && (trimmed.length === 0 || closedFence || closedMath)) {
+		if (hasNewline && !fence && !displayMath && (closedFence || closedMath)) {
 			promote(end);
+		} else if (!fence && !displayMath && !closedFence && !closedMath) {
+			if (trimmed.length === 0) {
+				if (hasNewline) {
+					if (listColumn !== null) {
+						if (pendingBoundary === null) pendingBoundary = end;
+					} else {
+						promote(end);
+					}
+				}
+			} else if (hasNewline && !sawFirstLine) {
+				// Classify list-ness only from complete lines — a partial first
+				// line ("1.") would freeze a wrong non-list verdict.
+				sawFirstLine = true;
+				listColumn = listContentColumn(line);
+			}
 		}
 
 		offset = end;

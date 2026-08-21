@@ -28,6 +28,7 @@ import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
 import { clearSessionContext, retryLastTurn as retryLastTurnShared } from "./messages";
+import { handlePluginActivation } from "./plugin-activation";
 import { copyTodosToClipboard, dumpTranscriptToClipboard, exportTodos, importTodosFromFile } from "./transcript-copy";
 import { addWorkspaceDirectory, moveSessionTo, pickWorkspaceDirectory } from "./workspace-dirs";
 
@@ -278,8 +279,9 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		}
 		const res = await window.omp.rpc.marketplaceAction(payload);
 		if (!res.success) throw new Error(res.error);
-		const data = res.data as { ok?: boolean; error?: string } | undefined;
+		const data = res.data as { ok?: boolean; error?: string; activation?: string } | undefined;
 		if (data?.ok === false) throw new Error(data.error ?? t("marketplaceAction.failed"));
+		handlePluginActivation(data?.activation, input);
 		await ctx.hydrateSession();
 		toast({ variant: "success", message: t(`marketplaceAction.${verb}`, { name: input }) });
 	};

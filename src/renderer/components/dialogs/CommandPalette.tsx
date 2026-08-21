@@ -25,7 +25,7 @@ import { useSettingsStore } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Spinner } from "../common";
-import { registerDialogLayer } from "../common/dialog-layer";
+import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
 
 const RECENT_KEY = "omp.palette.recent";
 const RECENT_LIMIT = 5;
@@ -167,10 +167,36 @@ export function CommandPalette() {
 	useEffect(() => {
 		if (!open) return;
 		const unregisterLayer = registerDialogLayer(dialogRef.current);
+		// Trap + restore: without this, Tab reaches controls behind the
+		// aria-modal overlay and Escape stops working once focus escapes.
+		const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		setQuery("");
 		setActiveIndex(0);
 		setSubmenu(null);
 		requestAnimationFrame(() => inputRef.current?.focus());
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Tab") return;
+			const panel = dialogRef.current;
+			if (!panel) return;
+			const focusables = [
+				...panel.querySelectorAll<HTMLElement>("button, input, [tabindex]:not([tabindex='-1'])"),
+			].filter(el => !el.hasAttribute("disabled"));
+			if (focusables.length === 0) {
+				event.preventDefault();
+				inputRef.current?.focus();
+				return;
+			}
+			const first = focusables[0]!;
+			const last = focusables[focusables.length - 1]!;
+			if (event.shiftKey && document.activeElement === first) {
+				event.preventDefault();
+				last.focus();
+			} else if (!event.shiftKey && document.activeElement === last) {
+				event.preventDefault();
+				first.focus();
+			}
+		};
+		document.addEventListener("keydown", onKey, true);
 		let cancelled = false;
 		setLoading(true);
 		window.omp.rpc
@@ -187,10 +213,14 @@ export function CommandPalette() {
 			});
 		return () => {
 			cancelled = true;
+			document.removeEventListener("keydown", onKey, true);
+			// Restore only while this palette is still the top surface: closing
+			// it beneath a newer modal must not yank focus out of that modal.
+			const wasTop = isTopmostDialog(dialogRef.current);
 			unregisterLayer();
+			if (wasTop) restoreFocus?.focus();
 		};
 	}, [open]);
-
 	/** Retry: re-send the most recent user message; interrupt the active turn when streaming. */
 	const retryLastTurn = useCallback(
 		() =>
@@ -416,9 +446,18 @@ export function CommandPalette() {
 		}
 	};
 
+	// Reset on mount AND whenever the result set shrinks below the selection —
+	// a stale index left Enter reading flatList[undefined] (silent no-op) and
+	const resultCount = flatList.length;
 	useEffect(() => {
-		setActiveIndex(0);
-	}, []);
+		setActiveIndex(current => {
+			// Clamp BOTH bounds: a zero-result query can drive the index to -1
+			// (ArrowDown past an empty list), and restoring results must not
+			// preserve that negative index.
+			if (current < 0) return 0;
+			return Math.min(current, Math.max(resultCount - 1, 0));
+		});
+	}, [resultCount]);
 
 	useEffect(() => {
 		listRef.current?.querySelector(`[data-palette-index="${activeIndex}"]`)?.scrollIntoView({ block: "nearest" });

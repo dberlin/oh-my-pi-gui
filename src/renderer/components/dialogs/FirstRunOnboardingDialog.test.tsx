@@ -145,6 +145,10 @@ describe("FirstRunOnboardingDialog", () => {
 		);
 		await act(async () => buttonNamed("I've configured it").click());
 		await flush();
+		// The modal lingers ~240ms for its exit animation before unmounting.
+		await act(async () => {
+			await new Promise(resolve => setTimeout(resolve, 300));
+		});
 		expect(document.body.textContent ?? "").not.toContain("Connect a model before your first session");
 	});
 

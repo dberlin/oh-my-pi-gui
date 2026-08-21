@@ -14,6 +14,8 @@ export interface Toast {
 	message: string;
 	expiresAt: number;
 	count: number;
+	/** Set when dismissal began; the entry lingers for the exit animation. */
+	exitingAt?: number;
 }
 
 export interface ToastInput {
@@ -34,6 +36,8 @@ interface ToastStore {
 }
 
 let nextId = 1;
+/** How long a dismissed toast lingers for its exit animation. */
+const TOAST_EXIT_MS = 200;
 
 export const useToastStore = create<ToastStore>()(set => ({
 	toasts: [],
@@ -45,6 +49,7 @@ export const useToastStore = create<ToastStore>()(set => ({
 		set(state => {
 			const duplicateIndex = state.toasts.findIndex(
 				entry =>
+					entry.exitingAt === undefined &&
 					entry.expiresAt > now &&
 					entry.variant === variant &&
 					entry.title === toast.title &&
@@ -71,12 +76,33 @@ export const useToastStore = create<ToastStore>()(set => ({
 		});
 		return resultId;
 	},
-	dismiss: id => set(state => ({ toasts: state.toasts.filter(toast => toast.id !== id) })),
+	dismiss: id =>
+		set(state => ({
+			toasts: state.toasts.map(toast =>
+				toast.id === id && toast.exitingAt === undefined ? { ...toast, exitingAt: Date.now() } : toast,
+			),
+		})),
 	pruneExpired: () => {
 		const now = Date.now();
 		set(state => {
-			const kept = state.toasts.filter(toast => toast.expiresAt > now);
-			return kept.length === state.toasts.length ? state : { toasts: kept };
+			// Two-phase expiry: an entry past `expiresAt` is first MARKED
+			// exiting (so the stack swaps to the out-animation), then dropped
+			// once the exit window passes. Without the marking pass an
+			// auto-expired toast vanished with no animation at all.
+			let changed = false;
+			const marked = state.toasts.map(toast => {
+				if (toast.exitingAt === undefined && toast.expiresAt <= now) {
+					changed = true;
+					return { ...toast, exitingAt: now };
+				}
+				return toast;
+			});
+			const kept = marked.filter(toast => {
+				if (toast.exitingAt === undefined) return true;
+				return now < toast.exitingAt + TOAST_EXIT_MS;
+			});
+			if (!changed && kept.length === state.toasts.length) return state;
+			return { toasts: kept };
 		});
 	},
 }));

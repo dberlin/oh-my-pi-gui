@@ -42,8 +42,8 @@ import {
 	buildTranscriptRowKeys,
 	findConversationAnchorIndex,
 	type HistoryRow,
-	hasStreamingTranscriptContent,
 	isTranscriptAtLiveEdge,
+	isVisibleTranscriptMessage,
 	mergeTodoSnapshots,
 	messageTimestampMs,
 	type Row,
@@ -70,7 +70,20 @@ export function ChatStream() {
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
 	const hasStreamingText = useMessagesStore(s => isRenderableMessageText(s.streamingText));
 	const hasStreamingThinking = useMessagesStore(s => isRenderableMessageText(s.streamingThinking));
-	const activeTools = useToolsStore(s => s.activeTools);
+	// Primitive-valued selector: the tools store replaces the whole Map on
+	// every tool event (including high-frequency partial results), so
+	// subscribing to the map itself re-rendered the whole transcript window
+	// per event. Only the boolean this row set cares about may re-render it.
+	const hasLiveToolsForStream = useToolsStore(s => {
+		if (!streamingMessage) return false;
+		const streamStart = messageTimestampMs(streamingMessage);
+		for (const entry of s.activeTools.values()) {
+			if ((entry.status === "pending" || entry.status === "running") && entry.startTime >= streamStart) {
+				return true;
+			}
+		}
+		return false;
+	});
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const retryInfo = useSessionStore(s => s.retryInfo);
@@ -117,12 +130,12 @@ export function ChatStream() {
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the
 	// streaming rows, so the shell window never reads as dead air.
-	const hasStreamedContent = hasStreamingTranscriptContent(
-		streamingMessage,
-		hasStreamingText ? "x" : "",
-		hasStreamingThinking ? "x" : "",
-		activeTools,
-	);
+	const hasStreamedContent =
+		streamingMessage != null &&
+		(hasStreamingText ||
+			hasStreamingThinking ||
+			isVisibleTranscriptMessage(streamingMessage) ||
+			hasLiveToolsForStream);
 
 	// One status row for every "agent busy but nothing visible" window,
 	// mirroring the TUI's loader line: auto-retry delay/attempt (warning),
@@ -350,11 +363,13 @@ export function ChatStream() {
 		<div className="omp-transcript-editorial relative min-h-0 flex-1 bg-transparent">
 			<div
 				ref={parentRef}
+				aria-label={t("chat.transcript.label")}
 				onScroll={handleScroll}
 				onWheel={handleWheel}
 				onTouchMove={releaseTailPin}
 				onPointerDown={handleScrollPointerDown}
 				onKeyDown={handleScrollKeyDown}
+				tabIndex={0}
 				className="omp-transcript-scroll h-full overflow-y-auto overscroll-contain"
 			>
 				{switchPending && (
@@ -493,20 +508,21 @@ function TimelineMarker({
 	seed: TimelineMarkerSeed | null;
 	runningIndicator: RunningIndicator;
 }) {
-	const activeTools = useToolsStore(s => s.activeTools);
+	// Primitive selector over this marker's tools only: unrelated tool events
+	// (partial results on other cards) must not re-render every mounted marker.
+	const liveState = useToolsStore(s => {
+		let derived: "" | "error" | "running" = "";
+		for (const id of seed?.toolIds ?? []) {
+			const entry = s.activeTools.get(id);
+			if (entry?.status === "error" || entry?.isError) return "error";
+			if (entry?.status === "pending" || entry?.status === "running") derived = "running";
+		}
+		return derived;
+	});
 	if (!seed) return null;
 	let state = seed.state;
-
-	if (seed.toolIds.some(id => activeTools.get(id)?.status === "error" || activeTools.get(id)?.isError)) {
-		state = "error";
-	} else if (
-		seed.toolIds.some(id => {
-			const status = activeTools.get(id)?.status;
-			return status === "pending" || status === "running";
-		})
-	) {
-		state = "running";
-	}
+	if (liveState === "error") state = "error";
+	else if (liveState === "running") state = "running";
 
 	const time = formatShortClock(seed.timestamp);
 	return (
@@ -579,6 +595,9 @@ function StreamingRows({
 }) {
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
 	const streamingThinking = useMessagesStore(s => s.streamingThinking);
+	// Full-map subscription is intentional here: this ONE live row legitimately
+	// watches the whole active set (it renders every pending/running card).
+	// Per-row isolation lives in TimelineMarker/ExecutionGroup/ToolCard.
 	const activeTools = useToolsStore(s => s.activeTools);
 	const transcriptDetail = useUiStore(s => s.transcriptDetail);
 	if (!streamingMessage) return null;

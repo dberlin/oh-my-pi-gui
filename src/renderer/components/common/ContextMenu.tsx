@@ -49,17 +49,39 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
 		setPos({ left: Math.max(8, left), top: Math.max(8, top) });
 	}, [x, y]);
 
+	const onCloseRef = useRef(onClose);
+	onCloseRef.current = onClose;
+
 	useEffect(() => {
+		// Restore focus to the element that opened the menu — unmounting the
+		// focused item otherwise drops focus to <body>. The restore runs ONLY
+		// on unmount (onClose is read through a ref): re-running per render
+		// would steal focus back to the trigger while the menu stays open.
+		const restore = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		const onDown = (event: PointerEvent) => {
 			// The trigger opens this menu from `click`, so its preceding pointerdown
 			// has already finished before this effect is installed. Listening for the
 			// next pointer press avoids treating the opening click itself as an
 			// outside dismissal while still closing before a later outside click.
-			if (!menuRef.current?.contains(event.target as globalThis.Node | null)) onClose();
+			if (!menuRef.current?.contains(event.target as globalThis.Node | null)) onCloseRef.current();
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.isComposing || event.keyCode === 229) return;
+			// Tab leaves an open menu for background controls while it stays
+			// visible — close instead, per menu-button behavior.
+			if (event.key === "Tab") {
+				event.preventDefault();
+				onCloseRef.current();
+			}
 		};
 		document.addEventListener("pointerdown", onDown);
-		return () => document.removeEventListener("pointerdown", onDown);
-	}, [onClose]);
+		document.addEventListener("keydown", onKey, true);
+		return () => {
+			document.removeEventListener("pointerdown", onDown);
+			document.removeEventListener("keydown", onKey, true);
+			if (restore?.isConnected) restore.focus();
+		};
+	}, []);
 
 	// Focus the active item whenever the menu opens or the index moves.
 	useEffect(() => {

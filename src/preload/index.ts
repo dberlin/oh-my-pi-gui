@@ -261,6 +261,7 @@ const api: OmpApi = {
 		getAgentDefinitions: () => rpcCommand({ type: "get_agent_definitions" }),
 		getHooks: () => rpcCommand({ type: "get_hooks" }),
 		getMcpServers: () => rpcCommand({ type: "get_mcp_servers" }),
+		getGuiThemes: () => rpcCommand({ type: "get_gui_themes" }),
 		getPlugins: () => rpcCommand({ type: "get_plugins" }),
 		getMarketplaces: () => rpcCommand({ type: "get_marketplaces" }),
 		getPromptTemplates: () => rpcCommand({ type: "get_prompt_templates" }),

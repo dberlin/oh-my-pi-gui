@@ -54,6 +54,13 @@ export function ToolCard({ toolCallId, toolName, args, summary, runningIndicator
 		return () => clearInterval(timer);
 	}, [isPartial]);
 	const duration = entry ? durationBetween(entry.startTime, isPartial ? now : entry.endTime) : null;
+	// While args stream in, `args` is still {} — surface the raw partial JSON
+	// (truncated) so a long bash/edit call doesn't sit as an empty card until
+	// message_end.
+	const streamingSummary =
+		entry?.status === "pending" && typeof entry.streamingArgs === "string"
+			? entry.streamingArgs.slice(0, 160)
+			: undefined;
 	const Renderer = getToolRenderer(toolName);
 
 	const railColor =
@@ -114,7 +121,12 @@ export function ToolCard({ toolCallId, toolName, args, summary, runningIndicator
 						{summary}
 					</span>
 				)}
-				{!summary && <span className="flex-1" />}
+				{!summary && streamingSummary && (
+					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-omp-sm opacity-60 text-[var(--omp-tool-output)]">
+						{streamingSummary}…
+					</span>
+				)}
+				{!summary && !streamingSummary && <span className="flex-1" />}
 				{duration && (
 					<span
 						className="omp-tool-duration shrink-0 rounded-md bg-[var(--omp-bg-tertiary)] px-1.5 py-0.5 font-mono text-omp-xxs tabular-nums text-[var(--omp-muted)]" // surface-ok: tiny duration pill

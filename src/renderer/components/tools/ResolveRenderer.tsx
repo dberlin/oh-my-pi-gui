@@ -49,10 +49,24 @@ function affectedFiles(sourceResultDetails: unknown): string[] {
 	return [];
 }
 
-export function ResolveRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function ResolveRenderer({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	operation,
+}: ToolRendererProps & { operation?: "resolve" | "reject" }) {
 	const t = useT();
 	const details = resultDetails(isPartial ? partialResult : result);
-	const action = details?.action === "discard" ? "discard" : args.action === "discard" ? "discard" : "apply";
+	// Registry wrappers pass the real operation: a pending reject carries only
+	// a reason (no details yet) and previously rendered as "Resolving".
+	const action =
+		details?.action === "discard" || args.action === "discard"
+			? "discard"
+			: operation === "reject"
+				? "discard"
+				: "apply";
 	const reason =
 		(typeof details?.reason === "string" && details.reason.trim()) ||
 		(typeof args.reason === "string" && args.reason.trim()) ||
@@ -70,13 +84,14 @@ export function ResolveRenderer({ args, result, isError, isPartial, partialResul
 		? action === "apply"
 			? t("tools.resolve.resolving")
 			: t("tools.resolve.rejecting")
-		: action === "apply" && !isError
-			? t("tools.resolve.applied")
+		: isError
+			? // A failed reject/discard must not claim the action was discarded.
+				t("tools.resolve.failed")
 			: action === "apply"
-				? t("tools.resolve.failed")
+				? t("tools.resolve.applied")
 				: t("tools.resolve.discarded");
 	const tone = pending ? "accent" : isError ? "error" : action === "apply" ? "success" : "warning";
-	const Icon = pending ? Check : action === "apply" && !isError ? Check : action === "apply" ? X : Ban;
+	const Icon = pending ? Check : isError ? X : action === "apply" ? Check : Ban;
 	const fallback = details == null ? resultBodyText(result).trim() : "";
 
 	return (

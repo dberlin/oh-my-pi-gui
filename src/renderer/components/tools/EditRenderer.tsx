@@ -1,6 +1,6 @@
 import { ArrowRightLeft, Circle, FilePlus2, Pencil, Trash2 } from "lucide-react";
 import { DiffView } from "../../lib/diff";
-import { basename, cx, dirname } from "../../lib/format";
+import { basename, cx, dirname, headLines } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
@@ -10,6 +10,9 @@ import { resultBodyText, resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
 type EditOp = "create" | "delete" | "update";
+
+/** Ceiling for error bodies (hashline mismatches embed source context). */
+const EDIT_ERROR_LINES = 100;
 
 /** Per-file entry of `details.perFileResults` (multi-file edit results). */
 interface EditPerFileResult {
@@ -238,13 +241,20 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 
 	if (isError) {
 		const bodyText = (resultBodyText(result) || resultBodyText(partialResult)).trim();
-		const errorText =
-			asString(details?.displayErrorText) ?? asString(details?.errorText) ?? (bodyText || t("tools.edit.failed"));
+		const rawError = asString(details?.displayErrorText) ?? asString(details?.errorText) ?? bodyText;
+		// Hashline-mismatch errors embed source context; a single minified line
+		// can be enormous — cap before it enters the DOM.
+		const { head: cappedError, omitted } = headLines(rawError || t("tools.edit.failed"), EDIT_ERROR_LINES);
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={op} path={rawPath} moveTo={rename} isError />
-				<div className="whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
-					{errorText}
+				<div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
+					{cappedError}
+					{omitted > 0 && (
+						<div className="mt-1 text-omp-xs opacity-70">
+							{t("tools.read.more", { count: omitted, plural: omitted === 1 ? "" : "s" })}
+						</div>
+					)}
 				</div>
 			</div>
 		);

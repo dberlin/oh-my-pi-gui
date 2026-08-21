@@ -10,7 +10,7 @@ import { ListTodo } from "lucide-react";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { AgentProgress, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
@@ -51,6 +51,25 @@ ompWindow.omp = { rpc: { getSubagents, getSubagentMessages } };
 
 function snap(overrides: Partial<SubagentSnapshot>): SubagentSnapshot {
 	return { id: "a1", index: 1, agent: "scout", status: "running", lastUpdate: Date.now(), ...overrides };
+}
+
+function progress(overrides: Partial<AgentProgress>): AgentProgress {
+	return {
+		index: 1,
+		id: "a1",
+		agent: "scout",
+		agentSource: "bundled",
+		status: "running",
+		task: "audit",
+		recentTools: [],
+		recentOutput: [],
+		toolCount: 0,
+		requests: 1,
+		tokens: 12_345,
+		cost: 0.4321,
+		durationMs: 60_000,
+		...overrides,
+	};
 }
 
 let container: HTMLElement;
@@ -103,13 +122,26 @@ describe("AgentsDockCard", () => {
 			.setSnapshots([
 				snap({ id: "a1", status: "running" }),
 				snap({ id: "a2", index: 2, status: "parked" }),
-				snap({ id: "a3", index: 3, status: "completed" }),
+				snap({ id: "a3", index: 3, status: "parked" }),
+				snap({ id: "a4", index: 4, status: "completed" }),
 			]);
 		await mount(<AgentsDockCard />);
 
 		// Live = running + parked; the terminal completed row stays listed.
-		expect(containerText()).toContain("2/3");
+		expect(containerText()).toContain("3/4");
+		expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(4);
 		expect(containerText()).toContain("scout");
+	});
+
+	it("shows each agent's resolved model, tokens, and cost", async () => {
+		useSubagentsStore
+			.getState()
+			.setSnapshots([snap({ progress: progress({ resolvedModel: "openai-codex/gpt-5.6-sol:max" }) })]);
+		await mount(<AgentsDockCard />);
+
+		expect(containerText()).toContain("openai-codex/gpt-5.6-sol:max");
+		expect(containerText()).toContain("12.3k tokens");
+		expect(containerText()).toContain("$0.4321");
 	});
 
 	it("summarizes rosters above five agents and expands them in focus mode", async () => {

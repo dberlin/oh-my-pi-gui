@@ -15,7 +15,8 @@
 import { Bot, ChevronRight, List, Network } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
-import { cx } from "../../../lib/format";
+import { useTabGuard } from "../../../hooks/use-tab-guard";
+import { cx, formatCost, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
@@ -64,6 +65,10 @@ const SubagentRow = memo(function SubagentRow({
 	const description = agent.description?.trim();
 	const detail = [progressLine, description].find(line => line && line !== title);
 	const model = agent.progress?.resolvedModel;
+	const usage =
+		agent.progress && (agent.progress.requests > 0 || agent.progress.tokens > 0 || agent.progress.cost > 0)
+			? `${formatTokens(agent.progress.tokens)} ${t("sessionInfo.tokens")} · ${formatCost(agent.progress.cost)}`
+			: undefined;
 
 	return (
 		<div aria-level={depth + 1} className="relative" role="treeitem" style={{ marginLeft: Math.min(depth, 6) * 14 }}>
@@ -108,6 +113,7 @@ const SubagentRow = memo(function SubagentRow({
 							<span className="shrink-0">{agent.agent}</span>
 							<span className="shrink-0 tabular-nums">#{agent.index + 1}</span>
 							{model && <span className="min-w-0 truncate">· {model}</span>}
+							{usage && <span className="shrink-0 tabular-nums">· {usage}</span>}
 							{elapsed !== null && (
 								<span className="ml-auto shrink-0 tabular-nums">{formatElapsed(elapsed)}</span>
 							)}
@@ -161,6 +167,7 @@ function ViewToggle({ view, onChange }: { view: PanelView; onChange: (view: Pane
 
 export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number }) {
 	const t = useT();
+	const { capture, isActive } = useTabGuard();
 	const { managed, focusedCard, focusCard, clearFocus } = useWorkspaceDockFocus();
 	const focused = focusedCard === "agents";
 	const showFull = !managed || focused;
@@ -184,9 +191,16 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 
 	useEffect(() => {
 		if (!isStreaming) return;
-		const timer = setInterval(() => void useSubagentsStore.getState().refresh(), pollMs);
+		const timer = setInterval(() => {
+			// A poll resolving after a tab/session switch must not paint this
+			// tab's agents over the new foreground session — the guard is
+			// re-checked inside the store AFTER the await, before the write.
+			const origin = capture();
+			if (!isActive(origin)) return;
+			void useSubagentsStore.getState().refresh({ expect: () => isActive(origin) });
+		}, pollMs);
 		return () => clearInterval(timer);
-	}, [isStreaming, pollMs]);
+	}, [capture, isActive, isStreaming, pollMs]);
 
 	const rootToolCallIds = useMemo(() => new Set(extractTaskToolCallIds(messages)), [messages]);
 	const rows = useMemo(

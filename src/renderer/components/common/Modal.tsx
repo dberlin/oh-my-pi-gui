@@ -4,7 +4,7 @@
  */
 
 import { X } from "lucide-react";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../lib/i18n";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
@@ -60,11 +60,42 @@ export function Modal({
 	children,
 }: ModalProps) {
 	const t = useT();
+	const titleId = useId();
 	const panelRef = useRef<HTMLDivElement>(null);
 	const restoreRef = useRef<HTMLElement | null>(null);
 	const onCloseRef = useRef(onClose);
+	const [mounted, setMounted] = useState(open);
+	const [closing, setClosing] = useState(false);
+	// Exit phase: keep the portal mounted briefly after `open` flips false so
+	// backdrop/panel animate out instead of vanishing on the same frame.
+	// `mounted` — not `open` — gates the render, and the phase starts in the
+	// SAME commit's effect while the panel is still in the DOM. Reduced
+	// motion (and first mounts with open=false) skip straight to unmount.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reading `mounted` without depending on it is the point — the exit decision happens once per open flip
+	useEffect(() => {
+		if (open) {
+			setMounted(true);
+			setClosing(false);
+			return;
+		}
+		if (!mounted) return;
+		if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+			setMounted(false);
+			setClosing(false);
+			return;
+		}
+		setClosing(true);
+		const timer = setTimeout(() => {
+			setMounted(false);
+			setClosing(false);
+		}, 240);
+		return () => clearTimeout(timer);
+	}, [open]);
 	onCloseRef.current = onClose;
 
+	// Focus + keyboard + layer scope all live with `open`: the layer releases
+	// the moment close begins, handing Escape to the dialog beneath even while
+	// this one plays its 240ms exit animation.
 	useEffect(() => {
 		if (!open) return;
 		const unregisterLayer = registerDialogLayer(panelRef.current);
@@ -79,6 +110,9 @@ export function Modal({
 		}
 
 		const onKeyDown = (event: KeyboardEvent) => {
+			// IME composition owns Escape (candidate dismissal) — a composing
+			// keydown must not close the dialog or cancel an extension request.
+			if (event.isComposing || event.keyCode === 229) return;
 			// Include fullscreen/custom dialogs that do not use Modal in the layer
 			// decision; a modal hidden beneath Settings must remain untouched.
 			if (!isTopmostDialog(panel)) return;
@@ -106,6 +140,7 @@ export function Modal({
 				firstEl.focus();
 			}
 		};
+
 		document.addEventListener("keydown", onKeyDown, true);
 		return () => {
 			document.removeEventListener("keydown", onKeyDown, true);
@@ -115,30 +150,38 @@ export function Modal({
 		};
 	}, [open]);
 
-	if (!open) return null;
+	if (!mounted) return null;
 
 	return createPortal(
 		<div
-			className={`omp-dialog-overlay fixed inset-0 z-50 flex justify-center bg-(--omp-overlay-bg) p-4 backdrop-blur-[6px] ${placement === "top" ? "items-start pt-[12dvh]" : "items-center"}`}
+			className={`omp-dialog-overlay fixed inset-0 z-50 flex justify-center bg-(--omp-overlay-bg) p-4 backdrop-blur-[6px] ${placement === "top" ? "items-start pt-[12dvh]" : "items-center"} ${closing ? "omp-dialog-overlay--exit" : "omp-dialog-overlay"}`}
 			onMouseDown={event => {
+				if (closing) return;
 				if (event.target === event.currentTarget) onClose();
 			}}
 			role="presentation"
 		>
 			<div
-				aria-label={ariaLabel}
-				aria-modal="true"
-				className={`omp-dialog-panel omp-scale-in flex flex-col overflow-hidden rounded-2xl border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg) ${SIZE_CLASSES[size]} ${panelClassName ?? ""}`.trim()}
+				aria-label={ariaLabel ?? (typeof title === "string" ? title : undefined)}
+				aria-labelledby={titleId}
+				aria-modal={!closing}
+				className={`omp-dialog-panel flex flex-col overflow-hidden rounded-2xl border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg) ${SIZE_CLASSES[size]} ${panelClassName ?? ""} ${closing ? "omp-dialog-panel--exit" : "omp-scale-in"}`.trim()}
 				onKeyDown={event => {
 					if (event.key === "Escape") event.stopPropagation();
 				}}
 				ref={panelRef}
-				role="dialog"
+				// An exiting panel drops out of the dialog role: isTopmostDialog's
+				// DOM fallback must not treat the animating portal as a covering
+				// layer, or Escape cannot reach the dialog beneath.
+				role={closing ? "presentation" : "dialog"}
 				tabIndex={-1}
 			>
 				{!chromeless && (
 					<div className="flex shrink-0 items-center justify-between gap-3 border-b border-(--omp-border-muted) px-5 py-3.5">
-						<div className="min-w-0 truncate text-omp-xl font-semibold tracking-[-0.01em] text-(--omp-text)">
+						<div
+							id={titleId}
+							className="min-w-0 truncate text-omp-xl font-semibold tracking-[-0.01em] text-(--omp-text)"
+						>
 							{title}
 						</div>
 						<button

@@ -31,7 +31,14 @@ function retainContents(args: Record<string, unknown>): string[] {
 }
 
 /** Memory: operation header + retain bullets / recall matches / reflect answer. */
-export function MemoryRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function MemoryRenderer({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	operation,
+}: ToolRendererProps & { operation?: "retain" | "recall" | "reflect" }) {
 	const t = useT();
 	const effective = isPartial ? partialResult : result;
 	const details = resultDetails(effective);
@@ -42,9 +49,17 @@ export function MemoryRenderer({ args, result, isError, isPartial, partialResult
 	const foundMatch = text.match(/^Found (\d+) relevant/);
 	const isRetain = bullets.length > 0;
 	const isRecall = !isRetain && (foundMatch != null || text.startsWith("No relevant memories"));
-	const operation = t(
-		`tools.memory.operation.${isRetain ? "retain" : isRecall ? "recall" : query ? "reflect" : "memory"}`,
-	);
+	// Registry wrappers pass the real operation: a running/failed recall has
+	// neither bullets nor a "Found…" header and previously mislabeled Reflect.
+	const inferred: "retain" | "recall" | "reflect" | "memory" = isRetain
+		? "retain"
+		: isRecall
+			? "recall"
+			: query
+				? "reflect"
+				: "memory";
+	const resolved = operation ?? inferred;
+	const operationLabel = t(`tools.memory.operation.${resolved}`);
 	const count = typeof details?.count === "number" ? details.count : undefined;
 	// Recall body drops the "Found N relevant memories (…)" header line.
 	const recallBody = isRecall && foundMatch ? text.replace(/^[^\n]*\n+/, "").trim() : "";
@@ -53,7 +68,7 @@ export function MemoryRenderer({ args, result, isError, isPartial, partialResult
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<Brain size={12} className="shrink-0 text-[var(--omp-custom-msg-label)]" />
-				<span className="shrink-0 text-[var(--omp-text)]">{operation}</span>
+				<span className="shrink-0 text-[var(--omp-text)]">{operationLabel}</span>
 				{query && <span className="min-w-0 flex-1 truncate text-[var(--omp-dim)]">{query}</span>}
 				{isRecall && (
 					<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">

@@ -35,12 +35,15 @@
 	animation: omp-stream-block-settle var(--omp-motion-med) var(--omp-ease-enter) both;
 }
 
+/* Typography MUST match .markdown-body (14.5px/1.7): the tail is promoted
+ * into a markdown block at every paragraph boundary, and a size mismatch
+ * reads as a visible jump mid-stream. */
 .omp-streaming-tail {
 	min-height: 1.5em;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
-	font-size: 15px;
-	line-height: 1.65;
+	font-size: 14.5px;
+	line-height: 1.7;
 }
 
 .omp-streaming-reveal {
@@ -69,15 +72,6 @@
 	}
 }
 
-/* ThinkingBlock still renders one formatted live block. Keep its caret beside
-   the final paragraph without applying inline layout to stable reply blocks. */
-.omp-thinking-body .omp-streaming .markdown-body {
-	display: inline;
-}
-
-.omp-thinking-body .omp-streaming .markdown-body > p:last-child {
-	display: inline;
-}
 
 /* ---------------------------------------------------------------------------
  * Pattern highlight (grep matches, code search hits)
@@ -141,9 +135,21 @@
 .hljs-built_in {
 	color: var(--omp-syntax-type);
 }
-.hljs-operator,
-.hljs-punctuation {
+.hljs-operator {
 	color: var(--omp-syntax-operator);
+}
+/* Live thinking tail inherits the thinking body's typography — the reply
+   tail's 14.5px would visibly outweigh promoted paragraphs inside the
+   12px thinking block. */
+.omp-thinking-body .omp-streaming-tail {
+	font-size: inherit;
+	line-height: inherit;
+}
+
+/* Plugin themes may retint punctuation separately (gui.theme
+   syntaxPunctuation); falls back to the operator color when unset. */
+.hljs-punctuation {
+	color: var(--omp-syntax-punctuation, var(--omp-syntax-operator));
 }
 .hljs-symbol,
 .hljs-bullet,

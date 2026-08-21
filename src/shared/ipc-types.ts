@@ -876,6 +876,7 @@ export interface OmpApi {
 		getAgentDefinitions(): Promise<RpcResponse>;
 		getHooks(): Promise<RpcResponse>;
 		getMcpServers(): Promise<RpcResponse>;
+		getGuiThemes(): Promise<RpcResponse>;
 		getPlugins(): Promise<RpcResponse>;
 		getMarketplaces(): Promise<RpcResponse>;
 		getPromptTemplates(): Promise<RpcResponse>;

@@ -176,7 +176,7 @@ function isLaunchMessage(message: AgentMessage): boolean {
  * invisible toolResult row at 128px was the remaining source of blank bands
  * between cards; its content already lives in the matching ToolCard.
  */
-function isVisibleTranscriptMessage(message: AgentMessage): boolean {
+export function isVisibleTranscriptMessage(message: AgentMessage): boolean {
 	if (message.role === "toolResult") return false;
 	if ((message.role === "custom" || message.role === "hookMessage") && message.display === false) return false;
 	if (

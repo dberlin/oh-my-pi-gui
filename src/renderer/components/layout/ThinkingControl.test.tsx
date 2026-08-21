@@ -12,7 +12,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
@@ -97,6 +97,11 @@ function buttonWithMono(text: string): TestElement | undefined {
 	return buttons.find(button => button.textContent?.includes(text));
 }
 
+/** The control renders localized level names, not the raw wire enum. */
+function labelFor(level: string): string {
+	return translate(`input.thinking.name.${level}`);
+}
+
 afterEach(async () => {
 	if (root) {
 		await act(async () => {
@@ -121,7 +126,7 @@ describe("ThinkingControl", () => {
 		});
 		await mount(<ThinkingControl />);
 
-		const trigger = buttonWithMono("medium");
+		const trigger = buttonWithMono(labelFor("medium"));
 		expect(trigger).toBeDefined();
 		if (!trigger) return;
 		await act(async () => {
@@ -130,7 +135,7 @@ describe("ThinkingControl", () => {
 
 		const body = document.body.textContent ?? "";
 		for (const option of ["off", "auto", "low", "medium", "high", "xhigh", "max"]) {
-			expect(body).toContain(option);
+			expect(body).toContain(labelFor(option));
 		}
 		// Unsupported levels must not be offered.
 		expect(body).not.toContain("minimal");
@@ -145,12 +150,12 @@ describe("ThinkingControl", () => {
 		});
 		await mount(<ThinkingControl />);
 
-		const trigger = buttonWithMono("medium");
+		const trigger = buttonWithMono(labelFor("medium"));
 		if (!trigger) throw new Error("trigger missing");
 		await act(async () => {
 			click(trigger);
 		});
-		const high = buttonWithMono("high");
+		const high = buttonWithMono(labelFor("high"));
 		expect(high).toBeDefined();
 		if (!high) return;
 		await act(async () => {
@@ -178,10 +183,10 @@ describe("ThinkingControl", () => {
 		});
 		await mount(<ThinkingControl />);
 
-		const trigger = buttonWithMono("medium");
+		const trigger = buttonWithMono(labelFor("medium"));
 		if (!trigger) throw new Error("trigger missing");
 		await act(async () => click(trigger));
-		const max = buttonWithMono("max");
+		const max = buttonWithMono(labelFor("max"));
 		if (!max) throw new Error("max option missing");
 		await act(async () => click(max));
 		await flush();
@@ -211,10 +216,10 @@ describe("ThinkingControl", () => {
 		});
 		await mount(<ThinkingControl />);
 
-		const trigger = buttonWithMono("medium");
+		const trigger = buttonWithMono(labelFor("medium"));
 		if (!trigger) throw new Error("trigger missing");
 		await act(async () => click(trigger));
-		const high = buttonWithMono("high");
+		const high = buttonWithMono(labelFor("high"));
 		if (!high) throw new Error("high option missing");
 		await act(async () => click(high));
 
@@ -244,12 +249,12 @@ describe("ThinkingControl", () => {
 		});
 		await mount(<ThinkingControl />);
 
-		const trigger = buttonWithMono("high");
+		const trigger = buttonWithMono(labelFor("high"));
 		if (!trigger) throw new Error("trigger missing");
 		await act(async () => {
 			click(trigger);
 		});
-		const auto = buttonWithMono("auto");
+		const auto = buttonWithMono(labelFor("auto"));
 		expect(auto).toBeDefined();
 		if (!auto) return;
 		await act(async () => {
@@ -267,7 +272,7 @@ describe("ThinkingControl", () => {
 		useModelStore.setState({ thinkingLevel: undefined, thinkingConfigured: undefined, availableThinkingLevels: [] });
 		await mount(<ThinkingControl />);
 
-		const trigger = buttonWithMono("off");
+		const trigger = buttonWithMono(labelFor("off"));
 		if (!trigger) throw new Error("trigger missing");
 		await act(async () => {
 			click(trigger);

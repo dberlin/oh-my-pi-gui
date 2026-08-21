@@ -14,6 +14,8 @@ import { LogPanel } from "../panels/LogPanel";
 
 const MIN_WIDTH = 360;
 const MAX_WIDTH = 840;
+/** Below this the inspector overlays instead of docking (see PanelContainer). */
+const COMPACT_QUERY = "(max-width: 1000px)";
 
 function defaultPanelWidth(): number {
 	const viewportWidth = Number.isFinite(window.innerWidth) && window.innerWidth > 0 ? window.innerWidth : 1440;
@@ -42,6 +44,19 @@ export function PanelContainer() {
 	const togglePanel = useUiStore(s => s.togglePanel);
 	const activeTabId = useTabsStore(s => s.activeTabId);
 	const routeReady = useActiveTabRouteReady();
+	// ≤1000px: the inspector would squeeze the conversation below usability as
+	// a flex sibling — render it as a right-anchored overlay instead (same
+	// breakpoint App uses to auto-hide on shrink).
+	const [compact, setCompactState] = useState(() =>
+		typeof window.matchMedia === "function" ? window.matchMedia(COMPACT_QUERY).matches : false,
+	);
+	useEffect(() => {
+		if (typeof window.matchMedia !== "function") return;
+		const media = window.matchMedia(COMPACT_QUERY);
+		const onChange = () => setCompactState(media.matches);
+		media.addEventListener("change", onChange);
+		return () => media.removeEventListener("change", onChange);
+	}, []);
 	/** Chat tabs only expose files + logs — diffs can't exist without tools. */
 	const isChat = useActiveTabKind() === "chat";
 	const visibleTabs = isChat ? TABS.filter(tab => CHAT_TAB_IDS.has(tab.id)) : TABS;
@@ -80,7 +95,8 @@ export function PanelContainer() {
 		<aside
 			aria-busy={!routeReady}
 			className={cx(
-				"omp-inspector relative flex h-full shrink-0 flex-col border-l border-[var(--omp-border-muted)]",
+				"omp-inspector relative flex h-full flex-col border-l border-[var(--omp-border-muted)]",
+				compact ? "absolute inset-y-0 right-0 z-30 shadow-[var(--omp-shadow-lg)]" : "shrink-0",
 				!routeReady && "pointer-events-none",
 			)}
 			style={{ width }}

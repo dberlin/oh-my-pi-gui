@@ -168,9 +168,10 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 	const truncated = details?.truncated === true || details?.truncation != null;
 	const scope = typeof details?.scopePath === "string" ? details.scopePath : undefined;
 
-	// Cap rendered match lines; the truncation meta covers the rest. Once the
-	// budget is spent, drop whole remaining groups rather than leaving
-	// orphaned context lines.
+	// Cap rendered rows — matches AND context/gap lines: a large context
+	// setting (or context-only groups) previously appended unbounded rows
+	// after the last budgeted match. Once the budget is spent, drop whole
+	// remaining groups rather than leaving orphaned context lines.
 	let budget = MAX_MATCHES;
 	let shown = 0;
 	const renderedGroups: FileGroup[] = [];
@@ -178,11 +179,9 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 		if (budget <= 0) break;
 		const lines: FrameLine[] = [];
 		for (const line of group.lines) {
-			if (line.kind === "match") {
-				if (budget <= 0) break;
-				budget--;
-				shown++;
-			}
+			if (budget <= 0) break;
+			if (line.kind === "match") shown++;
+			budget--;
 			lines.push(line);
 		}
 		if (lines.length > 0) renderedGroups.push({ ...group, lines });

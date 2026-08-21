@@ -73,7 +73,12 @@ export function formatDuration(ms: number): string {
 	if (ms < 60_000) return translate("time.secondsDecimalShort", { count: (ms / 1000).toFixed(1) });
 	const minutes = Math.floor(ms / 60_000);
 	const seconds = Math.round((ms % 60_000) / 1000);
-	return translate("time.minutesSecondsShort", { minutes, seconds });
+	// Rounding can push seconds to 60 — carry into minutes ("1m 60s").
+	const carried = seconds === 60 ? 1 : 0;
+	return translate("time.minutesSecondsShort", {
+		minutes: minutes + carried,
+		seconds: carried ? 0 : seconds,
+	});
 }
 
 const EXT_LANG: Record<string, string> = {
@@ -181,7 +186,11 @@ export function dirname(path: string | null | undefined): string {
 	if (!path) return "";
 	const parts = path.split(/[\\/]/);
 	parts.pop();
-	return parts.join("/") || "/";
+	const joined = parts.join("/");
+	// A bare filename ("README.md") has no directory — "/" would claim the
+	// filesystem root; only genuinely rooted paths keep it.
+	if (joined) return joined;
+	return /^[\\/]/.test(path) ? "/" : "";
 }
 
 /** Collapse a home-dir prefix to "~" and middle-truncate long paths. */

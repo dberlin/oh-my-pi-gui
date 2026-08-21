@@ -49,9 +49,10 @@ import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
 import { abortActiveTurn, restoreQueuedMessages } from "./lib/messages";
-import { acceptsActiveTabEvents } from "./lib/tab-routing";
+import { watchPluginActivation } from "./lib/plugin-activation";
+import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "./lib/tab-routing";
 import { applyFontSize, applyTheme, watchSystemTheme } from "./lib/theme";
-import { applyThemeByName, getPersistedThemeSelection, initAgentThemeSync } from "./lib/themes";
+import { applyThemeByName, getPersistedThemeSelection, initAgentThemeSync, refreshPluginThemes } from "./lib/themes";
 import { startVoiceAutoSpeak } from "./lib/voice";
 import { useModelStore } from "./stores/model";
 import { useSessionStore } from "./stores/session";
@@ -230,6 +231,23 @@ export function App() {
 	// theme; re-syncs live on config_update frames and GUI theme switches.
 	useEffect(() => initAgentThemeSync(), []);
 
+	// Restart-required plugin installs queue while a run is in flight; restart
+	// the active sidecar (resuming its session) once the run settles.
+	useEffect(() => watchPluginActivation(), []);
+
+	// Layer plugin gui.theme tokens (validated, transcript-scoped) over the
+	// base. get_gui_themes resolves from the ROUTED session's cwd, so the
+	// refresh must follow sidecar readiness AND active-tab route changes — a
+	// mount-only run left tab A's overlay recoloring tab B (or nothing at all
+	// when the sidecar was still starting at mount).
+	useEffect(() => {
+		void refreshPluginThemes();
+		return onActiveTabRouteSettled(() => {
+			if (!acceptsActiveTabEvents()) return;
+			void refreshPluginThemes();
+		});
+	}, []);
+
 	// Apply theme + font size to the DOM whenever they change.
 	useEffect(() => {
 		applyTheme(theme);
@@ -405,6 +423,9 @@ export function App() {
 		};
 
 		const onKey = (event: KeyboardEvent) => {
+			// IME composition owns the keyboard: Escape dismisses candidates and
+			// must never abort the run (keyCode 229 = composing keydown).
+			if (event.isComposing || event.keyCode === 229) return;
 			const ui = useUiStore.getState();
 			const overlayOpen =
 				ui.commandPaletteOpen ||

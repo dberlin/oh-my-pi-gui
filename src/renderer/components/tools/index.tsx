@@ -43,8 +43,6 @@ const REGISTRY: Record<string, ComponentType<ToolRendererProps>> = {
 	edit: EditRenderer,
 	ast_edit: AstEditRenderer,
 	apply_patch: EditRenderer,
-	resolve: ResolveRenderer,
-	reject: ResolveRenderer,
 	goal: GoalRenderer,
 	write: WriteRenderer,
 	bash: BashRenderer,
@@ -75,9 +73,13 @@ const REGISTRY: Record<string, ComponentType<ToolRendererProps>> = {
 	vibe_kill: VibeKillRenderer,
 	vibe_list: VibeListRenderer,
 	retain: MemoryRenderer,
-	recall: MemoryRenderer,
-	reflect: MemoryRenderer,
+	recall: (props: ToolRendererProps) => <MemoryRenderer {...props} operation="recall" />,
+	reflect: (props: ToolRendererProps) => <MemoryRenderer {...props} operation="reflect" />,
 	memory_edit: MemoryRenderer,
+	resolve: ResolveRenderer,
+	// A pending reject carries only a reason — the wrapper pins the operation
+	// so the card never renders as "Resolving".
+	reject: (props: ToolRendererProps) => <ResolveRenderer {...props} operation="reject" />,
 };
 
 export function getToolRenderer(name: string): ComponentType<ToolRendererProps> {

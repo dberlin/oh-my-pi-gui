@@ -1,5 +1,6 @@
 import { Bug, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
+import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { resultDetails } from "./result";
@@ -136,8 +137,17 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 	const output = typeof details?.output === "string" ? details.output : "";
 	const text = resultText(effective);
 	const [varsOpen, setVarsOpen] = useState(true);
+	// Only treat the snapshot as "structured" for actions whose payload IS the
+	// session snapshot. threads/scopes/disassemble/etc. also return one —
+	// counting it suppressed the text fallback and silently dropped the
+	// operation's actual result.
+	const snapshotActions = new Set(["launch", "attach", "restart", "pause", "continue", "disconnect", "terminate"]);
 	const hasStructured =
-		snapshot != null || frames.length > 0 || variables.length > 0 || breakpoints.length > 0 || evaluation != null;
+		(snapshot != null && snapshotActions.has(action)) ||
+		frames.length > 0 ||
+		variables.length > 0 ||
+		breakpoints.length > 0 ||
+		evaluation != null;
 
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -237,7 +247,7 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 
 			{output && (
 				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
-					{output}
+					{hasAnsi(output) ? <AnsiText text={output} /> : output}
 				</pre>
 			)}
 

@@ -52,7 +52,9 @@ export function ThinkingControl() {
 		setPos({ left: rect.left, bottom: window.innerHeight - rect.top + 6 });
 	}, [open]);
 
-	// Close on any outside pointer press.
+	// Close on outside pointer press, and consume Escape: an open dropdown must
+	// swallow the key (with focus restored to the trigger) instead of letting
+	// the global handler abort a running turn.
 	useEffect(() => {
 		if (!open) return;
 		const onDown = (event: PointerEvent) => {
@@ -60,8 +62,20 @@ export function ThinkingControl() {
 			if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
 			setOpen(false);
 		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.isComposing || event.keyCode === 229) return;
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			event.stopPropagation();
+			setOpen(false);
+			triggerRef.current?.focus();
+		};
 		document.addEventListener("pointerdown", onDown);
-		return () => document.removeEventListener("pointerdown", onDown);
+		document.addEventListener("keydown", onKey, true);
+		return () => {
+			document.removeEventListener("pointerdown", onDown);
+			document.removeEventListener("keydown", onKey, true);
+		};
 	}, [open]);
 
 	const select = (level: ThinkingSelector) => {
@@ -101,12 +115,12 @@ export function ThinkingControl() {
 				ref={triggerRef}
 				type="button"
 				onClick={() => setOpen(value => !value)}
-				title={t("input.thinking", { level: current })}
+				title={t("input.thinking", { level: t(`input.thinking.name.${current}`) })}
 				className="omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]"
 				style={{ color: `var(--omp-thinking-${thinkingLevel ?? "off"})` }}
 			>
 				<Brain size={14} />
-				<span className="omp-composer-control-label hidden sm:inline">{current}</span>
+				<span className="omp-composer-control-label hidden sm:inline">{t(`input.thinking.name.${current}`)}</span>
 				<ChevronDown size={12} className="shrink-0 text-[var(--omp-dim)]" />
 			</button>
 
@@ -140,7 +154,7 @@ export function ThinkingControl() {
 														option === "auto" ? undefined : { color: `var(--omp-thinking-${option})` }
 													}
 												>
-													{option}
+													{t(`input.thinking.name.${option}`)}
 												</span>
 												<span className="block text-omp-sm leading-snug text-[var(--omp-dim)]">
 													{t(`input.thinking.level.${option}`)}

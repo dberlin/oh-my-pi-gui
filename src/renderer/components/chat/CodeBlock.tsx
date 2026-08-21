@@ -1,7 +1,7 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { copyText, cx, escapeHtml, escapeRegExp } from "../../lib/format";
-import { getLoadedHljs, loadHljs } from "../../lib/highlight";
+import { getLoadedHljs, HIGHLIGHT_CHAR_CAP, loadHljs } from "../../lib/highlight";
 import { useT } from "../../lib/i18n";
 import { LineNumberGutter } from "./LineNumberGutter";
 
@@ -20,6 +20,8 @@ export interface CodeBlockProps {
 	showLineNumbers?: boolean;
 	/** Highlight these literal strings inside the code (e.g. grep pattern). */
 	highlightPattern?: string;
+	/** Number shown on the first gutter line (ranged reads start past 1). */
+	startLine?: number;
 	/** Cap the visible height; taller blocks scroll internally. */
 	maxHeightClass?: string;
 	className?: string;
@@ -54,6 +56,7 @@ export function CodeBlock({
 	showLanguage = true,
 	showCopy = true,
 	showLineNumbers = true,
+	startLine,
 	highlightPattern,
 	maxHeightClass,
 	className,
@@ -62,7 +65,7 @@ export function CodeBlock({
 	const lang = normalizeLanguage(language);
 	const [copied, setCopied] = useState(false);
 	const [hlHtml, setHlHtml] = useState<string | null>(() => {
-		if (highlightedHtml || !code) return null;
+		if (highlightedHtml || !code || code.length > HIGHLIGHT_CHAR_CAP) return null;
 		const hljs = getLoadedHljs();
 		if (!hljs) return null;
 		return lang !== "plaintext" && hljs.getLanguage(lang)
@@ -71,7 +74,8 @@ export function CodeBlock({
 	});
 
 	useEffect(() => {
-		if (highlightedHtml || !code) return;
+		if (highlightedHtml || !code || code.length > HIGHLIGHT_CHAR_CAP) return;
+
 		let cancelled = false;
 		void loadHljs().then(hljs => {
 			if (cancelled) return;
@@ -92,7 +96,11 @@ export function CodeBlock({
 	// pre-highlighted sources). hljs output never contains a bare "<" in text,
 	// so wrapping text-level matches cannot split a tag.
 	const html = useMemo(() => {
-		const base = highlightedHtml ?? hlHtml ?? (code != null ? escapeHtml(code) : null);
+		// Over-cap code must ignore any cached highlight from a previous
+		// shorter value — otherwise the old source displays while Copy takes
+		// the new one.
+		const overCap = code != null && code.length > HIGHLIGHT_CHAR_CAP;
+		const base = overCap ? escapeHtml(code) : (highlightedHtml ?? hlHtml ?? (code != null ? escapeHtml(code) : null));
 		if (base == null) return null;
 		if (!highlightPattern) return base;
 		const re = new RegExp(escapeRegExp(highlightPattern), "gi");
@@ -125,7 +133,7 @@ export function CodeBlock({
 	return (
 		<div
 			className={cx(
-				"group/code relative overflow-hidden rounded-lg border border-[var(--omp-border)] bg-[var(--omp-code-bg)]",
+				"group/code relative overflow-hidden rounded-lg border border-[color:var(--omp-md-code-block-border,var(--omp-border))] bg-[var(--omp-code-bg)]",
 				className,
 			)}
 		>
@@ -151,7 +159,11 @@ export function CodeBlock({
 			<div className={cx("overflow-auto", maxHeightClass)}>
 				{showLineNumbers && lineCount > 0 ? (
 					<div className="flex">
-						<LineNumberGutter lineCount={lineCount} className="px-2.5 py-3 text-omp-md leading-[1.5]" />
+						<LineNumberGutter
+							lineCount={lineCount}
+							startLine={startLine}
+							className="px-2.5 py-3 text-omp-md leading-[1.5]"
+						/>
 						<pre className="min-w-0 flex-1 overflow-x-auto px-3 py-3 font-mono text-omp-md leading-[1.5]">
 							{codeElement}
 						</pre>

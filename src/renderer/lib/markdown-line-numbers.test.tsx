@@ -22,8 +22,8 @@ function render(content: string, codeLineNumbers?: boolean): string {
 }
 
 const FENCE = "```ts\nalpha\nbeta\ngamma\n```";
-/** The gutter rows for a three-line fence, rendered by LineNumberGutter. */
-const GUTTER_ROWS = "<div>1</div><div>2</div><div>3</div>";
+/** The gutter renders as one preformatted text node, one number per line. */
+const GUTTER_ROWS = ">1\n2\n3</div>";
 /** Metrics class combo of the shared CodeBlock gutter. */
 const SHARED_GUTTER = "px-2.5 py-3 text-omp-md leading-[1.5]";
 
@@ -69,7 +69,7 @@ describe("markdown code line numbers", () => {
 		// the trailing newline was counted as a visible line.
 		const html = render(FENCE, true);
 		expect(html).toContain(GUTTER_ROWS);
-		expect(html).not.toContain("<div>4</div>");
+		expect(html).not.toContain("1\n2\n3\n4");
 	});
 
 	it("fences carry the shared chrome: language badge and copy button", () => {

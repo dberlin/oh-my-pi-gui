@@ -32,7 +32,8 @@ export function ApprovalControl() {
 		setPos({ left: rect.left, bottom: window.innerHeight - rect.top + 6 });
 	}, [open]);
 
-	// Close on any outside pointer press.
+	// Close on outside pointer press, and consume Escape (focus restored to
+	// the trigger) so it cannot fall through to the global abort handler.
 	useEffect(() => {
 		if (!open) return;
 		const onDown = (event: PointerEvent) => {
@@ -40,8 +41,20 @@ export function ApprovalControl() {
 			if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
 			setOpen(false);
 		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.isComposing || event.keyCode === 229) return;
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			event.stopPropagation();
+			setOpen(false);
+			triggerRef.current?.focus();
+		};
 		document.addEventListener("pointerdown", onDown);
-		return () => document.removeEventListener("pointerdown", onDown);
+		document.addEventListener("keydown", onKey, true);
+		return () => {
+			document.removeEventListener("pointerdown", onDown);
+			document.removeEventListener("keydown", onKey, true);
+		};
 	}, [open]);
 
 	return (

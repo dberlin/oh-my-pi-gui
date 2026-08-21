@@ -275,6 +275,20 @@ kbd,
 .omp-toast-in {
 	animation: omp-toast-in var(--omp-motion-med) var(--omp-ease-spring) both;
 }
+@keyframes omp-toast-out {
+	from {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: translateY(8px) scale(0.96);
+	}
+}
+
+.omp-toast-out {
+	animation: omp-toast-out var(--omp-motion-fast) var(--omp-ease) both;
+}
 
 .omp-pop-in {
 	animation: omp-pop-in var(--omp-motion-fast) var(--omp-ease-spring) both;
@@ -286,6 +300,41 @@ kbd,
 
 .omp-dialog-overlay {
 	animation: omp-fade-in var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+.omp-dialog-overlay--exit {
+	animation: omp-fade-out var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+.omp-dialog-panel--exit {
+	animation: omp-scale-out var(--omp-motion-fast) var(--omp-ease) both;
+}
+@keyframes omp-fade-out {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes omp-scale-out {
+	from {
+		opacity: 1;
+		transform: scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: scale(0.96) translateY(6px);
+	}
+}
+
+.omp-dialog-overlay--exit {
+	animation: omp-fade-out var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+.omp-dialog-panel--exit {
+	animation: omp-scale-out var(--omp-motion-fast) var(--omp-ease) both;
 }
 
 .omp-skeleton {

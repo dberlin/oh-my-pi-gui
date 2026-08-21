@@ -264,6 +264,12 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		useSidebarPrefs.setState({ hydrated: true });
 		await mount(<SidebarWithRecency />);
+		// Non-active workspaces start collapsed and render no rows; expand alpha
+		// so its session order is inspectable.
+		const alphaToggle = [...container.querySelectorAll("button")].find(button =>
+			(button.textContent ?? "").includes("alpha"),
+		);
+		await fire(alphaToggle as unknown as TestElement, "onClick");
 
 		const workspaceOrder = () =>
 			[...container.querySelectorAll("[data-workspace-group]")].map(element =>
@@ -549,7 +555,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 	});
 
-	it("collapsed groups stay mounted for animation but become inert and hidden from accessibility", async () => {
+	it("renders collapsed groups as absent from the DOM instead of inert subtrees", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
@@ -557,25 +563,18 @@ describe("Sidebar menus and pinned ordering", () => {
 		const alphaHeader = [...container.querySelectorAll("button")].find(button =>
 			(button.textContent ?? "").includes("alpha"),
 		);
-		const alphaContent = container.querySelector('[data-session-group="/work/alpha"]') as unknown as Element;
-		const betaContent = container.querySelector('[data-session-group="/work/beta"]') as unknown as Element;
-
-		expect(alphaContent.getAttribute("data-state")).toBe("expanded");
-		expect(alphaContent.getAttribute("aria-hidden")).toBe("false");
-		expect(alphaContent.hasAttribute("inert")).toBe(false);
-		expect(betaContent.getAttribute("data-state")).toBe("collapsed");
-		expect(betaContent.getAttribute("aria-hidden")).toBe("true");
-		expect(betaContent.hasAttribute("inert")).toBe(true);
+		// Active workspace expanded; other groups render nothing at all — a
+		// long-lived install must not build hundreds of hidden rows per refresh.
+		const alphaContent = () =>
+			container.querySelector('[data-session-group="/work/alpha"]') as unknown as Element | null;
+		expect(alphaContent()?.getAttribute("data-state")).toBe("expanded");
+		expect(container.querySelector('[data-session-group="/work/beta"]')).toBeNull();
 
 		await fire(alphaHeader as unknown as TestElement, "onClick");
-		expect(alphaContent.getAttribute("data-state")).toBe("collapsed");
-		expect(alphaContent.getAttribute("aria-hidden")).toBe("true");
-		expect(alphaContent.hasAttribute("inert")).toBe(true);
+		expect(alphaContent()).toBeNull();
 
 		await fire(alphaHeader as unknown as TestElement, "onClick");
-		expect(alphaContent.getAttribute("data-state")).toBe("expanded");
-		expect(alphaContent.getAttribute("aria-hidden")).toBe("false");
-		expect(alphaContent.hasAttribute("inert")).toBe(false);
+		expect(alphaContent()?.getAttribute("data-state")).toBe("expanded");
 	});
 
 	it("pinned groups sort before unpinned; pinned sessions sort first inside their group", async () => {

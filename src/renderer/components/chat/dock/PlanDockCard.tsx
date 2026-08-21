@@ -20,6 +20,7 @@
 import { CheckCircle2, Circle, ClipboardList, FileWarning, MessageSquare, RefreshCw, Send } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanModeState } from "../../../../shared/rpc-types";
+import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../../lib/tab-routing";
@@ -124,9 +125,9 @@ interface StepFeedbackState {
 
 export function PlanDockCard() {
 	const t = useT();
+	const { capture, isActive } = useTabGuard();
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const isStreaming = useSessionStore(s => s.isStreaming);
-
 	const [planFilePath, setPlanFilePath] = useState<string | null>(null);
 	const [planFile, setPlanFile] = useState<string | null>(null);
 	const [localRoot, setLocalRoot] = useState<string | null>(null);
@@ -238,9 +239,11 @@ export function PlanDockCard() {
 
 	const togglePlanMode = useCallback(async () => {
 		const next = !useSessionStore.getState().planModeEnabled;
+		const origin = capture();
 		setToggling(true);
 		try {
 			const response = await window.omp.rpc.setPlanMode(next);
+			if (!isActive(origin)) return; // switched tabs/sessions mid-request: never write A's result into B
 			if (!response.success) {
 				toast({ variant: "error", title: t("planPanel.toggleFailed"), message: response.error });
 				return;
@@ -252,7 +255,7 @@ export function PlanDockCard() {
 		} finally {
 			setToggling(false);
 		}
-	}, [load, t]);
+	}, [isActive, capture, load, t]);
 
 	/** `local://<name>` when the file lives in the session-local root (how the agent refers to it). */
 	const displayPath = useMemo(() => {
@@ -265,8 +268,8 @@ export function PlanDockCard() {
 	const approve = useCallback(async () => {
 		setApproving(true);
 		try {
-			const target = displayPath ?? "the plan file";
-			const ok = await sendPlanMessage(`Plan approved (${target}) — proceed with implementation.`, t);
+			const target = displayPath ?? t("planPanel.fallbackTarget");
+			const ok = await sendPlanMessage(t("planPanel.approveMessage", { target }), t);
 			if (ok) toast({ variant: "success", message: t("planPanel.approvalSent") });
 		} finally {
 			setApproving(false);
@@ -278,8 +281,8 @@ export function PlanDockCard() {
 		if (!text) return;
 		setSendingPlan(true);
 		try {
-			const target = displayPath ?? "the plan";
-			const ok = await sendPlanMessage(`Please revise the plan (${target}):\n${text}`, t);
+			const target = displayPath ?? t("planPanel.fallbackTarget");
+			const ok = await sendPlanMessage(t("planPanel.reviseMessage", { target, feedback: text }), t);
 			if (ok) setPlanFeedback("");
 		} finally {
 			setSendingPlan(false);

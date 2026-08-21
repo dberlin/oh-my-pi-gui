@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, ChevronRight, LoaderCircle } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
+import type { ReactNode } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useToolsStore } from "../../stores/tools";
@@ -29,25 +29,28 @@ export function ExecutionGroup({
 	toolCallIds,
 }: ExecutionGroupProps) {
 	const t = useT();
-	const activeTools = useToolsStore(state => state.activeTools);
-	const status = useMemo(() => {
+	// Primitive selector: encode (running, failed) so unrelated tool events —
+	// partial results on cards outside this group — never re-render the group.
+	const encoded = useToolsStore(s => {
 		let running = 0;
 		let failed = 0;
 		for (const id of toolCallIds) {
-			const entry = activeTools.get(id);
+			const entry = s.activeTools.get(id);
 			if (entry?.status === "pending" || entry?.status === "running") running++;
 			else if (entry?.status === "error" || entry?.isError) failed++;
 		}
-		return { failed, running };
-	}, [activeTools, toolCallIds]);
-	const active = live || status.running > 0;
-	const state = active ? "running" : status.failed > 0 ? "failed" : "complete";
+		return `${running}:${failed}`;
+	});
+	const [running, failed] = encoded.split(":").map(Number);
+
+	const active = live || running > 0;
+	const state = active ? "running" : failed > 0 ? "failed" : "complete";
 
 	const summary =
-		status.failed > 0
-			? t("chat.process.statusFailed", { failed: status.failed, total: stepCount })
-			: status.running > 0 || live
-				? t("chat.process.statusRunning", { running: Math.max(1, status.running), total: stepCount })
+		failed > 0
+			? t("chat.process.statusFailed", { failed, total: stepCount })
+			: running > 0 || live
+				? t("chat.process.statusRunning", { running: Math.max(1, running), total: stepCount })
 				: t("chat.process.statusComplete", { total: stepCount });
 
 	return (
@@ -60,7 +63,7 @@ export function ExecutionGroup({
 			>
 				{active ? (
 					<LoaderCircle aria-hidden="true" className="shrink-0 animate-spin text-[var(--omp-link)]" size={14} />
-				) : status.failed > 0 ? (
+				) : failed > 0 ? (
 					<AlertCircle aria-hidden="true" className="shrink-0 text-[var(--omp-error)]" size={14} />
 				) : (
 					<CheckCircle2 aria-hidden="true" className="shrink-0 text-[var(--omp-dim)]" size={14} />

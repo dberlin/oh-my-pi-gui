@@ -76,6 +76,10 @@ describe("ChangelogDialog", () => {
 		await act(async () => {
 			useUiStore.getState().closeChangelog();
 		});
+		// The modal lingers ~240ms for its exit animation before unmounting.
+		await act(async () => {
+			await new Promise(resolve => setTimeout(resolve, 300));
+		});
 		expect(document.body.textContent ?? "").not.toContain("[Unreleased]");
 	});
 });

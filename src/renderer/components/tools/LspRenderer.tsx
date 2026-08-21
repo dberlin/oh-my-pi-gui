@@ -121,14 +121,17 @@ function parseLspText(text: string): LspResult {
 	}
 	if (foundMatch) {
 		const byFile = new Map<string, Array<{ line: number; col: number }>>();
+		// One global budget across files: a symbol referenced once in thousands
+		// of files previously created thousands of groups despite MAX_ITEMS.
+		let remaining = MAX_ITEMS;
 		for (const raw of text.split("\n")) {
+			if (remaining <= 0) break;
 			const loc = raw.trim().match(REF_LINE_RE);
 			if (!loc) continue;
 			const list = byFile.get(loc[1]) ?? [];
-			if (list.length < MAX_ITEMS) {
-				list.push({ line: Number.parseInt(loc[2], 10), col: Number.parseInt(loc[3], 10) });
-				byFile.set(loc[1], list);
-			}
+			list.push({ line: Number.parseInt(loc[2], 10), col: Number.parseInt(loc[3], 10) });
+			byFile.set(loc[1], list);
+			remaining--;
 		}
 		return {
 			kind: "references",
@@ -200,7 +203,9 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 
 	const countLabel =
 		parsed.kind === "diagnostics"
-			? `${parsed.items.length > 0 ? parsed.items.length : parsed.errors + parsed.warnings} diagnostic${parsed.items.length === 1 ? "" : "s"}`
+			? // Header must reflect the summary totals, not the capped preview:
+				// "50 diagnostics" beside a "100 errors" badge contradicted itself.
+				`${Math.max(parsed.errors + parsed.warnings, parsed.items.length)} diagnostic${Math.max(parsed.errors + parsed.warnings, parsed.items.length) === 1 ? "" : "s"}`
 			: parsed.kind === "references"
 				? t("tools.lsp.results", { count: parsed.count, plural: parsed.count === 1 ? "" : "s" })
 				: parsed.kind === "symbols"

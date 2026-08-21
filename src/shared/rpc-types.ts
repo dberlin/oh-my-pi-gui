@@ -85,6 +85,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_agent_definitions" }
 	| { id?: string; type: "get_hooks" }
 	| { id?: string; type: "get_mcp_servers" }
+	| { id?: string; type: "get_gui_themes" }
 	| { id?: string; type: "get_plugins" }
 	| { id?: string; type: "get_marketplaces" }
 	| { id?: string; type: "get_prompt_templates" }
@@ -590,6 +591,13 @@ export interface RpcMarketplacePluginInfo {
 	description?: string;
 	version?: string;
 	installed: boolean;
+	/** Catalog metadata; each field is absent when the catalog entry omits it. */
+	author?: string;
+	license?: string;
+	repository?: string;
+	homepage?: string;
+	category?: string;
+	tags?: string[];
 }
 
 /** Plugin detail for the config editor (C1). Secret values are never included in `values`. */
@@ -601,6 +609,17 @@ export interface RpcPluginDetail {
 	values: Record<string, unknown>;
 	/** Keys with persisted values, including write-only secret settings. */
 	configuredKeys: string[];
+}
+
+/** Theme tokens contributed by one enabled plugin's gui.theme asset. */
+export interface RpcGuiThemeInfo {
+	id: string;
+	tokens: Record<string, string>;
+}
+
+/** Result of `get_gui_themes`: declarative GUI theme tokens from enabled plugins. */
+export interface RpcGuiThemesResult {
+	themes: RpcGuiThemeInfo[];
 }
 
 /** An installed plugin (npm package or marketplace install). */

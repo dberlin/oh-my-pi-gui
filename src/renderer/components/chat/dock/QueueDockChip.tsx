@@ -23,7 +23,7 @@ export function QueueDockChip() {
 
 	return (
 		<>
-			<div className="flex px-2">
+			<div className="flex shrink-0 px-2">
 				<button
 					type="button"
 					onClick={() => setOpen(true)}

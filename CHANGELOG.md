@@ -6,6 +6,19 @@
 
 - **Assisted updates for unsigned macOS builds**: ad-hoc-signed apps now download the architecture-matched DMG, show progress, verify its release-metadata SHA-512, open it in Finder, and explain the safe manual replacement flow. Certificate-signed builds retain Squirrel's restart-and-install path ([#3](https://github.com/nornzach/oh-my-pi-gui/issues/3)).
 
+### Added
+
+- **Plugin marketplace**: browse plugins with author/license/category/tags metadata and clickable repository/homepage links; installs ask for confirmation before granting local execution rights; restart-required plugins activate automatically when the agent is idle (or right after a running turn ends) and are verified as loaded after the restart.
+- **Declarative plugin themes**: plugins can ship a `gui.theme` token map; tokens are validated against the transcript palette and layered over the active theme, with the agent theme winning conflicts.
+
+### Fixed
+
+- **Cold-start theme flash**: a pre-paint script applies the saved color scheme before first render — dark-theme users no longer see a white flash on launch.
+- **IME-safe abort**: Escape during CJK candidate composition dismisses the IME instead of aborting the running turn.
+- **Session stats staleness**: switching sessions clears the previous session's token/cost readout immediately, and a late response from the old session can no longer repaint it.
+- **External-link scheme guard**: links opening a new window only launch http(s) URLs, blocking arbitrary protocol handlers from renderer surfaces.
+- **Sidebar performance**: collapsed workspace groups no longer build their session rows into the DOM on every background refresh.
+
 ## [0.8.4] - 2026-08-21
 
 ### Changed

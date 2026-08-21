@@ -61,7 +61,9 @@ function TabChip({
 			tabIndex={0}
 			onClick={() => void switchTab(tab.id)}
 			onKeyDown={event => {
-				if (event.key === "Enter" || event.key === " ") {
+				// Only the tab itself: Enter on a nested close/confirm button must
+				// activate that button, not switch tabs.
+				if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) {
 					event.preventDefault();
 					void switchTab(tab.id);
 				}

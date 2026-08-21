@@ -34,4 +34,27 @@ describe("streaming Markdown segmentation", () => {
 		expect(result.blocks).toEqual([{ end: math.length, content: math }]);
 		expect(result.tail).toBe("Explanation");
 	});
+	it("keeps indented list continuations in the same block across blank lines", () => {
+		// Live: `second` belongs to the first <li>; promoting at the blank line
+		// dropped it out of the list until message_end re-parsed everything.
+		const source = "1. first\n\n   second paragraph";
+		const result = segmentStreamingMarkdown(source);
+		expect(result.blocks).toEqual([]);
+		expect(result.tail).toBe(source);
+	});
+
+	it("ends the list block when a non-indented line follows a blank line", () => {
+		const head = "1. first\n\n";
+		const result = segmentStreamingMarkdown(`${head}Second paragraph`);
+		expect(result.blocks).toEqual([{ end: head.length, content: head }]);
+		expect(result.tailStart).toBe(head.length);
+		expect(result.tail).toBe("Second paragraph");
+	});
+
+	it("keeps further list items in the same block after blank lines", () => {
+		const source = "- alpha\n\n- beta still streaming";
+		const result = segmentStreamingMarkdown(source);
+		expect(result.blocks).toEqual([]);
+		expect(result.tail).toBe(source);
+	});
 });

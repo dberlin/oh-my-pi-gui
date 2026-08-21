@@ -39,6 +39,10 @@ function parseDiffRows(text: string): DiffRow[] {
 	const rows: DiffRow[] = [];
 	let oldCursor: number | undefined;
 	let newCursor: number | undefined;
+	// Unified file headers (`+++ b/x`) exist only before their file's first
+	// hunk. Once hunk content begins, `--- disabled` (removed SQL comment) and
+	// `+++i` (added C increment) are source lines, not headers.
+	let sawHunk = false;
 
 	const pushGap = () => {
 		if (rows.length > 0 && rows[rows.length - 1]!.type !== "gap") {
@@ -47,14 +51,19 @@ function parseDiffRows(text: string): DiffRow[] {
 	};
 
 	for (const raw of lines) {
-		if (raw.startsWith("+++") || raw.startsWith("---")) continue;
 		const hunk = HUNK_HEADER_RE.exec(raw);
 		if (hunk) {
+			sawHunk = true;
 			oldCursor = Number(hunk[1]);
 			newCursor = Number(hunk[2]);
 			pushGap();
 			continue;
 		}
+		if (/^diff --git /.test(raw) || /^Index: /.test(raw)) {
+			sawHunk = false;
+			continue;
+		}
+		if (!sawHunk && /^(---|\+\+\+) \S/.test(raw)) continue;
 		if (raw.length === 0) {
 			// Blank rows are gap markers in the numbered wire format; in plain
 			// diffs they only appear as a trailing split artifact.

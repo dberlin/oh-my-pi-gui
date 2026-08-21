@@ -14,6 +14,7 @@ import { Check, ChevronDown, ChevronRight, Plus, RefreshCw, Trash2, X } from "lu
 import { useCallback, useState } from "react";
 import type { RpcMarketplaceInfo, RpcMarketplacePluginInfo } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
+import { handlePluginActivation } from "../../../lib/plugin-activation";
 import { Badge, Button, Spinner } from "../../common";
 import { shortenSource } from "../inventory-utils";
 import { CopyableError } from "./ErrorNote";
@@ -105,16 +106,25 @@ function AvailablePluginRow({
 	plugin,
 	busyAction,
 	anyBusy,
+	confirmingInstall,
 	onAction,
+	onConfirmInstall,
+	onCancelInstall,
 }: {
 	plugin: RpcMarketplacePluginInfo;
 	/** This row's in-flight action (its button shows the spinner). */
 	busyAction: MarketplacePluginAction | null;
 	/** Another row's action is in flight — one mutation per marketplace at a time. */
 	anyBusy: boolean;
+	/** Install clicked but not yet confirmed — the Install button swaps to confirm/cancel. */
+	confirmingInstall: boolean;
 	onAction: (pluginName: string, action: MarketplacePluginAction) => void;
+	onConfirmInstall: (pluginName: string) => void;
+	onCancelInstall: () => void;
 }) {
 	const t = useT();
+	const repository = plugin.repository;
+	const homepage = plugin.homepage;
 	return (
 		<div className="flex items-center gap-3 rounded-md border border-(--omp-border-muted) bg-transparent px-2.5 py-2">
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -126,21 +136,84 @@ function AvailablePluginRow({
 				{plugin.description && (
 					<span className="text-omp-sm leading-snug text-(--omp-dim)">{plugin.description}</span>
 				)}
+				{confirmingInstall && (
+					<span className="text-omp-xs text-(--omp-muted)">{t("marketplace.installConfirmHint")}</span>
+				)}
+				{(plugin.author ||
+					plugin.license ||
+					plugin.category ||
+					repository ||
+					homepage ||
+					(plugin.tags?.length ?? 0) > 0) && (
+					<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-omp-xs text-(--omp-dim)">
+						{plugin.author && <span>{plugin.author}</span>}
+						{plugin.license && <span>{plugin.license}</span>}
+						{plugin.category && <span>{plugin.category}</span>}
+						{plugin.tags?.map(tag => (
+							<span key={tag}>#{tag}</span>
+						))}
+						{repository && (
+							<button
+								className="underline decoration-(--omp-border-muted) underline-offset-2 hover:text-(--omp-text)"
+								onClick={() => void window.omp.system.openExternal(repository)}
+								title={repository}
+								type="button"
+							>
+								{t("marketplace.repository")}
+							</button>
+						)}
+						{homepage && (
+							<button
+								className="underline decoration-(--omp-border-muted) underline-offset-2 hover:text-(--omp-text)"
+								onClick={() => void window.omp.system.openExternal(homepage)}
+								title={homepage}
+								type="button"
+							>
+								{t("marketplace.homepage")}
+							</button>
+						)}
+					</div>
+				)}
 			</div>
 			<div className="flex shrink-0 items-center gap-1.5">
-				{availablePluginActions(plugin.installed).map(action => (
-					<Button
-						className={action === "uninstall" ? "text-(--omp-error)" : undefined}
-						disabled={anyBusy}
-						key={action}
-						loading={busyAction === action}
-						onClick={() => onAction(plugin.name, action)}
-						size="sm"
-						variant={action === "install" ? "secondary" : "ghost"}
-					>
-						{t(`marketplace.${action}`)}
-					</Button>
-				))}
+				{confirmingInstall ? (
+					<span className="flex shrink-0 items-center gap-0.5">
+						<button
+							aria-label={t("marketplace.installConfirm")}
+							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent text-(--omp-error) disabled:opacity-40"
+							disabled={anyBusy}
+							onClick={() => onConfirmInstall(plugin.name)}
+							title={t("marketplace.installConfirm")}
+							type="button"
+						>
+							<Check size={12} />
+						</button>
+						<button
+							aria-label={t("common.cancel")}
+							className="omp-pressable flex h-6 w-6 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-bg-tertiary) disabled:opacity-40"
+							disabled={anyBusy}
+							onClick={onCancelInstall}
+							title={t("common.cancel")}
+							type="button"
+						>
+							<X size={12} />
+						</button>
+					</span>
+				) : (
+					availablePluginActions(plugin.installed).map(action => (
+						<Button
+							className={action === "uninstall" ? "text-(--omp-error)" : undefined}
+							disabled={anyBusy}
+							key={action}
+							loading={busyAction === action}
+							onClick={() => onAction(plugin.name, action)}
+							size="sm"
+							variant={action === "install" ? "secondary" : "ghost"}
+						>
+							{t(`marketplace.${action}`)}
+						</Button>
+					))
+				)}
 			</div>
 		</div>
 	);
@@ -168,6 +241,7 @@ export function MarketplaceCard({
 	const [cardError, setCardError] = useState<string | null>(null);
 	const [pluginBusy, setPluginBusy] = useState<{ name: string; action: MarketplacePluginAction } | null>(null);
 	const [pluginErrors, setPluginErrors] = useState<Readonly<Record<string, string>>>({});
+	const [confirmInstall, setConfirmInstall] = useState<string | null>(null);
 
 	/** list_available — lazy on first expand, then cached in component state. */
 	const fetchAvailable = useCallback(async (): Promise<void> => {
@@ -239,7 +313,19 @@ export function MarketplaceCard({
 		}
 	};
 
-	const runPluginAction = async (pluginName: string, action: MarketplacePluginAction): Promise<void> => {
+	const runPluginAction = (pluginName: string, action: MarketplacePluginAction): void => {
+		// The catalog wire carries no omp manifest, so the GUI cannot know
+		// pre-install whether a plugin ships executable entry points — confirm
+		// every install (metadata is visible on the row).
+		if (action === "install") {
+			setConfirmInstall(pluginName);
+			return;
+		}
+		void executePluginAction(pluginName, action);
+	};
+
+	const executePluginAction = async (pluginName: string, action: MarketplacePluginAction): Promise<void> => {
+		setConfirmInstall(prev => (prev === pluginName ? null : prev));
 		setPluginBusy({ name: pluginName, action });
 		setPluginErrors(prev => {
 			if (!(pluginName in prev)) return prev;
@@ -258,6 +344,8 @@ export function MarketplaceCard({
 				setPluginErrors(prev => ({ ...prev, [pluginName]: failure }));
 				return;
 			}
+			const data = res.data as { activation?: string } | undefined;
+			handlePluginActivation(data?.activation, `${pluginName}@${marketplace.name}`);
 			// available_commands_update arrives afterward via the agent's
 			// reloadPluginState pipeline — the real completion signal — but the
 			// panel refetches both views explicitly (see file header).
@@ -387,7 +475,10 @@ export function MarketplaceCard({
 									<AvailablePluginRow
 										anyBusy={pluginBusy !== null}
 										busyAction={pluginBusy?.name === plugin.name ? pluginBusy.action : null}
-										onAction={(name, action) => void runPluginAction(name, action)}
+										confirmingInstall={confirmInstall === plugin.name}
+										onAction={runPluginAction}
+										onCancelInstall={() => setConfirmInstall(null)}
+										onConfirmInstall={name => void executePluginAction(name, "install")}
 										plugin={plugin}
 									/>
 									{pluginErrors[plugin.name] && (

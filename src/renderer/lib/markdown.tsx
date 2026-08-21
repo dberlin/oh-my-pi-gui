@@ -108,8 +108,10 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 		a: ["href"],
 		abbr: ["title"],
 		// `language-*` on code carries the fence's language tag for the Pre swap.
-		code: ["className"],
-		span: ["className"],
+		// Value-checked: raw HTML must not smuggle arbitrary classes (compiled
+		// Tailwind utilities like `fixed inset-0` would let model text overlay
+		// the whole app). Spans get no className at all — nothing consumes one.
+		code: [["className", /^language-[a-zA-Z0-9_-]+$/]],
 		img: ["src", "alt", "title"],
 		// Value-pinned: only type="checkbox" survives; any other type value is
 		// dropped with the attribute. checked/disabled carry the GFM state.

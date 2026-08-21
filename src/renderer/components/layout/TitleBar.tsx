@@ -43,6 +43,7 @@ export function TitleBar() {
 	const [now, setNow] = useState(() => Date.now());
 	const nameInputRef = useRef<HTMLInputElement>(null);
 	const statsMessageCount = messages.length;
+	const prevSessionRef = useRef<string | null>(null);
 
 	useEffect(() => {
 		if (editingName) nameInputRef.current?.select();
@@ -51,9 +52,17 @@ export function TitleBar() {
 	useEffect(() => {
 		if (!sessionId || status !== "ready") {
 			setStats(null);
+			prevSessionRef.current = null;
 			return;
 		}
+		// Cross-session staleness is the bug: session A's tokens/cost must never
+		// display over session B. Within ONE session, keeping the previous read
+		// while the refetch is in flight beats a clear-refetch flicker on every
+		// message append; the message-count guard rejects mismatched responses.
+		if (prevSessionRef.current !== sessionId) setStats(null);
+		prevSessionRef.current = sessionId;
 		let cancelled = false;
+		const requestedSessionId = sessionId;
 		const requestedMessageCount = statsMessageCount;
 		void window.omp.rpc
 			.getSessionStats()
@@ -61,6 +70,7 @@ export function TitleBar() {
 				if (
 					!cancelled &&
 					response.success &&
+					useSessionStore.getState().sessionId === requestedSessionId &&
 					useMessagesStore.getState().messages.length === requestedMessageCount
 				) {
 					setStats(response.data as SessionStats);
@@ -117,7 +127,9 @@ export function TitleBar() {
 			? t("titlebar.status.ready")
 			: status === "starting"
 				? t("titlebar.status.connecting")
-				: status;
+				: status === "error" || status === "exited" || status === "restarting"
+					? t(`titlebar.status.${status}`)
+					: status;
 
 	return (
 		<header className="omp-titlebar drag-region flex h-12 min-w-0 shrink-0 items-center gap-1 overflow-hidden border-b border-[var(--omp-border-muted)] bg-[var(--omp-titlebar-bg)] px-2.5">

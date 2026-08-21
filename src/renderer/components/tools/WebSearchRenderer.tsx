@@ -145,9 +145,24 @@ export function WebSearchRenderer({ args, result, isPartial }: ToolRendererProps
 						return (
 							<div key={item.url ?? i} className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5">
 								<div className="flex items-baseline gap-1.5">
-									<div className="min-w-0 flex-1 truncate text-omp-sm font-medium text-[var(--omp-link)]">
-										{item.title ?? item.url ?? t("tools.websearch.resultN", { index: i + 1 })}
-									</div>
+									{(() => {
+										const label = item.title ?? item.url ?? t("tools.websearch.resultN", { index: i + 1 });
+										const openable = typeof item.url === "string" && /^https?:\/\//i.test(item.url);
+										return openable ? (
+											<button
+												type="button"
+												onClick={() => void window.omp.system.openExternal(item.url as string)}
+												className="min-w-0 flex-1 truncate text-left text-omp-sm font-medium text-[var(--omp-link)] hover:underline"
+												title={item.url}
+											>
+												{label}
+											</button>
+										) : (
+											<div className="min-w-0 flex-1 truncate text-omp-sm font-medium text-[var(--omp-link)]">
+												{label}
+											</div>
+										);
+									})()}
 									{(domain || age) && (
 										<div className="shrink-0 text-omp-xs text-[var(--omp-dim)]">
 											{domain && `(${domain})`}

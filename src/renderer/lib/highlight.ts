@@ -19,3 +19,8 @@ export function loadHljs(): Promise<HLJSApi> {
 export function getLoadedHljs(): HLJSApi | null {
 	return hljsModule;
 }
+
+/** Above this size, highlight cost (grammar scan + span HTML) outweighs the
+ * preview value; callers fall back to escaped plain text. Matches the diff
+ * path's existing ceiling. */
+export const HIGHLIGHT_CHAR_CAP = 20_000;

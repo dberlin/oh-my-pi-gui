@@ -1,4 +1,5 @@
-import { cx, resultDetails, resultText } from "../../lib/format";
+import { AnsiText, hasAnsi } from "../../lib/ansi";
+import { cx, extractImageDataUrl, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import type { ToolRendererProps } from "./ToolCard";
@@ -88,7 +89,9 @@ export function GenericRenderer({ args, result, isError, isPartial, partialResul
 	const effective = isPartial && partialResult != null ? partialResult : result;
 	// Unwrap the live `{content, details}` envelope: body text + structured
 	// details, never the raw envelope JSON. Non-envelope payloads fall through
-	// resultText's JSON.stringify path.
+	// resultText's JSON.stringify path — except image-only results, which must
+	// render as images instead of dumping megabytes of base64 as text.
+	const image = extractImageDataUrl(effective);
 	const body = resultText(effective);
 	const details = resultDetails(effective);
 	const hasDetails = details != null && Object.keys(details).length > 0;
@@ -109,17 +112,26 @@ export function GenericRenderer({ args, result, isError, isPartial, partialResul
 				>
 					{isPartial ? t("tools.generic.partialResult") : t("tools.generic.result")}
 				</div>
-				<pre
-					className={cx(
-						"whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
-						PREVIEW_SCROLL_SM,
-						isError
-							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
-					)}
-				>
-					{body || toJson(effective)}
-				</pre>
+				{image ? (
+					<img
+						src={image}
+						alt=""
+						className="max-h-72 rounded-md border border-[var(--omp-border-muted)] object-contain"
+					/>
+				) : (
+					<pre
+						className={cx(
+							"whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
+							PREVIEW_SCROLL_SM,
+							isError
+								? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
+								: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
+						)}
+					>
+						{/* Unmapped tools commonly return captured subprocess output. */}
+						{body ? hasAnsi(body) ? <AnsiText text={body} /> : body : "—"}
+					</pre>
+				)}
 			</div>
 			{hasDetails && (
 				<div>

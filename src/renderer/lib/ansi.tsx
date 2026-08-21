@@ -1,4 +1,5 @@
 import { memo, useMemo } from "react";
+import { useT } from "./i18n";
 
 /**
  * ANSI escape-sequence renderer for captured subprocess output.
@@ -126,30 +127,67 @@ function applySgr(style: AnsiStyle, rawParams: string): void {
 // captured with its params, OSC with its body (for OSC 8), generic CSI and
 // two-byte escapes match nothing and are dropped.
 const TOKEN_RE =
-	/\x1b\[([0-9;:]*)m|\x1b\[([0-9;:?!<>]*)[@-~]|\x1b\]([^\x07\x1b]*)(?:\x07|\x1b\\)|\x1b[\x20-\x2f]*[\x30-\x7e]/g;
+	/\x1b\[([0-9;:]*)m|\x1b\[([0-9;:?!<>]*)[\x20-\x2f]*[@-~]|\x1b\]([^\x07\x1b]*)(?:\x07|\x1b\\)|\x1b[\x20-\x2f]*[\x30-\x7e]/g;
 
-/** Carriage-return overwrite semantics per line, so progress spinners keep only their final frame. */
+/** Sticky scanner for one well-formed escape sequence (CSI / OSC / two-byte). */
+const ESCAPE_RE = /\x1b(?:\[[0-9;:?!<>]*[\x20-\x2f]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[\x20-\x2f]*[\x30-\x7e])/y;
+
+/** Carriage-return overwrite semantics per line, so progress spinners keep
+ * only their final frame. Replays with terminal semantics: text overwrites
+ * positionally, escape sequences are zero-width, and CSI K erases forward —
+ * counting escape bytes as visible columns turned `Downloading\rDone\x1b[K`
+ * into `Doneding` instead of `Done`. */
 function collapseCarriageReturns(input: string): string {
 	const normalized = input.replace(/\r\n/g, "\n");
 	if (!normalized.includes("\r")) return normalized;
-	return normalized
-		.split("\n")
-		.map(line => {
-			if (!line.includes("\r")) return line;
-			const buf: string[] = [];
-			let pos = 0;
-			for (const ch of line) {
-				if (ch === "\r") {
-					pos = 0;
-					continue;
-				}
-				if (pos < buf.length) buf[pos] = ch;
-				else buf.push(ch);
-				pos++;
+	return normalized.split("\n").map(replayCarriageReturnLine).join("\n");
+}
+
+function replayCarriageReturnLine(line: string): string {
+	if (!line.includes("\r")) return line;
+	const buf: string[] = [];
+	// SGR/OSC sequences seen during replay are zero-width for column math but
+	// must survive — dropping a reset made every following line inherit the
+	// previous line's color. They re-attach at the tail in encounter order,
+	// which preserves cross-line state transitions.
+	const carried: string[] = [];
+	let pos = 0;
+	let i = 0;
+	while (i < line.length) {
+		const ch = line[i]!;
+		if (ch === "\r") {
+			pos = 0;
+			i++;
+			continue;
+		}
+		if (ch === "\x1b") {
+			ESCAPE_RE.lastIndex = i;
+			const match = ESCAPE_RE.exec(line);
+			if (!match) {
+				i++; // lone ESC — dropped by the stray-control pass later
+				continue;
 			}
-			return buf.join("");
-		})
-		.join("\n");
+			if (/^\x1b\[[0-9]*K$/.test(match[0])) {
+				// CSI K / CSI 0K erases from the cursor to end of line;
+				// 1K/2K variants are rare in captured output — clear all.
+				buf.length = match[0] === "\x1b[K" || match[0] === "\x1b[0K" ? Math.min(buf.length, pos) : 0;
+			} else if (/^\x1b\[/.test(match[0]) || /^\x1b\]/.test(match[0])) {
+				carried.push(match[0]);
+			}
+			i += match[0].length;
+			continue;
+		}
+		// One CELL per code point: overwriting by UTF-16 unit split surrogate
+		// pairs and left dangling lone surrogates in the output.
+		const codePoint = ch.codePointAt(0)!;
+		const width = codePoint > 0xffff ? 2 : 1;
+		const glyph = line.slice(i, i + width);
+		if (pos < buf.length) buf[pos] = glyph;
+		else buf.push(glyph);
+		pos++;
+		i += width;
+	}
+	return buf.join("") + carried.join("");
 }
 
 // C0 controls other than tab/newline (already past the \r pass) serve no
@@ -200,7 +238,13 @@ export function parseAnsi(input: string): AnsiSegment[] {
 			applySgr(style, match[1]);
 		} else if (match[3] !== undefined) {
 			const uri = osc8Uri(match[3]);
-			if (uri !== null) href = uri === "" ? undefined : uri;
+			if (uri !== null) {
+				// Empty uri closes the active hyperlink. Non-empty URIs render as
+				// anchors only when http(s): middle-click / new-window activation
+				// bypasses the click-path IPC check, so unsafe schemes must never
+				// become <a href> in the first place.
+				href = uri !== "" && /^https?:\/\//i.test(uri) ? uri : undefined;
+			}
 		}
 		// Generic CSI / escape tokens carry no displayable content.
 	}
@@ -211,7 +255,7 @@ export function parseAnsi(input: string): AnsiSegment[] {
 /** Fast pre-check so renderers can keep a plain-text fast path. Any ESC —
  * not just CSI — counts: OSC-only output (window titles, hyperlinks) and
  * stray C0 controls also need the parser to strip them. */
-const HAS_ANSI_RE = /\x1b/;
+const HAS_ANSI_RE = /\x1b|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;
 
 export function hasAnsi(text: string): boolean {
 	return HAS_ANSI_RE.test(text);
@@ -233,14 +277,38 @@ function segmentStyle(seg: AnsiSegment): React.CSSProperties {
 	return style;
 }
 
-/** Styled rendering of captured terminal output. Plain input renders as-is. */
+/** Styled rendering of captured terminal output. Plain input renders as-is.
+ * Parse input is tail-capped: streamed subprocess output can reach megabytes
+ * while the visible preview is a few dozen lines, and re-parsing the whole
+ * prefix per snapshot froze the renderer. */
+const ANSI_PARSE_CHAR_CAP = 20_000;
+
 export const AnsiText = memo(function AnsiText({ text }: { text: string }) {
-	const segments = useMemo(() => parseAnsi(text), [text]);
-	if (segments.length === 1 && Object.keys(segments[0]).length === 1) {
+	const t = useT();
+	const clipped = text.length > ANSI_PARSE_CHAR_CAP;
+	// Cut at a token boundary: an arbitrary code-unit offset can land inside
+	// a CSI/OSC sequence, making the suffix start with visible fragments
+	// like "[31m". Back up to the last ESC that opens a sequence extending
+	// past the cut.
+	const parseInput = useMemo(() => {
+		if (!clipped) return text;
+		let cut = text.length - ANSI_PARSE_CHAR_CAP;
+		const lastEsc = text.lastIndexOf("\x1b", cut);
+		if (lastEsc !== -1 && lastEsc >= text.length - ANSI_PARSE_CHAR_CAP - 32) cut = lastEsc;
+		return text.slice(cut);
+	}, [text, clipped]);
+	const segments = useMemo(() => parseAnsi(parseInput), [parseInput]);
+	if (!clipped && segments.length === 1 && Object.keys(segments[0]).length === 1) {
 		return <>{segments[0].text}</>;
 	}
 	return (
 		<>
+			{clipped && (
+				<span style={{ opacity: 0.65 }}>
+					{t("ansi.outputClipped", { count: text.length - parseInput.length })}
+					{"\n"}
+				</span>
+			)}
 			{segments.map((seg, i) =>
 				seg.href ? (
 					<a

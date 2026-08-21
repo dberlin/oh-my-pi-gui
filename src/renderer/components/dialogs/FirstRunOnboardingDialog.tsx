@@ -89,6 +89,10 @@ export function FirstRunOnboardingDialog() {
 				}
 				const providers = data.providers;
 				const configs = configResult.status === "fulfilled" ? configResult.value : [];
+				// Deterministic outcomes latch the once-per-launch gate. A thrown
+				// error is transient (sidecar/transport) — leave it unlatched so the
+				// next ready transition retries instead of abandoning first-run users.
+				checkedThisLaunch.current = true;
 				if (hasUsableModelProvider(providers, configs)) {
 					setOpen(false);
 					setError(null);
@@ -116,7 +120,6 @@ export function FirstRunOnboardingDialog() {
 
 	useEffect(() => {
 		if (sidecarStatus !== "ready" || checkedThisLaunch.current) return;
-		checkedThisLaunch.current = true;
 		void checkReadiness(false);
 	}, [sidecarStatus, checkReadiness]);
 

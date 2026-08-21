@@ -112,9 +112,11 @@ export class WindowManager {
 			win.show();
 		});
 
-		// Open external links in browser
+		// Open external links in browser. Scheme-checked: renderer surfaces
+		// (OSC 8 anchors, target=_blank) must not be able to launch arbitrary
+		// protocols via middle-click / new-window activation.
 		win.webContents.setWindowOpenHandler(({ url }) => {
-			shell.openExternal(url);
+			if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
 			return { action: "deny" };
 		});
 

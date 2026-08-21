@@ -56,10 +56,12 @@
 	--omp-md-hr: #dcdfe8;
 	--omp-md-list-bullet: var(--omp-accent);
 
-	--omp-diff-added: #16a34a;
-	--omp-diff-added-bg: rgba(22, 163, 74, 0.08);
-	--omp-diff-removed: #e5484d;
-	--omp-diff-removed-bg: rgba(229, 72, 77, 0.08);
+	/* Darkened for WCAG AA on the 8% tint backgrounds: the old green and red
+	   measured about 3.1 to 1 and 3.7 to 1, well under the 4.5 body threshold. */
+	--omp-diff-added: #15803d;
+	--omp-diff-added-bg: rgba(21, 128, 61, 0.08);
+	--omp-diff-removed: #c53030;
+	--omp-diff-removed-bg: rgba(197, 48, 48, 0.08);
 	--omp-diff-context: #6d7681;
 
 	--omp-syntax-comment: #8a9199;
@@ -82,7 +84,7 @@
 	--omp-ansi-cyan: #0a7ea4;
 	--omp-ansi-white: #6e7781;
 	--omp-ansi-bright-black: #57606a;
-	--omp-ansi-bright-red: #e5484d;
+	--omp-ansi-bright-red: #e35d5f;
 	--omp-ansi-bright-green: #2da44e;
 	--omp-ansi-bright-yellow: #bf8700;
 	--omp-ansi-bright-blue: #316dca;

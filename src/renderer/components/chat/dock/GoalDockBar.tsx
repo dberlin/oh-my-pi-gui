@@ -1,5 +1,6 @@
 import { LoaderCircle, Pause, Pencil, Play, Target, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { useT } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
@@ -14,6 +15,7 @@ export function GoalDockBar() {
 	const goalState = useSessionStore(state => state.goalState);
 	const openModes = useUiStore(state => state.openModes);
 	const [busy, setBusy] = useState<GoalAction | null>(null);
+	const { capture, isActive } = useTabGuard();
 
 	if (!goal) return null;
 
@@ -23,17 +25,22 @@ export function GoalDockBar() {
 	const runAction = async (action: GoalAction) => {
 		if (busy) return;
 		const previous = useSessionStore.getState();
+		const origin = capture();
 		setBusy(action);
 		if (action === "drop") useSessionStore.setState({ goal: null, goalState: null });
 		else useSessionStore.setState({ goalState: { status: action === "pause" ? "paused" : "active" } });
 
 		try {
 			const response = await window.omp.rpc.setGoal({ action });
+			// Settled after a tab switch: the optimistic write already belonged to
+			// the origin session — do not restore it over the new foreground one.
+			if (!isActive(origin)) return;
 			if (!response.success) {
 				useSessionStore.setState({ goal: previous.goal, goalState: previous.goalState });
 				toast({ variant: "error", title: t("dock.goal.actionFailed"), message: response.error });
 			}
 		} catch (cause) {
+			if (!isActive(origin)) return;
 			useSessionStore.setState({ goal: previous.goal, goalState: previous.goalState });
 			toast({ variant: "error", title: t("dock.goal.actionFailed"), message: String(cause) });
 		} finally {

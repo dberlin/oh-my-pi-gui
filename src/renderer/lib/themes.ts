@@ -1619,6 +1619,14 @@ export function applyThemeByName(selection: ThemeSelection, opts: { persist?: bo
 		void window.omp.prefs.set("themeName", selection);
 		void window.omp.prefs.set("theme", legacyTheme);
 	}
+	// Synchronous mirror for the pre-paint script in index.html: prefs IPC is
+	// async, so without this every cold start painted the light default before
+	// effects ran — a white flash for dark-theme users.
+	try {
+		localStorage.setItem("omp.themeScheme", selection === "system" ? "system" : THEMES[selection].scheme);
+	} catch {
+		// localStorage unavailable — the async path still applies the theme.
+	}
 }
 
 /**
@@ -1758,42 +1766,149 @@ async function fetchAgentThemeOverrides(name: string): Promise<Partial<Record<Th
 	return overrides;
 }
 
+/** Currently applied plugin overlay (gui.theme tokens); null when inactive. */
+let pluginOverrides: Partial<Record<ThemeTokenKey, string>> | null = null;
+/** Combined inline vars last written by the overlay writer. */
+let lastWrittenOverlay: Partial<Record<ThemeTokenKey, string>> | null = null;
+
 /**
- * Writes the overlay on top of whatever base is active: each override becomes
- * an inline custom property, and vars the previous overlay no longer covers
- * are restored to the named theme's inline tokens (or dropped back to the
- * stylesheet while the "system" selection is stylesheet-driven).
+ * Single overlay writer: merges the plugin layer UNDER the agent layer
+ * (agent wins on conflicts) and reconciles inline custom properties against
+ * the previous write — vars no longer covered are restored to the named
+ * theme's inline tokens (or dropped back to the stylesheet while the
+ * "system" selection is stylesheet-driven).
  */
-function applyAgentOverrides(next: Partial<Record<ThemeTokenKey, string>> | null): void {
+function writeOverlay(): void {
+	const merged: Partial<Record<ThemeTokenKey, string>> | null =
+		agentOverrides || pluginOverrides ? { ...(pluginOverrides ?? {}), ...(agentOverrides ?? {}) } : null;
 	const style = document.documentElement.style;
-	if (agentOverrides) {
-		for (const key of Object.keys(agentOverrides) as ThemeTokenKey[]) {
-			if (next && key in next) continue;
+	if (lastWrittenOverlay) {
+		for (const key of Object.keys(lastWrittenOverlay) as ThemeTokenKey[]) {
+			if (merged && key in merged) continue;
 			const base = baseThemeTokens?.[key];
 			if (base !== undefined) style.setProperty(key, base);
 			else style.removeProperty(key);
 		}
 	}
-	if (next) {
-		for (const [key, value] of Object.entries(next)) {
+	if (merged) {
+		for (const [key, value] of Object.entries(merged)) {
 			if (typeof value === "string") style.setProperty(key, value);
 		}
 	}
+	lastWrittenOverlay = merged;
+}
+
+function applyAgentOverrides(next: Partial<Record<ThemeTokenKey, string>> | null): void {
 	agentOverrides = next;
+	writeOverlay();
 }
 
 /**
- * True while every var of the active overlay is still present inline.
- * applyTheme() clears inline tokens on base-scheme switches; this detects
- * that wipe so the overlay gets re-applied on top.
+ * True while every var of the combined overlay is still present inline WITH
+ * the value this module last wrote. applyTheme() rewrites every inline token
+ * with the new base theme's values on any named-theme switch — including
+ * same-scheme switches that leave `lastOverlaySignature` untouched — so a
+ * presence-only probe missed the wipe and the overlay stayed lost.
  */
-function agentOverridesIntact(): boolean {
-	if (!agentOverrides) return true;
+function overlayIntact(): boolean {
+	if (!lastWrittenOverlay) return true;
 	const style = document.documentElement.style;
-	for (const key of Object.keys(agentOverrides) as ThemeTokenKey[]) {
-		if (style.getPropertyValue(key) === "") return false;
+	for (const [key, expected] of Object.entries(lastWrittenOverlay) as [ThemeTokenKey, string][]) {
+		if (style.getPropertyValue(key).trim() !== expected.trim()) return false;
 	}
 	return true;
+}
+
+// ============================================================================
+// Plugin theme overlay (manifest gui.theme tokens)
+// ============================================================================
+
+/**
+ * Accepted gui.theme value shapes, anchored at both ends so trailing garbage
+ * is rejected rather than truncated: hex (#rgb/#rgba/#rrggbb/#rrggbbaa only —
+ * 5/7-digit runs are invalid CSS), functional colors with one level of paren
+ * nesting (rgb()/hsl()/oklch()/…/color-mix(in oklch, oklch(…), …)), or a
+ * var() reference to an existing --omp-* token. Named colors (red, …) are
+ * deliberately excluded — the shapes above are the auditable surface.
+ */
+const PLUGIN_THEME_VALUE_RE =
+	/^(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|(?:rgba?|hsla?|oklch|oklab|lab|lch|color-mix|color)\((?:[^()]|\([^()]*\))*\)|var\(--[a-zA-Z0-9-]+\))$/;
+
+export interface ValidatedPluginTheme {
+	tokens: Partial<Record<ThemeTokenKey, string>>;
+	rejected: string[];
+}
+
+/**
+ * Validates one plugin's gui.theme token map against the transcript overlay
+ * allowlist (chrome stays host-owned by construction — the overlay map has no
+ * chrome entries) and a CSS color-value shape. Unknown keys and non-color
+ * values are rejected individually so one bad token cannot sink the theme.
+ */
+export function validatePluginThemeTokens(tokens: Record<string, unknown>): ValidatedPluginTheme {
+	const validated: ValidatedPluginTheme = { tokens: {}, rejected: [] };
+	for (const [key, value] of Object.entries(tokens)) {
+		const cssVar = TRANSCRIPT_OVERLAY_VARS[key];
+		if (cssVar === undefined || CHROME_OVERLAY_BLOCKLIST.has(cssVar)) {
+			validated.rejected.push(key);
+			continue;
+		}
+		if (typeof value !== "string" || !PLUGIN_THEME_VALUE_RE.test(value.trim())) {
+			validated.rejected.push(key);
+			continue;
+		}
+		validated.tokens[cssVar] = value.trim();
+	}
+	return validated;
+}
+
+/**
+ * Layers validated plugin theme tokens under the agent overlay and rewrites
+ * the combined inline vars. null clears the plugin layer. Returns the
+ * rejected key names so callers can surface them.
+ */
+export function applyPluginThemeOverlay(tokens: Record<string, unknown> | null): string[] {
+	if (!tokens) {
+		pluginOverrides = null;
+		writeOverlay();
+		return [];
+	}
+	const { tokens: validated, rejected } = validatePluginThemeTokens(tokens);
+	pluginOverrides = Object.keys(validated).length > 0 ? validated : null;
+	writeOverlay();
+	return rejected;
+}
+
+/**
+ * Fetches gui.theme tokens from every enabled plugin and applies their
+ * merge. Called at App boot, after activation restarts, and on route
+ * changes; plugin changes that skip the restart pick the new state up on
+ * the next refresh. Generation-guarded: a slower older response must never
+ * overwrite a newer enabled-plugin set.
+ */
+let pluginThemeRequestId = 0;
+
+export async function refreshPluginThemes(): Promise<void> {
+	const requestId = ++pluginThemeRequestId;
+	let merged: Record<string, string> | null = null;
+	try {
+		const res = await window.omp.rpc.getGuiThemes();
+		if (requestId !== pluginThemeRequestId) return;
+		if (res.success) {
+			const data = res.data as { themes?: Array<{ tokens: Record<string, string> }> } | undefined;
+			for (const theme of data?.themes ?? []) {
+				merged = { ...(merged ?? {}), ...theme.tokens };
+			}
+		} else {
+			// Backend refused (sidecar starting, transient read error): keep the
+			// currently applied overlay instead of clearing every plugin color.
+			return;
+		}
+	} catch {
+		return; // sidecar down — keep whatever is already applied
+	}
+	if (requestId !== pluginThemeRequestId) return;
+	applyPluginThemeOverlay(merged);
 }
 
 /**
@@ -1812,7 +1927,7 @@ async function refreshAgentThemeOverrides(): Promise<void> {
 		return;
 	}
 	const signature = `${attr}:${name}`;
-	if (signature === lastOverlaySignature && agentOverridesIntact()) return;
+	if (signature === lastOverlaySignature && overlayIntact()) return;
 	const requestId = ++agentThemeRequestId;
 	const overrides = await fetchAgentThemeOverrides(name);
 	if (requestId !== agentThemeRequestId) return;

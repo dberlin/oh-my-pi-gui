@@ -57,6 +57,12 @@ describe("parseAnsi", () => {
 		expect(segments[0]).toMatchObject({ text: "link text", href: "https://example.com" });
 		expect(segments[1]).toEqual({ text: " plain" });
 	});
+	it("never renders non-http(s) OSC 8 uris as anchors", () => {
+		// New-window activation bypasses the click-path openExternal check, so
+		// unsafe schemes must not become <a href> at all.
+		const segments = parseAnsi("\x1b]8;;file:///etc/passwd\x07link\x1b]8;;\x07");
+		expect(segments).toEqual([{ text: "link" }]);
+	});
 
 	it("normalizes CRLF", () => {
 		expect(parseAnsi("a\r\nb")).toEqual([{ text: "a\nb" }]);
@@ -67,6 +73,12 @@ describe("parseAnsi", () => {
 		// not erase leftover characters (real progress bars pad or emit CSI K).
 		expect(parseAnsi("10%\r20%\r100% done\nnext")).toEqual([{ text: "100% done\nnext" }]);
 		expect(parseAnsi("Downloading\rDone")).toEqual([{ text: "Doneloading" }]);
+	});
+
+	it("applies CSI K erase semantics during carriage-return replay", () => {
+		// Terminal shows `Done`; the old positional replay leaked `[K` garbage.
+		expect(parseAnsi("Downloading\rDone\x1b[K")).toEqual([{ text: "Done" }]);
+		expect(parseAnsi("80%\r100%\x1b[K\nnext")).toEqual([{ text: "100%\nnext" }]);
 	});
 
 	it("keeps content when a line ends in a bare carriage return", () => {

@@ -114,7 +114,10 @@ function parseBashResult(result: unknown, isError: boolean | undefined): BashPar
 	// background/exit/wall lines.
 	if (meta) text = stripGeneratedOutputNotice(text);
 	let artifactId = typeof truncation?.artifactId === "string" ? truncation.artifactId : undefined;
-	const artifactMatch = text.match(RAW_ARTIFACT_RE);
+	// Only strip when the structured truncation meta confirms a footer was
+	// appended — a command that PRINTS `[raw output: artifact://N]` keeps its
+	// output and fabricates no Artifact stat.
+	const artifactMatch = truncation ? text.match(RAW_ARTIFACT_RE) : null;
 	if (artifactMatch) {
 		artifactId = artifactMatch[1];
 		text = text.slice(0, artifactMatch.index).trimEnd();

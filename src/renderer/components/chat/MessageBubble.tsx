@@ -439,7 +439,7 @@ export const MessageBubble = memo(function MessageBubble({
 				)}
 				{blocks}
 				{message.errorMessage && (
-					<div className="omp-message-error mt-2 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5 text-omp-lg leading-relaxed text-[var(--omp-error)]">
+					<div className="omp-message-error mt-2 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5 text-omp-lg leading-relaxed break-words text-[var(--omp-error)]">
 						{message.errorMessage}
 					</div>
 				)}

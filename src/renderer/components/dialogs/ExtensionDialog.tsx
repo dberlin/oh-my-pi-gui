@@ -62,29 +62,34 @@ function ExtensionSurfaces() {
 }
 
 function useCountdown(request: ExtensionUIRequest | null): number | null {
+	const requestId = request?.id ?? null;
 	const timeout =
-		request &&
-		(request.method === "select" ||
-			request.method === "confirm" ||
-			request.method === "input" ||
-			request.method === "askDialog")
+		request && request.method === "select"
 			? request.timeout
-			: undefined;
-	const [remaining, setRemaining] = useState<number | null>(timeout ?? null);
+			: request && request.method === "confirm"
+				? request.timeout
+				: request && (request.method === "input" || request.method === "askDialog")
+					? request.timeout
+					: undefined;
+	// Remaining time is derived PER REQUEST at render: a state-only countdown
+	// leaked the previous request's last value (0ms) into the next commit,
+	// whose auto-cancel effect then answered the new request as timed out
+	// before the reset could render.
+	const [, setTick] = useState(0);
+	const startedAtRef = useRef<{ id: string | null; at: number }>({ id: null, at: 0 });
+	if (startedAtRef.current.id !== requestId) {
+		startedAtRef.current = { id: requestId, at: Date.now() };
+	}
+	const startedAt = startedAtRef.current.at;
 
 	useEffect(() => {
-		if (timeout === undefined) {
-			setRemaining(null);
-			return;
-		}
-		setRemaining(timeout);
-		const started = Date.now();
-		const timer = setInterval(() => {
-			setRemaining(Math.max(0, timeout - (Date.now() - started)));
-		}, 200);
+		if (timeout === undefined) return;
+		const timer = setInterval(() => setTick(v => v + 1), 200);
 		return () => clearInterval(timer);
 	}, [timeout]);
 
+	if (timeout === undefined) return null;
+	const remaining = Math.max(0, timeout - (Date.now() - startedAt));
 	return remaining;
 }
 
@@ -579,7 +584,10 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 			);
 		case "input":
 			return (
+				// Keyed: consecutive input requests must not inherit the previous
+				// request's typed draft.
 				<InputDialog
+					key={request.id}
 					onCancel={cancel}
 					onValue={value => respond({ value })}
 					remaining={remaining}
@@ -601,7 +609,16 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 				<EditorDialog key={request.id} onCancel={cancel} onValue={value => respond({ value })} request={request} />
 			);
 		case "open_url":
-			return <OpenUrlDialog onCancel={cancel} onDone={() => respond({ value: "done" })} request={request} />;
+			// Keyed: `opened` state must reset per request, or Done enables before
+			// the new URL was ever opened.
+			return (
+				<OpenUrlDialog
+					key={request.id}
+					onCancel={cancel}
+					onDone={() => respond({ value: "done" })}
+					request={request}
+				/>
+			);
 		default:
 			return null;
 	}

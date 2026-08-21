@@ -15,7 +15,7 @@ interface SubagentsStore {
 	 * finished agents vanish from the UI on every poll. Best-effort — a
 	 * failed fetch leaves frame-driven state untouched.
 	 */
-	refresh: () => Promise<void>;
+	refresh: (options?: { expect?: () => boolean }) => Promise<void>;
 	reset: () => void;
 }
 
@@ -135,9 +135,13 @@ export const useSubagentsStore = create<SubagentsStore>()((set, get) => ({
 		}
 		set({ subagents });
 	},
-	refresh: async () => {
+	refresh: async options => {
 		try {
 			const res = await window.omp.rpc.getSubagents();
+			// Post-await guard: the poll may have been sent for a tab/session
+			// that is no longer foreground — its snapshots must not merge into
+			// the new session's store.
+			if (options?.expect && !options.expect()) return;
 			if (!res.success) return;
 			const data = res.data as { subagents?: SubagentNode[] } | undefined;
 			if (!data?.subagents) return;

@@ -413,7 +413,9 @@ export function Sidebar() {
 				onClick={() => void openSession(session)}
 				onContextMenu={event => setSessionMenu({ anchor: anchorFromEvent(event), session })}
 				onKeyDown={event => {
-					if (event.key === "Enter") void openSession(session);
+					// Only the row itself: Enter inside a nested control (rename
+					// input, action buttons) must not also switch the session.
+					if (event.key === "Enter" && event.target === event.currentTarget) void openSession(session);
 				}}
 				data-active={active}
 				data-switch-pending={switchPendingTo === session.id || undefined}
@@ -904,18 +906,16 @@ export function Sidebar() {
 										)}
 									</span>
 								</div>
-								{/* Keep the content mounted for a smooth exit, but inert while collapsed. */}
-								<div
-									className="omp-sidebar-group"
-									data-session-group={group.cwd}
-									data-state={groupCollapsed ? "collapsed" : "expanded"}
-									aria-hidden={groupCollapsed}
-									inert={groupCollapsed}
-								>
-									<div className="omp-sidebar-group-content">
-										<div className="space-y-px">{group.sessions.map(renderSessionRow)}</div>
+								{/* Collapsed groups render nothing: a long-lived install with
+								    hundreds of sessions must not build the full DOM per
+								    debounced refresh just to hide it. */}
+								{!groupCollapsed && (
+									<div className="omp-sidebar-group" data-session-group={group.cwd} data-state="expanded">
+										<div className="omp-sidebar-group-content">
+											<div className="space-y-px">{group.sessions.map(renderSessionRow)}</div>
+										</div>
 									</div>
-								</div>
+								)}
 							</div>
 						);
 					})}

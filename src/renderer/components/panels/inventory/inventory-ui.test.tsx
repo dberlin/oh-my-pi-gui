@@ -55,6 +55,7 @@ interface OmpMock {
 	setPluginFeatures: Mock;
 	setPluginEnabled: Mock;
 	deletePluginSetting: Mock;
+	openExternal: Mock;
 }
 
 function installOmpMock(overrides: Partial<OmpMock> = {}): OmpMock {
@@ -65,9 +66,13 @@ function installOmpMock(overrides: Partial<OmpMock> = {}): OmpMock {
 		setPluginFeatures: vi.fn(async () => ok({ ok: true })),
 		setPluginEnabled: vi.fn(async () => ok({})),
 		deletePluginSetting: vi.fn(async () => ok({ ok: true })),
+		openExternal: vi.fn(async () => {}),
 		...overrides,
 	};
-	(window as unknown as { omp: { rpc: OmpMock } }).omp = { rpc: mock };
+	(window as unknown as { omp: { rpc: OmpMock; system: { openExternal: Mock } } }).omp = {
+		rpc: mock,
+		system: { openExternal: mock.openExternal },
+	};
 	return mock;
 }
 
@@ -211,7 +216,47 @@ describe("MarketplaceCard", () => {
 		expect(byText("button", "Uninstall")).toBeTruthy();
 	});
 
-	it("installs a plugin then refetches the list and the card", async () => {
+	it("renders catalog metadata and opens the repository externally", async () => {
+		const openExternal = vi.fn(async () => {});
+		installOmpMock({
+			openExternal,
+			marketplaceAction: vi.fn(async (payload: { action: string }) =>
+				payload.action === "list_available"
+					? ok({
+							ok: true,
+							plugins: [
+								{
+									name: "rich",
+									description: "Full metadata",
+									version: "1.0.0",
+									installed: false,
+									author: "Alice",
+									license: "MIT",
+									category: "productivity",
+									tags: ["search", "web"],
+									repository: "https://github.com/example/rich",
+									homepage: "https://example.com/rich",
+								},
+								{ name: "bare", installed: false },
+							],
+						})
+					: ok({ ok: true }),
+			),
+		});
+		await mount(<MarketplaceCard marketplace={marketplace} reload={vi.fn(async () => {})} />);
+		await click(queryAll('button[aria-label="Browse available plugins"]')[0]);
+		await flush();
+		const text = (container as unknown as TestElement).textContent ?? "";
+		expect(text).toContain("Alice");
+		expect(text).toContain("MIT");
+		expect(text).toContain("productivity");
+		expect(text).toContain("#search");
+		await click(byText("button", "Repository"));
+		await flush();
+		expect(openExternal).toHaveBeenCalledWith("https://github.com/example/rich");
+	});
+
+	it("installs a plugin behind the inline confirm swap, then refetches", async () => {
 		const calls: Array<{ action: string; plugin?: string }> = [];
 		const omp = installOmpMock({
 			marketplaceAction: vi.fn(async (payload: { action: string; plugin?: string }) => {
@@ -225,7 +270,13 @@ describe("MarketplaceCard", () => {
 		await mount(<MarketplaceCard marketplace={marketplace} reload={reload} />);
 		await click(queryAll('button[aria-label="Browse available plugins"]')[0]);
 		await flush();
+		// First click only arms the confirm swap — no RPC yet.
 		await click(byText("button", "Install"));
+		await flush();
+		expect(omp.marketplaceAction).not.toHaveBeenCalledWith(expect.objectContaining({ action: "install" }));
+		expect((container as unknown as TestElement).textContent ?? "").toContain("full local access");
+		// Confirm fires the install and the refetch chain.
+		await click(queryAll('button[aria-label="Confirm install"]')[0]);
 		await flush();
 		expect(omp.marketplaceAction).toHaveBeenCalledWith({
 			action: "install",
@@ -235,6 +286,26 @@ describe("MarketplaceCard", () => {
 		// Refetch afterward: list_available again, then the card's get_marketplaces reload.
 		expect(calls.map(c => c.action)).toEqual(["list_available", "install", "list_available"]);
 		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	it("cancels the install confirm without firing the RPC", async () => {
+		const omp = installOmpMock({
+			marketplaceAction: vi.fn(async (payload: { action: string }) =>
+				payload.action === "list_available"
+					? ok({ ok: true, plugins: [{ name: "beta", installed: false }] })
+					: ok({ ok: true }),
+			),
+		});
+		await mount(<MarketplaceCard marketplace={marketplace} reload={vi.fn(async () => {})} />);
+		await click(queryAll('button[aria-label="Browse available plugins"]')[0]);
+		await flush();
+		await click(byText("button", "Install"));
+		await flush();
+		await click(queryAll('button[aria-label="Cancel"]')[0]);
+		await flush();
+		expect(omp.marketplaceAction).not.toHaveBeenCalledWith(expect.objectContaining({ action: "install" }));
+		// Swap returns to the normal action row.
+		expect(byText("button", "Install")).toBeTruthy();
 	});
 
 	it("shows the remove action behind an inline confirm swap", async () => {

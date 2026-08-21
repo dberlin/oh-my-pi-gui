@@ -1,5 +1,5 @@
 import { FolderOpen } from "lucide-react";
-import { cx, resultText } from "../../lib/format";
+import { cx, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { GLOB_PREVIEW_PATHS, PREVIEW_SCROLL_MD } from "../../lib/preview";
 import { PathLink } from "./PathLink";
@@ -7,16 +7,29 @@ import type { ToolRendererProps } from "./ToolCard";
 
 const MAX_PATHS = GLOB_PREVIEW_PATHS;
 
-/** Glob: matched-path count + the path list. */
+interface GlobToolDetails {
+	fileCount?: number;
+	files?: string[];
+	truncated?: boolean;
+}
+
+/** Glob: matched-path count + the path list. Prefers the structured
+ * `details.files` — parsing text lines miscounts appended notices (timeouts,
+ * truncation notes) as paths and offers them as file links. */
 export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRendererProps) {
 	const t = useT();
 	const pattern = typeof args.path === "string" ? args.path : typeof args.pattern === "string" ? args.pattern : "";
-	const text = resultText(isPartial ? partialResult : result);
-	const paths = text
-		.split("\n")
-		.map(l => l.trim())
-		.filter(Boolean)
-		.slice(0, MAX_PATHS);
+	const effective = isPartial ? partialResult : result;
+	const details = resultDetails(effective) as GlobToolDetails | undefined;
+	const listedPaths = Array.isArray(details?.files) ? details.files.map(String) : null;
+	const totalCount = typeof details?.fileCount === "number" ? details.fileCount : (listedPaths?.length ?? Number.NaN);
+	const paths = (
+		listedPaths ??
+		resultText(effective)
+			.split("\n")
+			.map(l => l.trim())
+			.filter(Boolean)
+	).slice(0, MAX_PATHS);
 
 	return (
 		<div className="flex flex-col gap-1">
@@ -26,7 +39,10 @@ export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRen
 				<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">
 					{isPartial
 						? t("tools.glob.matching")
-						: t("tools.glob.paths", { count: paths.length, plural: paths.length === 1 ? "" : "s" })}
+						: Number.isFinite(totalCount)
+							? t("tools.glob.paths", { count: totalCount, plural: totalCount === 1 ? "" : "s" })
+							: t("tools.glob.paths", { count: paths.length, plural: paths.length === 1 ? "" : "s" })}
+					{details?.truncated === true ? " +" : ""}
 				</span>
 			</div>
 			{paths.length > 0 && (
