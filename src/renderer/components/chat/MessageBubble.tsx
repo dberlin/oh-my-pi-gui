@@ -400,6 +400,7 @@ export const MessageBubble = memo(function MessageBubble({
 						{!readOnly && (
 							<button
 								type="button"
+								data-message-action="branch"
 								onClick={() => void handleBranch()}
 								disabled={branching || switchPending}
 								aria-label={t("chat.branchFromHere")}

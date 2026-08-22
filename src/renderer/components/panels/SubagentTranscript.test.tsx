@@ -299,7 +299,7 @@ describe("selected transcript canvas", () => {
 		await mount(<ChatCanvas />);
 		if (!container) throw new Error("Canvas mount missing");
 		expect(container.textContent).toContain("Main only transcript");
-		expect(container.querySelector('button[title="Branch conversation from here"]')).not.toBeNull();
+		expect(container.querySelector('button[data-message-action="branch"]')).not.toBeNull();
 
 		await act(async () => {
 			await useAgentViewStore.getState().selectSubagent(agent);
@@ -331,7 +331,7 @@ describe("selected transcript canvas", () => {
 		expect(container.querySelector('[data-transcript-kind="todoSnapshot"]')).toBeNull();
 		expect(container.querySelector('[data-transcript-kind="pending"]')).toBeNull();
 		expect(container.querySelector(".omp-history-expander")).toBeNull();
-		expect(container.querySelector('button[title="Branch conversation from here"]')).toBeNull();
+		expect(container.querySelector('button[data-message-action="branch"]')).toBeNull();
 
 		await act(async () => {
 			useSessionStore.setState({

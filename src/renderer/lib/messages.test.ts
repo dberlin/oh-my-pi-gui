@@ -106,7 +106,16 @@ describe("forkSessionFromEntryInNewTab", () => {
 		const harness = installWindow([]);
 		useTabsStore.setState({
 			activeTabId: "source-tab",
-			tabs: [{ id: "source-tab", cwd: "/project", target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false }],
+			tabs: [
+				{
+					id: "source-tab",
+					cwd: "/project",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
+			],
 		});
 		const timestamp = "2026-08-21T06:38:00.000Z";
 		harness.rpc.getSessionTree.mockResolvedValue({
@@ -142,7 +151,16 @@ describe("forkSessionFromEntryInNewTab", () => {
 		const harness = installWindow([]);
 		useTabsStore.setState({
 			activeTabId: "source-tab",
-			tabs: [{ id: "source-tab", cwd: "/project", target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false }],
+			tabs: [
+				{
+					id: "source-tab",
+					cwd: "/project",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
+			],
 		});
 		const first = { role: "user" as const, content: "continue", timestamp: 1 };
 		const second = { role: "user" as const, content: "continue", timestamp: 2 };
@@ -185,8 +203,22 @@ describe("forkSessionFromEntryInNewTab", () => {
 		useTabsStore.setState({
 			activeTabId: "source-tab",
 			tabs: [
-				{ id: "source-tab", cwd: "/source", target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false },
-				{ id: "other-tab", cwd: "/other", target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "source-tab",
+					cwd: "/source",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
+				{
+					id: "other-tab",
+					cwd: "/other",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
 			],
 		});
 		const tree = Promise.withResolvers<SessionTreeResponse>();
@@ -220,8 +252,22 @@ describe("forkSessionFromEntryInNewTab", () => {
 		useTabsStore.setState({
 			activeTabId: "source-tab",
 			tabs: [
-				{ id: "source-tab", cwd: "/source", target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false },
-				{ id: "other-tab", cwd: "/other", target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "source-tab",
+					cwd: "/source",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
+				{
+					id: "other-tab",
+					cwd: "/other",
+					target: { type: "local" },
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
 			],
 		});
 		const fork = Promise.withResolvers<{
@@ -230,6 +276,7 @@ describe("forkSessionFromEntryInNewTab", () => {
 		}>();
 		harness.rpc.forkFrom.mockReturnValue(fork.promise);
 		const openTab = vi.spyOn(useTabsStore.getState(), "openTab").mockResolvedValue("branch-tab");
+		openTab.mockClear();
 		const branch = forkSessionFromEntryInNewTab("user-entry");
 		useTabsStore.setState({ activeTabId: "other-tab" });
 		fork.resolve({ success: true, data: { sessionPath: "/sessions/branch.jsonl", sessionId: "branch-session" } });
