@@ -206,7 +206,7 @@ function pickString(args: Record<string, unknown>, ...keys: string[]): string | 
 	return undefined;
 }
 
-function boundedSummary(value: string): string {
+export function boundedSummary(value: string): string {
 	const summary = sanitizeToolText(value.split("\n", 1)[0] ?? "");
 	if (summary.length <= 160) return summary;
 	let prefix = summary.slice(0, 159);

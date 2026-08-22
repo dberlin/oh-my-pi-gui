@@ -8,7 +8,7 @@ import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { scopedDisclosureKey, TOOL_DISCLOSURE_PREFIX, useDisclosureScope, useUiStore } from "../../stores/ui";
 import { GenericRenderer } from "./GenericRenderer";
 import { getToolRenderer, type ToolRendererView } from "./index";
-import { isPeerIrcInvocation, resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
+import { boundedSummary, isPeerIrcInvocation, resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
 
 export interface ToolRendererProps {
 	args: Record<string, unknown>;
@@ -141,10 +141,10 @@ function ToolCardContent({
 	const isAborted = status === "aborted";
 	const now = useNowTick(isPartial);
 	const duration = entry ? durationBetween(entry.startTime, isPartial ? now : entry.endTime) : null;
-	// Pending arguments have no parsed fields yet; keep the raw preview bounded.
+	// Pending arguments have no parsed fields yet; keep the raw preview sanitized and bounded.
 	const streamingSummary =
 		entry?.status === "pending" && typeof entry.streamingArgs === "string"
-			? entry.streamingArgs.slice(0, 160)
+			? boundedSummary(entry.streamingArgs)
 			: undefined;
 	const definition = getToolRenderer(effective);
 	const peerIrc = isPeerIrcInvocation(effective);
@@ -245,7 +245,7 @@ function ToolCardContent({
 				)}
 				{!summary && streamingSummary && (
 					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-omp-sm opacity-60 text-[var(--omp-tool-output)]">
-						{streamingSummary}…
+						{streamingSummary}
 					</span>
 				)}
 				{!summary && !streamingSummary && <span className="flex-1" />}

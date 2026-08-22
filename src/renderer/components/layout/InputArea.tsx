@@ -777,440 +777,406 @@ function MainInputArea() {
 				</div>
 			</Modal>
 
-				{queueBody !== undefined && (
-					<div
-						className="absolute -top-2 right-5 z-10 flex items-center gap-1.5 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-omp-xs font-semibold text-[var(--omp-warning)]"
-						style={{ backgroundColor: "var(--omp-bg-primary)" }}
-						title={t("input.queue.title")}
-					>
-						➤ {t("input.queue.badge")}
+			{queueBody !== undefined && (
+				<div
+					className="absolute -top-2 right-5 z-10 flex items-center gap-1.5 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-omp-xs font-semibold text-[var(--omp-warning)]"
+					style={{ backgroundColor: "var(--omp-bg-primary)" }}
+					title={t("input.queue.title")}
+				>
+					➤ {t("input.queue.badge")}
+				</div>
+			)}
+
+			{pasteMenu && (
+				<div
+					ref={pasteMenuRef}
+					role="dialog"
+					aria-label={t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
+					className="omp-pop-in absolute bottom-full left-0 right-0 z-20 mb-2 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-3 shadow-[var(--omp-shadow-lg)]"
+				>
+					<div className="flex items-baseline justify-between gap-3">
+						<span className="text-omp-md font-medium text-[var(--omp-text)]">
+							{t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
+						</span>
+						<span className="shrink-0 text-omp-sm text-[var(--omp-dim)]">{t("input.paste.hint")}</span>
 					</div>
-				)}
-
-				{pasteMenu && (
-					<div
-						ref={pasteMenuRef}
-						role="dialog"
-						aria-label={t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
-						className="omp-pop-in absolute bottom-full left-0 right-0 z-20 mb-2 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-3 shadow-[var(--omp-shadow-lg)]"
-					>
-						<div className="flex items-baseline justify-between gap-3">
-							<span className="text-omp-md font-medium text-[var(--omp-text)]">
-								{t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
-							</span>
-							<span className="shrink-0 text-omp-sm text-[var(--omp-dim)]">{t("input.paste.hint")}</span>
-						</div>
-						<pre className="mt-2 max-h-32 overflow-hidden rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] px-2.5 py-2 font-mono text-omp-sm leading-[1.5] whitespace-pre-wrap break-all text-[var(--omp-muted)]">
-							{(() => {
-								const lines = pasteMenu.content.split("\n");
-								if (lines.length <= 6) return pasteMenu.content;
-								const head = lines.slice(0, 3).join("\n");
-								const tail = lines.slice(-2).join("\n");
-								return `${head}\n${t("input.paste.moreLines", { count: lines.length - 5 })}\n${tail}`;
-							})()}
-						</pre>
-						<div className="mt-2.5 flex gap-2">
-							<button
-								type="button"
-								onClick={choosePasteInline}
-								className="omp-pressable rounded-lg bg-[var(--omp-btn-primary-bg)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-btn-primary-text)] hover:brightness-110"
-							>
-								{t("input.paste.inline")}
-							</button>
-							<button
-								type="button"
-								onClick={choosePasteWrapped}
-								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								{t("input.paste.wrap")}
-							</button>
-							<button
-								type="button"
-								onClick={choosePasteSaveFile}
-								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								{t("input.paste.saveFile")}
-							</button>
-							<button
-								type="button"
-								onClick={() => setPasteMenu(null)}
-								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								{t("input.paste.cancel")}
-							</button>
-						</div>
-					</div>
-				)}
-
-				{composerMode && modeColor && (
-					<div
-						className="absolute -top-2 left-5 z-10 flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-omp-xs font-semibold"
-						style={{ borderColor: modeColor, color: modeColor, backgroundColor: "var(--omp-bg-primary)" }}
-						title={composerMode.mode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}
-					>
-						<span className="font-mono text-omp-sm leading-none">{composerMode.mode === "bash" ? "!" : "$"}</span>
-						{composerMode.mode}
-					</div>
-				)}
-
-				{/* Anchoring context for completion/history overlays: they sit directly
-				    above the input box instead of the surrounding composer region. */}
-				<div className="relative">
-					{menu && (
-						<div className="absolute bottom-full left-0 z-10 mb-2 max-h-[60vh] w-[420px] max-w-full overflow-y-auto rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1 shadow-[var(--omp-shadow-lg)]">
-							{menu.items.map((item, index) => (
-								<button
-									key={`${menu.source}:${item.label}`}
-									type="button"
-									onMouseDown={event => {
-										event.preventDefault();
-										insertCompletion(item);
-									}}
-									className={cx(
-										"flex w-full items-baseline gap-3 rounded-lg px-3 py-2.5 text-left",
-										index === menu.index ? "bg-[var(--omp-selected-bg)]" : "",
-									)}
-								>
-									<span className="font-mono text-omp-lg font-medium text-[var(--omp-accent)]">
-										{item.label}
-									</span>
-									{item.description && (
-										<span className="truncate text-omp-md text-[var(--omp-muted)]">{item.description}</span>
-									)}
-									{item.hint && (
-										<span className="ml-auto shrink-0 font-mono text-omp-xs text-[var(--omp-dim)]">
-											{item.hint}
-										</span>
-									)}
-								</button>
-							))}
-						</div>
-					)}
-
-					{historySearchOpen && (
-						<HistorySearchOverlay
-							cwd={cwd}
-							onSelect={prompt => {
-								setHistorySearchOpen(false);
-								setText(prompt);
-								requestAnimationFrame(() => {
-									const el = textareaRef.current;
-									if (!el) return;
-									el.focus();
-									el.setSelectionRange(prompt.length, prompt.length);
-								});
-							}}
-							onClose={() => {
-								setHistorySearchOpen(false);
-								requestAnimationFrame(() => textareaRef.current?.focus());
-							}}
-						/>
-					)}
-					<div
-						className="overflow-hidden rounded-xl border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--omp-input-focus-border)] focus-within:shadow-[var(--omp-shadow-glow)]"
-						style={modeColor ? { borderColor: modeColor } : undefined}
-					>
-						<div className="px-3.5 pb-1.5 pt-2.5">
-							{submissionUncertain && (
-								<div
-									role="alert"
-									className="mb-2 flex flex-wrap items-center gap-2 rounded border border-(--omp-warning) p-2 text-omp-sm text-(--omp-warning)"
-								>
-									<p className="min-w-0 flex-1">{t("input.deliveryUnknown")}</p>
-									<button
-										type="button"
-										className="rounded border border-(--omp-border-muted) px-2 py-1"
-										onClick={() => setSubmissionUncertain(false)}
-									>
-										{t("input.allowResend")}
-									</button>
-								</div>
-							)}
-							{images.length > 0 && (
-								<div className="mb-3 flex flex-wrap gap-2">
-									{images.map((image, index) => (
-										<div key={index} className="group relative">
-											<img
-												src={image.preview}
-												alt={t("input.attachmentAlt", { index: index + 1 })}
-												className="h-16 w-16 rounded-lg border border-[var(--omp-border-muted)] object-cover"
-											/>
-											<button
-												type="button"
-												title={t("input.removeAttachment")}
-												onClick={() =>
-													setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index))
-												}
-												className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--omp-error)] text-[var(--omp-btn-danger-text)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
-											>
-												<X size={11} />
-											</button>
-										</div>
-									))}
-								</div>
-							)}
-							<textarea
-								readOnly={collabReadOnly}
-								ref={textareaRef}
-								autoCapitalize="sentences"
-								autoCorrect="on"
-								spellCheck
-								value={text}
-								onChange={event => {
-									useInputHistoryStore.getState().resetNav();
-									const value = event.target.value;
-									// TUI parity (custom-editor.ts:1001-1007): the moment the buffer
-									// becomes exactly the queue prefix, a newline starts the list body.
-									if (value === "->" || value === "=>") {
-										setText(`${value}\n`);
-										return;
-									}
-									setText(value);
-									// Emoji inline replace (TUI parity): `:name:` fires on the closing
-									// colon, emoticons fire on a trailing space/tab/newline.
-									if (emojiAutocomplete) {
-										const caret = event.target.selectionStart ?? value.length;
-										const before = value.slice(0, caret);
-										void tryEmojiInlineReplace(before).then(hit => {
-											if (!hit) return;
-											const el = textareaRef.current;
-											if (!el) return;
-											// Stale-check: the user typed on meanwhile.
-											const currentBefore = el.value.slice(0, el.selectionStart ?? el.value.length);
-											if (currentBefore !== before) return;
-											const nextText =
-												before.slice(0, before.length - hit.replaceLen) +
-												hit.insert +
-												el.value.slice(before.length);
-											setText(nextText);
-											requestAnimationFrame(() => {
-												const target = textareaRef.current;
-												if (!target) return;
-												const nextCaret = before.length - hit.replaceLen + hit.insert.length;
-												target.setSelectionRange(nextCaret, nextCaret);
-											});
-										});
-									}
-								}}
-								onKeyDown={handleKeyDown}
-								onClick={() => setMenu(null)}
-								onPaste={handlePaste}
-								rows={2}
-								placeholder={
-									status !== "ready"
-										? t("input.placeholder.connecting")
-										: isStreaming
-											? t("input.placeholder.streaming")
-											: isChat
-												? t("input.placeholder.chat")
-												: t("input.placeholder.idle")
-								}
-								className="max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent text-omp-xl leading-[1.5] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
-							/>
-						</div>
-
-						{argHint && (
-							<div className="px-3.5 pb-1 font-mono text-omp-sm text-[var(--omp-dim)]">💡 {argHint}</div>
-						)}
-
-						<div
-							ref={composerToolbarRef}
-							aria-busy={!routeReady}
-							className="omp-composer-toolbar flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5"
-							inert={!routeReady}
+					<pre className="mt-2 max-h-32 overflow-hidden rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] px-2.5 py-2 font-mono text-omp-sm leading-[1.5] whitespace-pre-wrap break-all text-[var(--omp-muted)]">
+						{(() => {
+							const lines = pasteMenu.content.split("\n");
+							if (lines.length <= 6) return pasteMenu.content;
+							const head = lines.slice(0, 3).join("\n");
+							const tail = lines.slice(-2).join("\n");
+							return `${head}\n${t("input.paste.moreLines", { count: lines.length - 5 })}\n${tail}`;
+						})()}
+					</pre>
+					<div className="mt-2.5 flex gap-2">
+						<button
+							type="button"
+							onClick={choosePasteInline}
+							className="omp-pressable rounded-lg bg-[var(--omp-btn-primary-bg)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-btn-primary-text)] hover:brightness-110"
 						>
+							{t("input.paste.inline")}
+						</button>
+						<button
+							type="button"
+							onClick={choosePasteWrapped}
+							className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+						>
+							{t("input.paste.wrap")}
+						</button>
+						<button
+							type="button"
+							onClick={choosePasteSaveFile}
+							className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+						>
+							{t("input.paste.saveFile")}
+						</button>
+						<button
+							type="button"
+							onClick={() => setPasteMenu(null)}
+							className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+						>
+							{t("input.paste.cancel")}
+						</button>
+					</div>
+				</div>
+			)}
+
+			{composerMode && modeColor && (
+				<div
+					className="absolute -top-2 left-5 z-10 flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-omp-xs font-semibold"
+					style={{ borderColor: modeColor, color: modeColor, backgroundColor: "var(--omp-bg-primary)" }}
+					title={composerMode.mode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}
+				>
+					<span className="font-mono text-omp-sm leading-none">{composerMode.mode === "bash" ? "!" : "$"}</span>
+					{composerMode.mode}
+				</div>
+			)}
+
+			{/* Anchoring context for completion/history overlays: they sit directly
+				    above the input box instead of the surrounding composer region. */}
+			<div className="relative">
+				{menu && (
+					<div className="absolute bottom-full left-0 z-10 mb-2 max-h-[60vh] w-[420px] max-w-full overflow-y-auto rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1 shadow-[var(--omp-shadow-lg)]">
+						{menu.items.map((item, index) => (
 							<button
+								key={`${menu.source}:${item.label}`}
 								type="button"
-								disabled={collabReadOnly}
-								onClick={() => fileInputRef.current?.click()}
-								title={t("input.attach")}
-								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								<Paperclip size={16} />
-							</button>
-							<input
-								ref={fileInputRef}
-								type="file"
-								accept="image/*"
-								multiple
-								className="hidden"
-								onChange={event => {
-									const files = Array.from(event.target.files ?? []);
-									if (files.length > 0) {
-										void Promise.all(files.map(fileToImage)).then(pasted =>
-											setImages(previous => [...previous, ...pasted]),
-										);
-									}
-									event.target.value = "";
+								onMouseDown={event => {
+									event.preventDefault();
+									insertCompletion(item);
 								}}
-							/>
-
-							<button
-								type="button"
-								data-draft-editor-trigger
-								disabled={collabReadOnly}
-								onClick={openDraftEditor}
-								title={t("editor.title")}
-								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+								className={cx(
+									"flex w-full items-baseline gap-3 rounded-lg px-3 py-2.5 text-left",
+									index === menu.index ? "bg-[var(--omp-selected-bg)]" : "",
+								)}
 							>
-								<SquarePen size={16} />
+								<span className="font-mono text-omp-lg font-medium text-[var(--omp-accent)]">{item.label}</span>
+								{item.description && (
+									<span className="truncate text-omp-md text-[var(--omp-muted)]">{item.description}</span>
+								)}
+								{item.hint && (
+									<span className="ml-auto shrink-0 font-mono text-omp-xs text-[var(--omp-dim)]">
+										{item.hint}
+									</span>
+								)}
 							</button>
-							<button
-								type="button"
-								disabled={collabReadOnly}
-								aria-label={t("input.history.title")}
-								title={t("input.history.title")}
-								onClick={() => setHistorySearchOpen(true)}
-								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								<History aria-hidden="true" size={16} />
-							</button>
+						))}
+					</div>
+				)}
 
-							{sttEnabled && (
+				{historySearchOpen && (
+					<HistorySearchOverlay
+						cwd={cwd}
+						onSelect={prompt => {
+							setHistorySearchOpen(false);
+							setText(prompt);
+							requestAnimationFrame(() => {
+								const el = textareaRef.current;
+								if (!el) return;
+								el.focus();
+								el.setSelectionRange(prompt.length, prompt.length);
+							});
+						}}
+						onClose={() => {
+							setHistorySearchOpen(false);
+							requestAnimationFrame(() => textareaRef.current?.focus());
+						}}
+					/>
+				)}
+				<div
+					className="overflow-hidden rounded-xl border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--omp-input-focus-border)] focus-within:shadow-[var(--omp-shadow-glow)]"
+					style={modeColor ? { borderColor: modeColor } : undefined}
+				>
+					<div className="px-3.5 pb-1.5 pt-2.5">
+						{submissionUncertain && (
+							<div
+								role="alert"
+								className="mb-2 flex flex-wrap items-center gap-2 rounded border border-(--omp-warning) p-2 text-omp-sm text-(--omp-warning)"
+							>
+								<p className="min-w-0 flex-1">{t("input.deliveryUnknown")}</p>
 								<button
 									type="button"
-									onClick={handleMicClick}
-									disabled={collabReadOnly && !recording}
-									title={recording ? t("voice.mic.stop") : t("voice.mic.start")}
-									className={cx(
-										"omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-										recording
-											? "bg-[var(--omp-error-dim)] text-[var(--omp-error)]"
-											: "text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
-									)}
+									className="rounded border border-(--omp-border-muted) px-2 py-1"
+									onClick={() => setSubmissionUncertain(false)}
 								>
-									{recording ? (
-										<Square size={12} fill="currentColor" className="omp-pulse-dot" />
-									) : (
-										<Mic size={16} />
-									)}
+									{t("input.allowResend")}
 								</button>
-							)}
-
-							<button
-								type="button"
-								onClick={openModelPicker}
-								disabled={collabReadOnly}
-								title={t("input.model")}
-								className="omp-pressable flex h-8 min-w-0 max-w-52 items-center gap-2 rounded-lg px-2.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								<span className="h-2 w-2 shrink-0 rounded-full bg-[var(--omp-status-model)]" />
-								<span className="omp-composer-model-label truncate">{model?.id ?? t("input.chooseModel")}</span>
-								<ChevronDown size={13} className="shrink-0 text-[var(--omp-dim)]" />
-							</button>
-
-							{compactRunSettings ? (
-								<div className="relative">
-									<button
-										ref={runSettingsTriggerRef}
-										type="button"
-										aria-expanded={runSettingsOpen}
-										aria-haspopup="menu"
-										data-run-settings-overflow-trigger
-										disabled={collabReadOnly}
-										title={t("input.moreModes")}
-										aria-label={t("input.moreModes")}
-										onClick={() => setRunSettingsOpen(open => !open)}
-										className="omp-pressable relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-									>
-										<MoreHorizontal size={16} />
-										{runSettingsActive && (
-											<span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
-										)}
-									</button>
-									{runSettingsMounted &&
-										runSettingsPos &&
-										createPortal(
-											<div
-												ref={runSettingsMenuRef}
-												role="menu"
-												data-run-settings-menu
-												aria-hidden={runSettingsClosing || undefined}
-												inert={collabReadOnly || runSettingsClosing}
-												style={{ left: runSettingsPos.left, bottom: runSettingsPos.bottom }}
-												className={`fixed z-[100] flex min-w-56 flex-col gap-1 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1.5 shadow-[var(--omp-shadow-md)] ${
-													runSettingsClosing ? "omp-scale-out pointer-events-none" : "omp-pop-in"
-												}`}
-											>
-												<ThinkingControl />
-												<FastModeControl menuItem />
-												{!isChat && <ApprovalControl />}
-												{!isChat && <ComposerModes />}
-											</div>,
-											document.body,
-										)}
-								</div>
-							) : (
-								<div
-									data-run-settings-inline
-									inert={collabReadOnly}
-									className="flex shrink-0 items-center gap-0.5"
-								>
-									<ThinkingControl />
-									<FastModeControl />
-									{!isChat && <ApprovalControl />}
-									{!isChat && <ComposerModes />}
-								</div>
-							)}
-
-							{queueTotal > 0 && <QueueComposerChip count={queueTotal} onOpen={() => setQueueOpen(true)} />}
-
-							<div className="flex-1" />
-
-							{queueSplitCount > 1 && (
-								<span className="mr-1 shrink-0 rounded-md border border-[var(--omp-warning)] px-2 py-1 text-omp-sm font-medium text-[var(--omp-warning)]">
-									{t("input.queue.split", { count: queueSplitCount })}
-								</span>
-							)}
-
-							{collabReadOnly && (
-								<span role="status" className="text-omp-sm text-(--omp-warning)">
-									{t("collab.readOnlyInput")}
-								</span>
-							)}
-							<div className="omp-composer-send-cluster ml-1 flex shrink-0 items-center gap-2.5">
-								<ContextUsagePopover />
-
-								{isStreaming ? (
-									<div className="flex shrink-0 items-center gap-1.5">
+							</div>
+						)}
+						{images.length > 0 && (
+							<div className="mb-3 flex flex-wrap gap-2">
+								{images.map((image, index) => (
+									<div key={index} className="group relative">
+										<img
+											src={image.preview}
+											alt={t("input.attachmentAlt", { index: index + 1 })}
+											className="h-16 w-16 rounded-lg border border-[var(--omp-border-muted)] object-cover"
+										/>
 										<button
 											type="button"
-											disabled={!routeReady || collabReadOnly}
-											onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
-											title={modeTitle}
-											className="omp-pressable h-7 rounded-md border border-[var(--omp-border)] px-2.5 text-omp-sm font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
-										>
-											{modeLabel}
-										</button>
-										<button
-											type="button"
-											onClick={() => send()}
-											disabled={
-												!routeReady ||
-												collabReadOnly ||
-												status !== "ready" ||
-												sending ||
-												submissionUncertain ||
-												(!text.trim() && images.length === 0)
+											title={t("input.removeAttachment")}
+											onClick={() =>
+												setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index))
 											}
-											aria-label={t("input.send")}
-											title={t("input.send")}
-											className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] disabled:opacity-40"
+											className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--omp-error)] text-[var(--omp-btn-danger-text)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
 										>
-											<ArrowUp size={14} />
-										</button>
-										<button
-											type="button"
-											disabled={!routeReady || collabReadOnly}
-											onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
-											aria-label={t("input.abort")}
-											title={t("input.abort")}
-											className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-error-dim)] text-[var(--omp-error)] hover:bg-[var(--omp-error)] hover:text-[var(--omp-btn-danger-text)]"
-										>
-											<Square size={10} fill="currentColor" />
+											<X size={11} />
 										</button>
 									</div>
+								))}
+							</div>
+						)}
+						<textarea
+							readOnly={collabReadOnly}
+							ref={textareaRef}
+							autoCapitalize="sentences"
+							autoCorrect="on"
+							spellCheck
+							value={text}
+							onChange={event => {
+								useInputHistoryStore.getState().resetNav();
+								const value = event.target.value;
+								// TUI parity (custom-editor.ts:1001-1007): the moment the buffer
+								// becomes exactly the queue prefix, a newline starts the list body.
+								if (value === "->" || value === "=>") {
+									setText(`${value}\n`);
+									return;
+								}
+								setText(value);
+								// Emoji inline replace (TUI parity): `:name:` fires on the closing
+								// colon, emoticons fire on a trailing space/tab/newline.
+								if (emojiAutocomplete) {
+									const caret = event.target.selectionStart ?? value.length;
+									const before = value.slice(0, caret);
+									void tryEmojiInlineReplace(before).then(hit => {
+										if (!hit) return;
+										const el = textareaRef.current;
+										if (!el) return;
+										// Stale-check: the user typed on meanwhile.
+										const currentBefore = el.value.slice(0, el.selectionStart ?? el.value.length);
+										if (currentBefore !== before) return;
+										const nextText =
+											before.slice(0, before.length - hit.replaceLen) +
+											hit.insert +
+											el.value.slice(before.length);
+										setText(nextText);
+										requestAnimationFrame(() => {
+											const target = textareaRef.current;
+											if (!target) return;
+											const nextCaret = before.length - hit.replaceLen + hit.insert.length;
+											target.setSelectionRange(nextCaret, nextCaret);
+										});
+									});
+								}
+							}}
+							onKeyDown={handleKeyDown}
+							onClick={() => setMenu(null)}
+							onPaste={handlePaste}
+							rows={2}
+							placeholder={
+								status !== "ready"
+									? t("input.placeholder.connecting")
+									: isStreaming
+										? t("input.placeholder.streaming")
+										: isChat
+											? t("input.placeholder.chat")
+											: t("input.placeholder.idle")
+							}
+							className="max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent text-omp-xl leading-[1.5] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
+						/>
+					</div>
+
+					{argHint && <div className="px-3.5 pb-1 font-mono text-omp-sm text-[var(--omp-dim)]">💡 {argHint}</div>}
+
+					<div
+						ref={composerToolbarRef}
+						aria-busy={!routeReady}
+						className="omp-composer-toolbar flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5"
+						inert={!routeReady}
+					>
+						<button
+							type="button"
+							disabled={collabReadOnly}
+							onClick={() => fileInputRef.current?.click()}
+							title={t("input.attach")}
+							className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+						>
+							<Paperclip size={16} />
+						</button>
+						<input
+							ref={fileInputRef}
+							type="file"
+							accept="image/*"
+							multiple
+							className="hidden"
+							onChange={event => {
+								const files = Array.from(event.target.files ?? []);
+								if (files.length > 0) {
+									void Promise.all(files.map(fileToImage)).then(pasted =>
+										setImages(previous => [...previous, ...pasted]),
+									);
+								}
+								event.target.value = "";
+							}}
+						/>
+						<button
+							type="button"
+							data-draft-editor-trigger
+							disabled={collabReadOnly}
+							onClick={openDraftEditor}
+							title={t("editor.title")}
+							className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+						>
+							<SquarePen size={16} />
+						</button>
+						<button
+							type="button"
+							disabled={collabReadOnly}
+							aria-label={t("input.history.title")}
+							title={t("input.history.title")}
+							onClick={() => setHistorySearchOpen(true)}
+							className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+						>
+							<History aria-hidden="true" size={16} />
+						</button>
+
+						{sttEnabled && (
+							<button
+								type="button"
+								disabled={collabReadOnly && !recording}
+								onClick={handleMicClick}
+								title={recording ? t("voice.mic.stop") : t("voice.mic.start")}
+								className={cx(
+									"omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+									recording
+										? "bg-[var(--omp-error-dim)] text-[var(--omp-error)]"
+										: "text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
+								)}
+							>
+								{recording ? (
+									<Square size={12} fill="currentColor" className="omp-pulse-dot" />
 								) : (
+									<Mic size={16} />
+								)}
+							</button>
+						)}
+
+						<button
+							type="button"
+							disabled={collabReadOnly}
+							onClick={openModelPicker}
+							title={t("input.model")}
+							className="omp-pressable flex h-8 min-w-0 max-w-52 items-center gap-2 rounded-lg px-2.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+						>
+							<span className="h-2 w-2 shrink-0 rounded-full bg-[var(--omp-status-model)]" />
+							<span className="omp-composer-model-label truncate">{model?.id ?? t("input.chooseModel")}</span>
+							<ChevronDown size={13} className="shrink-0 text-[var(--omp-dim)]" />
+						</button>
+
+						{compactRunSettings ? (
+							<div className="relative">
+								<button
+									ref={runSettingsTriggerRef}
+									type="button"
+									aria-expanded={runSettingsOpen}
+									aria-haspopup="menu"
+									data-run-settings-overflow-trigger
+									disabled={collabReadOnly}
+									title={t("input.moreModes")}
+									aria-label={t("input.moreModes")}
+									onClick={() => setRunSettingsOpen(open => !open)}
+									className="omp-pressable relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
+								>
+									<MoreHorizontal size={16} />
+									{runSettingsActive && (
+										<span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
+									)}
+								</button>
+								{runSettingsMounted &&
+									runSettingsPos &&
+									createPortal(
+										<div
+											ref={runSettingsMenuRef}
+											role="menu"
+											data-run-settings-menu
+											aria-hidden={runSettingsClosing || undefined}
+											inert={collabReadOnly || runSettingsClosing}
+											style={{ left: runSettingsPos.left, bottom: runSettingsPos.bottom }}
+											className={`fixed z-[100] flex min-w-56 flex-col gap-1 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1.5 shadow-[var(--omp-shadow-md)] ${
+												runSettingsClosing ? "omp-scale-out pointer-events-none" : "omp-pop-in"
+											}`}
+										>
+											<ThinkingControl />
+											<FastModeControl menuItem />
+											{!isChat && <ApprovalControl />}
+											{!isChat && <ComposerModes />}
+										</div>,
+										document.body,
+									)}
+							</div>
+						) : (
+							<div
+								data-run-settings-inline
+								inert={collabReadOnly}
+								className="flex shrink-0 items-center gap-0.5"
+							>
+								<ThinkingControl />
+								<FastModeControl />
+								{!isChat && <ApprovalControl />}
+								{!isChat && <ComposerModes />}
+							</div>
+						)}
+
+						{queueTotal > 0 && <QueueComposerChip count={queueTotal} onOpen={() => setQueueOpen(true)} />}
+
+						<div className="flex-1" />
+
+						{queueSplitCount > 1 && (
+							<span className="mr-1 shrink-0 rounded-md border border-[var(--omp-warning)] px-2 py-1 text-omp-sm font-medium text-[var(--omp-warning)]">
+								{t("input.queue.split", { count: queueSplitCount })}
+							</span>
+						)}
+
+						{collabReadOnly && (
+							<span role="status" className="text-omp-sm text-(--omp-warning)">
+								{t("collab.readOnlyInput")}
+							</span>
+						)}
+						<div className="omp-composer-send-cluster ml-1 flex shrink-0 items-center gap-2.5">
+							<ContextUsagePopover />
+
+							{isStreaming ? (
+								<div className="flex shrink-0 items-center gap-1.5">
+									<button
+										type="button"
+										disabled={!routeReady || collabReadOnly}
+										onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
+										title={modeTitle}
+										className="omp-pressable h-7 rounded-md border border-[var(--omp-border)] px-2.5 text-omp-sm font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
+									>
+										{modeLabel}
+									</button>
 									<button
 										type="button"
 										onClick={() => send()}
@@ -1224,15 +1190,44 @@ function MainInputArea() {
 										}
 										aria-label={t("input.send")}
 										title={t("input.send")}
-										className="omp-pressable flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:brightness-100"
+										className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] disabled:opacity-40"
 									>
-										<ArrowUp size={14} strokeWidth={2.4} />
+										<ArrowUp size={14} />
 									</button>
-								)}
-							</div>
+									<button
+										type="button"
+										disabled={!routeReady || collabReadOnly}
+										onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
+										aria-label={t("input.abort")}
+										title={t("input.abort")}
+										className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-error-dim)] text-[var(--omp-error)] hover:bg-[var(--omp-error)] hover:text-[var(--omp-btn-danger-text)]"
+									>
+										<Square size={10} fill="currentColor" />
+									</button>
+								</div>
+							) : (
+								<button
+									type="button"
+									onClick={() => send()}
+									disabled={
+										!routeReady ||
+										collabReadOnly ||
+										status !== "ready" ||
+										sending ||
+										submissionUncertain ||
+										(!text.trim() && images.length === 0)
+									}
+									aria-label={t("input.send")}
+									title={t("input.send")}
+									className="omp-pressable flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:brightness-100"
+								>
+									<ArrowUp size={14} strokeWidth={2.4} />
+								</button>
+							)}
 						</div>
 					</div>
 				</div>
+			</div>
 		</>
 	);
 }

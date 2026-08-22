@@ -745,7 +745,7 @@ describe("ToolCard adaptive rendering", () => {
 		expect(isolated.getAttribute("data-tool-status")).toBe("running");
 	});
 
-	it("bounds raw pending arguments before the parsed arguments arrive", async () => {
+	it("sanitizes and bounds raw pending arguments before the parsed arguments arrive", async () => {
 		const card = await mountCard({
 			toolCallId: "pending-raw",
 			toolName: "bash",
@@ -753,10 +753,11 @@ describe("ToolCard adaptive rendering", () => {
 			entry: {
 				...runningEntry("bash", {}, null),
 				status: "pending",
-				streamingArgs: `{"command":"PENDING_HEAD ${"x".repeat(5_000)} PENDING_TAIL`,
+				streamingArgs: `{"command":"\u001b[31mPENDING_HEAD\u001b[0m ${"x".repeat(5_000)} PENDING_TAIL`,
 			},
 		});
 		expect(card.textContent).toContain("PENDING_HEAD");
+		expect(card.querySelector(".omp-tool-summary")?.textContent).not.toContain("\u001b");
 		expect(card.textContent).not.toContain("PENDING_TAIL");
 		expect(card.textContent?.length ?? Number.POSITIVE_INFINITY).toBeLessThan(300);
 	});
