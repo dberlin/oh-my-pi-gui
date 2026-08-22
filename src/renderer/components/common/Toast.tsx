@@ -37,7 +37,7 @@ export function ToastStack() {
 				const Icon = style.Icon;
 				return (
 					<div
-						className={`pointer-events-auto flex items-start gap-2.5 rounded-xl border border-(--omp-border-muted) border-l-2 bg-(--omp-toast-bg) px-3 py-2.5 shadow-(--omp-shadow-lg) ${style.border} ${entry.exitingAt != null ? "omp-toast-out" : "omp-toast-in"}`}
+						className={`flex items-start gap-2.5 rounded-xl border border-(--omp-border-muted) border-l-2 bg-(--omp-toast-bg) px-3 py-2.5 shadow-(--omp-shadow-lg) ${style.border} ${entry.exitingAt != null ? "pointer-events-none omp-toast-out" : "pointer-events-auto omp-toast-in"}`}
 						key={entry.id}
 						role={entry.variant === "error" ? "alert" : "status"}
 					>

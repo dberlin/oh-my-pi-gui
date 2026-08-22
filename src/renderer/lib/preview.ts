@@ -21,3 +21,5 @@ export const READ_PREVIEW_LINES = 50;
 export const GREP_PREVIEW_MATCHES = 200;
 /** Paths listed per glob card. */
 export const GLOB_PREVIEW_PATHS = 300;
+/** Maximum characters inserted into any line-bounded text preview. */
+export const PREVIEW_TEXT_CHARS = 20_000;

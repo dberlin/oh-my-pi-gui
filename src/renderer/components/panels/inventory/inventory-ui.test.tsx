@@ -18,6 +18,9 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcPluginDetail, RpcPluginInfo } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { resetTabRoute } from "../../../lib/tab-routing";
+import { useSessionStore } from "../../../stores/session";
+import { useTabsStore } from "../../../stores/tabs";
 import { AddMarketplaceForm, MarketplaceCard } from "./MarketplacesSection";
 import { PluginDetailDrawer } from "./PluginDetailDrawer";
 
@@ -59,6 +62,12 @@ interface OmpMock {
 }
 
 function installOmpMock(overrides: Partial<OmpMock> = {}): OmpMock {
+	useTabsStore.setState({
+		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
+		activeTabId: "t1",
+		bundles: new Map(),
+	});
+	useSessionStore.setState({ sessionId: "s1", sessionFile: "/s1.json", isStreaming: false, isCompacting: false });
 	const mock: OmpMock = {
 		marketplaceAction: vi.fn(async () => ok({ ok: true })),
 		getPluginDetail: vi.fn(async () => ok(null)),
@@ -104,6 +113,9 @@ afterEach(async () => {
 		});
 	}
 	container?.remove();
+	useSessionStore.getState().reset();
+	useTabsStore.getState().reset();
+	resetTabRoute();
 });
 
 interface TestElement {

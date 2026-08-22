@@ -22,6 +22,7 @@ function success(data: unknown): RpcResponse {
 interface MockOmp {
 	rpc: {
 		prompt: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
+		compact: Mock<() => Promise<RpcResponse>>;
 		steer: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
 		followUp: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
 		dropSession: Mock<() => Promise<RpcResponse>>;
@@ -42,6 +43,7 @@ function installMockOmp(): MockOmp {
 	const omp: MockOmp = {
 		rpc: {
 			prompt: vi.fn(async () => success({})),
+			compact: vi.fn(async () => ({ ...success({}), command: "compact" })),
 			steer: vi.fn(async () => success({})),
 			followUp: vi.fn(async () => success({})),
 			dropSession: vi.fn(async () => success({ cancelled: false })),
@@ -90,7 +92,7 @@ const guiOnly = (name: string): AvailableCommand => ({
 	textModeExecutable: false,
 });
 describe("planComposerSubmit", () => {
-	it("routes typed /compact through prompt", async () => {
+	it("routes typed /compact through its long-running RPC instead of the 8s prompt path", async () => {
 		const omp = installMockOmp();
 		const submit = planComposerSubmit({
 			message: "/compact",
@@ -103,10 +105,11 @@ describe("planComposerSubmit", () => {
 		if (submit.kind !== "send") return;
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 		await submit.request();
-		expect(omp.rpc.prompt).toHaveBeenCalledWith("/compact", []);
+		expect(omp.rpc.compact).toHaveBeenCalledOnce();
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 	});
 
-	it("routes /compact through prompt even while streaming — never steer/followUp", async () => {
+	it("routes /compact through its dedicated RPC even while streaming — never steer/followUp", async () => {
 		const omp = installMockOmp();
 		const submit = planComposerSubmit({
 			message: "/compact",
@@ -118,7 +121,8 @@ describe("planComposerSubmit", () => {
 		expect(submit.kind).toBe("send");
 		if (submit.kind !== "send") return;
 		await submit.request();
-		expect(omp.rpc.prompt).toHaveBeenCalledWith("/compact", []);
+		expect(omp.rpc.compact).toHaveBeenCalledOnce();
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 		expect(omp.rpc.steer).not.toHaveBeenCalled();
 		expect(omp.rpc.followUp).not.toHaveBeenCalled();
 	});
@@ -381,6 +385,13 @@ describe("settleComposerResponse", () => {
 	it("rehydrates on agentInvoked:false (local-only slash command)", async () => {
 		const omp = installMockOmp();
 		await settleComposerResponse(success({ agentInvoked: false }));
+		expect(omp.rpc.getState).toHaveBeenCalled();
+		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+	});
+
+	it("rehydrates after dedicated compaction completes", async () => {
+		const omp = installMockOmp();
+		await settleComposerResponse({ ...success({}), command: "compact" });
 		expect(omp.rpc.getState).toHaveBeenCalled();
 		expect(omp.rpc.getTranscript).toHaveBeenCalled();
 	});

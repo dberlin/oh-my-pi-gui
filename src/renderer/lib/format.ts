@@ -3,6 +3,7 @@
  * No runtime dependencies.
  */
 import { getCurrentLanguage, translate } from "./i18n";
+import { PREVIEW_TEXT_CHARS } from "./preview";
 
 /** Join class names, dropping falsy parts. */
 export function cx(...parts: Array<string | false | null | undefined>): string {
@@ -205,11 +206,18 @@ export function shortenPath(path: string): string {
 	return display;
 }
 
-/** First N lines of a text block, plus the count of omitted lines. */
+/** First N lines within the shared DOM character ceiling. */
 export function headLines(text: string, max: number): { head: string; omitted: number } {
-	const lines = text.split("\n");
-	if (lines.length <= max) return { head: text, omitted: 0 };
-	return { head: lines.slice(0, max).join("\n"), omitted: lines.length - max };
+	const charTruncated = text.length > PREVIEW_TEXT_CHARS;
+	const capped = charTruncated ? text.slice(0, PREVIEW_TEXT_CHARS) : text;
+	const lines = capped.split("\n");
+	const visible = lines.slice(0, max);
+	let omitted = Math.max(0, lines.length - visible.length);
+	if (charTruncated) {
+		omitted++;
+		for (let i = PREVIEW_TEXT_CHARS; i < text.length; i++) if (text[i] === "\n") omitted++;
+	}
+	return { head: visible.join("\n"), omitted };
 }
 
 /**

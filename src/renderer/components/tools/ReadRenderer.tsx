@@ -22,12 +22,15 @@ import type { ToolRendererProps } from "./ToolCard";
  */
 interface ReadToolDetails {
 	resolvedPath?: string;
-	displayContent?: { text: string; startLine: number };
+	url?: string;
+	finalUrl?: string;
+	displayContent?: { text: string; startLine: number; lineNumbers?: Array<number | null> };
 }
 
 /** Strip a trailing read selector (`file.ts:50-100`, `db.sqlite:users`) for
  * display and language detection; drive letters (`C:/x`) stay intact. */
 function stripReadSelector(path: string): string {
+	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) return path;
 	const index = path.lastIndexOf(":");
 	return index > 1 ? path.slice(0, index) : path;
 }
@@ -37,8 +40,8 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult }
 	const path = typeof args.path === "string" ? args.path : "";
 	const effective = isPartial ? partialResult : result;
 	const details = (resultDetails(effective) ?? {}) as ReadToolDetails;
-	const basePath =
-		typeof details.resolvedPath === "string" && details.resolvedPath ? details.resolvedPath : stripReadSelector(path);
+	const structuredPath = details.resolvedPath ?? details.finalUrl ?? details.url;
+	const basePath = typeof structuredPath === "string" && structuredPath ? structuredPath : stripReadSelector(path);
 	const display = details.displayContent;
 	const image = extractImageDataUrl(effective);
 	const rawText = display?.text ?? resultText(effective);
@@ -72,6 +75,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult }
 						showCopy={false}
 						maxHeightClass="max-h-72"
 						startLine={display?.startLine}
+						lineNumbers={display?.lineNumbers?.slice(0, head.split("\n").length)}
 					/>
 					{omitted > 0 && (
 						<div className="text-center font-mono text-omp-xs text-[var(--omp-dim)]">

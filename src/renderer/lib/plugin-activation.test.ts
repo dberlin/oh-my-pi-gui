@@ -2,21 +2,51 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { usePluginActivationStore } from "../stores/plugin-activation";
 import { useSessionStore } from "../stores/session";
 import { useTabsStore } from "../stores/tabs";
-import { handlePluginActivation, restartForActivation, watchPluginActivation } from "./plugin-activation";
+import { useUiStore } from "../stores/ui";
+import {
+	handlePluginActivation,
+	type PluginActivationOrigin,
+	restartForActivation,
+	watchPluginActivation,
+} from "./plugin-activation";
+import { resetTabRoute } from "./tab-routing";
 
-const FAST = { verifyAttempts: 2, verifyIntervalMs: 1 };
+const FAST = { verifyAttempts: 2, verifyIntervalMs: 0, wait: async () => {} };
+const ORIGIN: PluginActivationOrigin = { tabId: "t1", sessionId: "s1" };
+const ENABLED = { pluginId: "demo@market", expected: "enabled" as const };
+
+function activateTab(tabId = "t1", sessionId = "s1"): void {
+	useTabsStore.setState({
+		tabs: [
+			{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false },
+			{ id: "t2", cwd: "/w2", status: "ready", kind: "agent", unreadDone: false },
+		],
+		activeTabId: tabId,
+		bundles: new Map(),
+	});
+	useSessionStore.setState({ sessionId, sessionFile: `/${sessionId}.json`, isStreaming: false, isCompacting: false });
+}
 
 afterEach(() => {
-	usePluginActivationStore.getState().clearActivation();
-	useSessionStore.setState({ isStreaming: false, isCompacting: false, sessionFile: null });
+	usePluginActivationStore.getState().reset();
+	useSessionStore.setState({
+		sessionId: undefined,
+		sessionFile: null,
+		isStreaming: false,
+		isCompacting: false,
+	});
+	useUiStore.setState({ switchPending: null });
+	resetTabRoute();
 	vi.restoreAllMocks();
 });
 
-function stubOmp(overrides: { restart?: Mock; getPlugins?: Mock } = {}): void {
+function stubOmp(overrides: { restart?: Mock; commandForTab?: Mock } = {}): void {
 	(globalThis as unknown as Record<string, unknown>).window = {
 		omp: {
 			sidecar: { restart: overrides.restart ?? vi.fn(async () => {}) },
-			rpc: { getPlugins: overrides.getPlugins ?? vi.fn(async () => ({ success: false })) },
+			rpc: {
+				commandForTab: overrides.commandForTab ?? vi.fn(async () => ({ success: false })),
+			},
 		},
 	};
 }
@@ -26,113 +56,85 @@ function okPlugins(plugins: unknown): { success: true; data: unknown } {
 }
 
 describe("handlePluginActivation", () => {
-	it("restarts immediately when idle, resuming the current session", async () => {
+	it("restarts and verifies the origin tab when idle", async () => {
 		const restart = vi.fn(async () => {});
-		stubOmp({
-			restart,
-			getPlugins: vi.fn(async () => okPlugins([{ id: "demo@official", name: "demo", enabled: true }])),
-		});
-		useSessionStore.setState({ isStreaming: false, isCompacting: false, sessionFile: "/s.json" });
-		handlePluginActivation("restart-required", "demo@official", FAST);
-		await vi.waitFor(() => expect(restart).toHaveBeenCalledWith("/s.json"));
-		await vi.waitFor(() => expect(usePluginActivationStore.getState().pendingId).toBeNull());
+		const commandForTab = vi.fn(async () => okPlugins([{ id: ENABLED.pluginId, name: "demo", enabled: true }]));
+		stubOmp({ restart, commandForTab });
+		activateTab();
+
+		await handlePluginActivation("restart-required", ENABLED, ORIGIN, FAST);
+
+		expect(restart).toHaveBeenCalledWith({ tabId: "t1", sessionPath: "/s1.json" });
+		expect(commandForTab).toHaveBeenCalledWith("t1", { type: "get_plugins" });
 	});
 
-	it("queues while streaming without restarting", () => {
+	it("queues every target while streaming and restarts once after settle", async () => {
 		const restart = vi.fn(async () => {});
-		stubOmp({ restart });
-		useSessionStore.setState({ isStreaming: true, isCompacting: false });
-		handlePluginActivation("restart-required", "demo@official", FAST);
-		expect(usePluginActivationStore.getState().pendingId).toBe("demo@official");
-		expect(restart).not.toHaveBeenCalled();
-	});
+		const commandForTab = vi.fn(async () =>
+			okPlugins([
+				{ id: "a@market", name: "a", enabled: true },
+				{ id: "b@market", name: "b", enabled: true },
+			]),
+		);
+		stubOmp({ restart, commandForTab });
+		activateTab();
+		useSessionStore.setState({ isStreaming: true });
+		await handlePluginActivation("restart-required", { pluginId: "a@market", expected: "enabled" }, ORIGIN, FAST);
+		await handlePluginActivation("restart-required", { pluginId: "b@market", expected: "enabled" }, ORIGIN, FAST);
+		expect(usePluginActivationStore.getState().pendingByTab.t1?.targets).toHaveLength(2);
 
-	it("ignores live activations", () => {
-		const restart = vi.fn(async () => {});
-		stubOmp({ restart });
-		handlePluginActivation("live", "demo@official", FAST);
-		expect(usePluginActivationStore.getState().pendingId).toBeNull();
-		expect(restart).not.toHaveBeenCalled();
-	});
-
-	it("fires the queued restart once the run settles in the requesting tab", async () => {
-		const restart = vi.fn(async () => {});
-		stubOmp({
-			restart,
-			getPlugins: vi.fn(async () => okPlugins([{ id: "demo@official", name: "demo", enabled: true }])),
-		});
-		useTabsStore.setState({
-			tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
-			activeTabId: "t1",
-			bundles: new Map(),
-		});
-		useSessionStore.setState({ isStreaming: true, isCompacting: false, sessionFile: null });
-		handlePluginActivation("restart-required", "demo@official", FAST);
 		const unwatch = watchPluginActivation();
-		useSessionStore.setState({ isStreaming: false, sessionFile: "/s.json" });
-		await vi.waitFor(() => expect(restart).toHaveBeenCalledWith("/s.json"));
-		expect(usePluginActivationStore.getState().pendingId).toBeNull();
+		useSessionStore.setState({ isStreaming: false });
+		await vi.waitFor(() => expect(restart).toHaveBeenCalledTimes(1));
+		expect(usePluginActivationStore.getState().pendingByTab.t1).toBeUndefined();
 		unwatch();
 	});
 
-	it("does not fire the queued restart after switching to another tab", async () => {
+	it("keeps a queued activation bound to its origin tab", async () => {
 		const restart = vi.fn(async () => {});
-		stubOmp({ restart, getPlugins: vi.fn(async () => okPlugins([])) });
-		useTabsStore.setState({
-			tabs: [
-				{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false },
-				{ id: "t2", cwd: "/w2", status: "ready", kind: "agent", unreadDone: false },
-			],
-			activeTabId: "t1",
-			bundles: new Map(),
-		});
-		useSessionStore.setState({ isStreaming: true, isCompacting: false, sessionFile: null });
-		handlePluginActivation("restart-required", "demo@official", FAST);
+		stubOmp({ restart });
+		activateTab();
+		useSessionStore.setState({ isStreaming: true });
+		await handlePluginActivation("restart-required", ENABLED, ORIGIN, FAST);
 		const unwatch = watchPluginActivation();
-		// Foreground switches to tab 2 and goes idle there: the origin tab's
-		// queued restart must NOT hijack tab 2's sidecar.
-		useTabsStore.setState({ activeTabId: "t2" });
-		useSessionStore.setState({ isStreaming: false, sessionFile: "/s2.json" });
-		await new Promise(resolve => setTimeout(resolve, 20));
+
+		activateTab("t2", "s2");
+
 		expect(restart).not.toHaveBeenCalled();
-		expect(usePluginActivationStore.getState().pendingId).toBe("demo@official");
+		expect(usePluginActivationStore.getState().pendingByTab.t1).toBeDefined();
 		unwatch();
+	});
+
+	it("ignores live activations", async () => {
+		const restart = vi.fn(async () => {});
+		stubOmp({ restart });
+		activateTab();
+		expect(await handlePluginActivation("live", ENABLED, ORIGIN, FAST)).toBeUndefined();
+		expect(restart).not.toHaveBeenCalled();
 	});
 });
 
 describe("restartForActivation verification", () => {
-	it("verifies the plugin is listed and enabled after restart", async () => {
-		const restart = vi.fn(async () => {});
-		const getPlugins = vi.fn(async () => okPlugins([{ id: "demo@official", name: "demo", enabled: true }]));
-		stubOmp({ restart, getPlugins });
-		useSessionStore.setState({ sessionFile: "/s.json" });
-		const outcome = await restartForActivation("demo@official", FAST);
-		expect(restart).toHaveBeenCalledWith("/s.json");
+	it("accepts a disabled or absent plugin for removal", async () => {
+		const commandForTab = vi.fn(async () => okPlugins([{ id: "disabled@market", name: "disabled", enabled: false }]));
+		stubOmp({ commandForTab });
+		activateTab();
+
+		const outcome = await restartForActivation(
+			[
+				{ pluginId: "disabled@market", expected: "disabled" },
+				{ pluginId: "absent@market", expected: "disabled" },
+			],
+			ORIGIN,
+			FAST,
+		);
+
 		expect(outcome).toBe("restarted");
 	});
 
-	it("reports missing when the plugin never appears", async () => {
-		const restart = vi.fn(async () => {});
-		const getPlugins = vi.fn(async () => okPlugins([]));
-		stubOmp({ restart, getPlugins });
-		const outcome = await restartForActivation("demo@official", FAST);
-		expect(outcome).toBe("missing");
-	});
-
-	it("treats a disabled listing as not loaded", async () => {
-		const restart = vi.fn(async () => {});
-		const getPlugins = vi.fn(async () => okPlugins([{ id: "demo@official", name: "demo", enabled: false }]));
-		stubOmp({ restart, getPlugins });
-		const outcome = await restartForActivation("demo@official", FAST);
-		expect(outcome).toBe("missing");
-	});
-
-	it("skips verification when there is no plugin id", async () => {
-		const restart = vi.fn(async () => {});
-		const getPlugins = vi.fn(async () => okPlugins([]));
-		stubOmp({ restart, getPlugins });
-		const outcome = await restartForActivation(null, FAST);
-		expect(outcome).toBeUndefined();
-		expect(getPlugins).not.toHaveBeenCalled();
+	it("reports missing when an enabled target never loads", async () => {
+		stubOmp({ commandForTab: vi.fn(async () => okPlugins([])) });
+		activateTab();
+		expect(await restartForActivation([ENABLED], ORIGIN, FAST)).toBe("missing");
 	});
 });

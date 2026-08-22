@@ -101,14 +101,15 @@ describe("BashRenderer", () => {
 		expect(container.textContent).toContain("Exit: 2");
 	});
 
-	it("strips the exit-code trailer when the artifact footer rides outside it", async () => {
-		// The byte-cap appends `[raw output: artifact://N]` AFTER every notice,
-		// so the exit-code strip only works once the footer is removed first.
+	it("strips the exit-code trailer when the structured artifact id confirms the footer", async () => {
+		// The byte-cap appends the footer after every notice and mirrors its id
+		// in details, so printed lookalikes remain ordinary command output.
 		await mount(
 			<BashRenderer
 				args={{ command: "huge-output" }}
 				result={bashResult("tail of output\nCommand exited with code 1\n[raw output: artifact://42]", {
 					exitCode: 1,
+					artifactId: "42",
 					meta: { truncation: { direction: "tail" } },
 				})}
 				isError

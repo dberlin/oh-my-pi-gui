@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
 import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
-import type { ThemeMode } from "../lib/theme";
+import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
 import { useTabsStore } from "./tabs";
 
 export type { ThemeMode };
@@ -205,7 +205,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	modelPickerOpen: false,
 	settingsOpen: false,
 	settingsTab: "capabilities",
-	theme: "light",
+	theme: readPrepaintThemeMode(),
 	fontSize: 15,
 	notifications: true,
 	thinkingExpanded: false,

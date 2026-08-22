@@ -16,6 +16,7 @@ afterEach(() => {
 	// Clear the module-level plugin layer between tests.
 	applyPluginThemeOverlay(null);
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 describe("validatePluginThemeTokens", () => {
@@ -52,6 +53,13 @@ describe("validatePluginThemeTokens", () => {
 			mdQuoteBorder: "var(--omp-md-quote-border); evil: 1", // trailing garbage
 		});
 		expect(rejected).toEqual(["mdLink", "thinkingLow", "toolOutput", "mdQuoteBorder"]);
+		expect(tokens).toEqual({});
+	});
+
+	it("rejects syntactically shaped values the browser does not parse as colors", () => {
+		vi.stubGlobal("CSS", { supports: (_property: string, value: string) => value !== "rgb(not-a-color)" });
+		const { tokens, rejected } = validatePluginThemeTokens({ mdLink: "rgb(not-a-color)" });
+		expect(rejected).toEqual(["mdLink"]);
 		expect(tokens).toEqual({});
 	});
 

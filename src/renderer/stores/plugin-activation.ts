@@ -1,23 +1,50 @@
 import { create } from "zustand";
 
-/**
- * Pending restart-activation for a restart-required plugin install while the
- * sidecar is mid-run. The App-level session watcher (lib/plugin-activation.ts)
- * restarts the sidecar once the run settles — bound to the tab that requested
- * it, so switching to another tab's session can never hijack the restart.
- */
-interface PluginActivationStore {
-	/** Plugin id awaiting a sidecar restart; null when nothing is pending. */
-	pendingId: string | null;
-	/** Tab that requested the activation; only this tab may fire the restart. */
-	tabId: string | null;
-	requestActivation: (pluginId: string, tabId: string) => void;
-	clearActivation: () => void;
+export interface PluginActivationTarget {
+	pluginId: string;
+	expected: "enabled" | "disabled";
 }
 
-export const usePluginActivationStore = create<PluginActivationStore>(set => ({
-	pendingId: null,
-	tabId: null,
-	requestActivation: (pluginId, tabId) => set({ pendingId: pluginId, tabId }),
-	clearActivation: () => set({ pendingId: null, tabId: null }),
+export interface PendingPluginActivation {
+	sessionId: string | null;
+	targets: PluginActivationTarget[];
+}
+
+interface PluginActivationStore {
+	pendingByTab: Readonly<Record<string, PendingPluginActivation>>;
+	requestActivation: (target: PluginActivationTarget, tabId: string, sessionId: string | null) => void;
+	takeActivation: (tabId: string) => PendingPluginActivation | null;
+	clearActivation: (tabId: string) => void;
+	reset: () => void;
+}
+
+export const usePluginActivationStore = create<PluginActivationStore>((set, get) => ({
+	pendingByTab: {},
+	requestActivation: (target, tabId, sessionId) =>
+		set(state => {
+			const current = state.pendingByTab[tabId];
+			const targets =
+				current?.sessionId === sessionId
+					? [...current.targets.filter(item => item.pluginId !== target.pluginId), target]
+					: [target];
+			return { pendingByTab: { ...state.pendingByTab, [tabId]: { sessionId, targets } } };
+		}),
+	takeActivation: tabId => {
+		const pending = get().pendingByTab[tabId] ?? null;
+		if (!pending) return null;
+		set(state => {
+			const pendingByTab = { ...state.pendingByTab };
+			delete pendingByTab[tabId];
+			return { pendingByTab };
+		});
+		return pending;
+	},
+	clearActivation: tabId =>
+		set(state => {
+			if (!(tabId in state.pendingByTab)) return state;
+			const pendingByTab = { ...state.pendingByTab };
+			delete pendingByTab[tabId];
+			return { pendingByTab };
+		}),
+	reset: () => set({ pendingByTab: {} }),
 }));

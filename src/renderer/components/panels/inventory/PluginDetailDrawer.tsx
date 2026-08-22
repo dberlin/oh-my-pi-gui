@@ -21,6 +21,11 @@ import { ArrowLeft, Check, RefreshCw, RotateCcw, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcPluginDetail, RpcPluginInfo } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
+import {
+	capturePluginActivationOrigin,
+	handlePluginActivation,
+	isPluginActivationOriginActive,
+} from "../../../lib/plugin-activation";
 import { toast } from "../../../stores/toast";
 import { Badge, Button, Input, Spinner, TextArea } from "../../common";
 import { ArrayChipEditor } from "../../settings/editors/ArrayChipEditor";
@@ -357,17 +362,29 @@ export function PluginDetailDrawer({
 
 	// ---- enabled (set_plugin_enabled — same RPC as the list-row toggle) ----
 	const toggleEnabled = async (next: boolean): Promise<void> => {
+		const origin = capturePluginActivationOrigin();
+		if (!origin) {
+			toast({ variant: "warning", message: t("pluginActivation.routePending") });
+			return;
+		}
 		setEnabledBusy(true);
 		try {
 			const res = await window.omp.rpc.setPluginEnabled(pluginId, next, plugin.scope);
 			if (!res.success) {
-				toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: res.error });
+				if (isPluginActivationOriginActive(origin)) {
+					toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: res.error });
+				}
 				return;
 			}
+			const data = res.data as { activation?: string } | undefined;
+			await handlePluginActivation(data?.activation, { pluginId, expected: next ? "enabled" : "disabled" }, origin);
+			if (!isPluginActivationOriginActive(origin)) return;
 			await load();
 			await onChanged();
 		} catch (cause) {
-			toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: String(cause) });
+			if (isPluginActivationOriginActive(origin)) {
+				toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: String(cause) });
+			}
 		} finally {
 			setEnabledBusy(false);
 		}
@@ -388,6 +405,11 @@ export function PluginDetailDrawer({
 	};
 
 	const saveFeatures = async (): Promise<void> => {
+		const origin = capturePluginActivationOrigin();
+		if (!origin) {
+			setFeaturesError(t("pluginActivation.routePending"));
+			return;
+		}
 		if (featuresDraft === null || featuresBusy) return;
 		setFeaturesBusy(true);
 		setFeaturesError(null);
@@ -395,14 +417,16 @@ export function PluginDetailDrawer({
 			const res = await window.omp.rpc.setPluginFeatures(pluginId, featuresDraft);
 			const failure = mutationError(res, t("pluginDetail.unknownError"));
 			if (failure !== null) {
-				// Validation errors ride `error`; keep the user's selection staged.
-				setFeaturesError(failure);
+				if (isPluginActivationOriginActive(origin)) setFeaturesError(failure);
 				return;
 			}
+			const data = res.data as { activation?: string } | undefined;
+			await handlePluginActivation(data?.activation, { pluginId, expected: "enabled" }, origin);
+			if (!isPluginActivationOriginActive(origin)) return;
 			setFeaturesDraft(null);
 			await load();
 		} catch (cause) {
-			setFeaturesError(String(cause));
+			if (isPluginActivationOriginActive(origin)) setFeaturesError(String(cause));
 		} finally {
 			setFeaturesBusy(false);
 		}

@@ -23,7 +23,7 @@ import type { PlanModeState } from "../../../../shared/rpc-types";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../../../lib/tab-routing";
+import { onActiveTabRouteSettled } from "../../../lib/tab-routing";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
 import { Badge, Button, Spinner, Tabs, TextArea } from "../../common";
@@ -144,12 +144,14 @@ export function PlanDockCard() {
 
 	const load = useCallback(
 		async (options?: { quiet?: boolean }) => {
-			if (!acceptsActiveTabEvents()) return;
+			const origin = capture();
+			if (!origin) return;
 			const quiet = options?.quiet === true;
 			if (!quiet) setLoading(true);
 			if (!quiet) setError(null);
 			try {
 				const modeResponse = await window.omp.rpc.getPlanMode();
+				if (!isActive(origin)) return;
 				if (!modeResponse.success) {
 					if (!quiet) setError(modeResponse.error);
 					return;
@@ -169,13 +171,12 @@ export function PlanDockCard() {
 					setPlanFile(null);
 					setLocalRoot(null);
 					setContent(null);
-					if (!quiet) {
-						setError(t("planPanel.noFsPath"));
-					}
+					if (!quiet) setError(t("planPanel.noFsPath"));
 					return;
 				}
-				setLocalRoot(resolved.localRoot);
 				const response = await window.omp.fs.readPlan({ fsPath: resolved.fsPath, localRoot: resolved.localRoot });
+				if (!isActive(origin)) return;
+				setLocalRoot(resolved.localRoot);
 				if (!response.ok) {
 					if (!quiet) setError(response.error ?? "Plan read failed");
 					return;
@@ -188,13 +189,15 @@ export function PlanDockCard() {
 				setPlanFile(response.path);
 				setContent(response.content);
 			} catch (cause) {
-				if (!quiet) setError(cause instanceof Error ? cause.message : String(cause));
+				if (isActive(origin) && !quiet) setError(cause instanceof Error ? cause.message : String(cause));
 			} finally {
-				setLoading(false);
-				setLoaded(true);
+				if (isActive(origin)) {
+					setLoading(false);
+					setLoaded(true);
+				}
 			}
 		},
-		[t],
+		[capture, isActive, t],
 	);
 
 	// A tab paints its parked state before main finishes re-routing IPC. If the
@@ -240,6 +243,7 @@ export function PlanDockCard() {
 	const togglePlanMode = useCallback(async () => {
 		const next = !useSessionStore.getState().planModeEnabled;
 		const origin = capture();
+		if (!origin) return;
 		setToggling(true);
 		try {
 			const response = await window.omp.rpc.setPlanMode(next);

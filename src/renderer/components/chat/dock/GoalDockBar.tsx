@@ -24,24 +24,21 @@ export function GoalDockBar() {
 
 	const runAction = async (action: GoalAction) => {
 		if (busy) return;
-		const previous = useSessionStore.getState();
 		const origin = capture();
+		if (!origin) return;
 		setBusy(action);
-		if (action === "drop") useSessionStore.setState({ goal: null, goalState: null });
-		else useSessionStore.setState({ goalState: { status: action === "pause" ? "paused" : "active" } });
 
 		try {
 			const response = await window.omp.rpc.setGoal({ action });
-			// Settled after a tab switch: the optimistic write already belonged to
-			// the origin session — do not restore it over the new foreground one.
 			if (!isActive(origin)) return;
 			if (!response.success) {
-				useSessionStore.setState({ goal: previous.goal, goalState: previous.goalState });
 				toast({ variant: "error", title: t("dock.goal.actionFailed"), message: response.error });
+				return;
 			}
+			if (action === "drop") useSessionStore.setState({ goal: null, goalState: null });
+			else useSessionStore.setState({ goalState: { status: action === "pause" ? "paused" : "active" } });
 		} catch (cause) {
 			if (!isActive(origin)) return;
-			useSessionStore.setState({ goal: previous.goal, goalState: previous.goalState });
 			toast({ variant: "error", title: t("dock.goal.actionFailed"), message: String(cause) });
 		} finally {
 			setBusy(null);

@@ -422,12 +422,14 @@ export function InputArea() {
 			sessionId: useSessionStore.getState().sessionId ?? null,
 		};
 		const stillOrigin = () =>
+			acceptsActiveTabEvents() &&
 			(useTabsStore.getState().activeTabId ?? "") === origin.tabId &&
 			useSessionStore.getState().sessionId === origin.sessionId;
 		void (async () => {
 			try {
 				const response = await window.omp.rpc.writeLocalPaste(pendingPaste.content);
 				if (!stillOrigin()) return;
+				if (!response.success) throw new Error(response.error);
 				const data = response.data as { url?: string } | undefined;
 				if (!data?.url) throw new Error("write_local_paste returned no URL");
 				const el = textareaRef.current;

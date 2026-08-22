@@ -166,7 +166,8 @@ export function CommandPalette() {
 
 	useEffect(() => {
 		if (!open) return;
-		const unregisterLayer = registerDialogLayer(dialogRef.current);
+		const panel = dialogRef.current;
+		const unregisterLayer = registerDialogLayer(panel);
 		// Trap + restore: without this, Tab reaches controls behind the
 		// aria-modal overlay and Escape stops working once focus escapes.
 		const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -176,7 +177,6 @@ export function CommandPalette() {
 		requestAnimationFrame(() => inputRef.current?.focus());
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key !== "Tab") return;
-			const panel = dialogRef.current;
 			if (!panel) return;
 			const focusables = [
 				...panel.querySelectorAll<HTMLElement>("button, input, [tabindex]:not([tabindex='-1'])"),
@@ -216,7 +216,7 @@ export function CommandPalette() {
 			document.removeEventListener("keydown", onKey, true);
 			// Restore only while this palette is still the top surface: closing
 			// it beneath a newer modal must not yank focus out of that modal.
-			const wasTop = isTopmostDialog(dialogRef.current);
+			const wasTop = isTopmostDialog(panel);
 			unregisterLayer();
 			if (wasTop) restoreFocus?.focus();
 		};

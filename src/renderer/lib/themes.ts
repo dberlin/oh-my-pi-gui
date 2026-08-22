@@ -21,7 +21,7 @@
 
 import type { RpcThemeColorsResult } from "../../shared/rpc-types";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "./tab-routing";
-import { applyTheme, markCustomThemeTokens, resolveTheme } from "./theme";
+import { applyTheme, markCustomThemeTokens, resolveTheme, THEME_SCHEME_STORAGE_KEY } from "./theme";
 
 /** Canonical token keys, in stylesheet order. Every theme defines all of them. */
 export const THEME_TOKEN_KEYS = [
@@ -1618,14 +1618,11 @@ export function applyThemeByName(selection: ThemeSelection, opts: { persist?: bo
 	if (persist) {
 		void window.omp.prefs.set("themeName", selection);
 		void window.omp.prefs.set("theme", legacyTheme);
-	}
-	// Synchronous mirror for the pre-paint script in index.html: prefs IPC is
-	// async, so without this every cold start painted the light default before
-	// effects ran — a white flash for dark-theme users.
-	try {
-		localStorage.setItem("omp.themeScheme", selection === "system" ? "system" : THEMES[selection].scheme);
-	} catch {
-		// localStorage unavailable — the async path still applies the theme.
+		try {
+			localStorage.setItem(THEME_SCHEME_STORAGE_KEY, selection === "system" ? "system" : THEMES[selection].scheme);
+		} catch {
+			// localStorage unavailable — the async path still applies the theme.
+		}
 	}
 }
 
@@ -1853,11 +1850,12 @@ export function validatePluginThemeTokens(tokens: Record<string, unknown>): Vali
 			validated.rejected.push(key);
 			continue;
 		}
-		if (typeof value !== "string" || !PLUGIN_THEME_VALUE_RE.test(value.trim())) {
+		const trimmed = typeof value === "string" ? value.trim() : "";
+		if (!PLUGIN_THEME_VALUE_RE.test(trimmed) || (typeof CSS !== "undefined" && !CSS.supports("color", trimmed))) {
 			validated.rejected.push(key);
 			continue;
 		}
-		validated.tokens[cssVar] = value.trim();
+		validated.tokens[cssVar] = trimmed;
 	}
 	return validated;
 }

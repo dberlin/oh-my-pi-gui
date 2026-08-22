@@ -5,7 +5,6 @@ import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-thrott
 import { cx, durationBetween, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
-import { segmentStreamingMarkdown } from "../../lib/streaming-markdown";
 import {
 	formatThinkingForDisplay,
 	hasDisplayableThinking,
@@ -83,12 +82,6 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 	// on every 16 ms event batch, even while the block was collapsed.
 	const displayContent = useThrottledText(content, live ? STREAM_FORMAT_FLUSH_MS : 0);
 	const formatted = useMemo(() => formatThinkingForDisplay(displayContent, proseOnly), [displayContent, proseOnly]);
-	// Live body segments like StreamingText: completed blocks parse once and
-	// memoize by content; the growing tail stays cheap plain text instead of
-	// re-parsing the whole buffer through remark every presentation frame.
-	// Segments build from `formatted` — NOT the raw buffer — so live output
-	// honors proseOnly/comment-sentinel handling identically to finalization.
-	const liveSegments = useMemo(() => (isLive ? segmentStreamingMarkdown(formatted) : null), [isLive, formatted]);
 
 	const resolvedLevel: ThinkingLevel = level ?? storeLevel ?? "medium";
 	// Theme tokens only go up to xhigh; "max" shares its color.
@@ -235,19 +228,10 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 			</button>
 			{open ? (
 				<div className="omp-thinking-body max-h-64 overflow-y-auto px-3 pb-2 font-mono text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
-					{liveSegments ? (
-						// Live: immutable blocks parse once; only the plain-text tail
-						// re-renders per presentation frame.
-						<div className="omp-streaming">
-							{liveSegments.blocks.map(block => (
-								<div className="omp-streaming-block" key={block.end}>
-									<MarkdownRenderer content={block.content} />
-								</div>
-							))}
-							<div className="omp-streaming-tail">
-								{liveSegments.tail}
-								<span aria-hidden className="omp-caret" />
-							</div>
+					{isLive ? (
+						<div className="omp-streaming-tail">
+							{formatted}
+							<span aria-hidden className="omp-caret" />
 						</div>
 					) : (
 						<MarkdownRenderer content={formatted} />

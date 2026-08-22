@@ -33,6 +33,7 @@ import type {
 	IpcSessionsRenamePayload,
 	IpcSessionsSearchPayload,
 	IpcSetActiveTabPayload,
+	IpcSidecarRestartPayload,
 	IpcSpawnTabPayload,
 	IpcStatsFetchPayload,
 } from "../shared/ipc-types";
@@ -795,10 +796,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// Sidecar control
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_RESTART, (event, payload?: { sessionPath?: string }) => {
+	ipcMain.handle(IPC_COMMANDS.SIDECAR_RESTART, (event, payload?: IpcSidecarRestartPayload) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win) throw new Error("No window");
+		const sidecar =
+			typeof payload?.tabId === "string"
+				? sidecarPool.sidecarForTab(win, payload.tabId)
+				: sidecarPool.sidecarForWindow(win);
+		if (!sidecar) throw new Error("Unknown tab");
 		const sessionPath =
 			typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
-		sidecarFor(deps, event)?.restart(undefined, sessionPath);
+		sidecar.restart(undefined, sessionPath);
 	});
 
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_SELECT_PROJECT, async event => {

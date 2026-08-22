@@ -10,6 +10,19 @@
 export type ThemeMode = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 
+export const THEME_SCHEME_STORAGE_KEY = "omp.themeScheme";
+
+/** Synchronous boot mode mirrored by pre-paint.js before preferences IPC exists. */
+export function readPrepaintThemeMode(): ThemeMode {
+	if (typeof window === "undefined") return "light";
+	try {
+		const value = window.localStorage?.getItem(THEME_SCHEME_STORAGE_KEY);
+		return value === "dark" || value === "light" || value === "system" ? value : "light";
+	} catch {
+		return "light";
+	}
+}
+
 function getDarkMedia(): MediaQueryList | null {
 	if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
 	return window.matchMedia("(prefers-color-scheme: dark)");
@@ -63,6 +76,9 @@ export function applyTheme(mode: ThemeMode): void {
 		clearInlineThemeTokens();
 	}
 	const resolved = resolveTheme(mode);
+	const style = document.documentElement.style;
+	style.removeProperty("background-color");
+	style.removeProperty("color-scheme");
 	document.documentElement.setAttribute("data-theme", resolved);
 	let meta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
 	if (!meta) {

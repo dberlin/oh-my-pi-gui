@@ -28,7 +28,11 @@ import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
 import { clearSessionContext, retryLastTurn as retryLastTurnShared } from "./messages";
-import { handlePluginActivation } from "./plugin-activation";
+import {
+	capturePluginActivationOrigin,
+	handlePluginActivation,
+	isPluginActivationOriginActive,
+} from "./plugin-activation";
 import { copyTodosToClipboard, dumpTranscriptToClipboard, exportTodos, importTodosFromFile } from "./transcript-copy";
 import { addWorkspaceDirectory, moveSessionTo, pickWorkspaceDirectory } from "./workspace-dirs";
 
@@ -251,18 +255,21 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	};
 
 	/**
-	 * /marketplace mutations via marketplace_action. Bare invocations (except
-	 * update, which is argument-free server-side) open the matching Inventory
-	 * tab where the add/browse/confirm flows live natively.
+	 * /marketplace mutations via marketplace_action. Install intentionally opens
+	 * Inventory so the trust confirmation is the only executable-code entry.
 	 */
 	const runMarketplaceAction = async (
-		verb: "add" | "remove" | "update" | "install" | "uninstall" | "upgrade",
+		verb: "add" | "remove" | "update" | "uninstall" | "upgrade",
 		args?: string,
 	): Promise<void> => {
 		const input = args?.trim() ?? "";
 		if (!input && verb !== "update") {
 			ctx.openSettings(verb === "uninstall" ? "resources:plugins" : "resources:marketplaces");
 			return;
+		}
+		const origin = verb === "uninstall" || verb === "upgrade" ? capturePluginActivationOrigin() : null;
+		if ((verb === "uninstall" || verb === "upgrade") && !origin) {
+			throw new Error(t("pluginActivation.routePending"));
 		}
 		const payload: { action: typeof verb; marketplace?: string; plugin?: string; source?: string } = {
 			action: verb,
@@ -271,7 +278,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		else if (verb === "remove" || verb === "update") {
 			if (input) payload.marketplace = input;
 		} else {
-			// install/uninstall/upgrade address plugins as name@marketplace (TUI arg form).
+			// uninstall/upgrade address plugins as name@marketplace (TUI arg form).
 			const at = input.lastIndexOf("@");
 			if (at <= 0 || at === input.length - 1) throw new Error(t("marketplaceAction.badId", { id: input }));
 			payload.plugin = input.slice(0, at);
@@ -281,7 +288,14 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		if (!res.success) throw new Error(res.error);
 		const data = res.data as { ok?: boolean; error?: string; activation?: string } | undefined;
 		if (data?.ok === false) throw new Error(data.error ?? t("marketplaceAction.failed"));
-		handlePluginActivation(data?.activation, input);
+		if (origin) {
+			await handlePluginActivation(
+				data?.activation,
+				{ pluginId: input, expected: verb === "uninstall" ? "disabled" : "enabled" },
+				origin,
+			);
+			if (!isPluginActivationOriginActive(origin)) return;
+		}
 		await ctx.hydrateSession();
 		toast({ variant: "success", message: t(`marketplaceAction.${verb}`, { name: input }) });
 	};
@@ -293,13 +307,23 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 			ctx.openSettings("resources:plugins");
 			return;
 		}
+		const origin = capturePluginActivationOrigin();
+		if (!origin) throw new Error(t("pluginActivation.routePending"));
 		const res = await window.omp.rpc.setPluginEnabled(id, enabled);
 		if (!res.success) throw new Error(res.error);
-		await ctx.hydrateSession();
-		toast({
-			variant: "success",
-			message: t(enabled ? "pluginAction.enabled" : "pluginAction.disabled", { name: id }),
-		});
+		const data = res.data as { activation?: string } | undefined;
+		await handlePluginActivation(
+			data?.activation,
+			{ pluginId: id, expected: enabled ? "enabled" : "disabled" },
+			origin,
+		);
+		if (isPluginActivationOriginActive(origin)) {
+			await ctx.hydrateSession();
+			toast({
+				variant: "success",
+				message: t(enabled ? "pluginAction.enabled" : "pluginAction.disabled", { name: id }),
+			});
+		}
 	};
 
 	// ═══════════════════════════════════════════════════════════════════
@@ -907,7 +931,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 				subAction("marketplace remove", args => runMarketplaceAction("remove", args)),
 				subAction("marketplace update", args => runMarketplaceAction("update", args)),
 				subWindow("marketplace discover", () => ctx.openSettings("resources:marketplaces")),
-				subAction("marketplace install", args => runMarketplaceAction("install", args)),
+				subWindow("marketplace install", () => ctx.openSettings("resources:marketplaces")),
 				subAction("marketplace uninstall", args => runMarketplaceAction("uninstall", args)),
 				{
 					name: "marketplace installed",

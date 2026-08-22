@@ -134,6 +134,7 @@ export function App() {
 	const providerConfigEdit = useUiStore(s => s.providerConfigEdit);
 	const closeProviderConfig = useUiStore(s => s.closeProviderConfig);
 	const activeTabId = useTabsStore(s => s.activeTabId);
+	const activeTabStatus = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.status);
 	const { lang, setLang } = useLang();
 	const t = useT();
 
@@ -235,18 +236,26 @@ export function App() {
 	// the active sidecar (resuming its session) once the run settles.
 	useEffect(() => watchPluginActivation(), []);
 
-	// Layer plugin gui.theme tokens (validated, transcript-scoped) over the
-	// base. get_gui_themes resolves from the ROUTED session's cwd, so the
-	// refresh must follow sidecar readiness AND active-tab route changes — a
-	// mount-only run left tab A's overlay recoloring tab B (or nothing at all
-	// when the sidecar was still starting at mount).
+	// Plugin themes are session-scoped: refresh only when the selected tab is
+	// both routed and ready. Route settlement and sidecar readiness can arrive
+	// in either order, so each transition owns one half of the closed loop.
 	useEffect(() => {
-		void refreshPluginThemes();
-		return onActiveTabRouteSettled(() => {
-			if (!acceptsActiveTabEvents()) return;
+		if (!activeTabId) return;
+		if ((activeTabStatus === "ready" || activeTabStatus === "running") && acceptsActiveTabEvents()) {
 			void refreshPluginThemes();
-		});
-	}, []);
+		}
+	}, [activeTabId, activeTabStatus]);
+	useEffect(
+		() =>
+			onActiveTabRouteSettled(() => {
+				const tabs = useTabsStore.getState();
+				const status = tabs.tabs.find(tab => tab.id === tabs.activeTabId)?.status;
+				if ((status === "ready" || status === "running") && acceptsActiveTabEvents()) {
+					void refreshPluginThemes();
+				}
+			}),
+		[],
+	);
 
 	// Apply theme + font size to the DOM whenever they change.
 	useEffect(() => {
@@ -423,9 +432,8 @@ export function App() {
 		};
 
 		const onKey = (event: KeyboardEvent) => {
-			// IME composition owns the keyboard: Escape dismisses candidates and
-			// must never abort the run (keyCode 229 = composing keydown).
-			if (event.isComposing || event.keyCode === 229) return;
+			// One physical shortcut dispatches once; IME composition owns Escape.
+			if (event.repeat || event.isComposing || event.keyCode === 229) return;
 			const ui = useUiStore.getState();
 			const overlayOpen =
 				ui.commandPaletteOpen ||

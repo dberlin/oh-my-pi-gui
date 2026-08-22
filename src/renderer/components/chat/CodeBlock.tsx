@@ -22,6 +22,8 @@ export interface CodeBlockProps {
 	highlightPattern?: string;
 	/** Number shown on the first gutter line (ranged reads start past 1). */
 	startLine?: number;
+	/** Explicit per-row numbers for non-contiguous reads. */
+	lineNumbers?: readonly (number | null)[];
 	/** Cap the visible height; taller blocks scroll internally. */
 	maxHeightClass?: string;
 	className?: string;
@@ -57,6 +59,7 @@ export function CodeBlock({
 	showCopy = true,
 	showLineNumbers = true,
 	startLine,
+	lineNumbers,
 	highlightPattern,
 	maxHeightClass,
 	className,
@@ -161,6 +164,7 @@ export function CodeBlock({
 					<div className="flex">
 						<LineNumberGutter
 							lineCount={lineCount}
+							lineNumbers={lineNumbers}
 							startLine={startLine}
 							className="px-2.5 py-3 text-omp-md leading-[1.5]"
 						/>

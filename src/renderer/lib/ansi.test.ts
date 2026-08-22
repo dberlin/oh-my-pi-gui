@@ -81,6 +81,10 @@ describe("parseAnsi", () => {
 		expect(parseAnsi("80%\r100%\x1b[K\nnext")).toEqual([{ text: "100%\nnext" }]);
 	});
 
+	it("preserves active styles while replaying overwritten text", () => {
+		expect(parseAnsi("\x1b[31mold\rnew\x1b[0m")).toEqual([{ text: "new", fg: "var(--omp-ansi-red)" }]);
+	});
+
 	it("keeps content when a line ends in a bare carriage return", () => {
 		expect(parseAnsi("finished\r")).toEqual([{ text: "finished" }]);
 	});

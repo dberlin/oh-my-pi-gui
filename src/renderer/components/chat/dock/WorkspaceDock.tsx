@@ -14,7 +14,7 @@
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useQueuedMessages } from "../../../stores/queue";
@@ -29,6 +29,10 @@ import { PlanDockCard } from "./PlanDockCard";
 import { QueueDockChip } from "./QueueDockChip";
 import { TodoDockCard } from "./TodoDockCard";
 import { useWorkspaceDockFocus, WorkspaceDockFocusProvider } from "./WorkspaceDockFocus";
+
+function clampFocusHeight(height: number): number {
+	return Math.round(Math.min(Math.max(200, window.innerHeight - 220), Math.max(200, height)));
+}
 
 function WorkspaceDockContent() {
 	const { focusedCard } = useWorkspaceDockFocus();
@@ -48,21 +52,23 @@ function WorkspaceDockContent() {
 	const [focusHeight, setFocusHeight] = useState<number | null>(() => {
 		try {
 			const stored = Number(localStorage.getItem("omp.dock.focusHeight"));
-			return stored >= 200 ? stored : null;
+			return stored >= 200 ? clampFocusHeight(stored) : null;
 		} catch {
 			return null;
 		}
 	});
-	const clampHeight = useCallback(
-		(height: number): number => Math.round(Math.min(window.innerHeight - 220, Math.max(200, height))),
-		[],
-	);
+	const clampHeight = useCallback(clampFocusHeight, []);
 	const persistHeight = useCallback((height: number) => {
 		try {
 			localStorage.setItem("omp.dock.focusHeight", String(height));
 		} catch {
 			/* storage unavailable — session-only */
 		}
+	}, []);
+	useEffect(() => {
+		const clamp = () => setFocusHeight(height => (height === null ? null : clampFocusHeight(height)));
+		window.addEventListener("resize", clamp);
+		return () => window.removeEventListener("resize", clamp);
 	}, []);
 
 	const onHandleDown = (event: ReactPointerEvent<HTMLDivElement>) => {

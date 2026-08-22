@@ -8,11 +8,12 @@
 
 ### Added
 
-- **Plugin marketplace**: browse plugins with author/license/category/tags metadata and clickable repository/homepage links; installs ask for confirmation before granting local execution rights; restart-required plugins activate automatically when the agent is idle (or right after a running turn ends) and are verified as loaded after the restart.
+- **Plugin marketplace**: browse plugins with author/license/category/tags metadata and clickable repository/homepage links; installs ask for confirmation before granting local execution rights, and executable plugin changes restart their originating tab when idle (or after the running turn) before refreshing state.
 - **Declarative plugin themes**: plugins can ship a `gui.theme` token map; tokens are validated against the transcript palette and layered over the active theme, with the agent theme winning conflicts.
 
 ### Fixed
 
+- **Manual compaction RPC**: submitting `/compact` now uses the long-running compaction channel instead of falsely failing after the prompt RPC's 8-second timeout while compaction continues.
 - **Cold-start theme flash**: a pre-paint script applies the saved color scheme before first render — dark-theme users no longer see a white flash on launch.
 - **IME-safe abort**: Escape during CJK candidate composition dismisses the IME instead of aborting the running turn.
 - **Session stats staleness**: switching sessions clears the previous session's token/cost readout immediately, and a late response from the old session can no longer repaint it.

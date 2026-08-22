@@ -352,7 +352,7 @@ export function SettingsWindow() {
 		// active session (--session) instead of starting a fresh one.
 		const { sessionFile } = useSessionStore.getState();
 		void window.omp.sidecar
-			.restart(sessionFile ?? undefined)
+			.restart({ sessionPath: sessionFile ?? undefined })
 			.then(() => {
 				toast({ variant: "info", message: t("settings.launch.restarting") });
 			})

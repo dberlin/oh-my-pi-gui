@@ -140,17 +140,32 @@ const ESCAPE_RE = /\x1b(?:\[[0-9;:?!<>]*[\x20-\x2f]*[@-~]|\][^\x07\x1b]*(?:\x07|
 function collapseCarriageReturns(input: string): string {
 	const normalized = input.replace(/\r\n/g, "\n");
 	if (!normalized.includes("\r")) return normalized;
-	return normalized.split("\n").map(replayCarriageReturnLine).join("\n");
+	let history = "";
+	const output: string[] = [];
+	for (const line of normalized.split("\n")) {
+		if (line.includes("\r")) {
+			const replayed = replayCarriageReturnLine(line, history);
+			output.push(replayed.text);
+			history = replayed.history;
+		} else {
+			output.push(line);
+			history += persistentEscapes(line);
+		}
+	}
+	return output.join("\n");
 }
 
-function replayCarriageReturnLine(line: string): string {
-	if (!line.includes("\r")) return line;
-	const buf: string[] = [];
-	// SGR/OSC sequences seen during replay are zero-width for column math but
-	// must survive — dropping a reset made every following line inherit the
-	// previous line's color. They re-attach at the tail in encounter order,
-	// which preserves cross-line state transitions.
-	const carried: string[] = [];
+const PERSISTENT_ESCAPE_RE = /\x1b\[[0-9;:]*m|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+const RESET_PERSISTENT_STATE = "\x1b[0m\x1b]8;;\x07";
+
+function persistentEscapes(text: string): string {
+	return Array.from(text.matchAll(PERSISTENT_ESCAPE_RE), match => match[0]).join("");
+}
+
+function replayCarriageReturnLine(line: string, initialHistory: string): { text: string; history: string } {
+	if (!line.includes("\r")) return { text: line, history: initialHistory + persistentEscapes(line) };
+	const buf: Array<{ glyph: string; history: string }> = [];
+	let history = initialHistory;
 	let pos = 0;
 	let i = 0;
 	while (i < line.length) {
@@ -164,30 +179,37 @@ function replayCarriageReturnLine(line: string): string {
 			ESCAPE_RE.lastIndex = i;
 			const match = ESCAPE_RE.exec(line);
 			if (!match) {
-				i++; // lone ESC — dropped by the stray-control pass later
+				i++;
 				continue;
 			}
 			if (/^\x1b\[[0-9]*K$/.test(match[0])) {
-				// CSI K / CSI 0K erases from the cursor to end of line;
-				// 1K/2K variants are rare in captured output — clear all.
 				buf.length = match[0] === "\x1b[K" || match[0] === "\x1b[0K" ? Math.min(buf.length, pos) : 0;
-			} else if (/^\x1b\[/.test(match[0]) || /^\x1b\]/.test(match[0])) {
-				carried.push(match[0]);
+			} else if (/^\x1b\[[0-9;:]*m$/.test(match[0]) || match[0].startsWith("\x1b]")) {
+				history += match[0];
 			}
 			i += match[0].length;
 			continue;
 		}
-		// One CELL per code point: overwriting by UTF-16 unit split surrogate
-		// pairs and left dangling lone surrogates in the output.
 		const codePoint = ch.codePointAt(0)!;
 		const width = codePoint > 0xffff ? 2 : 1;
-		const glyph = line.slice(i, i + width);
-		if (pos < buf.length) buf[pos] = glyph;
-		else buf.push(glyph);
+		const cell = { glyph: line.slice(i, i + width), history };
+		if (pos < buf.length) buf[pos] = cell;
+		else buf.push(cell);
 		pos++;
 		i += width;
 	}
-	return buf.join("") + carried.join("");
+
+	let rendered = "";
+	let renderedHistory = initialHistory;
+	for (const cell of buf) {
+		if (cell.history !== renderedHistory) {
+			rendered += `${RESET_PERSISTENT_STATE}${cell.history}`;
+			renderedHistory = cell.history;
+		}
+		rendered += cell.glyph;
+	}
+	if (history !== renderedHistory) rendered += `${RESET_PERSISTENT_STATE}${history}`;
+	return { text: rendered, history };
 }
 
 // C0 controls other than tab/newline (already past the \r pass) serve no

@@ -17,6 +17,7 @@ import type {
 	IpcOpenPathResult,
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionOwner,
+	IpcSidecarRestartPayload,
 	IpcSidecarStatusPayload,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
@@ -460,7 +461,7 @@ const api: OmpApi = {
 	},
 
 	sidecar: {
-		restart: (sessionPath?: string) => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_RESTART, { sessionPath }),
+		restart: (payload?: IpcSidecarRestartPayload) => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_RESTART, payload),
 		selectProject: () => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_SELECT_PROJECT),
 		setProject: (cwd: string) => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_SET_PROJECT, { cwd }),
 		defaultWorkspace: () => ipcRenderer.invoke(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE) as Promise<string>,

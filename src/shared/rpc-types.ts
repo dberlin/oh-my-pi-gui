@@ -498,6 +498,11 @@ export interface RpcQueueEditResult {
 	updated: true;
 }
 
+/** queue_remove result. */
+export interface RpcQueueRemoveResult {
+	removed: true;
+}
+
 /** queue_move result: the entry's lane and final visible index. */
 export interface RpcQueueMoveResult {
 	lane: "steering" | "followUp";
@@ -994,6 +999,8 @@ export interface RpcSessionState {
 	prewalkArmed?: boolean;
 	agentsPaused: boolean;
 	agentsPausedAt?: number;
+	/** Session kind. Absent = agent; chat sessions are tool-free. */
+	kind?: "chat";
 }
 
 /** Authoritative selector/effective pair returned after set_thinking_level. */

@@ -723,6 +723,12 @@ export interface IpcSetActiveTabPayload {
 	tabId: string;
 }
 
+export interface IpcSidecarRestartPayload {
+	/** Omitted for manual active-tab restarts; plugin activation always supplies the origin tab. */
+	tabId?: string;
+	sessionPath?: string;
+}
+
 export interface SessionInfo {
 	path: string;
 	id: string;
@@ -1041,7 +1047,7 @@ export interface OmpApi {
 		set(key: string, value: unknown): Promise<void>;
 	};
 	sidecar: {
-		restart(sessionPath?: string): Promise<void>;
+		restart(payload?: IpcSidecarRestartPayload): Promise<void>;
 		selectProject(): Promise<string | null>;
 		setProject(cwd: string): Promise<boolean>;
 		defaultWorkspace(): Promise<string>;

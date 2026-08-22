@@ -3,18 +3,20 @@
  * cards with catalog refresh, inline-confirmed removal, and a lazy-expanded
  * available-plugins list with install/upgrade/uninstall row actions.
  *
- * Every mutation rides marketplace_action and refetches afterward — no
- * optimistic derivation of plugin counts or install state. The agent's
- * reloadPluginState pipeline emits available_commands_update after
- * install/upgrade/uninstall; that push is the real completion signal, but
- * the panel still refetches explicitly so it never depends on push ordering.
+ * Every mutation rides marketplace_action and refetches only after any required
+ * origin-tab restart settles. No optimistic derivation of plugin counts or
+ * install state, and no dependency on available_commands_update ordering.
  */
 
 import { Check, ChevronDown, ChevronRight, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { RpcMarketplaceInfo, RpcMarketplacePluginInfo } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
-import { handlePluginActivation } from "../../../lib/plugin-activation";
+import {
+	capturePluginActivationOrigin,
+	handlePluginActivation,
+	isPluginActivationOriginActive,
+} from "../../../lib/plugin-activation";
 import { Badge, Button, Spinner } from "../../common";
 import { shortenSource } from "../inventory-utils";
 import { CopyableError } from "./ErrorNote";
@@ -325,6 +327,11 @@ export function MarketplaceCard({
 	};
 
 	const executePluginAction = async (pluginName: string, action: MarketplacePluginAction): Promise<void> => {
+		const origin = capturePluginActivationOrigin();
+		if (!origin) {
+			setPluginErrors(prev => ({ ...prev, [pluginName]: t("pluginActivation.routePending") }));
+			return;
+		}
 		setConfirmInstall(prev => (prev === pluginName ? null : prev));
 		setPluginBusy({ name: pluginName, action });
 		setPluginErrors(prev => {
@@ -341,18 +348,27 @@ export function MarketplaceCard({
 			});
 			const failure = mutationError(res, t("marketplace.unknownError"));
 			if (failure !== null) {
-				setPluginErrors(prev => ({ ...prev, [pluginName]: failure }));
+				if (isPluginActivationOriginActive(origin)) {
+					setPluginErrors(prev => ({ ...prev, [pluginName]: failure }));
+				}
 				return;
 			}
 			const data = res.data as { activation?: string } | undefined;
-			handlePluginActivation(data?.activation, `${pluginName}@${marketplace.name}`);
-			// available_commands_update arrives afterward via the agent's
-			// reloadPluginState pipeline — the real completion signal — but the
-			// panel refetches both views explicitly (see file header).
+			await handlePluginActivation(
+				data?.activation,
+				{
+					pluginId: `${pluginName}@${marketplace.name}`,
+					expected: action === "uninstall" ? "disabled" : "enabled",
+				},
+				origin,
+			);
+			if (!isPluginActivationOriginActive(origin)) return;
 			await fetchAvailable();
 			await reload();
 		} catch (cause) {
-			setPluginErrors(prev => ({ ...prev, [pluginName]: String(cause) }));
+			if (isPluginActivationOriginActive(origin)) {
+				setPluginErrors(prev => ({ ...prev, [pluginName]: String(cause) }));
+			}
 		} finally {
 			setPluginBusy(null);
 		}

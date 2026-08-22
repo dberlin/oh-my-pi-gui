@@ -109,6 +109,12 @@ export function planComposerSubmit(input: {
 	if (isSlashCommand && message.trim() === "/clear") {
 		return { kind: "clear" };
 	}
+	// Manual compaction can spend minutes in provider summarization. Route the
+	// exact command through its dedicated RPC so it gets the compact timeout
+	// instead of timing out as an 8s prompt while still blocking the RPC queue.
+	if (isSlashCommand && message.trim() === "/compact") {
+		return { kind: "send", request: () => window.omp.rpc.compact() };
+	}
 	const guiHandled = isSlashCommand ? runGuiOnlyBuiltin(message, commands) : undefined;
 	if (guiHandled !== undefined) return { kind: guiHandled ? "handled" : "blocked" };
 	if (!isSlashCommand && isStreaming) {
@@ -125,7 +131,10 @@ export function planComposerSubmit(input: {
 export async function settleComposerResponse(response: RpcResponse): Promise<void> {
 	if (!response.success) return;
 	const data: unknown = response.data;
-	if (data !== null && typeof data === "object" && "agentInvoked" in data && data.agentInvoked === false) {
+	if (
+		response.command === "compact" ||
+		(data !== null && typeof data === "object" && "agentInvoked" in data && data.agentInvoked === false)
+	) {
 		await hydrateSession();
 	}
 }

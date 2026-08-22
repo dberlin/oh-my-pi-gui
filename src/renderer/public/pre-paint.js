@@ -14,9 +14,10 @@
 					? "dark"
 					: "light";
 		}
-		if (scheme === "dark") {
-			document.documentElement.style.backgroundColor = "#101219";
-			document.documentElement.style.colorScheme = "dark";
+		if (scheme === "dark" || scheme === "light") {
+			document.documentElement.dataset.theme = scheme;
+			document.documentElement.style.backgroundColor = scheme === "dark" ? "#101219" : "#f8f9fb";
+			document.documentElement.style.colorScheme = scheme;
 		}
 	} catch (e) {
 		/* no localStorage — the light default background stands */

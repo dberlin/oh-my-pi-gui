@@ -15,9 +15,8 @@
 		<title>omp</title>
 		<script src="./pre-paint.js"></script>
 		<style>
-			/* Pre-paint background matches the light default theme so there is no dark
-			   flash before global.css loads (users with an explicit dark/system-dark
-			   preference get their theme applied immediately after). */
+			/* Fallback for first launch. pre-paint.js writes the saved scheme inline
+			   before this style is parsed; inline wins until applyTheme clears it. */
 			html {
 				background: #ffffff;
 			}

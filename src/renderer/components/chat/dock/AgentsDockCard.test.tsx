@@ -12,8 +12,10 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentProgress, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { resetTabRoute } from "../../../lib/tab-routing";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
+import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -83,7 +85,18 @@ async function flush(): Promise<void> {
 	});
 }
 
+function activateTab(): void {
+	useTabsStore.setState({
+		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
+		activeTabId: "t1",
+		bundles: new Map(),
+	});
+	useSessionStore.setState({ sessionId: "s1" });
+	resetTabRoute();
+}
+
 async function mount(element: ReactElement): Promise<void> {
+	activateTab();
 	container = document.createElement("div") as unknown as HTMLElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
@@ -103,6 +116,8 @@ afterEach(async () => {
 	getSubagents.mockClear();
 	useSubagentsStore.getState().reset();
 	useSessionStore.setState({ isStreaming: false });
+	useTabsStore.getState().reset();
+	resetTabRoute();
 	useUiStore.setState({ dockCollapsed: {}, dockFocus: null });
 });
 
@@ -212,6 +227,7 @@ describe("AgentsDockCard", () => {
 			return promise;
 		};
 		useSubagentsStore.getState().setSnapshots([snap({ id: "a1", status: "running" })]);
+		activateTab();
 		useSessionStore.setState({ isStreaming: true });
 		container = document.createElement("div") as unknown as HTMLElement;
 		document.body.appendChild(container as never);

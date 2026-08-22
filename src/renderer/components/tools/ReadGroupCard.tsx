@@ -39,18 +39,15 @@ export function ReadGroupCard({
 	const single = entries.length === 1;
 	const pad = inset ? "py-0.5" : "ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-0.5";
 
-	// Per-call status from the tools store: select the stable map reference and
-	// derive statuses in a memo — building a Map INSIDE the selector returns a
-	// fresh snapshot on every read, which loops forceStoreRerender until React
-	// throws error #185 (white screen on any session containing a read group).
-	const activeTools = useToolsStore(s => s.activeTools);
+	// One primitive snapshot for this group's calls: unrelated tool events may
+	// replace the store Map without re-rendering historical read groups.
+	const statusKey = useToolsStore(s =>
+		entries.map(entry => statusOf(s.activeTools.get(entry.toolKey)?.status)).join("|"),
+	);
 	const statuses = useMemo(() => {
-		const map = new Map<string, "pending" | "success" | "error">();
-		for (const entry of entries) {
-			map.set(entry.toolKey, statusOf(activeTools.get(entry.toolKey)?.status));
-		}
-		return map;
-	}, [activeTools, entries]);
+		const values = statusKey.split("|") as Array<"pending" | "success" | "error">;
+		return new Map(entries.map((entry, index) => [entry.toolKey, values[index] ?? "success"]));
+	}, [entries, statusKey]);
 	const anyPending = entries.some(entry => statuses.get(entry.toolKey) === "pending");
 	const anyError = entries.some(entry => statuses.get(entry.toolKey) === "error");
 

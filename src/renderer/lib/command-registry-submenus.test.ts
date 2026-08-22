@@ -123,7 +123,7 @@ describe("nativized command affordances", () => {
 		["marketplace add", "action"],
 		["marketplace remove", "action"],
 		["marketplace update", "action"],
-		["marketplace install", "action"],
+		["marketplace install", "window"],
 		["marketplace uninstall", "action"],
 		["marketplace upgrade", "action"],
 		["marketplace discover", "window"],
@@ -266,20 +266,16 @@ describe("nativized action wiring", () => {
 		expect(lastToast()?.variant).toBe("info");
 	});
 
-	it("marketplace update runs argument-free; install requires name@marketplace", async () => {
+	it("marketplace update remains an action while install opens the confirming UI", async () => {
 		const update = wired("marketplace update");
 		if (update.kind !== "action") throw new Error("expected action");
 		await update.run();
 		expect(rpc.marketplaceAction).toHaveBeenCalledWith({ action: "update" });
 		const install = wired("marketplace install");
-		if (install.kind !== "action") throw new Error("expected action");
-		await install.run("beta@official");
-		expect(rpc.marketplaceAction).toHaveBeenCalledWith({
-			action: "install",
-			plugin: "beta",
-			marketplace: "official",
-		});
-		await expect(install.run("beta")).rejects.toThrow();
+		if (install.kind !== "window") throw new Error("expected window");
+		install.open();
+		expect(rpc.marketplaceAction).not.toHaveBeenCalledWith(expect.objectContaining({ action: "install" }));
+		expect(openSettings).toHaveBeenCalledWith("resources:marketplaces");
 	});
 
 	it("plugins enable without an id opens the installed-plugins Settings route", async () => {

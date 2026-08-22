@@ -30,6 +30,11 @@ import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
+import {
+	capturePluginActivationOrigin,
+	handlePluginActivation,
+	isPluginActivationOriginActive,
+} from "../../lib/plugin-activation";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
@@ -429,6 +434,11 @@ function PluginsTab({
 
 	/** Optimistic toggle: overlay → set_plugin_enabled → re-fetch on success, revert + toast on error. */
 	const handleToggle = async (plugin: RpcPluginInfo): Promise<void> => {
+		const origin = capturePluginActivationOrigin();
+		if (!origin) {
+			toast({ variant: "warning", message: t("pluginActivation.routePending") });
+			return;
+		}
 		const key = plugin.id ?? `npm:${plugin.name}`;
 		const next = !(overrides[key] ?? plugin.enabled);
 		setBusyKey(key);
@@ -444,15 +454,24 @@ function PluginsTab({
 			const res = await window.omp.rpc.setPluginEnabled(plugin.id ?? plugin.name, next, plugin.scope);
 			if (!res.success) {
 				clearOverride();
-				toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: res.error });
+				if (isPluginActivationOriginActive(origin)) {
+					toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: res.error });
+				}
 				return;
 			}
-			// Fresh server state replaces the optimistic overlay.
-			await resource.reload();
+			const data = res.data as { activation?: string } | undefined;
+			await handlePluginActivation(
+				data?.activation,
+				{ pluginId: plugin.id ?? plugin.name, expected: next ? "enabled" : "disabled" },
+				origin,
+			);
+			if (isPluginActivationOriginActive(origin)) await resource.reload();
 			clearOverride();
 		} catch (cause) {
 			clearOverride();
-			toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: String(cause) });
+			if (isPluginActivationOriginActive(origin)) {
+				toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: String(cause) });
+			}
 		} finally {
 			setBusyKey(null);
 		}

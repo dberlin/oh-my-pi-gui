@@ -4,7 +4,9 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { resetTabRoute } from "../../../lib/tab-routing";
 import { useSessionStore } from "../../../stores/session";
+import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -32,6 +34,13 @@ let container: HTMLElement;
 let root: Root;
 
 async function mount(): Promise<void> {
+	useTabsStore.setState({
+		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
+		activeTabId: "t1",
+		bundles: new Map(),
+	});
+	useSessionStore.setState({ sessionId: "s1" });
+	resetTabRoute();
 	container = document.createElement("div") as unknown as HTMLElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
@@ -53,6 +62,8 @@ afterEach(async () => {
 	container?.remove();
 	setGoal.mockClear();
 	useSessionStore.getState().reset();
+	useTabsStore.getState().reset();
+	resetTabRoute();
 	useUiStore.setState({ modesOpen: false, modesTab: "vibe" });
 });
 
