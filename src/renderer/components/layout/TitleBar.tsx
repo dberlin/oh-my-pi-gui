@@ -24,6 +24,7 @@ export function TitleBar() {
 	const cwd = useSessionStore(s => s.cwd);
 	const status = useSessionStore(s => s.status);
 	const isStreaming = useSessionStore(s => s.isStreaming);
+	const isCompacting = useSessionStore(s => s.isCompacting);
 	const isChat = useActiveTabKind() === "chat";
 
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
@@ -121,7 +122,9 @@ export function TitleBar() {
 
 	const iconButton =
 		"no-drag omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]";
-	const statusLabel = isStreaming
+	const working = isStreaming || isCompacting;
+	const statusActive = working || status === "starting" || status === "restarting";
+	const statusLabel = working
 		? t("titlebar.status.working")
 		: status === "ready"
 			? t("titlebar.status.ready")
@@ -130,6 +133,13 @@ export function TitleBar() {
 				: status === "error" || status === "exited" || status === "restarting"
 					? t(`titlebar.status.${status}`)
 					: status;
+	const statusColor = working
+		? "var(--omp-accent)"
+		: status === "ready"
+			? "var(--omp-dim)"
+			: status === "error" || status === "exited"
+				? "var(--omp-error)"
+				: "var(--omp-warning)";
 
 	return (
 		<header className="omp-titlebar drag-region flex h-12 min-w-0 shrink-0 items-center gap-1 overflow-hidden border-b border-[var(--omp-border-muted)] bg-[var(--omp-titlebar-bg)] px-2.5">
@@ -178,14 +188,11 @@ export function TitleBar() {
 
 			<div className="omp-titlebar-status no-drag flex shrink-0 items-center gap-1.5 px-1 text-omp-sm font-medium text-[var(--omp-muted)]">
 				<span
-					className={cx(
-						"h-2 w-2 rounded-full",
-						isStreaming
-							? "bg-[var(--omp-accent)]"
-							: status === "ready"
-								? "bg-[var(--omp-success)]"
-								: "bg-[var(--omp-warning)]",
-					)}
+					role="img"
+					aria-label={statusLabel}
+					title={statusLabel}
+					className={cx("omp-signal-light", statusActive && "omp-signal-light--active")}
+					style={{ color: statusColor }}
 				/>
 				<span className="omp-titlebar-status-label">{statusLabel}</span>
 			</div>

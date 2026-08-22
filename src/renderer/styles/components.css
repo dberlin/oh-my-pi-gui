@@ -878,10 +878,6 @@
 	margin-left: 21px;
 }
 
-.omp-transcript-editorial .omp-streaming-turn {
-	padding: 12px var(--omp-editorial-edge) 18px var(--omp-editorial-inset) !important;
-}
-
 .omp-transcript-editorial .omp-streaming-turn > * {
 	flex: 0 0 auto;
 	width: 100%;
@@ -939,10 +935,12 @@
 }
 
 .omp-transcript-editorial .omp-assistant-turn .markdown-body,
+.omp-transcript-editorial .omp-assistant-turn .omp-streaming-tail,
 .omp-transcript-editorial .omp-assistant-turn--compact > .min-w-0 > .markdown-body,
 .omp-transcript-editorial .omp-streaming-turn > .markdown-body {
 	font-size: 15px;
 	line-height: 1.65;
+	color: var(--omp-text);
 }
 
 /* Reasoning stays visually subordinate to the assistant response. */

@@ -586,7 +586,7 @@ function ProcessGroup({
  * emitted, and the live text tail. Replaces itself with a finalized
  * MessageBubble on message_end.
  */
-function StreamingRows({
+export function StreamingRows({
 	expanded,
 	onExpandedChange,
 }: {
@@ -595,6 +595,7 @@ function StreamingRows({
 }) {
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
 	const streamingThinking = useMessagesStore(s => s.streamingThinking);
+	const hasText = useMessagesStore(s => isRenderableMessageText(s.streamingText));
 	// Full-map subscription is intentional here: this ONE live row legitimately
 	// watches the whole active set (it renders every pending/running card).
 	// Per-row isolation lives in TimelineMarker/ExecutionGroup/ToolCard.
@@ -622,6 +623,8 @@ function StreamingRows({
 
 	const hasThinking = isRenderableMessageText(streamingThinking);
 	const hasProcess = hasThinking || toolCalls.length > 0 || liveTools.length > 0;
+	const compactChrome = transcriptDetail === "compact" ? !hasText : !hasText && !hasThinking;
+	const turnClass = compactChrome ? "omp-assistant-turn--compact" : "omp-assistant-turn";
 
 	// Live read grouping (same predicate as the finalized path): consecutive
 	// collapsible reads fold into one ReadGroupCard even mid-turn. Compact
@@ -699,12 +702,12 @@ function StreamingRows({
 
 	if (transcriptDetail === "full") {
 		return (
-			<div className="omp-streaming-turn flex flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4">
-				{/* streamingMessage.content only fills at message_end; mid-stream the
+			<div className={cx("omp-streaming-turn group flex px-6", turnClass)}>
+				<div className="omp-transcript-content min-w-0">
+					{/* streamingMessage.content only fills at message_end; mid-stream the
 				    thinking deltas accumulate in the streamingThinking buffer, which
 				    ThinkingBlock reads itself when live. */}
-				{hasThinking ? <ThinkingBlock live /> : null}
-				<div className="space-y-2">
+					{hasThinking ? <ThinkingBlock live /> : null}
 					{toolCards}
 					<StreamingText />
 				</div>
@@ -713,23 +716,25 @@ function StreamingRows({
 	}
 
 	return (
-		<div className="omp-streaming-turn flex flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
-			{hasProcess ? (
-				<ExecutionGroup
-					expanded={expanded}
-					live
-					onExpandedChange={onExpandedChange}
-					stepCount={toolCalls.length + liveTools.length + (hasThinking ? 1 : 0)}
-					toolCallIds={allCards.map(card => card.id)}
-				>
-					<div className="omp-process-group omp-process-group--live">
-						{hasThinking ? <ThinkingBlock live /> : null}
-						{toolCalls.length + liveTools.length > 0 ? <div>{toolCards}</div> : null}
-					</div>
-				</ExecutionGroup>
-			) : null}
-			<div className={hasProcess ? "mt-1" : undefined}>
-				<StreamingText />
+		<div className={cx("omp-streaming-turn group flex px-6", turnClass)}>
+			<div className="omp-transcript-content min-w-0">
+				{hasProcess ? (
+					<ExecutionGroup
+						expanded={expanded}
+						live
+						onExpandedChange={onExpandedChange}
+						stepCount={toolCalls.length + liveTools.length + (hasThinking ? 1 : 0)}
+						toolCallIds={allCards.map(card => card.id)}
+					>
+						<div className="omp-process-group omp-process-group--live">
+							{hasThinking ? <ThinkingBlock live /> : null}
+							{toolCalls.length + liveTools.length > 0 ? <div>{toolCards}</div> : null}
+						</div>
+					</ExecutionGroup>
+				) : null}
+				<div className={hasProcess ? "mt-1" : undefined}>
+					<StreamingText />
+				</div>
 			</div>
 		</div>
 	);

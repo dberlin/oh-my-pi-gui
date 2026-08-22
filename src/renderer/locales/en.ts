@@ -43,6 +43,10 @@ export const en: Record<string, string> = {
 	"tabs.kindMismatch":
 		"That session has a different type. Agent and chat sessions can't be converted — open it from the session list instead.",
 	"tabs.close": "Close tab",
+	"tabs.menu.closeLeft": "Close tabs to the left",
+	"tabs.menu.closeRight": "Close tabs to the right",
+	"tabs.menu.closeAll": "Close all tabs",
+	"tabs.menu.closeProtected": "Close running tasks and worktree tabs individually first",
 	"tabs.done": "Run completed",
 	"tabs.newFailed": "Could not open tab",
 	"tabs.parallelCap": "Parallel limit reached (10) — close a tab or window first",

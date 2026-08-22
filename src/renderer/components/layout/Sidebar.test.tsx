@@ -357,6 +357,18 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(useUiStore.getState().sessionPickerOpen).toBe(true);
 	});
 
+	it("uses visible vertical signal lights for session state", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+
+		const rows = container.querySelectorAll(".omp-sidebar-session-row");
+		expect(rows.length).toBeGreaterThan(0);
+		expect(rows.every(row => row.querySelector(".omp-signal-light") !== null)).toBe(true);
+		expect(rows.every(row => row.querySelector(".omp-signal-light--active") === null)).toBe(true);
+		expect(rows[0]?.querySelector('[aria-label="Completed"]')).not.toBeNull();
+	});
+
 	it("right-click on a workspace header opens the agent-only 5-item group menu", async () => {
 		installMockOmp(LIST);
 		seedStores();

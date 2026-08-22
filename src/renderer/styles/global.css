@@ -251,6 +251,18 @@ kbd,
 	}
 }
 
+@keyframes omp-signal-light {
+	0%,
+	100% {
+		opacity: 0.58;
+		box-shadow: 0 0 0 transparent;
+	}
+	50% {
+		opacity: 1;
+		box-shadow: 0 0 7px currentColor;
+	}
+}
+
 @keyframes omp-indeterminate-progress {
 	from {
 		transform: translateX(-100%);
@@ -351,6 +363,27 @@ kbd,
 
 .omp-pulse-dot {
 	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: waiting signal */
+}
+
+.omp-signal-light {
+	display: inline-block;
+	width: 4px;
+	height: 18px;
+	flex: 0 0 4px;
+	border-radius: 9999px;
+	background: currentColor;
+	opacity: 0.72;
+}
+
+.omp-signal-light--active {
+	animation: omp-signal-light 2.8s ease-in-out infinite; /* motion-ok: slow semantic status signal */
+}
+
+.omp-signal-light.omp-tab-signal {
+	position: absolute;
+	inset: 0 auto 0 0;
+	height: 100%;
+	border-radius: 0;
 }
 
 .omp-indeterminate-progress {

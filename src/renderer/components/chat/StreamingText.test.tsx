@@ -1,9 +1,12 @@
 import { parseHTML } from "linkedom";
-import { act } from "react";
+import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
+import { useToolsStore } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
+import { StreamingRows } from "./ChatStream";
 import { StreamingText } from "./StreamingText";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -13,6 +16,7 @@ Object.assign(globals, { document, window, Event, HTMLElement, Element, Node, IS
 interface TestElement {
 	textContent: string | null;
 	remove: () => void;
+	getAttribute: (name: string) => string | null;
 	querySelector: (selector: string) => TestElement | null;
 	querySelectorAll: (selector: string) => TestElement[];
 }
@@ -31,17 +35,13 @@ testWindow.cancelAnimationFrame = (id: number) => frameCallbacks.delete(id);
 let container: TestElement;
 let root: Root;
 
-async function mount(text: string): Promise<void> {
+async function mount(text: string, element: ReactElement = <StreamingText />): Promise<void> {
 	useMessagesStore.setState({ streamingText: text });
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
-		root.render(
-			<I18nProvider>
-				<StreamingText />
-			</I18nProvider>,
-		);
+		root.render(<I18nProvider>{element}</I18nProvider>);
 	});
 }
 
@@ -58,11 +58,26 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
 	useMessagesStore.getState().reset();
+	useToolsStore.getState().reset();
+	useUiStore.setState({ transcriptDetail: "compact" });
 	frameCallbacks.clear();
 	frameTime = 0;
 });
 
 describe("StreamingText presentation", () => {
+	it("keeps the live reply on the same assistant surface as restored output", async () => {
+		useMessagesStore.setState({
+			streamingMessage: { role: "assistant", content: [], timestamp: "2026-08-22T00:00:00Z" },
+		});
+		useUiStore.setState({ transcriptDetail: "full" });
+		await mount("Live answer", <StreamingRows expanded={false} onExpandedChange={() => {}} />);
+
+		const turn = container.querySelector(".omp-streaming-turn");
+		expect(turn?.getAttribute("class")).toContain("omp-assistant-turn");
+		expect(turn?.querySelector(".omp-transcript-content")).not.toBeNull();
+		expect(turn?.querySelector(".omp-streaming-tail")?.textContent).toContain("Live answer");
+	});
+
 	it("coalesces multiple incoming prefixes into one visible animation frame", async () => {
 		await mount("A");
 

@@ -1,6 +1,6 @@
 /**
  * TabBar render contract: one chip per session tab (title or cwd basename),
- * streaming dot while a tab runs, done badge on unreadDone, close × hidden at
+ * status label while a tab runs, done state on unreadDone, close × hidden at
  * the single-tab floor, "+" spawns a new tab in the current cwd. Same
  * linkedom + react-dom harness as the InputArea tests.
  */
@@ -17,6 +17,7 @@ import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
+import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
@@ -33,6 +34,8 @@ globals.HTMLElement = HTMLElement;
 globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+(window as unknown as { innerHeight: number; innerWidth: number }).innerWidth = 1024;
+(window as unknown as { innerHeight: number; innerWidth: number }).innerHeight = 768;
 
 interface TestElement {
 	textContent: string | null;
@@ -167,8 +170,38 @@ async function click(element: TestElement): Promise<void> {
 	await flush();
 }
 
+/** Drive an element's React onContextMenu (linkedom has no synthetic event system). */
+async function rightClick(element: TestElement): Promise<void> {
+	const record = element as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey
+		? (record[propsKey] as
+				| { onContextMenu?: (event: { clientX: number; clientY: number; preventDefault(): void }) => void }
+				| undefined)
+		: undefined;
+	if (!props?.onContextMenu) throw new Error("element onContextMenu not found");
+	await act(async () => props.onContextMenu?.({ clientX: 80, clientY: 40, preventDefault: () => {} }));
+	await flush();
+}
+
+function menuItem(label: string): TestElement | null {
+	return (
+		(document.body as unknown as TestElement)
+			.querySelectorAll('[role="menuitem"]')
+			.find(item => item.textContent?.trim() === label) ?? null
+	);
+}
+
 function chips(): TestElement[] {
 	return container.querySelectorAll('[role="tab"]');
+}
+
+function tabTitles(): Array<string | null> {
+	return chips().map(chip => chip.querySelector("[data-tab-title]")?.textContent ?? null);
+}
+
+function tabWorkspaces(): Array<string | null> {
+	return chips().map(chip => chip.querySelector("[data-tab-workspace]")?.textContent ?? null);
 }
 
 afterEach(async () => {
@@ -181,6 +214,7 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 	useComposerStore.getState().reset();
 	useSessionStore.getState().reset();
+	useSidebarPrefs.getState().reset();
 	useMessagesStore.getState().reset();
 	useTodoStore.getState().reset();
 	useQueueStore.setState({ steering: [], followUp: [] });
@@ -217,7 +251,7 @@ describe("TabBar", () => {
 		await mount(<TabBar />);
 
 		expect(chips()[0]?.textContent).toContain(firstMessage);
-		expect(chips()[0]?.getAttribute("title")).toBe(firstMessage);
+		expect(chips()[0]?.getAttribute("title")).toBe(`${firstMessage} — infron`);
 		expect(chips()[0]?.querySelector(".truncate")).not.toBeNull();
 	});
 
@@ -314,6 +348,7 @@ describe("TabBar", () => {
 		expect(rendered[1]?.textContent).toContain("beta");
 		expect(rendered[1]?.getAttribute("aria-selected")).toBe("true");
 		expect(rendered[0]?.getAttribute("aria-selected")).toBe("false");
+		expect(tabWorkspaces()).toEqual(["alpha", "beta"]);
 	});
 
 	it("hides the close button at the single-tab floor and shows it with two tabs", async () => {
@@ -335,11 +370,11 @@ describe("TabBar", () => {
 		expect(container.querySelectorAll('[role="tab"] button').length).toBeGreaterThan(0);
 	});
 
-	it("animates only background running tabs and preserves the unreadDone badge", async () => {
+	it("renders slow vertical signal lights for running and completed tabs", async () => {
 		useTabsStore.setState({
 			tabs: [
 				{ kind: "agent", id: "t0", cwd: "/alpha", status: "running", unreadDone: false },
-				{ kind: "agent", id: "t1", cwd: "/beta", status: "running", unreadDone: true },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: true },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -347,11 +382,45 @@ describe("TabBar", () => {
 		await mount(<TabBar />);
 
 		const rendered = chips();
-		expect(rendered[0]?.querySelector(".omp-pulse-dot")).toBeNull();
-		expect(rendered[1]?.querySelector(".omp-pulse-dot")).not.toBeNull();
-		// The done badge carries the localized label as its aria-label.
+		expect(rendered.every(chip => chip.querySelector(".omp-tab-signal") !== null)).toBe(true);
+		expect(rendered.every(chip => chip.getAttribute("class")?.includes("overflow-hidden"))).toBe(true);
+		expect(rendered.every(chip => !chip.getAttribute("class")?.includes("rounded"))).toBe(true);
+		expect(rendered[0]?.querySelector(".omp-signal-light--active")).not.toBeNull();
+		expect(rendered[1]?.querySelector(".omp-signal-light--active")).toBeNull();
+		expect(rendered[0]?.querySelector('[aria-label="Working"]')).not.toBeNull();
 		expect(rendered[1]?.querySelector('[aria-label="Run completed"]')).not.toBeNull();
-		expect(rendered[0]?.querySelector('[aria-label="Run completed"]')).toBeNull();
+	});
+
+	it("right-click closes tabs to either side or replaces all original tabs", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t2", cwd: "/gamma", status: "ready", unreadDone: false },
+				{ kind: "agent", id: "t3", cwd: "/delta", status: "ready", unreadDone: false },
+			],
+			activeTabId: "t2",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+
+		await rightClick(chips()[2]!);
+		expect(menuItem("Close tabs to the left")).not.toBeNull();
+		expect(menuItem("Close tabs to the right")).not.toBeNull();
+		expect(menuItem("Close all tabs")).not.toBeNull();
+		await click(menuItem("Close tabs to the left")!);
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t2", "t3"]);
+
+		await rightClick(chips()[0]!);
+		await click(menuItem("Close tabs to the right")!);
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t2"]);
+
+		await rightClick(chips()[0]!);
+		await click(menuItem("Close all tabs")!);
+		await flush();
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/gamma", sessionPath: undefined, kind: "agent" });
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t9"]);
+		expect(omp.tabs.close.mock.calls.map(([id]) => id)).toEqual(["t0", "t1", "t3", "t2"]);
 	});
 
 	it("clicking a chip switches tabs; the + button spawns a new tab in the current cwd", async () => {
@@ -572,7 +641,7 @@ describe("TabBar close confirm", () => {
 		await mount(<TabBar />);
 
 		// The chip carries the worktree marker + branch tooltip…
-		expect(chips()[1]?.getAttribute("title")).toBe("omp/gui/fix — /wt/gui-fix-deadbeef");
+		expect(chips()[1]?.getAttribute("title")).toBe("fix — gui-fix-deadbeef — omp/gui/fix");
 		expect(chips()[1]?.textContent).toContain("fix");
 
 		// …and its × opens the cleanup prompt WITHOUT closing the tab.
@@ -599,7 +668,8 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 		const rendered = chips();
 		expect(rendered).toHaveLength(3);
 		// First occurrence stays bare; later collisions number from #2.
-		expect(rendered.map(chip => chip.textContent)).toEqual(["gui", "gui #2", "gui #3"]);
+		expect(tabTitles()).toEqual(["gui", "gui #2", "gui #3"]);
+		expect(tabWorkspaces()).toEqual(["gui", "gui", "gui"]);
 	});
 
 	it("prefers the session title and never suffixes titled tabs", async () => {
@@ -614,7 +684,7 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 		await mount(<TabBar />);
 
 		// The titled tab left the collision set, so the untitled chip stays bare.
-		expect(chips().map(chip => chip.textContent)).toEqual(["gui", "Release plan"]);
+		expect(tabTitles()).toEqual(["gui", "Release plan"]);
 	});
 
 	it("drops the suffix once a colliding tab gains a title", async () => {
@@ -627,13 +697,25 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 			bundles: new Map(),
 		});
 		await mount(<TabBar />);
-		expect(chips().map(chip => chip.textContent)).toEqual(["gui", "gui #2"]);
+		expect(tabTitles()).toEqual(["gui", "gui #2"]);
 
 		// The auto-title arrives via TAB_STATUS: labels recompute immediately.
 		useTabsStore
 			.getState()
 			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/other/gui", status: "ready", title: "Fix races" });
 		await flush();
-		expect(chips().map(chip => chip.textContent)).toEqual(["gui", "Fix races"]);
+		expect(tabTitles()).toEqual(["gui", "Fix races"]);
+	});
+
+	it("uses the sidebar workspace alias as the visible tab subtitle", async () => {
+		useSidebarPrefs.setState({ groupAliases: { "/work/infron": "Production API" } });
+		useTabsStore.setState({
+			tabs: [{ kind: "agent", id: "t0", cwd: "/work/infron", status: "ready", unreadDone: false }],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<TabBar />);
+
+		expect(tabWorkspaces()).toEqual(["Production API"]);
 	});
 });

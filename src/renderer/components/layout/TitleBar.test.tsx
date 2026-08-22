@@ -112,6 +112,8 @@ describe("TitleBar", () => {
 		expect(container.textContent).toContain("$0.1234");
 		expect(container.textContent).toContain("50%");
 		expect(container.textContent).toContain("5.0s");
+		expect(container.querySelectorAll(".omp-signal-light")).toHaveLength(1);
+		expect(container.querySelectorAll(".omp-signal-light--active")).toHaveLength(0);
 		expect(getSessionStats).toHaveBeenCalledTimes(1);
 	});
 });

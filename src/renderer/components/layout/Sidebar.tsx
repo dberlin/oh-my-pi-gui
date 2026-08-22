@@ -431,6 +431,14 @@ export function Sidebar() {
 			>
 				<div className="flex min-w-0 items-center">
 					<span
+						role="img"
+						aria-label={
+							signal === "waiting"
+								? t("sidebar.signal.waiting")
+								: signal === "running"
+									? t("sidebar.signal.running")
+									: t(STATUS_LABEL_KEY[session.status])
+						}
 						title={
 							signal === "waiting"
 								? t("sidebar.signal.waiting")
@@ -438,13 +446,13 @@ export function Sidebar() {
 									? t("sidebar.signal.running")
 									: t(STATUS_LABEL_KEY[session.status])
 						}
-						className={cx("mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full", signal === "waiting" && "omp-pulse-dot")}
+						className={cx("omp-signal-light mr-2", signal && "omp-signal-light--active")}
 						style={{
-							background:
+							color:
 								signal === "waiting"
 									? "var(--omp-warning)"
 									: signal === "running"
-										? "var(--omp-success)"
+										? "var(--omp-accent)"
 										: STATUS_COLOR[session.status],
 						}}
 					/>
