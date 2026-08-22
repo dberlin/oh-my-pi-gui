@@ -2,8 +2,11 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-22
+
 ### Changed
 
+- **Bundled agent upgraded**: packaged sidecars now carry omp 17.4.0 plus the marketplace RPC features from monorepo commit `a7b2784898` — plugin metadata/themes on the catalog, and post-mutation activation verdicts computed from the installed-plugin runtime snapshot.
 - **Assisted updates for unsigned macOS builds**: ad-hoc-signed apps now download the architecture-matched DMG, show progress, verify its release-metadata SHA-512, open it in Finder, and explain the safe manual replacement flow. Certificate-signed builds retain Squirrel's restart-and-install path ([#3](https://github.com/nornzach/oh-my-pi-gui/issues/3)).
 
 ### Added
