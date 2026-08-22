@@ -18,8 +18,8 @@ const ENABLED = { pluginId: "demo@market", expected: "enabled" as const };
 function activateTab(tabId = "t1", sessionId = "s1"): void {
 	useTabsStore.setState({
 		tabs: [
-			{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false },
-			{ id: "t2", cwd: "/w2", status: "ready", kind: "agent", unreadDone: false },
+			{ id: "t1", cwd: "/w", target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false },
+			{ id: "t2", cwd: "/w2", target: { type: "local" }, status: "ready", kind: "agent", unreadDone: false },
 		],
 		activeTabId: tabId,
 		bundles: new Map(),

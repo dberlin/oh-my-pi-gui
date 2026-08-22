@@ -1,5 +1,5 @@
 import { parseHTML } from "linkedom";
-import { act, type ReactNode } from "react";
+import { act, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
@@ -12,8 +12,9 @@ import * as GithubRendererModule from "./GithubRenderer";
 import * as ImageRendererModule from "./ImageRenderer";
 import * as ToolRegistry from "./index";
 import * as MemoryRendererModule from "./MemoryRenderer";
+import * as ResolveRendererModule from "./ResolveRenderer";
 import * as TodoRendererModule from "./TodoRenderer";
-import { ToolCard, type ToolCardProps } from "./ToolCard";
+import { ToolCard, type ToolCardProps, type ToolRendererProps } from "./ToolCard";
 import { resolveToolPresentation } from "./tool-presentation";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -91,6 +92,22 @@ async function toggleCard(card: HTMLElement): Promise<void> {
 	await act(async () => {
 		button.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 	});
+}
+
+/** Unwrap a registry wrapper: which renderer it reaches, and the operation it pins. */
+function pinnedRenderer(component: ComponentType<ToolRendererProps>): {
+	renderer: unknown;
+	operation: unknown;
+} {
+	const element = (component as (props: ToolRendererProps) => ReactElement)({
+		args: {},
+		result: null,
+		partialResult: null,
+		isError: false,
+		isPartial: true,
+		view: "preview",
+	});
+	return { renderer: element.type, operation: (element.props as { operation?: unknown }).operation };
 }
 
 function directInvocation(name: string) {
@@ -807,9 +824,22 @@ describe("ToolCard adaptive rendering", () => {
 			component: ImageRendererModule.ImageRenderer,
 			shell: "framed",
 		});
-		expect(ToolRegistry.getToolRenderer(directInvocation("reflect"))).toEqual({
-			component: MemoryRendererModule.MemoryRenderer,
-			shell: "domain",
+		// reflect/recall/reject reach MemoryRenderer and ResolveRenderer through a
+		// wrapper that pins the operation, because a still-running call has no
+		// result shape to infer it from.
+		const reflect = ToolRegistry.getToolRenderer(directInvocation("reflect"));
+		expect(reflect.shell).toBe("domain");
+		expect(pinnedRenderer(reflect.component)).toEqual({
+			renderer: MemoryRendererModule.MemoryRenderer,
+			operation: "reflect",
+		});
+		expect(pinnedRenderer(ToolRegistry.getToolRenderer(directInvocation("recall")).component)).toEqual({
+			renderer: MemoryRendererModule.MemoryRenderer,
+			operation: "recall",
+		});
+		expect(pinnedRenderer(ToolRegistry.getToolRenderer(directInvocation("reject")).component)).toEqual({
+			renderer: ResolveRendererModule.ResolveRenderer,
+			operation: "reject",
 		});
 	});
 });

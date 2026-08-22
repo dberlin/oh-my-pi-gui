@@ -411,7 +411,7 @@ describe("settleComposerResponse", () => {
 		const omp = installMockOmp();
 		await settleComposerResponse({ ...success({}), command: "compact" });
 		expect(omp.rpc.getState).toHaveBeenCalled();
-		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+		expect(omp.rpc.getMessages).toHaveBeenCalled();
 	});
 
 	it("does not rehydrate usage subcommands because their command output is live-only", async () => {

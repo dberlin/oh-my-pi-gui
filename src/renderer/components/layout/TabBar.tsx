@@ -12,7 +12,7 @@
 import { Check, GitBranch, GitBranchPlus, MessageCircle, MessageCirclePlus, Plus, Server, X } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useSessionList } from "../../hooks/use-session-list";
-import { basename, cx } from "../../lib/format";
+import { basename, cx, sanitizeDisplayText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
 import { useComposerStore } from "../../stores/composer";
@@ -26,6 +26,9 @@ import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/
 
 /** Auto-cancel window for the armed close confirm (injectable for tests). */
 const CONFIRM_CLOSE_MS = 3000;
+
+/** Chip subtitle bound; matches the per-component limit the chip title uses. */
+const TAB_WORKSPACE_LABEL_LIMIT = 64;
 
 function TabChip({
 	tab,
@@ -347,8 +350,16 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 					const label = indexedSession
 						? sessionDisplayTitle(indexedSession, t("sidebar.untitled"))
 						: tabChipLabel(tab, tabs);
+					// The subtitle shares the chip with the sanitized title, so a
+					// remote cwd carrying control or bidi characters gets the same
+					// bounded treatment rather than rendering raw.
 					const workspaceLabel =
-						tab.kind === "chat" ? t("sidebar.chats") : (groupAliases[tab.cwd] ?? basename(tab.cwd) ?? tab.cwd);
+						tab.kind === "chat"
+							? t("sidebar.chats")
+							: sanitizeDisplayText(
+									groupAliases[tab.cwd] ?? basename(tab.cwd) ?? tab.cwd,
+									TAB_WORKSPACE_LABEL_LIMIT,
+								);
 					return (
 						<TabChip
 							key={tab.id}

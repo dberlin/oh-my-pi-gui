@@ -838,13 +838,12 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 		});
 		await mount(<TabBar />);
 
-		expect(chips()[0]?.textContent).toBe("build:app");
+		expect(tabTitles()[0]).toBe("build:app");
 		expect(chips()[0]?.querySelector('[aria-label="Remote SSH"]')).not.toBeNull();
-		expect(
-			chips()[0]
-				?.querySelectorAll("span")
-				.some(span => (span as unknown as Element).getAttribute("class")?.includes("bg-[var(--omp-accent)]")),
-		).toBe(true);
+		// A running remote tab lights its status signal in the accent colour.
+		const signal = chips()[0]?.querySelector(".omp-tab-signal");
+		expect(signal?.getAttribute("class")).toContain("omp-signal-light--active");
+		expect(signal?.getAttribute("style")).toContain("var(--omp-accent)");
 
 		await act(async () => {
 			useTabsStore.getState().applyTabStatus({
@@ -858,7 +857,7 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 		});
 		await flush();
 
-		expect(chips()[0]?.textContent).toBe("Deploy release");
+		expect(tabTitles()[0]).toBe("Deploy release");
 		expect(useTabsStore.getState().tabs[0]?.target).toBe(target);
 	});
 
@@ -892,8 +891,9 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 
 		await mount(<TabBar />);
 
+		expect(tabTitles()[0]).toBe(`${"a".repeat(63)}…:${"b".repeat(63)}…`);
+		// The workspace subtitle rides the same chip, so sanitize the whole row.
 		const label = chips()[0]?.textContent ?? "";
-		expect(label).toBe(`${"a".repeat(63)}…:${"b".repeat(63)}…`);
 		expect(label).not.toMatch(/[\u0000-\u001f\u007f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/);
 	});
 });

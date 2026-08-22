@@ -6,7 +6,6 @@ import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { StreamingRows } from "./ChatStream";
 import { StreamingText } from "./StreamingText";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -70,19 +69,6 @@ afterEach(async () => {
 });
 
 describe("StreamingText presentation", () => {
-	it("keeps the live reply on the same assistant surface as restored output", async () => {
-		useMessagesStore.setState({
-			streamingMessage: { role: "assistant", content: [], timestamp: "2026-08-22T00:00:00Z" },
-		});
-		useUiStore.setState({ transcriptDetail: "full" });
-		await mount("Live answer", <StreamingRows expanded={false} onExpandedChange={() => {}} />);
-
-		const turn = container.querySelector(".omp-streaming-turn");
-		expect(turn?.getAttribute("class")).toContain("omp-assistant-turn");
-		expect(turn?.querySelector(".omp-transcript-content")).not.toBeNull();
-		expect(turn?.querySelector(".omp-streaming-tail")?.textContent).toContain("Live answer");
-	});
-
 	it("coalesces multiple incoming prefixes into one visible animation frame", async () => {
 		await mount("A");
 

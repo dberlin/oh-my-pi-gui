@@ -132,6 +132,13 @@ function ToolCardContent({
 		return () => clearInterval(timer);
 	}, [isPartial]);
 	const duration = entry ? durationBetween(entry.startTime, isPartial ? now : entry.endTime) : null;
+	// While args stream in, `args` is still {} — surface the raw partial JSON
+	// (truncated) so a long bash/edit call doesn't sit as an empty card until
+	// message_end.
+	const streamingSummary =
+		entry?.status === "pending" && typeof entry.streamingArgs === "string"
+			? entry.streamingArgs.slice(0, 160)
+			: undefined;
 	const definition = getToolRenderer(effective);
 	const peerIrc = isPeerIrcInvocation(effective);
 	const displayName = peerIrc ? "IRC" : effective.name;
