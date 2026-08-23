@@ -13,7 +13,9 @@ import { useActivitySidebarStore } from "./stores/activity-sidebar";
 import { useAgentViewStore } from "./stores/agent-view";
 import { useMessagesStore } from "./stores/messages";
 import { useSessionStore } from "./stores/session";
+import { setFocusedSessionRuntime } from "./stores/session-runtime-context";
 import { useSubagentsStore } from "./stores/subagents";
+import { ensureTabRuntime } from "./stores/tab-runtime";
 import { useTabsStore } from "./stores/tabs";
 import { useTodoStore } from "./stores/todo";
 import { useUiStore } from "./stores/ui";
@@ -129,6 +131,7 @@ async function mountWorkspace(): Promise<void> {
 		events: {
 			onCommandsUpdate: subscribe,
 			onConfigUpdate: subscribe,
+			onSessionsChanged: subscribe,
 		},
 		fs: {
 			readPlan: vi.fn(async () => ({ ok: true, path: null, content: null })),
@@ -137,8 +140,13 @@ async function mountWorkspace(): Promise<void> {
 			get: vi.fn(async () => null),
 			set: vi.fn(async () => ({})),
 		},
+		sessions: {
+			list: vi.fn(async () => []),
+		},
 		rpc,
 	};
+	ensureTabRuntime("tab-a");
+	setFocusedSessionRuntime("tab-a");
 	useSessionStore.setState({ cwd: "/work/a", sessionId: "session-a", status: "ready" });
 	useTabsStore.setState({
 		tabs: [

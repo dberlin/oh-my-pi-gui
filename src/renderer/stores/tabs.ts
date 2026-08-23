@@ -18,21 +18,33 @@
 import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
 import type {
+	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
 	IpcTabStatusPayload,
 	IpcTabWorktree,
 	SessionInfo,
 	SessionKind,
-	TabStatus,
 	SessionTarget,
-	IpcSpawnTabPayload,
+	TabStatus,
 } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcSessionState } from "../../shared/rpc-types";
-import { hydrateTabSession, invalidateReadyRecovery, joinFullReadyPrelude, recoverReadySession } from "../hooks/use-rpc-events";
+import { isSshSessionTarget, normalizeSessionTarget } from "../../shared/session-target";
+import {
+	hydrateTabSession,
+	invalidateReadyRecovery,
+	joinFullReadyPrelude,
+	recoverReadySession,
+} from "../hooks/use-rpc-events";
 import { basename, sanitizeDisplayText } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
-import { acceptsActiveTabEvents, beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
+import {
+	acceptsActiveTabEvents,
+	beginTabRoute,
+	reconcileTabRoute,
+	resetTabRoute,
+	settleTabRoute,
+} from "../lib/tab-routing";
 import { useAgentViewStore } from "./agent-view";
 import { type ComposerImage, type ComposerStore, useComposerStore } from "./composer";
 import type { ExtensionUiStore } from "./extension-ui";
@@ -52,13 +64,10 @@ import {
 	setFocusedSessionRuntime,
 	useRuntimeTabId,
 } from "./session-runtime-context";
-import { type SubagentsStore, useSubagentsStore } from "./subagents";
+import type { SubagentsStore } from "./subagents";
 import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import { toast } from "./toast";
 import { useUiStore } from "./ui";
-
-import { isSshSessionTarget, normalizeSessionTarget } from "../../shared/session-target";
-
 
 export interface SessionTab {
 	id: string;
@@ -469,7 +478,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			}
 			const tab: SessionTab = {
 				id: tabId,
-				cwd,
+				cwd: resolvedCwd,
 				target: reconcileSessionTarget(args?.target),
 				status: "starting",
 				kind,
@@ -491,6 +500,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const target = state.tabs.find(tab => tab.id === id);
 		if (!target) return;
 		const version = ++switchVersion;
+		invalidateReadyRecovery();
+		sessionRuntimeStore<SubagentsStore>(id, "subagents")?.getState().invalidateRefresh();
 		ensureTabRuntime(id);
 		beginTabRoute(state.activeTabId, id);
 		const ui = useUiStore.getState();
@@ -528,7 +539,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			toast({ variant: "error", title: translate("tabs.switchFailed"), message: String(error) });
 			const converged = await get().reconcileTabs();
 			if (version !== switchVersion) return;
-			if (converged && get().activeTabId === id) await hydrateTabSession(id);
+			if (converged && get().activeTabId === id) {
+				const consumedPending = await consumePendingSession(id);
+				if (!consumedPending) await recoverReadySession(id);
+			}
 			return;
 		}
 		if (version !== switchVersion) return;
@@ -687,6 +701,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// the fresh runtime — otherwise static store access falls through to the
 		// module-level default stores until the next switch/reconcile.
 		if (sessionChanged) {
+			if (active) {
+				invalidatePendingSessionGeneration();
+				invalidateReadyRecovery();
+			}
 			replaceTabRuntime(payload.tabId);
 			if (active) setFocusedSessionRuntime(payload.tabId);
 		}

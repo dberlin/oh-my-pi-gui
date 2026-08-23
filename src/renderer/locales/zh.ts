@@ -2888,6 +2888,8 @@ export const zh: Record<string, string> = {
 	"activitySidebar.resizeTrees": "调整待办和智能体区域大小",
 	"activitySidebar.plan.off": "关闭",
 	"activitySidebar.goal.empty": "无活动目标",
+	"activitySidebar.conversations.label": "对话",
+	"activitySidebar.conversations.empty": "暂无对话",
 	"activitySidebar.collapseSection": "折叠{section}",
 	"activitySidebar.expandSection": "展开{section}",
 	"activitySidebar.agents.empty": "暂无子智能体",

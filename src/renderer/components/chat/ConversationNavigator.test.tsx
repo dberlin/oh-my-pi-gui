@@ -54,18 +54,20 @@ describe("ConversationNavigator", () => {
 		const buttons = Array.from(container.querySelectorAll("button"));
 
 		expect(buttons).toHaveLength(3);
-		expect(container.querySelector(".omp-conversation-nav-stack")).not.toBeNull();
-		expect(buttons.every(button => !button.hasAttribute("style"))).toBe(true);
+		expect(container.querySelector(".omp-conversation-list")).not.toBeNull();
+		expect(container.textContent).toContain("First question");
 		expect(buttons[1]?.getAttribute("aria-current")).toBe("location");
 		await act(async () => buttons[2]?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
 		expect(onNavigate).toHaveBeenCalledWith(14);
 	});
 
-	it("shows the user-message preview on hover", async () => {
+	it("shows every conversation preview and timestamp without hover-only tooltips", async () => {
 		await mount(() => {});
-		const first = container.querySelector("button");
-		await act(async () => first?.dispatchEvent(new Event("mouseover", { bubbles: true })));
 
-		expect(container.querySelector("[role='tooltip']")?.textContent ?? "").toContain("First question");
+		expect(container.textContent).toContain("First question");
+		expect(container.textContent).toContain("Second question");
+		expect(container.textContent).toContain("Third question");
+		expect(container.querySelectorAll("time")).toHaveLength(3);
+		expect(container.querySelector("[role='tooltip']")).toBeNull();
 	});
 });

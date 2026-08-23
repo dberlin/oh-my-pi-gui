@@ -268,7 +268,7 @@ export type UpdateStatus =
 	  }
 	| { state: "downloaded"; version: string; mode: UpdateInstallMode }
 	| { state: "not-available"; version: string }
-	| { state: "error"; message: string; showInBanner?: boolean };
+	| { state: "error"; message: string; showInBanner?: boolean; version?: string };
 
 export type MenuAction =
 	| "new-session"

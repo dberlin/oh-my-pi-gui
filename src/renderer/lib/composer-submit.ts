@@ -141,7 +141,7 @@ export function planComposerSubmit(input: {
 export async function settleComposerResponse(
 	response: RpcResponse,
 	message?: string,
-	hydrate: () => Promise<void> = hydrateSession,
+	hydrate: () => Promise<unknown> = hydrateSession,
 ): Promise<void> {
 	if (!response.success) return;
 	const data: unknown = response.data;

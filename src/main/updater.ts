@@ -223,7 +223,7 @@ export function setupUpdater(): void {
 			}
 			manualInstaller = selectMacInstaller(info.files, info.version, architecture);
 			if (!manualInstaller) {
-				broadcast({ state: "error", message: mainT("updates.installerMissing") });
+				broadcast({ state: "error", message: mainT("updates.installerMissing"), version: info.version });
 				return;
 			}
 		}

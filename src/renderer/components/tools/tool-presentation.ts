@@ -71,7 +71,13 @@ function decodeInnerArgs(content: unknown): Record<string, unknown> {
 
 function replaceDetails(result: unknown, details: unknown): unknown {
 	const envelope = asRecord(result);
-	return envelope ? { ...envelope, details: details ?? null } : result;
+	if (!envelope) return result;
+	const rawContent = asRecord(details)?.rawContent;
+	return {
+		...envelope,
+		...(Array.isArray(rawContent) ? { content: rawContent } : {}),
+		details: details ?? null,
+	};
 }
 
 function xdevDetails(value: unknown): XdevDetails | undefined {

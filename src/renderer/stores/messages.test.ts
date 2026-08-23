@@ -4,8 +4,8 @@ import {
 	applyMessageProjectionEvents,
 	createMessageProjection,
 	createMessagesStore,
-	mergeFetchedTranscript,
 	type MessageProjection,
+	mergeFetchedTranscript,
 	useMessagesStore,
 } from "./messages";
 

@@ -33,6 +33,7 @@ export function UpdateBanner() {
 					{status.mode === "manual" ? t("updater.downloadInstaller") : t("updater.download")}
 				</Button>
 				<button
+					data-update-action="dismiss"
 					type="button"
 					aria-label={t("updater.dismiss")}
 					className="shrink-0 text-(--omp-dim) hover:text-(--omp-text)"
@@ -108,6 +109,7 @@ export function UpdateBanner() {
 					{t("updater.retry")}
 				</Button>
 				<button
+					data-update-action="dismiss"
 					type="button"
 					aria-label={t("updater.dismissFailure")}
 					className="shrink-0 text-(--omp-dim) hover:text-(--omp-text)"

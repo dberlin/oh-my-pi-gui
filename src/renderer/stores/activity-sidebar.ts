@@ -7,7 +7,8 @@ export const ACTIVITY_SIDEBAR_COMPACT_WIDTH = 40;
 export const ACTIVITY_TRANSCRIPT_MIN_WIDTH = 560;
 export const ACTIVITY_TREE_MIN_BODY_HEIGHT = 48;
 
-export type ActivitySectionId = "plan" | "goal" | "todo" | "agents";
+export type ActivityMetaId = "plan" | "goal" | "conversations";
+export type ActivitySectionId = ActivityMetaId | "todo" | "agents";
 export type ActivityTreeId = "todo" | "agents";
 
 export interface ActivitySidebarStore {
@@ -16,7 +17,7 @@ export interface ActivitySidebarStore {
 	manualCollapsed: boolean;
 	splitRatio: number;
 	treeCollapsed: Record<ActivityTreeId, boolean>;
-	expandedMeta: "plan" | "goal" | null;
+	expandedMeta: ActivityMetaId | null;
 	focusRequest: { id: ActivitySectionId; seq: number } | null;
 	narrowOverrideTabId: string | null;
 	hydrate: () => Promise<void>;
@@ -25,7 +26,7 @@ export interface ActivitySidebarStore {
 	setSplitRatio: (ratio: number) => void;
 	resetSplitRatio: () => void;
 	toggleTree: (id: ActivityTreeId) => void;
-	toggleMeta: (id: "plan" | "goal") => void;
+	toggleMeta: (id: ActivityMetaId) => void;
 	revealSection: (id: ActivitySectionId | null, tabId: string) => void;
 	clearNarrowOverride: (activeTabId: string | null) => void;
 	reset: () => void;
@@ -46,7 +47,7 @@ interface ActivitySidebarState {
 	manualCollapsed: boolean;
 	splitRatio: number;
 	treeCollapsed: Record<ActivityTreeId, boolean>;
-	expandedMeta: "plan" | "goal" | null;
+	expandedMeta: ActivityMetaId | null;
 	focusRequest: { id: ActivitySectionId; seq: number } | null;
 	narrowOverrideTabId: string | null;
 }
@@ -125,7 +126,7 @@ export const useActivitySidebarStore = create<ActivitySidebarStore>()((set, get)
 			};
 			if (id === null) return revealed;
 			revealed.focusRequest = { id, seq: (state.focusRequest?.seq ?? 0) + 1 };
-			if (id === "plan" || id === "goal") revealed.expandedMeta = id;
+			if (id === "plan" || id === "goal" || id === "conversations") revealed.expandedMeta = id;
 			else revealed.treeCollapsed = { ...state.treeCollapsed, [id]: false };
 			return revealed;
 		});

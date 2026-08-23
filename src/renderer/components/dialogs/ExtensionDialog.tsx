@@ -14,7 +14,7 @@
 import { json } from "@codemirror/lang-json";
 import { EditorView } from "@codemirror/view";
 import { Check, ExternalLink } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
 import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
@@ -27,6 +27,20 @@ import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
 
 /** Requests handled elsewhere (store/router) — never rendered as dialogs. */
 const NON_DIALOG_METHODS = new Set(["notify", "setStatus", "setWidget", "setTitle", "set_editor_text", "cancel"]);
+
+const LEGACY_ASK_OTHER_OPTION = "Other (type your own)";
+type InlineAskRequest =
+	| Extract<ExtensionUIRequest, { method: "askDialog" }>
+	| Extract<ExtensionUIRequest, { method: "select" }>
+	| Extract<ExtensionUIRequest, { method: "editor" }>;
+
+function isInlineAskRequest(request: ExtensionUIRequest): request is InlineAskRequest {
+	return (
+		request.method === "askDialog" ||
+		(request.method === "select" && request.options.at(-1) === LEGACY_ASK_OTHER_OPTION) ||
+		(request.method === "editor" && request.promptStyle === true)
+	);
+}
 
 /**
  * Floating surface for extension-pushed widgets. Transient `setStatus` text is
@@ -103,47 +117,65 @@ function TimeoutFooter({ remaining }: { remaining: number | null }) {
 	);
 }
 
-function SelectDialog({
+type SelectRequest = Extract<ExtensionUIRequest, { method: "select" }>;
+
+function SelectForm({
 	request,
 	remaining,
 	onValue,
 	onCancel,
 }: {
-	request: Extract<ExtensionUIRequest, { method: "select" }>;
+	request: SelectRequest;
 	remaining: number | null;
 	onValue: (value: string) => void;
 	onCancel: () => void;
 }) {
 	const t = useT();
 	return (
-		<Modal onClose={onCancel} open size="sm" title={request.title}>
-			<div className="space-y-1">
-				{request.options.map((option, index) => (
-					<button
-						autoFocus={index === 0}
-						className="flex w-full items-center gap-2 rounded-md border border-(--omp-border-muted) px-3 py-2 text-left text-xs text-(--omp-text) transition-colors hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg) focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)"
-						key={option}
-						onClick={() => onValue(option)}
-						type="button"
-					>
-						<span className="w-4 shrink-0 text-omp-xs text-(--omp-dim)">{index + 1}</span>
-						<span className="min-w-0 break-words">
-							<span className="block">{option}</span>
-							{request.optionDetails?.[index]?.description && (
-								<span className="mt-1 block text-omp-xs whitespace-pre-wrap text-(--omp-muted)">
-									{request.optionDetails[index].description}
-								</span>
-							)}
-						</span>
-					</button>
-				))}
-				<div className="flex items-center justify-between pt-2">
-					<TimeoutFooter remaining={remaining} />
-					<Button onClick={onCancel} size="sm" variant="ghost">
-						{t("common.cancel")}
-					</Button>
-				</div>
+		<div className="space-y-1">
+			{request.options.map((option, index) => (
+				<button
+					autoFocus={index === 0}
+					className="flex w-full items-start gap-2 rounded-md border border-(--omp-border-muted) px-3 py-2 text-left text-xs text-(--omp-text) transition-colors hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg) focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)"
+					key={option}
+					onClick={() => onValue(option)}
+					type="button"
+				>
+					<span className="w-4 shrink-0 text-omp-xs text-(--omp-dim)">{index + 1}</span>
+					<span className="min-w-0 flex-1">
+						<span className="block break-words">{option}</span>
+						{request.optionDetails?.[index]?.description ? (
+							<span className="mt-0.5 block text-omp-xs leading-snug text-(--omp-dim)">
+								{request.optionDetails[index]?.description}
+							</span>
+						) : null}
+					</span>
+				</button>
+			))}
+			<div className="flex items-center justify-between pt-2">
+				<TimeoutFooter remaining={remaining} />
+				<Button onClick={onCancel} size="sm" variant="ghost">
+					{t("common.cancel")}
+				</Button>
 			</div>
+		</div>
+	);
+}
+
+function SelectDialog({
+	request,
+	remaining,
+	onValue,
+	onCancel,
+}: {
+	request: SelectRequest;
+	remaining: number | null;
+	onValue: (value: string) => void;
+	onCancel: () => void;
+}) {
+	return (
+		<Modal onClose={onCancel} open size="sm" title={request.title}>
+			<SelectForm onCancel={onCancel} onValue={onValue} remaining={remaining} request={request} />
 		</Modal>
 	);
 }
@@ -234,7 +266,7 @@ interface AskAnswerState {
  * optional note input. Single-select mirrors the TUI: picking an option
  * replaces the custom answer, typing one clears the option selection.
  */
-function AskDialog({
+function AskForm({
 	request,
 	remaining,
 	onSubmit,
@@ -311,122 +343,213 @@ function AskDialog({
 	};
 
 	return (
-		<Modal onClose={onCancel} open size="lg" title={t("extDialog.ask.title")}>
-			<form
-				className="space-y-5"
-				onSubmit={event => {
-					event.preventDefault();
-					submit();
-				}}
-			>
-				{request.questions.map((question, questionIndex) => {
-					const answer = answers[questionIndex];
-					return (
-						<div className="space-y-2" key={question.id}>
-							{question.header && (
-								<div className="text-omp-xxs font-medium tracking-widest text-(--omp-dim) uppercase">
-									{question.header}
-								</div>
-							)}
-							<p className="text-xs leading-relaxed font-medium break-words whitespace-pre-wrap text-(--omp-text)">
-								{request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
-								{question.question}
-							</p>
-							<div className="space-y-1">
-								{question.options.map((option, optionIndex) => {
-									const checked = answer?.selected.has(option.label) ?? false;
-									return (
-										<button
+		<form
+			className="space-y-5"
+			onSubmit={event => {
+				event.preventDefault();
+				submit();
+			}}
+		>
+			{request.questions.map((question, questionIndex) => {
+				const answer = answers[questionIndex];
+				return (
+					<div className="space-y-2" key={question.id}>
+						{question.header && (
+							<div className="text-omp-xxs font-medium tracking-widest text-(--omp-dim) uppercase">
+								{question.header}
+							</div>
+						)}
+						<p className="text-xs leading-relaxed font-medium break-words whitespace-pre-wrap text-(--omp-text)">
+							{request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
+							{question.question}
+						</p>
+						<div className="space-y-1">
+							{question.options.map((option, optionIndex) => {
+								const checked = answer?.selected.has(option.label) ?? false;
+								return (
+									<button
+										className={cx(
+											"flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)",
+											checked
+												? "border-(--omp-border-accent) bg-(--omp-selected-bg)"
+												: "border-(--omp-border-muted) hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg)",
+										)}
+										key={option.label}
+										onClick={() => toggleOption(questionIndex, option.label)}
+										type="button"
+									>
+										<span
 											className={cx(
-												"flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)",
+												"mt-px flex h-3.5 w-3.5 shrink-0 items-center justify-center border transition-colors",
+												question.multi ? "rounded-[3px]" : "rounded-full",
 												checked
-													? "border-(--omp-border-accent) bg-(--omp-selected-bg)"
-													: "border-(--omp-border-muted) hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg)",
+													? "border-(--omp-accent) text-(--omp-accent)"
+													: "border-(--omp-border-strong) text-transparent",
 											)}
-											key={option.label}
-											onClick={() => toggleOption(questionIndex, option.label)}
-											type="button"
 										>
-											<span
-												className={cx(
-													"mt-px flex h-3.5 w-3.5 shrink-0 items-center justify-center border transition-colors",
-													question.multi ? "rounded-[3px]" : "rounded-full",
-													checked
-														? "border-(--omp-accent) text-(--omp-accent)"
-														: "border-(--omp-border-strong) text-transparent",
-												)}
-											>
-												{question.multi ? (
-													<Check size={10} strokeWidth={3} />
-												) : (
-													<span className="h-1.5 w-1.5 rounded-full bg-current" />
-												)}
-											</span>
-											<span className="min-w-0 flex-1">
-												<span className="flex items-center gap-1.5 text-xs text-(--omp-text)">
-													<span className="min-w-0 break-words">{option.label}</span>
-													{question.recommended === optionIndex && (
-														<span className="shrink-0 rounded border border-(--omp-border-accent) px-1 py-px text-omp-xxs font-medium text-(--omp-accent)">
-															{t("extDialog.ask.recommended")}
-														</span>
-													)}
-												</span>
-												{option.description && (
-													<span className="mt-0.5 block text-omp-xs leading-snug break-words text-(--omp-dim)">
-														{option.description}
+											{question.multi ? (
+												<Check size={10} strokeWidth={3} />
+											) : (
+												<span className="h-1.5 w-1.5 rounded-full bg-current" />
+											)}
+										</span>
+										<span className="min-w-0 flex-1">
+											<span className="flex items-center gap-1.5 text-xs text-(--omp-text)">
+												<span className="min-w-0 break-words">{option.label}</span>
+												{question.recommended === optionIndex && (
+													<span className="shrink-0 rounded border border-(--omp-border-accent) px-1 py-px text-omp-xxs font-medium text-(--omp-accent)">
+														{t("extDialog.ask.recommended")}
 													</span>
 												)}
 											</span>
-										</button>
-									);
-								})}
-							</div>
-							{question.options
-								.filter(option => answer?.selected.has(option.label) && option.preview)
-								.map(option => (
-									<div
-										className="rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) px-2.5 py-2 text-omp-sm"
-										key={`preview:${option.label}`}
-									>
-										<MarkdownRenderer content={option.preview!} />
-									</div>
-								))}
-							<Input
-								onChange={event => setCustom(questionIndex, event.target.value)}
-								placeholder={t("extDialog.ask.customPlaceholder")}
-								value={answer?.custom ?? ""}
-							/>
-							<Input
-								onChange={event => setNote(questionIndex, event.target.value)}
-								placeholder={t("extDialog.ask.notePlaceholder")}
-								value={answer?.note ?? ""}
-							/>
+											{option.description && (
+												<span className="mt-0.5 block text-omp-xs leading-snug break-words text-(--omp-dim)">
+													{option.description}
+												</span>
+											)}
+										</span>
+									</button>
+								);
+							})}
 						</div>
-					);
-				})}
-				<div className="flex items-center justify-between gap-2 border-t border-(--omp-border-muted) pt-3">
-					<div className="flex items-center gap-2">
-						<TimeoutFooter remaining={remaining} />
-						{unansweredCount > 0 && (
-							<span className="text-omp-xs text-(--omp-warning)">
-								{t("extDialog.ask.unanswered", { count: unansweredCount })}
-							</span>
-						)}
+						{question.options
+							.filter(option => answer?.selected.has(option.label) && option.preview)
+							.map(option => (
+								<div
+									className="rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) px-2.5 py-2 text-omp-sm"
+									key={`preview:${option.label}`}
+								>
+									<MarkdownRenderer content={option.preview!} />
+								</div>
+							))}
+						<Input
+							onChange={event => setCustom(questionIndex, event.target.value)}
+							placeholder={t("extDialog.ask.customPlaceholder")}
+							value={answer?.custom ?? ""}
+						/>
+						<Input
+							onChange={event => setNote(questionIndex, event.target.value)}
+							placeholder={t("extDialog.ask.notePlaceholder")}
+							value={answer?.note ?? ""}
+						/>
 					</div>
-					<div className="flex gap-2">
-						<Button onClick={onCancel} size="sm" type="button" variant="ghost">
-							{t("common.cancel")}
-						</Button>
-						<Button onClick={() => onSubmit({ kind: "chat" })} size="sm" type="button" variant="secondary">
-							{t("extDialog.ask.chat")}
-						</Button>
-						<Button size="sm" type="submit" variant="primary">
-							{t("extDialog.submit")}
-						</Button>
-					</div>
+				);
+			})}
+			<div className="flex items-center justify-between gap-2 border-t border-(--omp-border-muted) pt-3">
+				<div className="flex items-center gap-2">
+					<TimeoutFooter remaining={remaining} />
+					{unansweredCount > 0 && (
+						<span className="text-omp-xs text-(--omp-warning)">
+							{t("extDialog.ask.unanswered", { count: unansweredCount })}
+						</span>
+					)}
 				</div>
-			</form>
-		</Modal>
+				<div className="flex gap-2">
+					<Button onClick={onCancel} size="sm" type="button" variant="ghost">
+						{t("common.cancel")}
+					</Button>
+					<Button onClick={() => onSubmit({ kind: "chat" })} size="sm" type="button" variant="secondary">
+						{t("extDialog.ask.chat")}
+					</Button>
+					<Button size="sm" type="submit" variant="primary">
+						{t("extDialog.submit")}
+					</Button>
+				</div>
+			</div>
+		</form>
+	);
+}
+
+type EditorRequest = Extract<ExtensionUIRequest, { method: "editor" }>;
+
+function PromptEditorForm({
+	request,
+	onValue,
+	onCancel,
+}: {
+	request: EditorRequest;
+	onValue: (value: string) => void;
+	onCancel: () => void;
+}) {
+	const t = useT();
+	const [value, setValue] = useState(request.prefill ?? "");
+	return (
+		<form
+			className="space-y-3"
+			onSubmit={event => {
+				event.preventDefault();
+				onValue(value);
+			}}
+		>
+			<textarea
+				autoFocus
+				className="min-h-24 w-full resize-y rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-3 py-2 text-omp-md leading-relaxed text-(--omp-text) outline-none focus:border-(--omp-input-focus-border) focus:shadow-(--omp-input-glow)"
+				onChange={event => setValue(event.target.value)}
+				value={value}
+			/>
+			<div className="flex justify-end gap-2">
+				<Button onClick={onCancel} size="sm" type="button" variant="ghost">
+					{t("common.cancel")}
+				</Button>
+				<Button size="sm" type="submit" variant="primary">
+					{t("extDialog.submit")}
+				</Button>
+			</div>
+		</form>
+	);
+}
+
+export function ExtensionAskPanel() {
+	const pending = useExtensionUiStore(state => state.pendingRequests);
+	const removeRequest = useExtensionUiStore(state => state.removeRequest);
+	const request = useMemo(() => pending.find(item => !NON_DIALOG_METHODS.has(item.method)) ?? null, [pending]);
+	const remaining = useCountdown(request);
+	const t = useT();
+
+	if (!request || !isInlineAskRequest(request)) return null;
+	const respond = (response: { value: string } | { askDialog: ExtensionAskDialogResult } | { cancelled: true }) => {
+		window.omp.ui.respondExtensionUi({ type: "extension_ui_response", id: request.id, ...response });
+		removeRequest(request.id);
+	};
+	const cancel = () => respond({ cancelled: true });
+	let content: ReactNode;
+	if (request.method === "askDialog") {
+		content = (
+			<AskForm
+				key={request.id}
+				onCancel={cancel}
+				onSubmit={result => respond({ askDialog: result })}
+				remaining={remaining}
+				request={request}
+			/>
+		);
+	} else if (request.method === "select") {
+		content = (
+			<SelectForm
+				key={request.id}
+				onCancel={cancel}
+				onValue={value => respond({ value })}
+				remaining={remaining}
+				request={request}
+			/>
+		);
+	} else {
+		content = (
+			<PromptEditorForm key={request.id} onCancel={cancel} onValue={value => respond({ value })} request={request} />
+		);
+	}
+	const title = request.method === "askDialog" ? t("extDialog.ask.title") : request.title;
+
+	return (
+		<div className="omp-composer-region relative shrink-0 bg-transparent pb-1" data-extension-ask-inline>
+			<section
+				aria-label={title}
+				className="omp-composer-shell max-h-[min(44vh,420px)] w-full overflow-y-auto rounded-xl border border-(--omp-border-accent) bg-(--omp-bg-elevated) px-4 py-3 shadow-(--omp-shadow-md)"
+			>
+				<div className="mb-3 text-omp-sm font-semibold tracking-wide text-(--omp-accent)">{title}</div>
+				{content}
+			</section>
+		</div>
 	);
 }
 
@@ -603,15 +726,7 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 				/>
 			);
 		case "askDialog":
-			return (
-				<AskDialog
-					key={request.id}
-					onCancel={cancel}
-					onSubmit={result => respond({ askDialog: result })}
-					remaining={remaining}
-					request={request}
-				/>
-			);
+			return null;
 		case "ask":
 			// Upstream's opt-in protocol (enabled via set_ask_dialog at session
 			// start): same dialog, but the wire wants one `answers` entry per
@@ -661,7 +776,7 @@ export function ExtensionDialog() {
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 
-	const request = useMemo(() => pending.find(req => !NON_DIALOG_METHODS.has(req.method)) ?? null, [pending]);
+	const request = useMemo(() => pending.find(item => !NON_DIALOG_METHODS.has(item.method)) ?? null, [pending]);
 	const remaining = useCountdown(request);
 
 	// Consume non-dialog requests in place. Editor/title mutations must target
@@ -710,7 +825,7 @@ export function ExtensionDialog() {
 	return (
 		<>
 			<ExtensionSurfaces />
-			{request && <ActiveDialog remaining={remaining} request={request} />}
+			{request && !isInlineAskRequest(request) && <ActiveDialog remaining={remaining} request={request} />}
 		</>
 	);
 }

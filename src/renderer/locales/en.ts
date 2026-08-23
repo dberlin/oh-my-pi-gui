@@ -2943,6 +2943,8 @@ export const en: Record<string, string> = {
 	"activitySidebar.resizeTrees": "Resize Todo and Agents sections",
 	"activitySidebar.plan.off": "Off",
 	"activitySidebar.goal.empty": "No active goal",
+	"activitySidebar.conversations.label": "Conversations",
+	"activitySidebar.conversations.empty": "No conversations",
 	"activitySidebar.collapseSection": "Collapse {section}",
 	"activitySidebar.expandSection": "Expand {section}",
 	"activitySidebar.agents.empty": "No subagents",

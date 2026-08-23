@@ -10,7 +10,6 @@ export interface MessageProjection {
 	deliveredKeys: Set<string>;
 }
 
-
 function assistantToolCallIds(message: AgentMessage): string[] {
 	if (message.role !== "assistant" || !Array.isArray(message.content)) return [];
 	const ids: string[] = [];
@@ -286,6 +285,7 @@ function mergeRunMessages(current: AgentMessage[], run: AgentMessage[]): AgentMe
 	}
 	return merged;
 }
+
 export function createMessageProjection(): MessageProjection {
 	return {
 		messages: [],
@@ -431,7 +431,6 @@ export function applyMessageProjectionEvents(
 		deliveredKeys,
 	};
 }
-
 
 export const createMessagesStore = () =>
 	createStore<MessagesStore>()((set, get) => ({

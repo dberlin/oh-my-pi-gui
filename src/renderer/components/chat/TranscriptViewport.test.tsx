@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { useAgentViewStore } from "../../stores/agent-view";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
@@ -153,6 +154,7 @@ afterEach(async () => {
 	container?.remove();
 	container = undefined;
 	root = undefined;
+	useAgentViewStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useQueueStore.setState({ steering: [], followUp: [] });
 	useSessionStore.getState().reset();
@@ -315,7 +317,7 @@ describe("TranscriptViewport compact tool visibility", () => {
 		expect(specializedBody?.textContent).toContain("1 match");
 	});
 
-	it("keeps live compact reasoning disclosed while tools and answer text remain visible", async () => {
+	it("keeps tools and answer text visible when live compact reasoning collapses", async () => {
 		seedLiveCompactGrep();
 
 		await mount(<ChatStream />);
@@ -326,12 +328,24 @@ describe("TranscriptViewport compact tool visibility", () => {
 		const reasoningDisclosure = liveTurn?.querySelector(".omp-execution-group");
 		const toolCard = liveTurn?.querySelector(".omp-tool-card");
 		const answerContainer = liveTurn?.querySelector(".omp-streaming");
-		expect(reasoningDisclosure?.querySelector(".omp-thinking-block")?.textContent).toContain(
-			"Live compact reasoning",
-		);
+		expect(reasoningDisclosure?.textContent).toContain("Live compact reasoning");
 		expect(toolCard?.querySelector(".omp-tool-name")?.textContent).toBe("grep");
-		expect(reasoningDisclosure?.querySelector(".omp-tool-card")).toBeNull();
 		expect(answerContainer?.textContent).toContain("Streaming answer after tools");
+
+		const reasoningToggle = reasoningDisclosure?.querySelector("button");
+		if (!reasoningToggle) throw new Error("Live reasoning disclosure missing");
+		await act(async () => {
+			reasoningToggle.click();
+		});
+
+		expect(liveTurn?.textContent).not.toContain("Live compact reasoning");
+		expect(liveTurn?.textContent).toContain("grep");
+		expect(liveTurn?.textContent).toContain("Streaming answer after tools");
+
+		await act(async () => {
+			reasoningToggle.click();
+		});
+		expect(liveTurn?.textContent).toContain("Live compact reasoning");
 	});
 
 	it("keeps a timestamp-less live compact turn scoped to its current same-millisecond tool after settlement", async () => {
@@ -738,11 +752,10 @@ describe("TranscriptViewport reasoning disclosure", () => {
 		};
 	}
 
-	/** The live row shows a compact preview, the finalized bubble a descriptor header. */
 	function disclosureState(): string | null | undefined {
 		if (!container) throw new Error("disclosure mount missing");
 		return (container as unknown as HTMLElement)
-			.querySelector(".omp-thinking-compact-toggle, .omp-thinking-header")
+			.querySelector(".omp-thinking-block button[aria-expanded]")
 			?.getAttribute("aria-expanded");
 	}
 
@@ -751,7 +764,7 @@ describe("TranscriptViewport reasoning disclosure", () => {
 		await mount(<TranscriptViewport mode="subagent" projection={projection(true)} />);
 
 		if (!container) throw new Error("disclosure mount missing");
-		const toggle = (container as unknown as HTMLElement).querySelector(".omp-thinking-compact-toggle");
+		const toggle = (container as unknown as HTMLElement).querySelector(".omp-thinking-block button[aria-expanded]");
 		await act(async () => {
 			toggle?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 		});
@@ -766,6 +779,14 @@ describe("TranscriptViewport reasoning disclosure", () => {
 				</I18nProvider>,
 			);
 		});
+		// Completed process groups start collapsed; opening the group must reveal
+		// the reasoning with the choice made while this turn was live.
+		const completedGroupToggle = (container as unknown as HTMLElement).querySelector(".omp-execution-group-header");
+		if (!completedGroupToggle) throw new Error("Completed reasoning disclosure missing");
+		await act(async () => {
+			completedGroupToggle.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+
 
 		expect(disclosureState()).toBe("true");
 	});
@@ -793,6 +814,12 @@ describe("TranscriptViewport reasoning disclosure", () => {
 			],
 			queued: { steering: [], followUp: [] },
 			isChat: false,
+			tabId: undefined,
+			hasLiveToolsForStream: false,
+			lastAppended: [],
+			transcriptPinNonce: 0,
+			transcriptView: null,
+			saveTranscriptView: () => {},
 		};
 
 		const snapshotToggle = () =>

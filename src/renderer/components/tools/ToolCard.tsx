@@ -3,6 +3,7 @@ import { Component, type ComponentType, type ErrorInfo, useEffect, useRef, useSt
 import { cx, durationBetween } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
+import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { reportRuntimeError } from "../../lib/runtime-errors";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { scopedDisclosureKey, TOOL_DISCLOSURE_PREFIX, useDisclosureScope, useUiStore } from "../../stores/ui";
@@ -66,7 +67,7 @@ class ToolRendererErrorBoundary extends Component<ToolRendererErrorBoundaryProps
 
 	render() {
 		const Renderer = this.state.failed ? GenericRenderer : this.props.component;
-		return <Renderer {...this.props.rendererProps} />;
+		return <Renderer key={this.props.rendererProps.view} {...this.props.rendererProps} />;
 	}
 }
 
@@ -161,7 +162,7 @@ function ToolCardContent({
 		settled: !isPartial,
 		view,
 	};
-	const showsCollapsedPreview = peerIrc || (!isPartial && (effective.mode === "help" || effective.mcp != null));
+	const showsCollapsedPreview = peerIrc || effective.mcp != null || !isPartial;
 	// An output-less interruption has no outcome for a specialized renderer.
 	const Renderer =
 		isAborted && effective.result == null && effective.partialResult == null
@@ -273,6 +274,8 @@ function ToolCardContent({
 				<div
 					className={cx(
 						"omp-fade-in border-t border-[var(--omp-border-muted)]/70 px-3.5 py-2.5",
+						!expanded && PREVIEW_SCROLL_SM,
+						!expanded && "omp-tool-preview-scroll",
 						expanded || definition.shell === "compact" ? "omp-tool-body" : "omp-tool-preview",
 					)}
 				>

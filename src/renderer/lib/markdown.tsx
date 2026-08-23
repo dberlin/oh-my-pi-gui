@@ -468,8 +468,8 @@ function LocalMarkdownImage({ path, alt, title }: { path: string; alt: string; t
 	const [resolved, setResolved] = useState<{ url: string } | { error: true } | null>(null);
 	useEffect(() => {
 		let cancelled = false;
-		window.omp.fs
-			.readImage(path, tabId ?? undefined)
+		const request = tabId ? window.omp.fs.readImage(path, tabId) : window.omp.fs.readImage(path);
+		request
 			.then(result => {
 				if (!cancelled) setResolved(result.ok && result.dataUrl ? { url: result.dataUrl } : { error: true });
 			})

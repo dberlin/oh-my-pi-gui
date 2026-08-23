@@ -472,160 +472,6 @@
 	overflow-anchor: none;
 }
 
-.omp-conversation-nav {
-	position: absolute;
-	z-index: 20;
-	top: 14px;
-	bottom: 18px;
-	left: 8px;
-	display: flex;
-	flex-direction: column;
-	justify-content: center;
-	width: 34px;
-	pointer-events: none;
-}
-
-.omp-conversation-nav-stack {
-	display: flex;
-	flex-direction: column;
-	gap: clamp(5px, 0.8vh, 8px);
-	width: 100%;
-	max-height: 100%;
-}
-
-.omp-conversation-nav-stack.is-dense {
-	gap: 3px;
-}
-
-.omp-conversation-nav-stack.is-compact {
-	gap: 0;
-}
-
-.omp-conversation-nav-slot {
-	position: relative;
-	flex: 0 1 12px;
-	min-height: 2px;
-	width: 100%;
-}
-
-.omp-conversation-nav-stack.is-compact .omp-conversation-nav-slot {
-	flex-basis: 9px;
-}
-
-.omp-conversation-nav-marker {
-	position: absolute;
-	inset: 0;
-	width: 34px;
-	height: 100%;
-	border: 0;
-	background: transparent;
-	pointer-events: auto;
-	cursor: pointer;
-}
-
-.omp-conversation-nav-marker::after {
-	content: "";
-	position: absolute;
-	top: 50%;
-	left: 8px;
-	width: 8px;
-	height: 2px;
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--omp-muted) 56%, transparent);
-	transform: translateY(-50%);
-	transition: width var(--omp-motion-fast) var(--omp-ease), background-color var(--omp-motion-fast) var(--omp-ease);
-}
-
-.omp-conversation-nav-marker:hover::after,
-.omp-conversation-nav-marker:focus-visible::after {
-	width: 18px;
-	background: var(--omp-muted);
-}
-
-.omp-conversation-nav-marker.is-active {
-	z-index: 1;
-}
-
-.omp-conversation-nav-marker.is-active::after {
-	width: 28px;
-	height: 3px;
-	background: var(--omp-text);
-}
-
-.omp-conversation-nav-marker:focus-visible {
-	outline: none;
-}
-
-.omp-conversation-nav-marker:focus-visible::before {
-	content: "";
-	position: absolute;
-	inset: 1px -24px 1px -4px;
-	border: 1px solid var(--omp-accent);
-	border-radius: 5px;
-}
-
-.omp-conversation-nav-preview {
-	position: absolute;
-	left: 42px;
-	top: 50%;
-	width: min(360px, calc(100vw - 110px));
-	max-height: 184px;
-	padding: 14px 16px;
-	border: 1px solid var(--omp-border);
-	border-radius: 14px;
-	background: var(--omp-bg-elevated);
-	box-shadow: var(--omp-shadow-lg);
-	transform: translateY(-50%);
-	pointer-events: none;
-	overflow: hidden;
-}
-
-.omp-conversation-nav-slot:nth-child(-n + 5):not(:nth-last-child(-n + 5)) .omp-conversation-nav-preview {
-	top: 0;
-	transform: none;
-}
-
-.omp-conversation-nav-slot:nth-last-child(-n + 5):not(:nth-child(-n + 5)) .omp-conversation-nav-preview {
-	top: auto;
-	bottom: 0;
-	transform: none;
-}
-
-.omp-conversation-nav-preview-kicker {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	margin-bottom: 7px;
-	color: var(--omp-dim);
-	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
-	font-weight: 650;
-	letter-spacing: 0.02em;
-}
-
-.omp-conversation-nav-preview-kicker time {
-	font-family: var(--font-mono);
-	font-weight: 500;
-}
-
-.omp-conversation-nav-preview p {
-	display: -webkit-box;
-	margin: 0;
-	overflow: hidden;
-	color: var(--omp-text);
-	font-size: calc(var(--gui-font-size, 15px) * 14 / 15);
-	font-weight: 580;
-	line-height: 1.55;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 4;
-}
-
-.omp-conversation-nav-preview-hint {
-	display: block;
-	margin-top: 8px;
-	color: var(--omp-muted);
-	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
-}
 
 .omp-editorial-transcript .omp-transcript-row {
 	position: relative;
@@ -878,6 +724,24 @@
 	overflow: auto;
 	overscroll-behavior: contain;
 	scrollbar-gutter: stable;
+}
+
+.omp-tool-preview-scroll {
+	overscroll-behavior: contain;
+	scrollbar-width: none;
+}
+
+.omp-tool-preview-scroll *,
+.omp-tool-preview-scroll *::before,
+.omp-tool-preview-scroll *::after {
+	scrollbar-width: none;
+}
+
+.omp-tool-preview-scroll::-webkit-scrollbar,
+.omp-tool-preview-scroll *::-webkit-scrollbar {
+	display: none;
+	width: 0;
+	height: 0;
 }
 
 .omp-tool-card[data-tool-shell="compact"] .omp-tool-header[aria-expanded="true"] + .omp-tool-body {
@@ -1222,12 +1086,19 @@
 
 
 
-.omp-empty-canvas,
-.omp-composer-shell {
+.omp-empty-canvas {
 	width: min(100%, calc(var(--omp-column-reading) + 2 * var(--omp-column-pad)));
 	min-width: 0;
 	max-width: 100%;
 	margin-inline: auto;
+	padding-inline: var(--omp-column-pad);
+}
+
+.omp-composer-shell {
+	width: 100%;
+	min-width: 0;
+	max-width: 100%;
+	margin-inline: 0;
 	padding-inline: var(--omp-column-pad);
 }
 

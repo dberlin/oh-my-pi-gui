@@ -436,6 +436,7 @@ describe("tabs store boot reconciliation", () => {
 			status: "ready",
 			sessionId: "s-old",
 		});
+		const oldRuntime = sessionRuntime("t0");
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: "old-agent" });
 		omp.tabs.list.mockResolvedValue([
 			{ ...tabInfo("t0", "/alpha"), sessionId: "s-new" },
@@ -445,6 +446,7 @@ describe("tabs store boot reconciliation", () => {
 
 		await useTabsStore.getState().reconcileTabs();
 
+		expect(sessionRuntime("t0")).not.toBe(oldRuntime);
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
 	});
 });
@@ -700,7 +702,7 @@ describe("tabs store switch", () => {
 		expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["ui-t1"]);
 	});
 
-	it("restores the current tool projection generation and repeated-id routing with its tab bundle", async () => {
+	it("retains repeated-id tool routing across tab switches", async () => {
 		seedTabs();
 		const historicalCall: ToolCallContent = {
 			type: "toolCall",
@@ -755,29 +757,23 @@ describe("tabs store switch", () => {
 		const restoredHistoricalCall = restoredCalls.find(call => call.arguments.path === "/history");
 		const restoredLiveCall = restoredCalls.find(call => call.arguments.path === "/live");
 		expect(restoredHistoricalCall).toEqual(historicalCall);
-		expect(restoredHistoricalCall).not.toBe(historicalCall);
 		expect(restoredLiveCall).toEqual(liveCall);
-		expect(restoredLiveCall).not.toBe(liveCall);
 
 		const restoredTools = useToolsStore.getState();
 		const restoredHistorical = resolveMainToolCall(restoredHistoricalCall!);
 		const restoredLive = resolveMainToolCall(restoredLiveCall!);
-		expect(restoredTools.streamGeneration).toBe(1);
 		expect(restoredTools.activeTools).toHaveLength(2);
 		expect(restoredHistorical.entry).toMatchObject({
 			args: { path: "/history" },
 			status: "done",
-			streamGeneration: 0,
 			result: {
 				content: [{ type: "text", text: "historical output" }],
 				details: null,
 			},
 		});
-		expect(restoredHistorical.entry?.streamGeneration).not.toBe(restoredTools.streamGeneration);
 		expect(restoredLive.entry).toMatchObject({
 			args: { path: "/live" },
 			status: "pending",
-			streamGeneration: 1,
 		});
 		expect(restoredHistorical.key).not.toBe(restoredLive.key);
 
@@ -807,14 +803,12 @@ describe("tabs store switch", () => {
 		const settledHistorical = resolveMainToolCall(restoredHistoricalCall!);
 		const settledLive = resolveMainToolCall(restoredLiveCall!);
 
-		expect(settledAfterRestore.streamGeneration).toBe(1);
 		expect(settledAfterRestore.activeTools).toHaveLength(2);
 		expect(settledHistorical.key).toBe(restoredHistorical.key);
 		expect(settledHistorical.entry).toMatchObject({
 			args: { path: "/history" },
 			status: "done",
 			partialResult: null,
-			streamGeneration: 0,
 			result: {
 				content: [{ type: "text", text: "historical output" }],
 				details: null,
@@ -826,7 +820,6 @@ describe("tabs store switch", () => {
 			status: "done",
 			partialResult: { bytes: 12 },
 			result: "live final output",
-			streamGeneration: 1,
 		});
 	});
 
@@ -1225,8 +1218,6 @@ describe("tabs store close", () => {
 		const setActiveOrder = omp.tabs.setActive.mock.invocationCallOrder[0];
 		const closeOrder = omp.tabs.close.mock.invocationCallOrder[0];
 		expect(setActiveOrder!).toBeLessThan(closeOrder!);
-		// The closed tab's parked bundle is gone.
-		expect(state.bundles.has("t1")).toBe(false);
 	});
 
 	it("closing the last tab in the strip activates its left neighbor", async () => {
@@ -1426,6 +1417,7 @@ describe("tabs store applyTabStatus", () => {
 			status: "ready",
 			sessionId: "s-old",
 		});
+		const oldRuntime = sessionRuntime("t0");
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: "old-agent" });
 
 		useTabsStore.getState().applyTabStatus({
@@ -1437,6 +1429,7 @@ describe("tabs store applyTabStatus", () => {
 			sessionId: "s-new",
 		});
 
+		expect(sessionRuntime("t0")).not.toBe(oldRuntime);
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
 	});
 });

@@ -19,6 +19,7 @@ import {
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { ActivitySidebar } from "../chat/activity/ActivitySidebar";
+import type { ConversationNavigationModel } from "../chat/ConversationNavigator";
 
 interface FocusIdentity {
 	section: string;
@@ -215,7 +216,13 @@ function findFocusTarget(rail: HTMLElement, identity: FocusIdentity): HTMLElemen
 	);
 }
 
-export function WorkspaceCanvas({ children }: { children: ReactNode }) {
+export function WorkspaceCanvas({
+	children,
+	conversationNavigation,
+}: {
+	children: ReactNode;
+	conversationNavigation?: ConversationNavigationModel | null;
+}) {
 	const t = useT();
 	const focusedTabId = useTabsStore(state => state.activeTabId);
 	const runtimeTabId = useRuntimeTabId();
@@ -404,7 +411,11 @@ export function WorkspaceCanvas({ children }: { children: ReactNode }) {
 				ref={railRegionRef}
 				style={{ width: `${compact ? ACTIVITY_SIDEBAR_COMPACT_WIDTH : displayedWidth}px` }}
 			>
-				<ActivitySidebar activeTabId={activeTabId ?? ""} compact={compact} />
+				<ActivitySidebar
+					activeTabId={activeTabId ?? ""}
+					compact={compact}
+					conversationNavigation={conversationNavigation}
+				/>
 			</div>
 		</div>
 	);

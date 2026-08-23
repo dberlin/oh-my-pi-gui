@@ -1108,7 +1108,7 @@ describe("Main ChatStream characterization", () => {
 
 
 
-	it("keeps finalized, live, navigation, and Main-only rows on the shared scroll surface", async () => {
+	it("keeps finalized, live, and Main-only rows on the shared scroll surface", async () => {
 		const streamStartedAt = Date.parse("2026-08-05T04:00:05.000Z");
 		const liveTool: ToolEntry = {
 			toolName: "bash",

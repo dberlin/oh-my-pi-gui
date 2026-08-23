@@ -12,22 +12,44 @@ import { toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { SubagentTranscript } from "../panels/SubagentTranscript";
 import { hasStreamingTranscriptContent } from "./chat-stream-utils";
+import type { ConversationNavigationModel } from "./ConversationNavigator";
 import { TranscriptViewport } from "./TranscriptViewport";
 
 /** Selected-target canvas adapter. Main and projected transcripts share the same workspace slot. */
-export function ChatCanvas() {
+export function ChatCanvas({
+	onConversationNavigationChange,
+}: {
+	onConversationNavigationChange?: (navigation: ConversationNavigationModel | null) => void;
+}) {
 	const mainSelected = useAgentViewStore(state => state.target.kind === "main");
-	return mainSelected ? <ChatStream /> : <SubagentTranscript />;
+	return mainSelected ? (
+		<ChatStream onConversationNavigationChange={onConversationNavigationChange} />
+	) : (
+		<SubagentTranscript />
+	);
 }
 
 /** Main-session store adapter for the shared transcript surface. */
-export function ChatStream() {
+export function ChatStream({
+	onConversationNavigationChange,
+}: {
+	onConversationNavigationChange?: (navigation: ConversationNavigationModel | null) => void;
+}) {
 	const tabId = useRuntimeTabId();
 	const sessionId = useSessionStore(state => state.sessionId);
-	return <MainTranscript key={`${tabId ?? ""}:${sessionId}`} />;
+	return (
+		<MainTranscript
+			key={`${tabId ?? ""}:${sessionId}`}
+			onConversationNavigationChange={onConversationNavigationChange}
+		/>
+	);
 }
 
-function MainTranscript() {
+function MainTranscript({
+	onConversationNavigationChange,
+}: {
+	onConversationNavigationChange?: (navigation: ConversationNavigationModel | null) => void;
+}) {
 	const tabId = useRuntimeTabId();
 	const messages = useMessagesStore(state => state.messages);
 	const liveMessages = useMessagesStore(state => state.liveMessages);
@@ -97,6 +119,7 @@ function MainTranscript() {
 				transcriptView,
 				saveTranscriptView,
 			}}
+			onConversationNavigationChange={onConversationNavigationChange}
 		/>
 	);
 }

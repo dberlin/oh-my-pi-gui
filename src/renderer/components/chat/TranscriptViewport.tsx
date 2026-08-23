@@ -32,7 +32,7 @@ import { scopedDisclosureKey, type TranscriptDetail, useDisclosureScope, useUiSt
 import { PiLogo } from "../common";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
-import { ConversationNavigator } from "./ConversationNavigator";
+import { ConversationNavigator, type ConversationNavigationModel } from "./ConversationNavigator";
 import {
 	buildConversationAnchors,
 	buildHistoryRows,
@@ -104,9 +104,12 @@ export interface MainTranscriptAugments {
 	saveTranscriptView: (view: TranscriptView) => void;
 }
 
-export type TranscriptViewportProps =
+export type TranscriptViewportProps = (
 	| { mode: "main"; projection: TranscriptProjectionView; main: MainTranscriptAugments }
-	| { mode: "subagent"; projection: TranscriptProjectionView };
+	| { mode: "subagent"; projection: TranscriptProjectionView }
+) & {
+	onConversationNavigationChange?: (navigation: ConversationNavigationModel | null) => void;
+};
 
 const EMPTY_QUEUED: MainTranscriptAugments["queued"] = { steering: [], followUp: [] };
 const EMPTY_TODO_HISTORY: readonly TodoSnapshot[] = [];
@@ -123,6 +126,7 @@ export function TranscriptViewport(props: TranscriptViewportProps) {
 function TranscriptViewportContent(props: TranscriptViewportProps) {
 	const t = useT();
 	const { projection } = props;
+	const { onConversationNavigationChange } = props;
 	const isMain = props.mode === "main";
 	const main = isMain ? props.main : null;
 	const {
@@ -499,6 +503,26 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 			return next;
 		});
 	}, []);
+
+	useEffect(() => {
+		if (!onConversationNavigationChange) return;
+		onConversationNavigationChange(
+			isMain
+				? {
+						activeIndex: activeConversationIndex,
+						anchors: conversationAnchors,
+						onNavigate: jumpToConversation,
+					}
+				: null,
+		);
+	}, [activeConversationIndex, conversationAnchors, isMain, jumpToConversation, onConversationNavigationChange]);
+
+	useEffect(
+		() => () => {
+			onConversationNavigationChange?.(null);
+		},
+		[onConversationNavigationChange],
+	);
 
 	return (
 		<>

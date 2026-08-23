@@ -140,10 +140,8 @@ function sidecarFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): SidecarM
 function localProjectCwdForWindow(deps: IpcDeps, win: BrowserWindow, tabId?: string | null): string | null {
 	const tab = tabId ? deps.sidecarPool.tabsForWindow(win).find(candidate => candidate.tabId === tabId) : undefined;
 	if (tab?.target.type === "local") return tab.cwd;
-	if (!tabId) {
-		const active = deps.sidecarPool.entryForWindow(win);
-		if (active?.target.type === "local") return active.sidecar.cwd;
-	}
+	const active = deps.sidecarPool.entryForWindow(win);
+	if ((!tabId || !tab) && active?.target.type === "local") return active.sidecar.cwd;
 	return deps.windowManager.recordFor(win)?.cwd ?? null;
 }
 

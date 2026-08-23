@@ -248,6 +248,60 @@ describe("ToolCard adaptive rendering", () => {
 		expect(errorCard.textContent).toContain("MCP_ERROR_TAIL");
 	});
 
+	it("previews authoritative context execution output instead of the outer write response", async () => {
+		const innerArgs = { language: "shell", code: "printf actual" };
+		const outerArgs = {
+			path: "xd://mcp__context_mode_ctx_execute",
+			content: JSON.stringify(innerArgs),
+		};
+		const actualOutput = [
+			"```shell",
+			"printf actual",
+			"```",
+			"",
+			"ACTUAL_CONTEXT_EXECUTION_RESULT",
+			"second line",
+			"third line",
+			"fourth line",
+			"fifth line",
+			"sixth line",
+			"seventh line",
+			"EIGHTH_SCROLLABLE_OUTPUT_LINE",
+		].join("\n");
+		const outerResult = resultEnvelope("OUTER_WRITE_RESPONSE_NOT_EXECUTION_OUTPUT", {
+			xdev: {
+				tool: "mcp__context_mode_ctx_execute",
+				mode: "execute",
+				args: innerArgs,
+				inner: {
+					serverName: "context-mode",
+					mcpToolName: "ctx_execute",
+					rawContent: [{ type: "text", text: actualOutput }],
+					success: true,
+				},
+			},
+		});
+		const card = await mountCard({
+			toolCallId: "context-execute-preview",
+			toolName: "write",
+			args: outerArgs,
+			entry: completedEntry("write", outerArgs, outerResult),
+		});
+
+		expect(card.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+		expect(card.textContent).toContain("language: shell");
+		const resultPreview = card.querySelector("[data-mcp-result-preview]");
+		expect(resultPreview?.textContent).toContain("ACTUAL_CONTEXT_EXECUTION_RESULT");
+		expect(resultPreview?.textContent).toContain("EIGHTH_SCROLLABLE_OUTPUT_LINE");
+		expect(resultPreview?.textContent).not.toContain("printf actual");
+		expect(card.textContent).not.toContain("OUTER_WRITE_RESPONSE_NOT_EXECUTION_OUTPUT");
+
+		await toggleCard(card);
+		expect(card.textContent).toContain("ACTUAL_CONTEXT_EXECUTION_RESULT");
+		expect(card.textContent).toContain("printf actual");
+		expect(card.textContent).not.toContain("OUTER_WRITE_RESPONSE_NOT_EXECUTION_OUTPUT");
+	});
+
 	it("exposes localized statuses and only announces actual status transitions", async () => {
 		const toolCallId = "accessible-status";
 		const args = { pattern: "src/status/*" };
@@ -553,18 +607,16 @@ describe("ToolCard adaptive rendering", () => {
 			entry: completedEntry("hub", processArgs, resultEnvelope("PROCESS_RESULT", { op: "send", state: "ready" })),
 		});
 
-		expect(peerCard.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-		expect(peerCard.querySelector(".omp-tool-name")?.textContent).toBe("IRC");
+		expect(processCard.querySelector(".omp-tool-preview")?.textContent).toContain("debugger");
+		expect(processCard.querySelector(".omp-tool-preview")?.textContent).toContain("ready");
 		expect(peerCard.querySelector(".omp-tool-summary")?.textContent).toBe("→ PlanReviewer");
 		expect(peerCard.querySelector(".omp-tool-preview")?.textContent).toContain("PEER_IRC_BODY");
 		expect(peerCard.textContent).toContain("IRC");
 		expect(processCard.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
 		expect(processCard.querySelector(".omp-tool-name")?.textContent).toBe("hub");
-		expect(processCard.querySelector(".omp-tool-preview")).toBeNull();
-		expect(processCard.textContent).not.toContain("PROCESS_RESULT");
 	});
 
-	it("keeps a collapsed Bash framed body unmounted", async () => {
+	it("previews completed framed output while the card stays collapsed", async () => {
 		const args = { command: "printf shell-output" };
 		const card = await mountCard({
 			toolCallId: "bash-framed",
@@ -574,9 +626,21 @@ describe("ToolCard adaptive rendering", () => {
 		});
 
 		expect(card.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-		expect(card.textContent).not.toContain("BASH_FRAME_BODY");
-		await toggleCard(card);
 		expect(card.textContent).toContain("BASH_FRAME_BODY");
+	});
+
+	it("keeps running framed output hidden until disclosure", async () => {
+		const args = { command: "printf pending" };
+		const card = await mountCard({
+			toolCallId: "bash-running-framed",
+			toolName: "bash",
+			args,
+			entry: runningEntry("bash", args, resultEnvelope("LIVE_PARTIAL_BODY")),
+		});
+
+		expect(card.textContent).not.toContain("LIVE_PARTIAL_BODY");
+		await toggleCard(card);
+		expect(card.textContent).toContain("LIVE_PARTIAL_BODY");
 	});
 
 	it("reports and isolates a renderer exception to the failing entry", async () => {
@@ -620,6 +684,32 @@ describe("ToolCard adaptive rendering", () => {
 				details: expect.objectContaining({ boundary: "tool-renderer", tool: "lsp" }),
 			}),
 		);
+
+		await toggleCard(broken);
+		expect(broken.textContent).toContain("RENDERER_FALLBACK_BODY");
+		await toggleCard(broken);
+		expect(broken.textContent).toContain("RENDERER_FALLBACK_BODY");
+		expect(reportRuntimeError).toHaveBeenCalledTimes(1);
+	});
+
+	it("restores the bounded raw preview after expanding nested output", async () => {
+		const args = { request: "inspect" };
+		const card = await mountCard({
+			toolCallId: "nested-raw-preview",
+			toolName: "unknown-tool",
+			args,
+			entry: completedEntry(
+				"unknown-tool",
+				args,
+				resultEnvelope(JSON.stringify({ outer: { inner: { message: "NESTED_EXPANDED_ONLY" } } })),
+			),
+		});
+
+		expect(card.textContent).not.toContain("NESTED_EXPANDED_ONLY");
+		await toggleCard(card);
+		expect(card.textContent).toContain("NESTED_EXPANDED_ONLY");
+		await toggleCard(card);
+		expect(card.textContent).not.toContain("NESTED_EXPANDED_ONLY");
 	});
 
 	it("preserves local disclosure state across a live partial update", async () => {

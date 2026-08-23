@@ -11,7 +11,6 @@ import type { ToolRendererProps } from "./ToolCard";
 type ParsedJson = { parsed: true; value: unknown } | { parsed: false };
 const PREVIEW_ARGUMENT_ENTRIES = 2;
 const PREVIEW_ARGUMENT_VALUE_CHARS = 480;
-const PREVIEW_RESULT_LINES = 4;
 const PREVIEW_RESULT_CHARS = 960;
 
 function boundedText(text: string, maxChars: number): string {
@@ -61,18 +60,7 @@ function argumentExcerpt(args: Record<string, unknown>): string {
 }
 
 function resultExcerpt(body: string): string {
-	let end = 0;
-	let line = 1;
-	while (end < body.length && end < PREVIEW_RESULT_CHARS) {
-		const character = body.charCodeAt(end);
-		if (character === 10 || character === 13) {
-			if (line === PREVIEW_RESULT_LINES) break;
-			line += 1;
-			if (character === 13 && body.charCodeAt(end + 1) === 10) end += 1;
-		}
-		end += 1;
-	}
-	return boundedText(body.slice(0, end).replace(/\r\n?/gu, "\n"), PREVIEW_RESULT_CHARS);
+	return boundedText(body.replace(/\r\n?/gu, "\n"), PREVIEW_RESULT_CHARS);
 }
 
 function parseJson(text: string): ParsedJson {
@@ -90,6 +78,27 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 	return value != null && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: undefined;
+}
+
+function contextExecutionPreviewBody(body: string, details: Record<string, unknown> | undefined): string {
+	const metadata = asRecord(details?.mcpMeta) ?? details;
+	const serverName = metadata?.serverName;
+	const toolName = metadata?.mcpToolName;
+	if (
+		serverName !== "context-mode" ||
+		(toolName !== "ctx_execute" && toolName !== "ctx_execute_file" && toolName !== "ctx_batch_execute")
+	) {
+		return body;
+	}
+
+	const normalized = body.replace(/\r\n?/gu, "\n");
+	const firstContent = normalized.search(/\S/u);
+	if (firstContent < 0 || !normalized.startsWith("```", firstContent)) return normalized;
+	const openingLineEnd = normalized.indexOf("\n", firstContent + 3);
+	if (openingLineEnd < 0) return normalized;
+	const closingFence = normalized.indexOf("\n```", openingLineEnd + 1);
+	if (closingFence < 0) return normalized;
+	return normalized.slice(closingFence + 4).replace(/^\s*\n/u, "");
 }
 
 function safeImageDataUrl(value: unknown): string | null {
@@ -164,7 +173,7 @@ export function McpRenderer({ args, result, isError, isPartial, partialResult, v
 		? (safeImageDataUrl(effective) ?? safeImageDataUrl(rawContent) ?? safeImageDataUrl(mcpRawContent))
 		: null;
 	const previewArgs = expanded ? "" : argumentExcerpt(args);
-	const previewResult = expanded ? "" : resultExcerpt(body);
+	const previewResult = expanded ? "" : resultExcerpt(contextExecutionPreviewBody(body, details));
 	const hasResult = body.length > 0 || image != null || Boolean(isError);
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -241,6 +250,7 @@ export function McpRenderer({ args, result, isError, isPartial, partialResult, v
 						</>
 					) : previewResult ? (
 						<pre
+							data-mcp-result-preview
 							className={`whitespace-pre-wrap break-all rounded px-2 py-1.5 font-mono text-omp-xs leading-[1.4] ${
 								isError
 									? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
