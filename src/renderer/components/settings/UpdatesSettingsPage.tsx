@@ -9,7 +9,7 @@ import { useUpdaterStore } from "../../stores/updater";
 import { Button, Spinner } from "../common";
 
 function appLatest(status: UpdateStatus): string {
-	if ("version" in status) return status.version;
+	if ("version" in status && status.version) return status.version;
 	return "—";
 }
 

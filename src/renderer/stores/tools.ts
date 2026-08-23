@@ -80,7 +80,6 @@ function timestampMs(value: string | number | undefined, fallback: number): numb
 }
 const mainCallEntryKeys = new WeakMap<object, ToolCallEntryBinding>();
 
-
 function occurrenceEntryKey(callId: string, occurrence: number): string {
 	return occurrence === 0 ? callId : `\u0000omp-tool:${JSON.stringify([callId, occurrence])}`;
 }
@@ -390,7 +389,6 @@ export function resolveProjectionToolCall(projection: ToolProjection, call: Tool
 	const key = projection.callEntryKeys.get(call)?.key ?? projection.latestEntryKeyByCallId.get(call.id) ?? call.id;
 	return { key, entry: projection.activeTools.get(key) };
 }
-
 
 /** Resolve the occurrence-specific store key for one Main transcript tool call. */
 export function toolEntryKey(call: { id: string }): string {

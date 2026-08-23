@@ -227,7 +227,7 @@ export async function restoreQueuedMessages(onEmpty: () => void): Promise<void> 
  */
 export async function clearSessionContext(
 	rpc: Pick<TabRpc, "clearContext"> = window.omp.rpc,
-	hydrate: () => Promise<void> = hydrateSession,
+	hydrate: () => Promise<unknown> = hydrateSession,
 ): Promise<boolean> {
 	const response = await rpc.clearContext();
 	if (!response.success) {

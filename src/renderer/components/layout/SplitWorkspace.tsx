@@ -17,6 +17,8 @@ import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { type SplitAxis, type SplitPlacement, tabDisplayTitle, useTabsStore } from "../../stores/tabs";
 import { AgentViewContextBar } from "../chat/AgentViewContextBar";
 import { ChatCanvas } from "../chat/ChatStream";
+import type { ConversationNavigationModel } from "../chat/ConversationNavigator";
+import { ExtensionAskPanel } from "../dialogs/ExtensionDialog";
 import { InputArea } from "./InputArea";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 
@@ -60,6 +62,7 @@ function SplitDropOverlay({ placement }: { placement: SplitPlacement }) {
 
 function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; label: string }) {
 	const t = useT();
+	const [conversationNavigation, setConversationNavigation] = useState<ConversationNavigationModel | null>(null);
 	const runtime = ensureTabRuntime(tabId);
 	const tab = useTabsStore(state => state.tabs.find(entry => entry.id === tabId));
 	const active = useTabsStore(state => state.activeTabId === tabId);
@@ -112,11 +115,12 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 					</header>
 				)}
 				<AgentViewContextBar />
-				<WorkspaceCanvas>
+				<WorkspaceCanvas conversationNavigation={conversationNavigation}>
 					<div className="flex min-h-0 min-w-0 flex-1" data-chat-canvas>
-						<ChatCanvas />
+						<ChatCanvas onConversationNavigationChange={setConversationNavigation} />
 					</div>
 				</WorkspaceCanvas>
+				<ExtensionAskPanel />
 				<InputArea />
 			</section>
 		</SessionRuntimeProvider>

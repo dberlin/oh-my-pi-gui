@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { ExtensionUIResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useExtensionUiStore } from "../../stores/extension-ui";
-import { ExtensionDialog } from "./ExtensionDialog";
+import { ExtensionAskPanel, ExtensionDialog } from "./ExtensionDialog";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -49,6 +49,7 @@ async function mount(): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
+				<ExtensionAskPanel />
 				<ExtensionDialog />
 			</I18nProvider>,
 		);
@@ -63,6 +64,20 @@ function buttonWithText(text: string): TestElement | undefined {
 async function click(element: TestElement): Promise<void> {
 	await act(async () => {
 		element.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+	});
+	await flush();
+}
+
+async function changeTextarea(element: HTMLTextAreaElement, value: string): Promise<void> {
+	const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value");
+	if (descriptor?.set) descriptor.set.call(element, value);
+	else element.value = value;
+	const record = element as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$"));
+	const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void }) : undefined;
+	await act(async () => {
+		if (props?.onChange) props.onChange({ target: element, currentTarget: element });
+		else element.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
 	});
 	await flush();
 }
@@ -83,6 +98,28 @@ function showAskDialog(): void {
 				recommended: 0,
 			},
 		],
+	});
+}
+
+function showLegacyAskSelect(): void {
+	useExtensionUiStore.getState().pushRequest({
+		type: "extension_ui_request",
+		id: "ask-select-1",
+		method: "select",
+		title: "Where should this deploy?",
+		options: ["Staging", "Production (Recommended)", "Other (type your own)"],
+		optionDetails: [{ description: "Safe environment" }, { description: "All users" }, {}],
+	});
+}
+
+function showLegacyAskEditor(): void {
+	useExtensionUiStore.getState().pushRequest({
+		type: "extension_ui_request",
+		id: "ask-editor-1",
+		method: "editor",
+		title: "Where should this deploy? › Other",
+		prefill: "",
+		promptStyle: true,
 	});
 }
 
@@ -129,6 +166,8 @@ describe("ExtensionDialog askDialog", () => {
 	it("returns the wire submit discriminator and renders the selected option preview", async () => {
 		await mount();
 		await act(async () => showAskDialog());
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+		expect(document.querySelector("[data-extension-ask-inline]")).not.toBeNull();
 
 		const production = buttonWithText("Production");
 		if (!production) throw new Error("missing Production option");
@@ -172,6 +211,46 @@ describe("ExtensionDialog askDialog", () => {
 			type: "extension_ui_response",
 			id: "ask-1",
 			askDialog: { kind: "chat" },
+		});
+	});
+});
+
+describe("ExtensionDialog legacy ask fallback", () => {
+	it("renders select questions inline and returns the selected label", async () => {
+		await mount();
+		await act(async () => showLegacyAskSelect());
+
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+		expect(document.querySelector("[data-extension-ask-inline]")).not.toBeNull();
+		const staging = buttonWithText("Staging");
+		if (!staging) throw new Error("missing Staging option");
+		await click(staging);
+
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "ask-select-1",
+			value: "Staging",
+		});
+	});
+
+	it("renders prompt-style custom answers inline and returns the entered text", async () => {
+		await mount();
+		await act(async () => showLegacyAskEditor());
+
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+		expect(document.querySelector("[data-extension-ask-inline]")).not.toBeNull();
+		const textarea = document.querySelector("textarea");
+		if (!textarea) throw new Error("missing inline custom-answer editor");
+		await changeTextarea(textarea, "Canary");
+		const form = document.querySelector("form");
+		if (!form) throw new Error("missing inline custom-answer form");
+		await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+		await flush();
+
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "ask-editor-1",
+			value: "Canary",
 		});
 	});
 });

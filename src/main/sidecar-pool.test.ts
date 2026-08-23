@@ -251,6 +251,7 @@ describe("SidecarPool session targets", () => {
 				kind: "agent",
 				status: "ready",
 				active: true,
+				visible: true,
 				placeholder: false,
 				sessionPath: null,
 			},

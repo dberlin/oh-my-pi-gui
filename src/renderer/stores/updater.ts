@@ -82,11 +82,8 @@ export const useUpdaterStore = create<UpdaterStore>()((set, get) => ({
 
 /** Wire the main-process push + boot replay once (App mount). Returns unsubscribe. */
 export function subscribeUpdaterStatus(): () => void {
-	const unsubscribe = window.omp.events.onUpdaterStatus(status => {
-		useUpdaterStore.getState().setStatus(status);
-	});
-	void window.omp.updater.getStatus().then(status => {
-		useUpdaterStore.getState().setStatus(status);
-	});
+	const applyStatus = (status: UpdateStatus) => useUpdaterStore.getState().setStatus(status);
+	const unsubscribe = window.omp.events.onUpdaterStatus(applyStatus);
+	void window.omp.updater.getStatus().then(applyStatus);
 	return unsubscribe;
 }

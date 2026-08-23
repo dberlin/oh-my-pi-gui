@@ -43,13 +43,18 @@ import {
 	type SessionRuntime,
 	sessionRuntime,
 	sessionRuntimeStore,
-	type TabCommand,
 	withSessionRuntime,
+	type TabCommand,
 } from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
 import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
-import { consumePendingSession, invalidatePendingSessionGeneration, isTabClosed, useTabsStore } from "../stores/tabs";
+import {
+	consumePendingSession,
+	invalidatePendingSessionGeneration,
+	isTabClosed,
+	useTabsStore,
+} from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
@@ -680,7 +685,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			if (disposed || closedTabFrame(routedTabId)) return;
 			statusVersion++;
 			const statusTabId = routedTabId || useTabsStore.getState().activeTabId;
-			const isFocused = () => useTabsStore.getState().activeTabId === statusTabId;
+			const isFocused = (): boolean => useTabsStore.getState().activeTabId === statusTabId;
 			if (statusTabId !== null && (payload.status === "starting" || payload.status === "ready")) {
 				useTabsStore.setState(current => ({
 					tabs: current.tabs.map(tab => (tab.id === statusTabId ? { ...tab, status: payload.status } : tab)),

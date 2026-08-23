@@ -127,17 +127,41 @@ afterEach(async () => {
 });
 
 describe("ActivitySidebar", () => {
-	it("keeps Plan, Goal, Todo, and Agents headers mounted in approved order", async () => {
+	it("keeps Plan, Goal, Conversations, Todo, and Agents headers mounted in approved order", async () => {
 		await mount(<ActivitySidebar activeTabId="tab-a" compact={false} />);
 		expect(
 			[...container.querySelectorAll("[data-activity-section]")].map(node =>
 				node.getAttribute("data-activity-section"),
 			),
-		).toEqual(["plan", "goal", "todo", "agents"]);
+		).toEqual(["plan", "goal", "conversations", "todo", "agents"]);
 		const rail = container.querySelector<HTMLElement>("[data-activity-rail]")!;
 		expect(rail.children).toHaveLength(3);
 		expect((rail.children[1] as HTMLElement).hasAttribute("data-activity-meta-rows")).toBe(true);
 		expect((rail.children[2] as HTMLElement).hasAttribute("data-activity-tree-area")).toBe(true);
+	});
+
+	it("expands conversations after Goal and jumps to the selected transcript row", async () => {
+		const onNavigate = vi.fn();
+		await mount(
+			<ActivitySidebar
+				activeTabId="tab-a"
+				compact={false}
+				conversationNavigation={{
+					activeIndex: 1,
+					anchors: [
+						{ key: "one", rowIndex: 3, preview: "First question", timestamp: 100 },
+						{ key: "two", rowIndex: 9, preview: "Second question", timestamp: 200 },
+						{ key: "three", rowIndex: 14, preview: "Third question", timestamp: 300 },
+					],
+					onNavigate,
+				}}
+			/>,
+		);
+
+		await click(button(/Expand Conversations/));
+		expect(container.textContent).toContain("First question");
+		await click(button(/Jump to conversation 3 of 3: Third question/));
+		expect(onNavigate).toHaveBeenCalledWith(14);
 	});
 
 	it("starts balanced and commits one clamped pointer split", async () => {
@@ -184,7 +208,7 @@ describe("ActivitySidebar", () => {
 		);
 		expect(heights).toEqual([46, 46]);
 		const sectionHeaders = container.querySelectorAll<HTMLElement>("[data-activity-section-header]");
-		expect(sectionHeaders).toHaveLength(4);
+		expect(sectionHeaders).toHaveLength(5);
 		expect([...sectionHeaders].every(header => header.style.height === "23px")).toBe(true);
 		expect(separator.getAttribute("aria-disabled")).toBe("true");
 		act(() => useActivitySidebarStore.getState().setSplitRatio(0.8));
@@ -234,7 +258,7 @@ describe("ActivitySidebar", () => {
 		await resize("[data-activity-rail]", 420);
 		await click(button("Expand Plan"));
 		const detail = container.querySelector<HTMLElement>("[data-activity-meta-detail='plan']")!;
-		expect(Number.parseInt(detail.style.maxHeight, 10)).toBe(176);
+		expect(Number.parseInt(detail.style.maxHeight, 10)).toBe(151);
 	});
 
 	it("renders compact counts and reveals a requested tree with focus", async () => {

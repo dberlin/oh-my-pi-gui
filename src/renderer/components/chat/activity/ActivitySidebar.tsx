@@ -1,4 +1,4 @@
-import { Bot, ChevronRight, ListTodo, PanelRightClose } from "lucide-react";
+import { Bot, ChevronRight, ListTodo, MessagesSquare, PanelRightClose } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type PointerEvent as ReactPointerEvent,
@@ -15,6 +15,7 @@ import { useAgentViewStore } from "../../../stores/agent-view";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTodoStore } from "../../../stores/todo";
 import { PanelErrorBoundary } from "../../common/PanelErrorBoundary";
+import type { ConversationNavigationModel } from "../ConversationNavigator";
 import { ActivityMetaRows } from "./ActivityMetaRows";
 import { ActivitySection } from "./ActivitySection";
 import { AgentTree, useAgentRosterPolling } from "./AgentTree";
@@ -23,7 +24,7 @@ import { TodoTree } from "./TodoTree";
 const ACTIVITY_RAIL_HEADER_HEIGHT = 40;
 const ACTIVITY_SECTION_HEADER_HEIGHT = 25;
 const ACTIVITY_TREE_SEPARATOR_HEIGHT = 8;
-const RESERVED_SECTION_HEADERS = 4;
+const RESERVED_SECTION_HEADERS = 5;
 
 function useObservedHeight<T extends HTMLElement>(): [RefObject<T | null>, number] {
 	const ref = useRef<T>(null);
@@ -101,7 +102,13 @@ function treeGeometry(height: number, ratio: number, todoCollapsed: boolean, age
 	};
 }
 
-function CompactActivityLauncher({ activeTabId }: { activeTabId: string }) {
+function CompactActivityLauncher({
+	activeTabId,
+	conversationNavigation,
+}: {
+	activeTabId: string;
+	conversationNavigation?: ConversationNavigationModel | null;
+}) {
 	const t = useT();
 	const todoCount = useTodoStore(state => state.phases.reduce((count, phase) => count + phase.tasks.length, 0));
 	const hasLiveTodo = useTodoStore(state =>
@@ -124,6 +131,17 @@ function CompactActivityLauncher({ activeTabId }: { activeTabId: string }) {
 				type="button"
 			>
 				<ChevronRight size={16} />
+			</button>
+			<button
+				aria-label={`${t("activitySidebar.conversations.label")} ${conversationNavigation?.anchors.length ?? 0}`}
+				className="omp-pressable relative flex size-8 items-center justify-center rounded-lg"
+				onClick={() => revealSection("conversations", activeTabId)}
+				type="button"
+			>
+				<MessagesSquare size={15} />
+				<span className="absolute right-0 bottom-0 text-omp-xxs tabular-nums">
+					{conversationNavigation?.anchors.length ?? 0}
+				</span>
 			</button>
 			<button
 				aria-label={`${t("activitySidebar.todo.label")} ${todoCount}${hasLiveTodo ? `, ${t("todoPanel.status.inProgress")}` : ""}`}
@@ -163,7 +181,15 @@ function CompactActivityLauncher({ activeTabId }: { activeTabId: string }) {
 	);
 }
 
-export function ActivitySidebar({ compact, activeTabId }: { compact: boolean; activeTabId: string }) {
+export function ActivitySidebar({
+	compact,
+	activeTabId,
+	conversationNavigation,
+}: {
+	compact: boolean;
+	activeTabId: string;
+	conversationNavigation?: ConversationNavigationModel | null;
+}) {
 	useAgentRosterPolling();
 	const t = useT();
 	const routeReady = useActiveTabRouteReady();
@@ -247,7 +273,9 @@ export function ActivitySidebar({ compact, activeTabId }: { compact: boolean; ac
 		setSplitRatio(clamp(effectiveRatio + amount * direction, geometry.minimumRatio, geometry.maximumRatio));
 	};
 
-	if (compact) return <CompactActivityLauncher activeTabId={activeTabId} />;
+	if (compact) {
+		return <CompactActivityLauncher activeTabId={activeTabId} conversationNavigation={conversationNavigation} />;
+	}
 
 	return (
 		<aside
@@ -269,7 +297,11 @@ export function ActivitySidebar({ compact, activeTabId }: { compact: boolean; ac
 					<PanelRightClose size={15} />
 				</button>
 			</header>
-			<ActivityMetaRows maxDetailHeight={metadataBudget} readOnly={readOnly} />
+			<ActivityMetaRows
+				conversationNavigation={conversationNavigation}
+				maxDetailHeight={metadataBudget}
+				readOnly={readOnly}
+			/>
 			<div
 				className="grid min-h-0"
 				data-activity-tree-area

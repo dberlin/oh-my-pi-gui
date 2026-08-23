@@ -4,6 +4,17 @@ Fork-specific changes relative to `nornzach/oh-my-pi-gui`. The shared `CHANGELOG
 
 ## [Unreleased]
 
+### Changed
+
+- Agent questions now render inline above the composer so the transcript remains scrollable while choosing an answer.
+- Completed tool cards now expose bounded, scrollbar-free collapsed previews that remain wheel- and touch-scrollable; context-mode cards show actual execution output rather than echoed commands.
+- The composer now fills the available workspace width with standard horizontal gutters.
+- Conversation jumping now lives in an expandable Activity section after Goal instead of a persistent marker rail beside the transcript.
+
+### Fixed
+
+- Update error banners can now be dismissed permanently for the affected release without hiding future release warnings.
+
 ## Imported fork history
 
 ### Update

@@ -1,5 +1,5 @@
-import { createStore } from "zustand/vanilla";
 import { z } from "zod";
+import { createStore } from "zustand/vanilla";
 import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
 import { type AgentViewStore, useAgentViewStore } from "./agent-view";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
