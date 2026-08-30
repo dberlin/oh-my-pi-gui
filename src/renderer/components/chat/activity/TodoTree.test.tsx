@@ -560,4 +560,29 @@ describe("TodoTree", () => {
 			{ name: "\u001b[32mBuild\u001b[0m", tasks: [{ content, status: "in_progress" }] },
 		]);
 	});
+
+	it("reveals the recorded blocker when hovering a blocked task", async () => {
+		useTodoStore
+			.getState()
+			.setPhases([phase("Build", [{ content: "ship it", status: "blocked", blocker: "waiting on review" }])]);
+		await mount(<TodoTree readOnly={false} />);
+
+		expect(text("ship it").getAttribute("title")).toContain("waiting on review");
+	});
+
+	it("preserves the blocker when a task is edited, so renaming does not erase it", async () => {
+		useTodoStore
+			.getState()
+			.setPhases([phase("Build", [{ content: "ship it", status: "blocked", blocker: "waiting on review" }])]);
+		await mount(<TodoTree readOnly={false} />);
+
+		await doubleClick(text("ship it"));
+		const input = container.querySelector<HTMLInputElement>("input");
+		if (!input) throw new Error("Missing task editor");
+		await typeInto(input, "ship it later");
+		await keyDown(input, "Enter");
+		expect(setTodos).toHaveBeenLastCalledWith([
+			{ name: "Build", tasks: [{ content: "ship it later", status: "blocked", blocker: "waiting on review" }] },
+		]);
+	});
 });
