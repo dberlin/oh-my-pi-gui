@@ -6,7 +6,6 @@ import {
 	FIND_HIGHLIGHT,
 	flattenTextNodes,
 	paintFindHighlights,
-	supportsFindHighlight,
 } from "./transcript-find-highlight";
 
 const { document } = parseHTML("<html><body></body></html>");
@@ -100,30 +99,45 @@ describe("flattenTextNodes", () => {
 describe("paintFindHighlights", () => {
 	it("registers non-current occurrences under omp-find and the current one under omp-find-current", () => {
 		const element = row("<p>needle one needle two</p>");
-		paintFindHighlights([{ rowElement: element, occurrences: [0, 1], currentOccurrence: 1 }], "needle");
+		paintFindHighlights([{ rowElement: element, currentOccurrence: 1 }], "needle");
 		expect(registry.get(FIND_HIGHLIGHT)).toHaveLength(1);
 		expect(registry.get(FIND_CURRENT_HIGHLIGHT)).toHaveLength(1);
 		expect(registry.get(FIND_CURRENT_HIGHLIGHT)?.[0]?.startOffset).toBe(11);
 	});
 
+	it("paints every DOM occurrence of the needle in a flagged row, not just the ones the index's occurrence count named", () => {
+		// The index's occurrenceInRow and this module's DOM occurrence count are
+		// only approximate (see the module docblock): a row's index-side text
+		// (markdown source, JSON.stringify'd tool args) can diverge from its
+		// rendered DOM text. A row the index flagged as a match must still have
+		// every DOM occurrence of the needle painted, even when the DOM has more
+		// occurrences than the index recorded for that row.
+		const element = row("<p>needle needle needle</p>");
+		// currentOccurrence deliberately points past the end, simulating a
+		// divergence between the index's count and the DOM's — it must not
+		// suppress painting the other two occurrences.
+		paintFindHighlights([{ rowElement: element, currentOccurrence: 99 }], "needle");
+		expect(registry.get(FIND_HIGHLIGHT)).toHaveLength(3);
+		expect(registry.get(FIND_CURRENT_HIGHLIGHT)).toHaveLength(0);
+	});
+
 	it("spans element boundaries", () => {
 		const element = row("<p>a nee<em>dle</em> b</p>");
-		paintFindHighlights([{ rowElement: element, occurrences: [0], currentOccurrence: null }], "needle");
+		paintFindHighlights([{ rowElement: element, currentOccurrence: null }], "needle");
 		const range = registry.get(FIND_HIGHLIGHT)?.[0];
 		expect(range?.startContainer).not.toBe(range?.endContainer);
 	});
 
 	it("clears both highlights", () => {
-		paintFindHighlights([{ rowElement: row("<p>needle</p>"), occurrences: [0], currentOccurrence: 0 }], "needle");
+		paintFindHighlights([{ rowElement: row("<p>needle</p>"), currentOccurrence: 0 }], "needle");
 		clearFindHighlights();
 		expect(registry.size).toBe(0);
 	});
 
 	it("degrades to a no-op without CSS.highlights instead of throwing", () => {
 		Reflect.deleteProperty(globalThis as Record<string, unknown>, "CSS");
-		expect(supportsFindHighlight()).toBe(false);
 		expect(() =>
-			paintFindHighlights([{ rowElement: row("<p>needle</p>"), occurrences: [0], currentOccurrence: 0 }], "needle"),
+			paintFindHighlights([{ rowElement: row("<p>needle</p>"), currentOccurrence: 0 }], "needle"),
 		).not.toThrow();
 		expect(() => clearFindHighlights()).not.toThrow();
 	});

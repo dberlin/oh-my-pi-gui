@@ -6,7 +6,7 @@ Fork-specific changes relative to `nornzach/oh-my-pi-gui`. The shared `CHANGELOG
 
 ### Added
 
-- **Find in transcript**: ⌘F opens a find bar over the transcript that searches the whole conversation — including text folded inside collapsed thinking blocks, tool results, and todo snapshots that are not currently on screen. ↵ walks matches backwards through history, ⇧↵ forwards, matches are highlighted with ticks on the scroll rail, and wrapping is announced rather than silent.
+- **Find in transcript**: ⌘F (or ⌃F) opens a find bar over the transcript that searches the whole conversation — including text folded inside collapsed thinking blocks, tool results, and todo snapshots that are not currently on screen. ↵ and ⌘G walk matches backwards through history, ⇧↵ and ⇧⌘G forwards (the ⌘G chords work with focus anywhere in the pane); matches are washed in amber with the current one solid, a tick strip along the transcript's right edge shows where the hits sit while find is open, and wrapping past either end is announced rather than silent.
 
 ### Changed
 

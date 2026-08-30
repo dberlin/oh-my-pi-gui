@@ -1106,39 +1106,49 @@ describe("TranscriptViewport find", () => {
 		// clearFindHighlights write to a single process-wide CSS.highlights
 		// registry, so two mounted viewports must never both have find open —
 		// the second open must end the first.
+		// linkedom's `document.activeElement` isn't writable, so it's redefined
+		// here — restored in `finally` (mirroring useTranscriptFind.test.tsx's
+		// restore helper) so later tests in this file don't inherit whichever
+		// pane last claimed focus.
+		const originalActiveElement = Object.getOwnPropertyDescriptor(document, "activeElement");
 		function focusOverride(target: unknown): void {
 			Object.defineProperty(document, "activeElement", { configurable: true, get: () => target });
 		}
 
-		const messagesA: AgentMessage[] = [{ role: "user", content: "needle in pane A", timestamp: 7_000 }];
-		const messagesB: AgentMessage[] = [{ role: "user", content: "needle in pane B", timestamp: 7_100 }];
-		await mount(
-			<>
-				<div data-pane="a">
-					<TranscriptViewport
-						mode="main"
-						projection={findProjection(messagesA, "find-pane-a")}
-						main={FIND_MAIN_AUGMENTS}
-					/>
-				</div>
-				<div data-pane="b">
-					<TranscriptViewport mode="subagent" projection={findProjection(messagesB, "find-pane-b")} />
-				</div>
-			</>,
-		);
-		const mounted = container as unknown as HTMLElement;
-		const paneA = mounted.querySelector<HTMLElement>('[data-pane="a"] .omp-transcript-editorial');
-		const paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .omp-transcript-editorial');
-		if (!paneA || !paneB) throw new Error("find panes missing");
+		try {
+			const messagesA: AgentMessage[] = [{ role: "user", content: "needle in pane A", timestamp: 7_000 }];
+			const messagesB: AgentMessage[] = [{ role: "user", content: "needle in pane B", timestamp: 7_100 }];
+			await mount(
+				<>
+					<div data-pane="a">
+						<TranscriptViewport
+							mode="main"
+							projection={findProjection(messagesA, "find-pane-a")}
+							main={FIND_MAIN_AUGMENTS}
+						/>
+					</div>
+					<div data-pane="b">
+						<TranscriptViewport mode="subagent" projection={findProjection(messagesB, "find-pane-b")} />
+					</div>
+				</>,
+			);
+			const mounted = container as unknown as HTMLElement;
+			const paneA = mounted.querySelector<HTMLElement>('[data-pane="a"] .omp-transcript-editorial');
+			const paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .omp-transcript-editorial');
+			if (!paneA || !paneB) throw new Error("find panes missing");
 
-		focusOverride(paneA);
-		dispatchFind("open");
-		expect(paneA.querySelector("[data-find-input]")).not.toBeNull();
-		expect(paneB.querySelector("[data-find-input]")).toBeNull();
+			focusOverride(paneA);
+			dispatchFind("open");
+			expect(paneA.querySelector("[data-find-input]")).not.toBeNull();
+			expect(paneB.querySelector("[data-find-input]")).toBeNull();
 
-		focusOverride(paneB);
-		dispatchFind("open");
-		expect(paneB.querySelector("[data-find-input]")).not.toBeNull();
-		expect(paneA.querySelector("[data-find-input]")).toBeNull();
+			focusOverride(paneB);
+			dispatchFind("open");
+			expect(paneB.querySelector("[data-find-input]")).not.toBeNull();
+			expect(paneA.querySelector("[data-find-input]")).toBeNull();
+		} finally {
+			if (originalActiveElement) Object.defineProperty(document, "activeElement", originalActiveElement);
+			else Reflect.deleteProperty(document as unknown as Record<string, unknown>, "activeElement");
+		}
 	});
 });

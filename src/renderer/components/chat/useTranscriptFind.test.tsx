@@ -9,6 +9,7 @@ import { useTabsStore } from "../../stores/tabs";
 import { scopedDisclosureKey, useUiStore } from "../../stores/ui";
 import type { Row } from "./chat-stream-utils";
 import type { TranscriptFindContext } from "./transcript-find";
+import { clearFindHighlights, paintFindHighlights } from "./transcript-find-highlight";
 import {
 	TRANSCRIPT_FIND_EVENT,
 	type TranscriptFindAction,
@@ -18,6 +19,11 @@ import {
 	type TranscriptFindVirtualizer,
 	useTranscriptFind,
 } from "./useTranscriptFind";
+
+vi.mock("./transcript-find-highlight", async () => {
+	const actual = await vi.importActual<typeof import("./transcript-find-highlight")>("./transcript-find-highlight");
+	return { ...actual, paintFindHighlights: vi.fn(), clearFindHighlights: vi.fn() };
+});
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const installedGlobals = {
@@ -361,5 +367,105 @@ describe("useTranscriptFind", () => {
 		stubSelection("Projected finalized", rootDiv);
 		dispatchFind("open", { fallback: true });
 		expect(state.query).toBe("Projected finalized");
+	});
+
+	it("repaints matches when the virtualizer's rendered range changes, even though matches/current/open are unchanged", async () => {
+		// On a plain scroll, rows/rowKeys/context are memoized and the virtualizer
+		// instance is stable, so matches/current/open never change — only the
+		// mounted (rendered) range does. The repaint effect must still re-run, or
+		// a match scrolled out of view and back stays unhighlighted.
+		const paintMock = vi.mocked(paintFindHighlights);
+		paintMock.mockClear();
+		await mountDefault();
+		act(() => state.setQuery("needle"));
+		dispatchFind("open");
+		await act(async () => {
+			await new Promise(resolve => setTimeout(resolve, 0));
+		});
+		const callsAfterOpen = paintMock.mock.calls.length;
+		expect(callsAfterOpen).toBeGreaterThan(0);
+
+		await rerenderHost({
+			virtualizer: { ...host.virtualizer, range: { startIndex: 4, endIndex: 8 } },
+		});
+		await act(async () => {
+			await new Promise(resolve => setTimeout(resolve, 0));
+		});
+		expect(paintMock.mock.calls.length).toBeGreaterThan(callsAfterOpen);
+	});
+
+	it("does not clear another instance's highlights just because a new instance mounts", async () => {
+		// clearFindHighlights writes to the single process-wide CSS.highlights
+		// registry. A second mounted instance (e.g. a newly expanded subagent
+		// panel) must not wipe it out from under the first instance's open find
+		// session just by mounting for the first time.
+		const clearMock = vi.mocked(clearFindHighlights);
+		await mountDefault();
+		act(() => state.setQuery("needle"));
+		dispatchFind("open");
+		await act(async () => {
+			await new Promise(resolve => setTimeout(resolve, 0));
+		});
+		clearMock.mockClear();
+
+		const second = makeHost({ transcriptId: "sub-panel" });
+		await mount(<Probe host={second.host} onState={() => {}} />);
+
+		expect(clearMock).not.toHaveBeenCalled();
+	});
+
+	it("recomputes tick fractions when the virtualizer's rendered range/measurements change, even though its instance identity is stable", async () => {
+		// The real @tanstack/react-virtual instance keeps one object identity for
+		// its whole life — only its fields (range, measured offsets) change on
+		// scroll — so the ticks memo must not depend on that identity alone.
+		await mountDefault();
+		act(() => state.setQuery("needle"));
+		dispatchFind("open");
+		const before = state.ticks;
+
+		const mutableVirtualizer = host.virtualizer as {
+			getOffsetForIndex: TranscriptFindVirtualizer["getOffsetForIndex"];
+			getTotalSize: () => number;
+			range: { startIndex: number; endIndex: number } | null;
+		};
+		// Deliberately not a uniform rescaling of the original 100/1000 (which
+		// would happen to reproduce the same fractions by coincidence).
+		mutableVirtualizer.getOffsetForIndex = index => [index * 300, "start"] as const;
+		mutableVirtualizer.getTotalSize = () => 4000;
+		mutableVirtualizer.range = { startIndex: 4, endIndex: 8 };
+		await rerenderHost({});
+
+		expect(state.ticks).not.toEqual(before);
+	});
+
+	it("closes find on Escape even when focus is not in the query input (e.g. after clicking a transcript row)", async () => {
+		// TranscriptFindBar's own Escape handler lives on the query input and
+		// never sees this key once focus has moved elsewhere in the pane.
+		await mountDefault();
+		act(() => state.setQuery("needle"));
+		dispatchFind("open");
+		expect(state.open).toBe(true);
+
+		focusInside(rootDiv);
+		const event = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "key", { value: "Escape" });
+		act(() => {
+			rootDiv.dispatchEvent(event);
+		});
+
+		expect(state.open).toBe(false);
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("does not re-save the pre-find scroll position when opening while already open", async () => {
+		// ⌘F → navigate → ⌘F → Esc must restore the *pre-find* view, not the
+		// match position at the moment of the second ⌘F.
+		await mountDefault();
+		act(() => state.setQuery("needle"));
+		dispatchFind("open"); // saves scrollTop 640 (host.scrollRef.current.scrollTop at open)
+		if (host.scrollRef.current) host.scrollRef.current.scrollTop = 999; // simulates landing on a match
+		dispatchFind("open"); // re-select while already open — must not resave 999
+		act(() => state.close());
+		expect(offsets.at(-1)).toBe(640);
 	});
 });

@@ -94,7 +94,6 @@ export interface TranscriptFindState {
 	current: number | null;
 	wrapped: boolean;
 	ticks: readonly FindTick[];
-	matches: readonly TranscriptMatch[];
 	goOlder: () => void;
 	goNewer: () => void;
 	close: () => void;
@@ -128,6 +127,9 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	const indexRef = useRef<TranscriptFindIndex>(EMPTY_FIND_INDEX);
 	const savedViewRef = useRef<SavedView | null>(null);
 	const inputRef = useRef<HTMLInputElement | null>(null);
+	// Guards the transcriptId reset effect against running on this instance's
+	// own mount — see the comment above that effect.
+	const didMountRef = useRef(false);
 	const scope = useDisclosureScope();
 	// Stable per-instance identity for the single-open-session broadcast below.
 	// A plain object (not a string) is enough: it never leaves this same JS
@@ -185,7 +187,13 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	}, [matches, current, landOn]);
 
 	const doOpen = useCallback(() => {
-		savedViewRef.current = { scrollTop: host.scrollRef.current?.scrollTop ?? 0, pinned: host.pinned };
+		// Only the transition into find saves the pre-find view. Opening while
+		// already open (re-selecting the query) must not overwrite it with the
+		// current match position, or ⌘F → navigate → ⌘F → Esc would restore the
+		// match instead of where the user actually was before find opened.
+		if (!open) {
+			savedViewRef.current = { scrollTop: host.scrollRef.current?.scrollTop ?? 0, pinned: host.pinned };
+		}
 		const selection = window.getSelection?.();
 		const selectionText = selection?.toString() ?? "";
 		// Containment is checked through the selection's own range, not
@@ -209,7 +217,7 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 			inputRef.current?.focus();
 			inputRef.current?.select();
 		});
-	}, [host]);
+	}, [host, open]);
 
 	const close = useCallback(() => {
 		setOpen(false);
@@ -294,8 +302,18 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	// Transcript switch: scroll intent, pinned state, and the size cache already
 	// reset elsewhere in the viewport on transcriptId change — find state must
 	// follow the same rule rather than carrying a stale query/highlight across.
+	// Skipped on mount (didMountRef): this effect runs unconditionally the first
+	// time any effect runs, transcriptId change or not, and clearFindHighlights
+	// writes to the single process-wide CSS.highlights registry — a *new*
+	// instance mounting (e.g. expanding a subagent panel while find is already
+	// open in the main transcript) must not wipe another instance's highlights
+	// just because it mounted.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: transcriptId is the explicit reset trigger, not read in the body
 	useEffect(() => {
+		if (!didMountRef.current) {
+			didMountRef.current = true;
+			return;
+		}
 		setOpen(false);
 		setQuery("");
 		setCurrent(null);
@@ -303,12 +321,40 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 		clearFindHighlights();
 	}, [host.transcriptId]);
 
+	// Escape closes find even when focus has moved elsewhere in the pane (e.g.
+	// after clicking a message row) — TranscriptFindBar's own Escape handler
+	// only fires while the query input itself has focus. A listener on rootRef
+	// intercepts the key during the native DOM bubble phase, which reaches this
+	// node before it reaches the window-level listener in App.tsx that aborts
+	// the running turn, so preventDefault() here reliably wins regardless of
+	// listener registration order (App.tsx itself is not modified).
+	useEffect(() => {
+		const root = host.rootRef.current;
+		if (!root) return;
+		function handleKeyDown(event: KeyboardEvent): void {
+			if (event.key !== "Escape" || !liveRef.current.open) return;
+			event.preventDefault();
+			liveRef.current.doClose();
+		}
+		root.addEventListener("keydown", handleKeyDown);
+		return () => root.removeEventListener("keydown", handleKeyDown);
+	}, [host.rootRef]);
+
+	// The virtualizer instance itself is stable (@tanstack/react-virtual keeps
+	// one object identity for its whole life), so a plain scroll changes only
+	// its `range` field, not its reference. Both the repaint effect below and
+	// the ticks memo must react to that field directly, or a match scrolled out
+	// of view and back stays unhighlighted, and tick fractions freeze.
+	const rangeStart = host.virtualizer.range?.startIndex ?? null;
+	const rangeEnd = host.virtualizer.range?.endIndex ?? null;
+
 	// Repaint: must run after the scroll and after any disclosure reveal
 	// commits, so it is scheduled with requestAnimationFrame and cancelled on
 	// cleanup, exactly like the viewport's existing pinned-follow effect.
-	// host/needle come through liveRef so the effect's own deps can stay
-	// exactly [matches, current, open] as specified.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: matches is the explicit repaint trigger; host/needle are read through liveRef
+	// host/needle come through liveRef so the effect doesn't need them as deps;
+	// rangeStart/rangeEnd are read directly (not through liveRef) purely to
+	// retrigger the effect when the mounted row set changes.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: matches/rangeStart/rangeEnd are the explicit repaint triggers; host/needle are read through liveRef
 	useEffect(() => {
 		if (!open) return;
 		const { host: liveHost, matches: liveMatches, needle } = liveRef.current;
@@ -316,19 +362,19 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 		if (!root) return;
 		const frame = requestAnimationFrame(() => {
 			const currentMatch = current != null ? liveMatches[current] : undefined;
+			const matchesByRow = new Map<number, TranscriptMatch[]>();
+			for (const match of liveMatches) {
+				const list = matchesByRow.get(match.rowIndex);
+				if (list) list.push(match);
+				else matchesByRow.set(match.rowIndex, [match]);
+			}
 			const byRow = new Map<number, FindHighlightTarget>();
 			for (const element of Array.from(root.querySelectorAll("[data-index]"))) {
 				const rowIndex = Number((element as HTMLElement).dataset.index);
-				if (!Number.isFinite(rowIndex)) continue;
-				const rowMatches = liveMatches.filter(m => m.rowIndex === rowIndex);
-				if (rowMatches.length === 0) continue;
+				if (!Number.isFinite(rowIndex) || !matchesByRow.has(rowIndex)) continue;
 				const currentOccurrence =
 					currentMatch && currentMatch.rowIndex === rowIndex ? currentMatch.locator.occurrenceInRow : null;
-				byRow.set(rowIndex, {
-					rowElement: element,
-					occurrences: rowMatches.map(m => m.locator.occurrenceInRow),
-					currentOccurrence,
-				});
+				byRow.set(rowIndex, { rowElement: element, currentOccurrence });
 			}
 			paintFindHighlights(Array.from(byRow.values()), needle);
 		});
@@ -336,8 +382,12 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 			cancelAnimationFrame(frame);
 			clearFindHighlights();
 		};
-	}, [matches, current, open]);
+	}, [matches, current, open, rangeStart, rangeEnd]);
 
+	// rangeStart/rangeEnd aren't read in the body below — they force a
+	// recompute when measurements settle on scroll, since host.virtualizer's
+	// identity doesn't change (see comment above rangeStart/rangeEnd).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: rangeStart/rangeEnd retrigger recompute as measurements settle; not read in the body
 	const ticks = useMemo(
 		() =>
 			findTickPositions(
@@ -345,7 +395,7 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 				rowIndex => host.virtualizer.getOffsetForIndex(rowIndex, "start")?.[0] ?? null,
 				host.virtualizer.getTotalSize(),
 			),
-		[matches, host.virtualizer],
+		[matches, host.virtualizer, rangeStart, rangeEnd],
 	);
 
 	return {
@@ -356,7 +406,6 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 		current,
 		wrapped,
 		ticks,
-		matches,
 		goOlder,
 		goNewer,
 		close,
