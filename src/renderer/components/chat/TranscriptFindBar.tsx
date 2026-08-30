@@ -45,9 +45,18 @@ export function TranscriptFindBar(props: TranscriptFindBarProps): ReactElement {
 		}
 	};
 
+	// current is documented as independent of total (nothing selected yet is a
+	// distinct state from no matches at all), so each combination gets its own
+	// announcement — conflating "found but unselected" with "not found" would
+	// mislead screen-reader users, and announcing anything before a query is
+	// typed would misreport an unstarted search as a failed one.
 	let statusText: string;
-	if (total === 0 || current == null) {
+	if (!hasQuery) {
+		statusText = "";
+	} else if (total === 0) {
 		statusText = t("chat.find.statusNone");
+	} else if (current == null) {
+		statusText = t("chat.find.statusPending", { total });
 	} else if (wrapped) {
 		statusText = t("chat.find.statusWrapped", { current: current + 1, total });
 	} else {

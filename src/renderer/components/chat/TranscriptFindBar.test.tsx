@@ -72,6 +72,18 @@ describe("TranscriptFindBar", () => {
 		expect(container.querySelector("[data-find-input]")?.getAttribute("aria-invalid")).toBeNull();
 	});
 
+	it("announces nothing for the untouched empty-query state", async () => {
+		container = await mount(<TranscriptFindBar {...baseProps} query="" total={0} current={null} />);
+		expect(container.querySelector("[role='status']")?.textContent).toBe("");
+	});
+
+	it("announces matches found without claiming a selection when current is null but matches exist", async () => {
+		container = await mount(<TranscriptFindBar {...baseProps} query="needle" total={5} current={null} />);
+		const status = container.querySelector("[role='status']")?.textContent;
+		expect(status).not.toBe("No matches");
+		expect(status).toContain("5");
+	});
+
 	it("marks the input invalid and reads 0 / 0 when a real query has no matches", async () => {
 		container = await mount(<TranscriptFindBar {...baseProps} query="zzz" total={0} current={null} />);
 		expect(container.querySelector("[data-find-counter]")?.textContent).toBe("0 / 0");
