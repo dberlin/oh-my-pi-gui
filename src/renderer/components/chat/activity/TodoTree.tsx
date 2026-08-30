@@ -65,6 +65,18 @@ function nextStatus(current: TodoTask["status"]): TodoTask["status"] {
 	return STATUS_CYCLE[(STATUS_CYCLE.indexOf(current) + 1) % STATUS_CYCLE.length] ?? "pending";
 }
 
+/**
+ * Hover text for a task row. The label truncates, so the content is always the
+ * first line. A blocked task appends the same `blocked: <blocker>` note the
+ * transcript's TodoRenderer shows beside it, which is the only per-task detail
+ * the transcript carries that the rail otherwise drops.
+ */
+export function taskHoverTitle(task: TodoTask, t: (key: string) => string): string {
+	if (task.status !== "blocked") return task.content;
+	const label = t("todoPanel.status.blocked");
+	return `${task.content}\n${task.blocker ? `${label}: ${task.blocker}` : label}`;
+}
+
 interface VisibleRow {
 	id: string;
 	kind: "phase" | "task";
@@ -271,7 +283,7 @@ const TaskRow = memo(function TaskRow({
 									: "text-(--omp-text)"
 						}`}
 						onDoubleClick={readOnly ? undefined : beginEditing}
-						title={preview}
+						title={taskHoverTitle(task, t)}
 					>
 						{preview}
 					</span>
@@ -450,7 +462,11 @@ export function TodoTree({ readOnly }: { readOnly: boolean }) {
 					rpc.setTodos(
 						next.map(phase => ({
 							name: phase.name,
-							tasks: phase.tasks.map(task => ({ content: task.content, status: task.status })),
+							tasks: phase.tasks.map(task => ({
+								content: task.content,
+								status: task.status,
+								...(task.blocker === undefined ? {} : { blocker: task.blocker }),
+							})),
 						})),
 					),
 				onFailure: message => toast({ variant: "error", title: t("todoPanel.updateFailed"), message }),

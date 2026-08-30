@@ -1471,6 +1471,8 @@ export interface TodoPhase {
 export interface TodoTask {
 	content: string;
 	status: "pending" | "in_progress" | "completed" | "abandoned" | "blocked";
+	/** What a `blocked` task is waiting on. Absent for every other status. */
+	blocker?: string;
 }
 
 // ============================================================================
