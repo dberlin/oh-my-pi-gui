@@ -1360,7 +1360,8 @@ export interface OmpApi {
 		info(): Promise<SystemInfo>;
 		openExternal(url: string): Promise<void>;
 		/** Open a file in the system editor; relative paths resolve against the workspace. */
-		openPath(path: string): Promise<IpcOpenPathResult>;
+		/** `tabId` scopes relative-path resolution to the tab that produced the path. */
+		openPath(path: string, tabId?: string): Promise<IpcOpenPathResult>;
 		showSaveDialog(defaultPath?: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
 		showOpenDialog(
 			filters?: { name: string; extensions: string[] }[],

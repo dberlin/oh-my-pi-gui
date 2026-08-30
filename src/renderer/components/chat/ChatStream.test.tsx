@@ -1264,12 +1264,15 @@ describe("Main ChatStream characterization", () => {
 
 		const cardA = container?.querySelector('[data-tool-name="grep"]') as unknown as HTMLElement | null;
 		const headerA = cardA?.querySelector(".omp-tool-header") as HTMLElement | null;
-		if (!cardA || !headerA) throw new Error("tab A tool card missing");
-		expect(headerA.getAttribute("aria-expanded")).toBe("false");
+		// The row is the click target; the toggle inside it owns aria-expanded so
+		// the header's file path can be a link of its own.
+		const toggleA = cardA?.querySelector(".omp-tool-header-toggle") as HTMLElement | null;
+		if (!cardA || !headerA || !toggleA) throw new Error("tab A tool card missing");
+		expect(toggleA.getAttribute("aria-expanded")).toBe("false");
 		await act(async () => {
 			headerA.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 		});
-		expect(headerA.getAttribute("aria-expanded")).toBe("true");
+		expect(toggleA.getAttribute("aria-expanded")).toBe("true");
 		expect(cardA.querySelector(".omp-tool-body")?.textContent).toContain("TAB_A_MATCH");
 		expect(cardA.querySelector(".omp-tool-body")?.textContent).not.toContain("/TRANSCRIPT_MATCH/");
 
@@ -1281,10 +1284,10 @@ describe("Main ChatStream characterization", () => {
 		});
 
 		const cardB = container?.querySelector('[data-tool-name="grep"]') as unknown as HTMLElement | null;
-		const headerB = cardB?.querySelector(".omp-tool-header") as HTMLElement | null;
+		const toggleB = cardB?.querySelector(".omp-tool-header-toggle") as HTMLElement | null;
 		const bodyB = cardB?.querySelector(".omp-tool-body");
-		if (!cardB || !headerB || !bodyB) throw new Error("tab B tool card missing");
-		expect(headerB.getAttribute("aria-expanded")).toBe("false");
+		if (!cardB || !toggleB || !bodyB) throw new Error("tab B tool card missing");
+		expect(toggleB.getAttribute("aria-expanded")).toBe("false");
 		expect(bodyB.textContent).toContain("/TRANSCRIPT_MATCH/");
 		expect(bodyB.textContent).toContain("TAB_B_MATCH");
 		expect(bodyB.textContent).not.toContain("TAB_A_MATCH");

@@ -302,6 +302,38 @@ describe("ToolCard adaptive rendering", () => {
 		expect(card.textContent).not.toContain("OUTER_WRITE_RESPONSE_NOT_EXECUTION_OUTPUT");
 	});
 
+	it("renders the header file path as an open link without nesting it in the disclosure control", async () => {
+		const toolCallId = "header-path";
+		const args = { path: "notes/task.md" };
+		useToolsStore.setState({
+			activeTools: new Map([
+				[
+					toolCallId,
+					completedEntry("write", args, resultEnvelope("WROTE", { resolvedPath: "/remote/notes/task.md" })),
+				],
+			]),
+		});
+		const card = await mountCard({ toolCallId, toolName: "write", args });
+		const header = card.querySelector(".omp-tool-header");
+		const link = header?.querySelector("button:not([aria-expanded])");
+
+		expect(link?.getAttribute("title")).toBe("/remote/notes/task.md");
+		expect(link?.textContent).toBe("notes/task.md");
+		// A link inside the toggle would be invalid, and would swallow its clicks.
+		expect(header?.querySelector("button[aria-expanded] button")).toBeNull();
+	});
+
+	it("keeps a non-path summary out of the header link so a command is never openable", async () => {
+		const toolCallId = "header-command";
+		const args = { command: "rm -rf build" };
+		useToolsStore.setState({
+			activeTools: new Map([[toolCallId, completedEntry("bash", args, resultEnvelope("done"))]]),
+		});
+		const card = await mountCard({ toolCallId, toolName: "bash", args });
+
+		expect(card.querySelector(".omp-tool-header button:not([aria-expanded])")).toBeNull();
+	});
+
 	it("exposes localized statuses and only announces actual status transitions", async () => {
 		const toolCallId = "accessible-status";
 		const args = { pattern: "src/status/*" };

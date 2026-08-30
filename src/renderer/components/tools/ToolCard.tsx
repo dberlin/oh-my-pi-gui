@@ -9,7 +9,14 @@ import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { scopedDisclosureKey, TOOL_DISCLOSURE_PREFIX, useDisclosureScope, useUiStore } from "../../stores/ui";
 import { GenericRenderer } from "./GenericRenderer";
 import { getToolRenderer, type ToolRendererView } from "./index";
-import { boundedSummary, isPeerIrcInvocation, resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
+import { PathLink } from "./PathLink";
+import {
+	boundedSummary,
+	isPeerIrcInvocation,
+	resolveToolPresentation,
+	toolPresentationSummary,
+	toolPresentationSummaryParts,
+} from "./tool-presentation";
 
 export interface ToolRendererProps {
 	args: Record<string, unknown>;
@@ -151,6 +158,8 @@ function ToolCardContent({
 	const peerIrc = isPeerIrcInvocation(effective);
 	const displayName = peerIrc ? "IRC" : effective.name;
 	const summary = toolPresentationSummary(effective);
+	// Header file paths open like the ones in the card body.
+	const summaryParts = toolPresentationSummaryParts(effective);
 	const view: ToolRendererView = expanded ? "expanded" : "preview";
 	const rendererProps: ToolRendererProps = {
 		args: effective.args,
@@ -216,43 +225,86 @@ function ToolCardContent({
 				className="absolute inset-y-0 left-0 w-[2px] transition-colors duration-300"
 				style={{ background: railColor }}
 			/>
-			<button
-				type="button"
-				aria-expanded={expanded}
-				aria-label={`${displayName}${summary ? ` ${summary}` : ""}, ${statusText}`}
+			{/*
+			 * The row is a container, not a control: the file path in the summary
+			 * is an open link, and a link cannot nest inside the disclosure button.
+			 * The toggle is a full-bleed button behind the content instead, so the
+			 * whole row still expands on click and keeps one labelled control. The
+			 * `data-expanded` mirror exists because components.css sizes the body
+			 * from the header's expanded state as an adjacent sibling.
+			 */}
+			<div
+				data-expanded={expanded}
 				onClick={() => setExpanded(!expanded)}
-				className="omp-tool-header flex w-full items-center gap-2 py-2 pl-3.5 pr-2.5 text-left transition-colors duration-150 hover:bg-[var(--omp-selected-bg)]/40"
+				className="omp-tool-header relative flex w-full items-center gap-2 py-2 pl-3.5 pr-2.5 text-left transition-colors duration-150 hover:bg-[var(--omp-selected-bg)]/40"
 			>
+				{/*
+				 * The toggle carries the semantics (name, expanded state, focus) and
+				 * covers the row so pointer clicks land on it, but it deliberately has
+				 * no handler of its own: both its clicks and keyboard activations
+				 * bubble to the row, so one handler serves every path and nothing can
+				 * double-fire. PathLink stops propagation, so opening a file never
+				 * also toggles the card.
+				 */}
+				<button
+					type="button"
+					aria-expanded={expanded}
+					aria-label={`${displayName}${summary ? ` ${summary}` : ""}, ${statusText}`}
+					className="omp-tool-header-toggle absolute inset-0 rounded-none"
+				/>
 				{status === "running" && runningIndicator === "spinner" ? (
-					<Loader2 size={12} className="omp-tool-status-icon shrink-0 animate-spin text-[var(--omp-accent)]" />
+					<Loader2
+						size={12}
+						className="omp-tool-status-icon pointer-events-none relative shrink-0 animate-spin text-[var(--omp-accent)]"
+					/>
 				) : status === "running" ? (
-					<span aria-hidden className="omp-tool-status-icon flex h-3 w-3 shrink-0 items-center justify-center">
+					<span
+						aria-hidden
+						className="omp-tool-status-icon pointer-events-none relative flex h-3 w-3 shrink-0 items-center justify-center"
+					>
 						<span className="h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
 					</span>
 				) : status === "aborted" ? (
 					<Ban aria-hidden size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-warning)]" />
 				) : accessibleStatus === "failed" ? (
-					<X aria-hidden size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-error)]" />
+					<X
+						aria-hidden
+						size={12}
+						className="omp-tool-status-icon pointer-events-none relative shrink-0 text-[var(--omp-error)]"
+					/>
 				) : (
-					<Check aria-hidden size={12} className="omp-tool-status-icon shrink-0 text-[var(--omp-success)]" />
+					<Check
+						aria-hidden
+						size={12}
+						className="omp-tool-status-icon pointer-events-none relative shrink-0 text-[var(--omp-success)]"
+					/>
 				)}
-				<span className="omp-tool-name shrink-0 font-mono text-omp-md font-semibold tracking-tight text-[var(--omp-text)]">
+				<span className="omp-tool-name pointer-events-none relative shrink-0 font-mono text-omp-md font-semibold tracking-tight text-[var(--omp-text)]">
 					{displayName}
 				</span>
 				{summary && (
-					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-omp-sm text-[var(--omp-tool-output)]">
-						{summary}
+					<span className="omp-tool-summary pointer-events-none relative min-w-0 flex-1 truncate font-mono text-omp-sm text-[var(--omp-tool-output)]">
+						{summaryParts.path ? (
+							<>
+								<PathLink path={summaryParts.path.target} className="pointer-events-auto">
+									{summaryParts.path.text}
+								</PathLink>
+								{summaryParts.rest}
+							</>
+						) : (
+							summary
+						)}
 					</span>
 				)}
 				{!summary && streamingSummary && (
-					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-omp-sm opacity-60 text-[var(--omp-tool-output)]">
+					<span className="omp-tool-summary pointer-events-none relative min-w-0 flex-1 truncate font-mono text-omp-sm opacity-60 text-[var(--omp-tool-output)]">
 						{streamingSummary}
 					</span>
 				)}
-				{!summary && !streamingSummary && <span className="flex-1" />}
+				{!summary && !streamingSummary && <span className="pointer-events-none relative flex-1" />}
 				{duration && (
 					<span
-						className="omp-tool-duration shrink-0 rounded-md bg-[var(--omp-bg-tertiary)] px-1.5 py-0.5 font-mono text-omp-xxs tabular-nums text-[var(--omp-muted)]" // surface-ok: tiny duration pill
+						className="omp-tool-duration pointer-events-none relative shrink-0 rounded-md bg-[var(--omp-bg-tertiary)] px-1.5 py-0.5 font-mono text-omp-xxs tabular-nums text-[var(--omp-muted)]" // surface-ok: tiny duration pill
 					>
 						{duration}
 					</span>
@@ -260,11 +312,11 @@ function ToolCardContent({
 				<ChevronRight
 					size={13}
 					className={cx(
-						"omp-tool-chevron omp-disclosure-chevron shrink-0 text-[var(--omp-dim)]",
+						"omp-tool-chevron omp-disclosure-chevron pointer-events-none relative shrink-0 text-[var(--omp-dim)]",
 						expanded && "rotate-90",
 					)}
 				/>
-			</button>
+			</div>
 			{announcement?.toolCallId === toolCallId && (
 				<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
 					{announcement.text}

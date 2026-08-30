@@ -1,5 +1,5 @@
 import { sanitizeToolText } from "../../lib/format";
-import { editArgumentSummary } from "./edit-args";
+import { editArgumentPaths, editArgumentSummary } from "./edit-args";
 
 export type ToolPresentationMode = "execute" | "help";
 
@@ -321,4 +321,37 @@ function invocationSummary(invocation: EffectiveToolInvocation): string {
 		default:
 			return pickString(args, "path", "file", "name", "pattern", "query", "command", "action", "i", "text") ?? "";
 	}
+}
+
+/** Tools whose collapsed summary begins with the file the call acts on. */
+const PATH_SUMMARY_TOOLS = new Set(["read", "write", "edit", "apply_patch", "ast_edit"]);
+
+export interface ToolSummaryParts {
+	/**
+	 * Leading file path of the summary, rendered as an open link in the card
+	 * header. `text` is what the header shows; `target` is what the link opens —
+	 * the agent's resolved absolute path when the result carries one, so the
+	 * link does not depend on re-resolving a relative path against a cwd.
+	 */
+	path: { text: string; target: string } | null;
+	/** Whatever follows the path — the whole summary when there is no path. */
+	rest: string;
+}
+
+/**
+ * Split a collapsed header summary into an openable file path and the rest.
+ * Only the tools whose summary genuinely starts with a path qualify; every
+ * other summary (a bash command, a grep pattern) stays plain text.
+ */
+export function toolPresentationSummaryParts(invocation: EffectiveToolInvocation): ToolSummaryParts {
+	const summary = toolPresentationSummary(invocation);
+	if (invocation.mcp || !PATH_SUMMARY_TOOLS.has(invocation.name)) return { path: null, rest: summary };
+	const text =
+		invocation.name === "read" || invocation.name === "write"
+			? (pickString(invocation.args, "path", "file") ?? "")
+			: (editArgumentPaths(invocation.args)[0] ?? "");
+	if (!text || !summary.startsWith(text)) return { path: null, rest: summary };
+	const details = asRecord(asRecord(invocation.result ?? invocation.partialResult)?.details);
+	const resolved = details ? pickString(details, "resolvedPath") : undefined;
+	return { path: { text, target: resolved ?? text }, rest: summary.slice(text.length) };
 }
