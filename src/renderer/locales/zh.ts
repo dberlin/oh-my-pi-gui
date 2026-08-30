@@ -2285,6 +2285,7 @@ export const zh: Record<string, string> = {
 	"chat.find.wrapIndicator": "已回绕",
 	"chat.find.status": "第 {current} 个匹配，共 {total} 个",
 	"chat.find.statusWrapped": "第 {current} 个匹配，共 {total} 个，已回绕",
+	"chat.find.statusPending": "找到 {total} 个匹配项",
 	"chat.find.statusNone": "没有匹配项",
 	"chat.empty.title": "想做点什么？",
 	"chat.empty.subtitle": "提个问题、描述一个改动，或选择一个起点。omp 可以检查项目、编辑文件并运行结果。",

@@ -2336,6 +2336,7 @@ export const en: Record<string, string> = {
 	"chat.find.wrapIndicator": "wrapped",
 	"chat.find.status": "Match {current} of {total}",
 	"chat.find.statusWrapped": "Match {current} of {total}, wrapped",
+	"chat.find.statusPending": "{total} matches found",
 	"chat.find.statusNone": "No matches",
 	"chat.empty.title": "What should we build?",
 	"chat.empty.subtitle":
