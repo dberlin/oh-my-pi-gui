@@ -71,6 +71,79 @@ function messageSegments(message: AgentMessage, segments: FindSegment[], context
 	push(segments, message.summary, null);
 }
 
+/** Per-row match, cached by rowKey so appends do not rescan the transcript. */
+export interface RowMatchSeed {
+	disclosureKey: string | null;
+	/** 0-based position of this match among the row's own matches, in render order. */
+	occurrenceInRow: number;
+}
+
+export interface TranscriptMatch {
+	rowIndex: number;
+	rowKey: string;
+	/** 0-based position in document order across the whole transcript. */
+	ordinal: number;
+	disclosureKey: string | null;
+	locator: { occurrenceInRow: number };
+}
+
+export interface TranscriptFindIndex {
+	/** The normalized needle this index was built for ("" = no matches by definition). */
+	needle: string;
+	matches: readonly TranscriptMatch[];
+	/** rowKey → that row's seeds; carried forward when the needle is unchanged. */
+	rowCache: ReadonlyMap<string, readonly RowMatchSeed[]>;
+}
+
+export const EMPTY_FIND_INDEX: TranscriptFindIndex = { needle: "", matches: [], rowCache: new Map() };
+
+function seedRow(row: Row, rowKey: string, needle: string, context: TranscriptFindContext): RowMatchSeed[] {
+	const seeds: RowMatchSeed[] = [];
+	for (const segment of extractRowSegments(row, rowKey, context)) {
+		const haystack = normalizeFindText(segment.text);
+		let from = haystack.indexOf(needle);
+		while (from !== -1) {
+			seeds.push({ disclosureKey: segment.disclosureKey, occurrenceInRow: seeds.length });
+			from = haystack.indexOf(needle, from + needle.length);
+		}
+	}
+	return seeds;
+}
+
+export function buildTranscriptFindIndex(input: {
+	rows: readonly Row[];
+	rowKeys: readonly string[];
+	query: string;
+	context: TranscriptFindContext;
+	previous?: TranscriptFindIndex | null;
+}): TranscriptFindIndex {
+	const needle = normalizeFindText(input.query);
+	if (!needle) return EMPTY_FIND_INDEX;
+	const reusable = input.previous?.needle === needle ? input.previous.rowCache : null;
+	const rowCache = new Map<string, readonly RowMatchSeed[]>();
+	const matches: TranscriptMatch[] = [];
+	for (let rowIndex = 0; rowIndex < input.rows.length; rowIndex++) {
+		const row = input.rows[rowIndex];
+		if (!row) continue;
+		const rowKey = input.rowKeys[rowIndex] ?? String(rowIndex);
+		// The streaming row keeps one identity while its text grows, so its cache
+		// entry is never trustworthy — rescan it on every rebuild.
+		const cached = row.kind === "streaming" ? undefined : reusable?.get(rowKey);
+		const seeds = cached ?? seedRow(row, rowKey, needle, input.context);
+		rowCache.set(rowKey, seeds);
+		for (const seed of seeds) {
+			matches.push({
+				rowIndex,
+				rowKey,
+				ordinal: matches.length,
+				disclosureKey: seed.disclosureKey,
+				locator: { occurrenceInRow: seed.occurrenceInRow },
+			});
+		}
+	}
+	return { needle, matches, rowCache };
+}
+
 export function extractRowSegments(row: Row, rowKey: string, context: TranscriptFindContext): FindSegment[] {
 	const segments: FindSegment[] = [];
 	switch (row.kind) {
