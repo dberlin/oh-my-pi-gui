@@ -139,10 +139,10 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 
 	const landOn = useCallback(
 		(step: FindStep) => {
-			setCurrent(step.ordinal);
-			setWrapped(step.wrapped);
 			const match = matches[step.ordinal];
 			if (!match) return;
+			setCurrent(step.ordinal);
+			setWrapped(step.wrapped);
 			if (match.disclosureKey != null) {
 				useUiStore.getState().setDisclosureOpen(scopedDisclosureKey(scope, match.disclosureKey), true);
 			}
@@ -169,8 +169,17 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 
 	const doOpen = useCallback(() => {
 		savedViewRef.current = { scrollTop: host.scrollRef.current?.scrollTop ?? 0, pinned: host.pinned };
-		const selectionText = window.getSelection?.()?.toString() ?? "";
-		if (selectionText.trim().length > 0 && host.rootRef.current?.contains(document.activeElement)) {
+		const selection = window.getSelection?.();
+		const selectionText = selection?.toString() ?? "";
+		// Containment is checked through the selection's own range, not
+		// document.activeElement: dragging a selection across a non-focusable
+		// row never moves focus, and in the fallback round activeElement is
+		// guaranteed not to be inside any rootRef (that is the entire reason
+		// the fallback round exists), so a focus-based check could never seed
+		// there at all.
+		const selectionNode =
+			selection && selection.rangeCount > 0 ? selection.getRangeAt(0).commonAncestorContainer : null;
+		if (selectionText.trim().length > 0 && host.rootRef.current?.contains(selectionNode)) {
 			setQuery(selectionText);
 		}
 		setOpen(true);
