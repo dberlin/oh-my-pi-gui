@@ -4,6 +4,10 @@ Fork-specific changes relative to `nornzach/oh-my-pi-gui`. The shared `CHANGELOG
 
 ## [Unreleased]
 
+### Added
+
+- **Find in transcript**: ⌘F opens a find bar over the transcript that searches the whole conversation — including text folded inside collapsed thinking blocks, tool results, and todo snapshots that are not currently on screen. ↵ walks matches backwards through history, ⇧↵ forwards, matches are highlighted with ticks on the scroll rail, and wrapping is announced rather than silent.
+
 ### Changed
 
 - Agent questions now render inline above the composer so the transcript remains scrollable while choosing an answer.
