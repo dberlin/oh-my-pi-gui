@@ -80,6 +80,21 @@ describe("flattenTextNodes", () => {
 		expect(flat.nodes).toHaveLength(flat.text.length);
 		expect(flat.offsets).toHaveLength(flat.text.length);
 	});
+
+	it("collapses a whitespace run split across adjacent text nodes (e.g. around an empty inline element)", () => {
+		// "a " and " b" are separate text nodes straddling the empty <b>, but
+		// together they form one logical whitespace run and must collapse to a
+		// single space, matching normalizeFindText("a " + "" + " b") === "a b".
+		const flat = flattenTextNodes(row("<p>a <b></b> b</p>") as unknown as Node);
+		expect(flat.text).toBe("a b");
+		expect(flat.nodes).toHaveLength(flat.text.length);
+		expect(flat.offsets).toHaveLength(flat.text.length);
+	});
+
+	it("trims trailing whitespace as well as leading, matching normalizeFindText's .trim()", () => {
+		const flat = flattenTextNodes(row("<p>  hello world  </p>") as unknown as Node);
+		expect(flat.text).toBe("hello world");
+	});
 });
 
 describe("paintFindHighlights", () => {

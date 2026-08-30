@@ -49,38 +49,48 @@ export function supportsFindHighlight(): boolean {
 	}
 }
 
-const WHITESPACE_RUN = /\s+/g;
+const WHITESPACE = /\s/;
 
 /**
  * Flatten a subtree's text nodes into one whitespace-normalized lowercase
  * string plus a per-character (node, offset) source map — the same
  * normalization `normalizeFindText` applies, so model offsets and DOM offsets
  * agree.
+ *
+ * Whitespace is collapsed across the whole flattened stream, not per text
+ * node: two text nodes that each contribute part of one logical run of
+ * whitespace (e.g. adjacent to an empty inline element) must still collapse
+ * to a single space, the way `normalizeFindText` collapses it in the row's
+ * concatenated segment text. `lastWasSpace` carries that collapsing state
+ * across node boundaries.
  */
 export function flattenTextNodes(root: Node): { text: string; nodes: Text[]; offsets: number[] } {
 	const nodes: Text[] = [];
 	const offsets: number[] = [];
 	let text = "";
+	// Starting true means leading whitespace is skipped rather than emitted,
+	// mirroring `normalizeFindText`'s leading trim.
+	let lastWasSpace = true;
 
 	function visit(node: Node): void {
 		if (node.nodeType === 3 /* TEXT_NODE */) {
 			const data = (node as Text).data;
-			WHITESPACE_RUN.lastIndex = 0;
-			let cursor = 0;
-			while (cursor < data.length) {
-				WHITESPACE_RUN.lastIndex = cursor;
-				const match = WHITESPACE_RUN.exec(data);
-				if (match && match.index === cursor) {
-					// Whole run collapses to one space, mapped to the run's first character.
-					text += " ";
-					nodes.push(node as Text);
-					offsets.push(cursor);
-					cursor += match[0].length;
+			for (let i = 0; i < data.length; i++) {
+				const ch = data[i] ?? "";
+				if (WHITESPACE.test(ch)) {
+					if (!lastWasSpace) {
+						text += " ";
+						nodes.push(node as Text);
+						offsets.push(i);
+						lastWasSpace = true;
+					}
+					// Subsequent whitespace in the run (in this node or a later one)
+					// contributes nothing further — the run is already represented.
 				} else {
-					text += data[cursor]?.toLowerCase();
+					text += ch.toLowerCase();
 					nodes.push(node as Text);
-					offsets.push(cursor);
-					cursor += 1;
+					offsets.push(i);
+					lastWasSpace = false;
 				}
 			}
 			return;
@@ -94,14 +104,13 @@ export function flattenTextNodes(root: Node): { text: string; nodes: Text[]; off
 
 	visit(root);
 
-	// Leading whitespace of the whole flattened string is dropped so the
-	// result equals normalizeFindText of the concatenation.
-	let start = 0;
-	while (start < text.length && text[start] === " ") start++;
-	if (start > 0) {
-		text = text.slice(start);
-		nodes.splice(0, start);
-		offsets.splice(0, start);
+	// Trailing whitespace of the whole flattened string is dropped so the
+	// result equals normalizeFindText (which trims both ends) of the
+	// concatenation.
+	if (lastWasSpace && text.length > 0) {
+		text = text.slice(0, -1);
+		nodes.pop();
+		offsets.pop();
 	}
 
 	return { text, nodes, offsets };
