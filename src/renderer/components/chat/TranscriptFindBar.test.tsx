@@ -7,6 +7,10 @@ import { TranscriptFindBar, type TranscriptFindBarProps, TranscriptFindTicks } f
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const installedGlobals = { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true };
+// linkedom's HTMLInputElement has no `select()`, and the bar claims focus and
+// selects its query on mount (see TranscriptFindBar's mount effect). Same stub
+// TranscriptViewport.test.tsx installs for the same reason.
+Object.assign(HTMLElement.prototype, { select: () => {} });
 const priorGlobals = new Map<string, PropertyDescriptor | undefined>();
 const mounts: Array<{ container: HTMLElement; root: Root }> = [];
 

@@ -211,12 +211,18 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 		// Tell every other mounted instance a find session just opened here, so at
 		// most one stays open — see TRANSCRIPT_FIND_OPENED_EVENT above.
 		window.dispatchEvent(new CustomEvent(TRANSCRIPT_FIND_OPENED_EVENT, { detail: instanceIdRef.current }));
-		// Opening while already open re-selects instead of clearing: focus/select
-		// run unconditionally on every "open" action.
-		requestAnimationFrame(() => {
-			inputRef.current?.focus();
-			inputRef.current?.select();
-		});
+		// Opening while already open re-selects instead of clearing. Only that
+		// case is handled here: the input is already mounted, so the frame is
+		// just letting a selection-seeded `setQuery` commit before `select()`.
+		// A first open mounts the bar, and TranscriptFindBar claims focus in its
+		// own mount effect — scheduling that focus here would race React's
+		// commit and land on a null ref (⌘F appearing to need two presses).
+		if (open) {
+			requestAnimationFrame(() => {
+				inputRef.current?.focus();
+				inputRef.current?.select();
+			});
+		}
 	}, [host, open]);
 
 	const close = useCallback(() => {

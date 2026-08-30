@@ -972,6 +972,40 @@ describe("TranscriptViewport find", () => {
 		expect(container?.querySelector("[data-find-counter]")?.textContent).toBe("1 / 1");
 	});
 
+	it("focuses the query input on the first open without depending on an animation frame", async () => {
+		// The first ⌘F is the press that mounts the bar, so a focus scheduled in
+		// requestAnimationFrame can run before React has committed that input:
+		// inputRef is still null, the focus lands nowhere, and the user cannot
+		// type until a second ⌘F finds the input already mounted. Never running
+		// the rAF callback models that worst case — only a focus tied to the
+		// input's own mount can satisfy this.
+		const focused: unknown[] = [];
+		const proto = HTMLElement.prototype as unknown as { focus?: () => void };
+		const priorFocus = proto.focus;
+		proto.focus = function (this: unknown): void {
+			focused.push(this);
+		};
+		const priorRaf = globalThis.requestAnimationFrame;
+		globalThis.requestAnimationFrame = (() => 0) as unknown as typeof globalThis.requestAnimationFrame;
+		try {
+			await mount(
+				<TranscriptViewport
+					mode="main"
+					projection={findProjection(buildLongTranscript(), "find-focus-on-open")}
+					main={FIND_MAIN_AUGMENTS}
+				/>,
+			);
+			dispatchFind("open", true);
+			const input = container?.querySelector("[data-find-input]") ?? null;
+			expect(input).not.toBeNull();
+			expect(focused).toContain(input);
+		} finally {
+			if (priorFocus) proto.focus = priorFocus;
+			else delete proto.focus;
+			globalThis.requestAnimationFrame = priorRaf;
+		}
+	});
+
 	it("counts matches inside a collapsed thinking block and opens that disclosure on landing", async () => {
 		const message: AgentMessage = {
 			role: "assistant",
