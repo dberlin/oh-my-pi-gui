@@ -1,9 +1,9 @@
 /**
- * Owns ⌘F find state and drives the pure modules from Tasks 1-4: builds the
- * index from `transcript-find.ts`, paints matches via
- * `transcript-find-highlight.ts`, and exposes props/callbacks for the
- * presentational `TranscriptFindBar`. Task 7 wires this hook into
- * `TranscriptViewport` and dispatches `TRANSCRIPT_FIND_EVENT` from `App.tsx`.
+ * Owns ⌘F find state and drives the pure modules that build the index
+ * (`transcript-find.ts`) and paint matches (`transcript-find-highlight.ts`),
+ * exposing props/callbacks for the presentational `TranscriptFindBar`. This
+ * hook is wired into `TranscriptViewport`; `App.tsx` owns the keybindings and
+ * dispatches `TRANSCRIPT_FIND_EVENT` on ⌘F/⌘G/⇧⌘G.
  *
  * Two-round event routing: `App.tsx` dispatches one `window` CustomEvent per
  * ⌘F/⌘G/⇧⌘G press. Round one lets the viewport containing focus claim it;

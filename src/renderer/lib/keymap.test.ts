@@ -16,6 +16,7 @@ import {
 	chordFromEvent,
 	compileKeymap,
 	detectConflicts,
+	KEYMAP_ACTION_BY_ID,
 	KEYMAP_ACTIONS,
 	keymapActionsForGroup,
 	parseChord,
@@ -231,6 +232,38 @@ describe("hotkey reference table", () => {
 		// only one of the two and the documented shortcut does nothing.
 		for (const entry of NATIVE_CHORDS) {
 			expect(acceleratorToChord(entry.accelerator), entry.id).toBe(entry.chord);
+		}
+	});
+});
+
+describe("transcript find actions", () => {
+	it("compiles the three transcript find chords to their actions", () => {
+		const map = compileKeymap(KEYMAP_ACTIONS, {});
+		expect(map.get("⌘F")).toBe("transcript.find");
+		expect(map.get("⌃F")).toBe("transcript.find");
+		expect(map.get("⌘G")).toBe("transcript.findNext");
+		expect(map.get("⇧⌘G")).toBe("transcript.findPrevious");
+	});
+
+	it("keeps the find actions suppressed while an overlay owns the keyboard", () => {
+		for (const id of ["transcript.find", "transcript.findNext", "transcript.findPrevious"] as const) {
+			expect(KEYMAP_ACTION_BY_ID[id].overlaySafe).toBe(false);
+		}
+	});
+
+	it("reports a conflict when a user rebinds another action onto ⌘F", () => {
+		const conflicts = detectConflicts(KEYMAP_ACTIONS, { palette: ["⌘F"] });
+		expect(conflicts).toContainEqual({ kind: "warning", chord: "⌘F", actionIds: ["palette", "transcript.find"] });
+	});
+
+	it("introduces no duplicate default chords across the action table", () => {
+		const seen = new Map<string, string>();
+		for (const action of KEYMAP_ACTIONS) {
+			for (const raw of action.defaults) {
+				const chord = serializeChord(parseChord(raw)!);
+				expect(seen.has(chord), `${chord} claimed by ${seen.get(chord)} and ${action.id}`).toBe(false);
+				seen.set(chord, action.id);
+			}
 		}
 	});
 });
