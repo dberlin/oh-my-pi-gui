@@ -5,10 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useAgentViewStore } from "../../stores/agent-view";
-import { useMessagesStore } from "../../stores/messages";
+import { thinkingDisclosureKey, useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
+import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
 import {
 	createToolProjection,
@@ -17,7 +18,7 @@ import {
 	type ToolEntry,
 	useToolsStore,
 } from "../../stores/tools";
-import { useUiStore } from "../../stores/ui";
+import { scopedDisclosureKey, TOOL_DISCLOSURE_PREFIX, useUiStore } from "../../stores/ui";
 import { ChatStream } from "./ChatStream";
 import { type MainTranscriptAugments, type TranscriptProjectionView, TranscriptViewport } from "./TranscriptViewport";
 
@@ -79,13 +80,29 @@ Object.assign(HTMLElement.prototype, {
 		toJSON: () => ({}),
 	}),
 	scrollTo: () => {},
+	// react-dom's ChangeEventPlugin detects native "input" event support once,
+	// at module load — before this file installs its linkedom `window`/
+	// `document` globals — so it permanently falls back to the legacy
+	// IE input-event polyfill (selectionchange/keyup/keydown gated on a
+	// "focusin"-registered active element) for every controlled text input in
+	// this test file. That polyfill calls the IE-only `attachEvent`/
+	// `detachEvent`, which linkedom does not implement; stub them as no-ops so
+	// `typeInto`'s "focusin" can register the active element without throwing.
+	attachEvent: () => {},
+	detachEvent: () => {},
+	// linkedom's HTMLInputElement has no `select()` — TranscriptFindBar's input
+	// is a real DOM node once find is wired in, and useTranscriptFind's doOpen
+	// calls inputRef.current?.select() on it after focusing.
+	select: () => {},
 });
 
 interface TestElement {
 	textContent: string | null;
+	className: string;
 	click: () => void;
 	remove: () => void;
 	querySelector: (selector: string) => TestElement | null;
+	getAttribute: (name: string) => string | null;
 }
 
 let container: TestElement | undefined;
@@ -161,7 +178,12 @@ afterEach(async () => {
 	useSettingsStore.getState().reset();
 	useTodoStore.getState().reset();
 	useToolsStore.getState().reset();
-	useUiStore.setState({ thinkingExpanded: false, transcriptDetail: "compact" });
+	useUiStore.setState({
+		thinkingExpanded: false,
+		transcriptDetail: "compact",
+		disclosureOpen: {},
+	});
+	useTabsStore.getState().reset();
 });
 
 describe("TranscriptViewport projected branch", () => {
@@ -838,5 +860,285 @@ describe("TranscriptViewport reasoning disclosure", () => {
 
 		if (!container) throw new Error("todo snapshot remount missing");
 		expect(snapshotToggle()?.getAttribute("aria-expanded")).toBe("true");
+	});
+});
+
+describe("TranscriptViewport find", () => {
+	function dispatchFind(action: "open" | "next" | "previous", fallback = false) {
+		const detail = { action, fallback, claimed: false };
+		act(() => {
+			window.dispatchEvent(new CustomEvent("omp:transcript-find", { detail }));
+		});
+		return detail;
+	}
+
+	/**
+	 * Drive a React-controlled `<input>` the way the existing composer tests
+	 * drive a `<textarea>`, adapted for what this file's harness actually
+	 * requires for `onChange` (not `onInput`) inputs.
+	 *
+	 * The brief specified setting `.value` then dispatching a plain `input`
+	 * event. Confirmed by RED that this does not work here: react-dom's
+	 * ChangeEventPlugin feature-detects native "input" event support once, at
+	 * module load — before this file installs its linkedom `window`/
+	 * `document` globals — so the detection permanently fails and it falls
+	 * back to its legacy IE input-event polyfill for every text `<input>`
+	 * (confirmed by reading react-dom-client.development.js). That polyfill
+	 * only reacts to "keyup"/"keydown"/"selectionchange", gated on a
+	 * "focusin"-registered active element — a plain "input" dispatch alone is
+	 * a no-op under it. `QueuePanel.test.tsx`'s pattern still works because
+	 * that component uses `onInput` (SimpleEventPlugin, a direct, always-on
+	 * listener, unaffected by this detection) rather than `onChange`.
+	 *
+	 * Also confirmed by RED (an uncaught `attachEvent is not a function`):
+	 * the polyfill's "focusin" handler calls the IE-only `attachEvent`, which
+	 * linkedom does not implement — stubbed as a no-op on `HTMLElement
+	 * .prototype` above. And setting `.value` directly goes through React's
+	 * per-instance tracked setter (`inputValueTracking`) installed at mount,
+	 * which would update its own tracked value in the same step as the real
+	 * one and make the later `updateValueIfChanged` check see no discrepancy;
+	 * calling the prototype's original setter (bypassing that per-instance
+	 * wrapper) leaves the tracked value stale, which is what lets the
+	 * eventual "keyup" register a real change.
+	 */
+	async function typeInto(input: TestElement | null, text: string): Promise<void> {
+		await act(async () => {
+			const dispatch = (input as unknown as { dispatchEvent: (e: unknown) => void }).dispatchEvent.bind(input);
+			dispatch(new Event("focusin", { bubbles: true }));
+			const node = input as unknown as { value: string };
+			const nativeSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(node), "value")?.set;
+			if (nativeSetter) nativeSetter.call(node, text);
+			else node.value = text;
+			dispatch(new Event("keyup", { bubbles: true }));
+		});
+	}
+
+	function findProjection(messages: AgentMessage[], transcriptId: string): TranscriptProjectionView {
+		return {
+			transcriptId,
+			messages,
+			streamingMessage: null,
+			streamingText: "",
+			streamingThinking: "",
+			activeTools: new Map<string, ToolEntry>(),
+			resolveToolCall: call => ({ key: call.id, entry: undefined }),
+			transcriptDetail: "compact",
+		};
+	}
+
+	const FIND_MAIN_AUGMENTS: MainTranscriptAugments = {
+		isStreaming: false,
+		awaitingModelSince: null,
+		retryInfo: null,
+		compactionInfo: null,
+		status: "ready",
+		collapseCompacted: false,
+		switchPending: false,
+		todoHistory: [],
+		queued: { steering: [], followUp: [] },
+		isChat: false,
+	};
+
+	/**
+	 * 60 rows; the needle lives only in row 40, far below the mounted window.
+	 * (`scrollTo` is a no-op under this test harness's linkedom stubs, so the
+	 * virtualizer's real-browser "anchor to the live edge while pinned"
+	 * behaviour never actually moves the scroll position here — it keeps
+	 * rendering from the top of the list. With a client height of 800px, a
+	 * ~72px row estimate, and overscan of 8, only the first ~9 rows ever mount,
+	 * so row 40 has no DOM node until find scrolls to it.)
+	 */
+	function buildLongTranscript(): AgentMessage[] {
+		return Array.from({ length: 60 }, (_, i) => ({
+			role: i % 2 === 0 ? "user" : "assistant",
+			content: i === 40 ? "the needle sits here" : `filler message number ${i}`,
+			timestamp: 1_000 + i,
+		}));
+	}
+
+	it("opens the find bar and reports a match whose row is not mounted", async () => {
+		await mount(
+			<TranscriptViewport
+				mode="main"
+				projection={findProjection(buildLongTranscript(), "find-long")}
+				main={FIND_MAIN_AUGMENTS}
+			/>,
+		);
+		expect(container?.querySelector('[data-index="40"]')).toBeNull();
+		dispatchFind("open", true);
+		const input = container?.querySelector("[data-find-input]") ?? null;
+		expect(input).not.toBeNull();
+		await typeInto(input, "needle");
+		expect(container?.querySelector("[data-find-counter]")?.textContent).toBe("1 / 1");
+	});
+
+	it("counts matches inside a collapsed thinking block and opens that disclosure on landing", async () => {
+		const message: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "thinking", thinking: "hidden needle inside reasoning" }],
+			timestamp: 2_000,
+		};
+		await mount(
+			<TranscriptViewport
+				mode="main"
+				projection={findProjection([message], "find-thinking")}
+				main={FIND_MAIN_AUGMENTS}
+			/>,
+		);
+		dispatchFind("open", true);
+		const input = container?.querySelector("[data-find-input]") ?? null;
+		await typeInto(input, "hidden needle");
+		expect(container?.querySelector("[data-find-counter]")?.textContent).toBe("1 / 1");
+		const key = scopedDisclosureKey(useTabsStore.getState().activeTabId, thinkingDisclosureKey(message, 0));
+		expect(useUiStore.getState().disclosureOpen[key]).toBe(true);
+	});
+
+	it("keeps the match count stable when the user expands a tool card", async () => {
+		const toolCall: ToolCallContent = {
+			type: "toolCall",
+			id: "find-tool-needle",
+			name: "grep",
+			arguments: { pattern: "needle" },
+		};
+		const toolEntry: ToolEntry = {
+			toolName: "grep",
+			args: toolCall.arguments,
+			status: "done",
+			partialResult: null,
+			streamingArgs: "",
+			result: { content: [{ type: "text", text: "needle appears in the result" }] },
+			isError: false,
+			startTime: 10,
+			endTime: 20,
+		};
+		const message: AgentMessage = { role: "assistant", content: [toolCall], timestamp: 3_000 };
+		await mount(
+			<TranscriptViewport
+				mode="main"
+				projection={{
+					...findProjection([message], "find-tool"),
+					activeTools: new Map([[toolCall.id, toolEntry]]),
+					resolveToolCall: call => ({ key: call.id, entry: toolEntry }),
+				}}
+				main={FIND_MAIN_AUGMENTS}
+			/>,
+		);
+		dispatchFind("open", true);
+		const input = container?.querySelector("[data-find-input]") ?? null;
+		await typeInto(input, "needle");
+		const before = container?.querySelector("[data-find-counter]")?.textContent;
+		// Two matches in this row: transcript-find.ts indexes both the tool
+		// call's stringified arguments ({"pattern":"needle"}) and its result
+		// text ("needle appears in the result") as separate searchable segments.
+		expect(before).toBe("2 / 2");
+		const toolKey = scopedDisclosureKey(
+			useTabsStore.getState().activeTabId,
+			`${TOOL_DISCLOSURE_PREFIX}${toolCall.id}`,
+		);
+		act(() => useUiStore.getState().setDisclosureOpen(toolKey, true));
+		expect(container?.querySelector("[data-find-counter]")?.textContent).toBe(before);
+	});
+
+	it("restores pinned state when find closes", async () => {
+		const messages: AgentMessage[] = [{ role: "user", content: "needle appears once", timestamp: 4_000 }];
+		await mount(
+			<TranscriptViewport mode="main" projection={findProjection(messages, "find-pin")} main={FIND_MAIN_AUGMENTS} />,
+		);
+		dispatchFind("open", true);
+		const input = container?.querySelector("[data-find-input]") ?? null;
+		await typeInto(input, "needle");
+		expect(container?.querySelector("[aria-label='Jump to latest']")?.className).toContain("opacity-100");
+		act(() => container?.querySelector("[aria-label='Close find']")?.click());
+		expect(container?.querySelector("[data-find-input]")).toBeNull();
+		expect(container?.querySelector("[aria-label='Jump to latest']")?.className).toContain("opacity-0");
+	});
+
+	it("closes and clears find when the transcript id changes", async () => {
+		const messages: AgentMessage[] = [{ role: "user", content: "needle appears once", timestamp: 5_000 }];
+		await mount(
+			<TranscriptViewport
+				mode="main"
+				projection={findProjection(messages, "find-switch-1")}
+				main={FIND_MAIN_AUGMENTS}
+			/>,
+		);
+		dispatchFind("open", true);
+		const input = container?.querySelector("[data-find-input]") ?? null;
+		await typeInto(input, "needle");
+
+		await act(async () => {
+			root?.render(
+				<I18nProvider>
+					<TranscriptViewport
+						mode="main"
+						projection={findProjection(messages, "find-switch-2")}
+						main={FIND_MAIN_AUGMENTS}
+					/>
+				</I18nProvider>,
+			);
+		});
+		expect(container?.querySelector("[data-find-input]")).toBeNull();
+		dispatchFind("open", true);
+		// The brief specified `getAttribute("value")`, but React never sets the
+		// "value" *attribute* on a controlled text input (only the DOM
+		// property) — confirmed by RED: getAttribute("value") is always null
+		// here, attribute and property being decoupled by design for <input>.
+		// The property is what actually mirrors the controlled `query` state,
+		// so that is what this asserts.
+		expect((container?.querySelector("[data-find-input]") as unknown as { value?: string } | null)?.value).toBe("");
+	});
+
+	it("renders no find chrome until find is opened", async () => {
+		const messages: AgentMessage[] = [{ role: "user", content: "hello there", timestamp: 6_000 }];
+		await mount(
+			<TranscriptViewport
+				mode="main"
+				projection={findProjection(messages, "find-chrome")}
+				main={FIND_MAIN_AUGMENTS}
+			/>,
+		);
+		expect(container?.querySelector("[data-transcript-find]")).toBeNull();
+		expect(container?.querySelector("[data-find-tick]")).toBeNull();
+	});
+
+	it("closes an already-open find session in one viewport when a second viewport opens its own", async () => {
+		// Task 6's review flagged a cross-viewport hazard: paintFindHighlights /
+		// clearFindHighlights write to a single process-wide CSS.highlights
+		// registry, so two mounted viewports must never both have find open —
+		// the second open must end the first.
+		function focusOverride(target: unknown): void {
+			Object.defineProperty(document, "activeElement", { configurable: true, get: () => target });
+		}
+
+		const messagesA: AgentMessage[] = [{ role: "user", content: "needle in pane A", timestamp: 7_000 }];
+		const messagesB: AgentMessage[] = [{ role: "user", content: "needle in pane B", timestamp: 7_100 }];
+		await mount(
+			<>
+				<div data-pane="a">
+					<TranscriptViewport
+						mode="main"
+						projection={findProjection(messagesA, "find-pane-a")}
+						main={FIND_MAIN_AUGMENTS}
+					/>
+				</div>
+				<div data-pane="b">
+					<TranscriptViewport mode="subagent" projection={findProjection(messagesB, "find-pane-b")} />
+				</div>
+			</>,
+		);
+		const mounted = container as unknown as HTMLElement;
+		const paneA = mounted.querySelector<HTMLElement>('[data-pane="a"] .omp-transcript-editorial');
+		const paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .omp-transcript-editorial');
+		if (!paneA || !paneB) throw new Error("find panes missing");
+
+		focusOverride(paneA);
+		dispatchFind("open");
+		expect(paneA.querySelector("[data-find-input]")).not.toBeNull();
+		expect(paneB.querySelector("[data-find-input]")).toBeNull();
+
+		focusOverride(paneB);
+		dispatchFind("open");
+		expect(paneB.querySelector("[data-find-input]")).not.toBeNull();
+		expect(paneA.querySelector("[data-find-input]")).toBeNull();
 	});
 });

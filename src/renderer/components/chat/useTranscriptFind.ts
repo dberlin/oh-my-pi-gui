@@ -33,6 +33,17 @@ import { clearFindHighlights, type FindHighlightTarget, paintFindHighlights } fr
 
 export const TRANSCRIPT_FIND_EVENT = "omp:transcript-find";
 
+/**
+ * Broadcast on the same window-event channel whenever one instance opens its
+ * own find session. `paintFindHighlights`/`clearFindHighlights` write to a
+ * single process-wide `CSS.highlights` registry, so a split workspace with
+ * several mounted `TranscriptViewport`s must never have two find sessions
+ * open at once — their repaints would clobber each other. Not exported: this
+ * is a private channel between `useTranscriptFind` instances, not part of the
+ * public find API.
+ */
+const TRANSCRIPT_FIND_OPENED_EVENT = "omp:transcript-find-opened";
+
 export type TranscriptFindAction = "open" | "next" | "previous";
 
 /**
@@ -100,8 +111,10 @@ interface LiveState {
 	host: TranscriptFindHost;
 	matches: readonly TranscriptMatch[];
 	needle: string;
+	open: boolean;
 	landOn: (step: FindStep) => void;
 	doOpen: () => void;
+	doClose: () => void;
 	goOlder: () => void;
 	goNewer: () => void;
 }
@@ -116,6 +129,10 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	const savedViewRef = useRef<SavedView | null>(null);
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const scope = useDisclosureScope();
+	// Stable per-instance identity for the single-open-session broadcast below.
+	// A plain object (not a string) is enough: it never leaves this same JS
+	// realm, so reference equality is all `handleOpenedElsewhere` needs.
+	const instanceIdRef = useRef<object>({});
 
 	const index = useMemo(() => {
 		const built = buildTranscriptFindIndex({
@@ -183,6 +200,9 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 			setQuery(selectionText);
 		}
 		setOpen(true);
+		// Tell every other mounted instance a find session just opened here, so at
+		// most one stays open — see TRANSCRIPT_FIND_OPENED_EVENT above.
+		window.dispatchEvent(new CustomEvent(TRANSCRIPT_FIND_OPENED_EVENT, { detail: instanceIdRef.current }));
 		// Opening while already open re-selects instead of clearing: focus/select
 		// run unconditionally on every "open" action.
 		requestAnimationFrame(() => {
@@ -204,9 +224,19 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 
 	// Kept fresh every render (no deps) so the stable window listener and the
 	// query-seeding effect below never close over a stale host/query/action.
-	const liveRef = useRef<LiveState>({ host, matches, needle: index.needle, landOn, doOpen, goOlder, goNewer });
+	const liveRef = useRef<LiveState>({
+		host,
+		matches,
+		needle: index.needle,
+		open,
+		landOn,
+		doOpen,
+		doClose: close,
+		goOlder,
+		goNewer,
+	});
 	useEffect(() => {
-		liveRef.current = { host, matches, needle: index.needle, landOn, doOpen, goOlder, goNewer };
+		liveRef.current = { host, matches, needle: index.needle, open, landOn, doOpen, doClose: close, goOlder, goNewer };
 	});
 
 	// Registered once. Re-registering on every keystroke would let a stale
@@ -229,6 +259,22 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 		}
 		window.addEventListener(TRANSCRIPT_FIND_EVENT, handleFindEvent);
 		return () => window.removeEventListener(TRANSCRIPT_FIND_EVENT, handleFindEvent);
+	}, []);
+
+	// At most one find session may be open at a time across every mounted
+	// viewport (main plus any split-workspace subagent projections): they all
+	// share the process-wide CSS.highlights registry that paintFindHighlights
+	// writes to, so two open sessions would repaint over each other. Whichever
+	// instance opens most recently wins; every other currently-open instance
+	// closes itself in response to that instance's TRANSCRIPT_FIND_OPENED_EVENT.
+	useEffect(() => {
+		function handleOpenedElsewhere(event: Event): void {
+			const detail = (event as CustomEvent<object>).detail;
+			if (detail === instanceIdRef.current) return;
+			if (liveRef.current.open) liveRef.current.doClose();
+		}
+		window.addEventListener(TRANSCRIPT_FIND_OPENED_EVENT, handleOpenedElsewhere);
+		return () => window.removeEventListener(TRANSCRIPT_FIND_OPENED_EVENT, handleOpenedElsewhere);
 	}, []);
 
 	// Seeding on query change: only re-seeds when the query itself changes (or
