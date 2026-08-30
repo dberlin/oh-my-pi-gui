@@ -1476,6 +1476,25 @@ describe("workspace dispatch", () => {
 		expect(deps.local.readPlan).toHaveBeenCalledWith({ fsPath: "/tmp/plan.md", localRoot: null });
 	});
 
+	it("accepts the tab id the fs preload sends on every workspace payload", async () => {
+		const catalog = catalogWith();
+		const tab = localTab();
+		const deps = workspaceDeps(catalog, [tab]);
+		const tabId = tab.tabId;
+
+		// window.omp.fs.* always includes tabId in the payload, and the FS_* handlers
+		// forward it verbatim after using it to resolve the workspace. Rejecting it
+		// here made the in-app file preview fail with "Invalid path".
+		expect(await dispatchWorkspaceList(deps, tab, { path: "src", tabId })).toMatchObject({ ok: true });
+		expect(await dispatchWorkspaceRead(deps, tab, { path: "notes.md", maxBytes: 1024, tabId })).toMatchObject({
+			ok: true,
+		});
+		expect(await dispatchWorkspaceReadImage(deps, tab, { path: "shot.png", tabId })).toMatchObject({ ok: true });
+		expect(
+			await dispatchWorkspaceReadPlan(deps, tab, { fsPath: "/tmp/plan.md", localRoot: null, tabId }),
+		).toMatchObject({ ok: true });
+	});
+
 	it("rejects malformed workspace payloads before dispatch", async () => {
 		const catalog = catalogWith();
 		const tab = localTab();
