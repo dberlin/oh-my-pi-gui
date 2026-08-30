@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo } from "react";
 import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
+import { TRANSCRIPT_FIND_EVENT, type TranscriptFindEventDetail } from "./components/chat/useTranscriptFind";
 import { ToastStack } from "./components/common";
 import { ActiveToolsDialog } from "./components/dialogs/ActiveToolsDialog";
 import { BranchPickerDialog } from "./components/dialogs/BranchPickerDialog";
@@ -308,6 +309,23 @@ export function AppGlobalActions() {
 					if (ui.hotkeysOpen) ui.closeHotkeys();
 					else ui.openHotkeys();
 					return;
+				case "transcript.find":
+				case "transcript.findNext":
+				case "transcript.findPrevious": {
+					// Find lives in the transcript viewport, which App does not own. Round one
+					// goes to whichever mounted viewport contains focus; if none claims it,
+					// round two hands it to the main-mode viewport of the active tab.
+					const action =
+						actionId === "transcript.find" ? "open" : actionId === "transcript.findNext" ? "next" : "previous";
+					const detail: TranscriptFindEventDetail = { action, fallback: false, claimed: false };
+					window.dispatchEvent(new CustomEvent(TRANSCRIPT_FIND_EVENT, { detail }));
+					if (!detail.claimed) {
+						window.dispatchEvent(
+							new CustomEvent(TRANSCRIPT_FIND_EVENT, { detail: { action, fallback: true, claimed: false } }),
+						);
+					}
+					return;
+				}
 			}
 		};
 

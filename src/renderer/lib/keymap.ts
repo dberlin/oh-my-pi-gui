@@ -385,6 +385,9 @@ export const KEYMAP_ACTIONS = [
 		hotkeyGroup: "view",
 	},
 	{ id: "hotkeys", labelKey: "hotkeys.row.hotkeys", defaults: ["⌘/", "⌃/"], overlaySafe: true, hotkeyGroup: "view" },
+	{ id: "transcript.find", labelKey: "hotkeys.row.find", defaults: ["⌘F", "⌃F"], overlaySafe: false, hotkeyGroup: "view" },
+	{ id: "transcript.findNext", labelKey: "hotkeys.row.findNext", defaults: ["⌘G"], overlaySafe: false, hotkeyGroup: "view" },
+	{ id: "transcript.findPrevious", labelKey: "hotkeys.row.findPrevious", defaults: ["⇧⌘G"], overlaySafe: false, hotkeyGroup: "view" },
 ] as const satisfies readonly KeymapAction[];
 
 /** Chords the composer's own keydown handler owns (InputArea.handleKeyDown).
