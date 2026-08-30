@@ -16,7 +16,7 @@ GUI-only, under `packages/gui`. No sidecar or RPC changes: everything searched i
 - Search over the whole row model, including content hidden inside collapsed disclosures.
 - Backwards-first match navigation with an explicit forward key and a visible wrap.
 - Match highlighting via the CSS Custom Highlight API, with a distinct current-match treatment.
-- Match ticks on the transcript scroll rail.
+- A match-tick strip showing where the hits sit, shown only while find is open.
 - Three remappable keymap actions and their `HotkeysDialog` rows.
 - Find in projected subagent transcripts, which share `TranscriptViewport`.
 
@@ -60,9 +60,9 @@ Critically, the index does not care whether a disclosure is open. A thinking blo
 
 ### Revealing hidden matches
 
-When navigation lands on a match inside collapsed content, find opens the disclosure that contains it by calling `setDisclosureOpen(scopedDisclosureKey(tabId, key), true)` on the `ui` store. That store already owns disclosure state precisely so it survives the virtualizer unmounting a row, so the reveal is durable and the user can collapse it again afterwards.
+When navigation lands on a match inside collapsed content, find opens the disclosure that contains it by calling `setDisclosureOpen` on the `ui` store, scoping the key through `useDisclosureScope()` exactly as every existing consumer does. That store already owns disclosure state precisely so it survives the virtualizer unmounting a row, so the reveal is durable and the user can collapse it again afterwards.
 
-Each match therefore carries the disclosure key it lives behind, or `null` when it is always visible.
+Each match therefore carries the disclosure key it lives behind, or `null` when it is always visible. One row kind is `null` by necessity: `ReadGroupCard` keeps its expansion in local component state rather than the `ui` store, so matches inside a collapsed read group are counted and scrolled to but not auto-revealed. Moving that card onto the disclosure store is out of scope here.
 
 ## Match model
 
@@ -90,7 +90,7 @@ Direction is **backwards through history by default**, because a transcript is a
 
 Wrapping is announced rather than silent: the counter shows a wrap indicator for one navigation step, so a jump from the oldest match back to the newest never reads as a glitch. The counter itself reads `n / total` in document order — match 1 is the oldest — so the number means the same thing regardless of which direction the user is travelling.
 
-Scrolling to a match uses `align: "center"` rather than `jumpToConversation`'s `align: "start"`, so a match near a row's end is not parked under the find bar. As with `jumpToConversation`, navigation sets `pinned` false and leaves `userScrollIntentRef` alone: programmatic scrolls must not be mistaken for the user unpinning the live edge.
+Scrolling to a match uses `align: "center"` rather than `jumpToConversation`'s `align: "start"`, so a match near a row's end is not parked under the find bar. Navigation otherwise mirrors `jumpToConversation` exactly: it clears `userScrollIntentRef` and sets `pinned` false, so a programmatic scroll is never mistaken for the user unpinning the live edge.
 
 Closing the bar with <kbd>Esc</kbd> restores the scroll position and pinned state from before find opened.
 
@@ -106,7 +106,7 @@ Contents, left to right: the query input; the match counter (`3 / 17`, tabular f
 - An empty query shows no matches and no highlights, not "0 / 0" styled as an error.
 - A query with no matches marks the input with the error token and reads `0 / 0`.
 
-The scroll rail carries a tick per match, with the current match's tick emphasized. Ticks are positioned from the virtualizer's measured offsets, so they are approximate for unmeasured rows and settle as rows are measured — acceptable, and the same limitation the scrollbar itself has.
+Match ticks show where the hits sit in the transcript, with the current one emphasized. There is no existing scroll rail to hang them on — `--omp-transcript-rail` is only a dashed border colour — so they render as their own thin overlay strip down the transcript's right edge, present only while find is open. Ticks are positioned from the virtualizer's measured offsets, so they are approximate for unmeasured rows and settle as rows are measured — acceptable, and the same limitation a scrollbar has.
 
 ## Highlighting
 
@@ -129,6 +129,10 @@ Three entries in `KEYMAP_ACTIONS` (`lib/keymap.ts`), which gives them remapping,
 | `transcript.findPrevious` | `⇧⌘G` | `false` |
 
 `overlaySafe: false` throughout — find must not fire while the command palette or a dialog owns the keyboard.
+
+### Reaching the right viewport
+
+`App.tsx`'s keymap dispatch acts on global stores, but find state lives inside a `TranscriptViewport` instance, and a split workspace can mount several. The action therefore travels as an `omp:transcript-find` window event that each mounted viewport listens for and answers only if it owns the focused pane, falling back to the main-mode viewport when nothing claims it. This follows the existing `omp:insert-mention` event that `FilesPanel` dispatches and `InputArea` consumes, rather than inventing a second routing mechanism.
 
 <kbd>↵</kbd> and <kbd>⇧↵</kbd> are handled locally by the find input, not through the keymap, because they are only meaningful while that input has focus. <kbd>⌘G</kbd> and <kbd>⇧⌘G</kbd> work with focus anywhere in the pane, so the user can navigate matches after clicking back into the transcript.
 
@@ -181,3 +185,9 @@ Two decisions were explicitly deferred and are additive on top of this design:
 ## Changelog
 
 - 2026-08-30 — Initial design, following the options review.
+- 2026-08-30 — Corrected against the code while planning: there is no scroll
+  rail to hang match ticks on (they get their own overlay strip); navigation
+  clears `userScrollIntentRef` as `jumpToConversation` does, rather than
+  leaving it alone; disclosure keys scope through `useDisclosureScope()`;
+  `ReadGroupCard` matches cannot auto-reveal; and keymap actions reach the
+  right viewport over an `omp:transcript-find` window event.
