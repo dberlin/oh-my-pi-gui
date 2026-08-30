@@ -188,9 +188,26 @@ function blurEverything(): void {
 	Object.defineProperty(document, "activeElement", { configurable: true, get: () => null });
 }
 
-function stubSelection(text: string): void {
-	(window as unknown as { getSelection: () => { toString: () => string } }).getSelection = () => ({
+/**
+ * A real `Selection` exposes containment through `getRangeAt(0).commonAncestorContainer`,
+ * not through `document.activeElement` — text can be selected inside a non-focusable
+ * transcript row without ever moving focus. `container` models that: when given, the
+ * fake selection reports one range whose `commonAncestorContainer` is `container`,
+ * exactly what `Range.commonAncestorContainer` returns on a real selection.
+ */
+function stubSelection(text: string, container: unknown = null): void {
+	(
+		window as unknown as {
+			getSelection: () => {
+				toString: () => string;
+				rangeCount: number;
+				getRangeAt: (index: number) => { commonAncestorContainer: unknown };
+			};
+		}
+	).getSelection = () => ({
 		toString: () => text,
+		rangeCount: container ? 1 : 0,
+		getRangeAt: () => ({ commonAncestorContainer: container }),
 	});
 }
 
@@ -299,19 +316,50 @@ describe("useTranscriptFind", () => {
 	});
 
 	it("clamps a dangling ordinal when rows are removed rather than keeping it", async () => {
+		// A third match at rowIndex 5 (outside range.endIndex = 4) makes an
+		// incorrect re-seed (which would land on ordinal 0, the only match with
+		// rowIndex <= 4) diverge from the correct clamp (ordinal 1, the greatest
+		// surviving ordinal) — so this test cannot pass by accidental agreement
+		// between clampFindOrdinal and a stray seedFindOrdinal re-fire.
 		await mountDefault();
+		const rowsWithThirdMatch = BASE_ROWS.map((row, i) => (i === 5 ? textRow("needle three", 105) : row));
+		await rerenderWithRows(rowsWithThirdMatch);
 		act(() => state.setQuery("needle"));
-		dispatchFind("open");
-		act(() => state.goNewer()); // land on the last match
-		const rowsWithLastMatchRemoved = BASE_ROWS.map((row, i) => (i === 8 ? textRow("no match here", 108) : row));
-		await rerenderWithRows(rowsWithLastMatchRemoved);
+		dispatchFind("open"); // seeds to ordinal 0 (rowIndex 2)
+		act(() => state.goNewer()); // -> ordinal 1 (rowIndex 5)
+		act(() => state.goNewer()); // -> ordinal 2 (rowIndex 8), the last match
+		const rowsWithLastMatchRemoved = rowsWithThirdMatch.map((row, i) =>
+			i === 8 ? textRow("no match here", 108) : row,
+		);
+		// The row's key must change along with its content: buildTranscriptFindIndex
+		// caches a row's seeds by rowKey (see transcript-find.ts), so reusing "r8"
+		// for genuinely different content would return the stale cached match
+		// instead of exercising a real removal.
+		const rowKeysAfterRemoval = rowsWithLastMatchRemoved.map((_, i) => (i === 8 ? "r8-edited" : `r${i}`));
+		await rerenderHost({ rows: rowsWithLastMatchRemoved, rowKeys: rowKeysAfterRemoval });
+		expect(state.total).toBe(2);
+		expect(state.current).toBe(1);
 		expect(state.current).toBe(state.total - 1);
 	});
 
 	it("seeds the query from a non-empty transcript selection", async () => {
 		await mountDefault();
-		stubSelection("Projected finalized");
+		stubSelection("Projected finalized", rootDiv);
 		dispatchFind("open");
+		expect(state.query).toBe("Projected finalized");
+	});
+
+	it("seeds from a selection inside rootRef even when nothing there is focused", async () => {
+		// Dragging a text selection across a non-focusable row never moves
+		// document.activeElement — and in the fallback round activeElement is
+		// guaranteed not to be inside any rootRef at all, since that is the
+		// entire reason the fallback round exists. Seeding must key off the
+		// selection's own containment (via getRangeAt(0).commonAncestorContainer),
+		// not focus.
+		await mountDefault();
+		blurEverything();
+		stubSelection("Projected finalized", rootDiv);
+		dispatchFind("open", { fallback: true });
 		expect(state.query).toBe("Projected finalized");
 	});
 });
