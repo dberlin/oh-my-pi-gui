@@ -1,10 +1,11 @@
 /**
  * Presentational find bar and match-tick strip for ⌘F transcript search.
  * Owns no find state, does no scrolling, and never touches the virtualizer
- * or the ui store — Task 6's hook drives it and Task 7 wires it in. There is
- * no existing transcript scroll rail to hang ticks on (`--omp-transcript-rail`
- * is only a dashed border colour), so `TranscriptFindTicks` is its own thin
- * overlay strip, rendered only while find is open.
+ * or the ui store — `useTranscriptFind` drives it and `TranscriptViewport`
+ * wires it in. There is no existing transcript scroll rail to hang ticks on
+ * (`--omp-transcript-rail` is only a dashed border colour), so
+ * `TranscriptFindTicks` is its own thin overlay strip, rendered only while
+ * find is open.
  */
 
 import { ChevronDown, ChevronUp, X } from "lucide-react";

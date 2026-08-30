@@ -1,25 +1,39 @@
 /**
  * Paints ⌘F matches onto mounted rows using the CSS Custom Highlight API
  * (`CSS.highlights`). This module is the only DOM-touching half of transcript
- * find — `transcript-find.ts` stays pure and indexes the row model, this
- * module re-derives the same normalized text from the live DOM (via
- * `flattenTextNodes`) so a model offset lands on the right characters.
+ * find — `transcript-find.ts` stays pure and indexes the row model.
+ *
+ * The index's per-match `occurrenceInRow` and this module's DOM occurrence
+ * count are only *approximately* the same quantity: `transcript-find.ts`
+ * counts over markdown source, `JSON.stringify`'d tool arguments, and text
+ * behind still-collapsed sibling disclosures, while this module counts over
+ * the flattened text of the whole mounted row (rendered markdown, formatted
+ * tool arguments, row chrome). The two can diverge within a row, shifting
+ * every later occurrence index. Rather than trust that mapping to select
+ * *which* DOM occurrences to paint, this module paints every DOM occurrence
+ * of the needle in a row the index has already flagged as containing a
+ * match — strictly more robust, and it matches what a user expects of a
+ * highlighted row. The occurrence index is used only as a best-effort guess
+ * for which occurrence gets the "current match" emphasis.
  *
  * TypeScript 7's bundled DOM lib does not reliably declare `Highlight` /
- * `CSS.highlights` (see plan Open Question 8), so this module declares a
- * local structural view of the API (`HighlightRegistryLike`, `HighlightCtor`)
- * instead of widening tsconfig or adding an ambient global .d.ts.
+ * `CSS.highlights`, so this module declares a local structural view of the
+ * API (`HighlightRegistryLike`, `HighlightCtor`) instead of widening
+ * tsconfig or adding an ambient global .d.ts.
  */
 
 export const FIND_HIGHLIGHT = "omp-find";
 export const FIND_CURRENT_HIGHLIGHT = "omp-find-current";
 
-/** One mounted row and which of its occurrences to paint. */
+/** One mounted row the index flagged as containing a match. */
 export interface FindHighlightTarget {
 	rowElement: Element;
-	/** Occurrence indices within the row (ascending) that this needle produced. */
-	occurrences: readonly number[];
-	/** The occurrence index that is the current match, or null. */
+	/**
+	 * Best-effort DOM occurrence index of the current match (from the index's
+	 * `occurrenceInRow`). Approximate — see the module docblock — so it only
+	 * decides which occurrence gets the current-match emphasis; every DOM
+	 * occurrence of the needle in this row is still painted as a plain match.
+	 */
 	currentOccurrence: number | null;
 }
 
@@ -37,15 +51,6 @@ function highlightApi(): { registry: HighlightRegistryLike; Highlight: Highlight
 		return { registry: css.highlights, Highlight: ctor };
 	} catch {
 		return null;
-	}
-}
-
-/** True when this renderer implements the CSS Custom Highlight API. */
-export function supportsFindHighlight(): boolean {
-	try {
-		return typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight === "function";
-	} catch {
-		return false;
 	}
 }
 
@@ -134,14 +139,11 @@ export function paintFindHighlights(targets: readonly FindHighlightTarget[], nee
 	const current: Range[] = [];
 	for (const target of targets) {
 		const flat = flattenTextNodes(target.rowElement);
-		const wanted = new Set(target.occurrences);
 		let occurrence = 0;
 		let at = flat.text.indexOf(needle);
 		while (at !== -1) {
-			if (wanted.has(occurrence)) {
-				const range = rangeFor(flat, at, at + needle.length);
-				if (range) (occurrence === target.currentOccurrence ? current : plain).push(range);
-			}
+			const range = rangeFor(flat, at, at + needle.length);
+			if (range) (occurrence === target.currentOccurrence ? current : plain).push(range);
 			occurrence++;
 			at = flat.text.indexOf(needle, at + needle.length);
 		}

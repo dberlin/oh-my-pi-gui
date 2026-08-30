@@ -223,6 +223,53 @@ describe("buildTranscriptFindIndex", () => {
 		expect(first.matches).toHaveLength(0);
 		expect(buildAll([grown], key, "needle", first).matches).toHaveLength(1);
 	});
+
+	it("rescans a row when the context identity changes, even though the row's key and query are unchanged (late-arriving tool result)", () => {
+		// The row's key never moves when a tool result lands — only `context`
+		// (`resolveToolCall`/`lookupToolEntry`) changes, exactly as `findContext`'s
+		// memo produces a new object whenever `activeTools` updates.
+		const pendingEntry: ToolEntry = { ...grepEntry, status: "pending", result: null, partialResult: null };
+		const pendingContext: TranscriptFindContext = {
+			resolveToolCall: () => ({ key: "call-1", entry: pendingEntry }),
+			lookupToolEntry: () => pendingEntry,
+		};
+		const row: Row = { kind: "message", message: assistant([grepCall]) };
+		const first = buildTranscriptFindIndex({
+			rows: [row],
+			rowKeys: ["r0"],
+			query: "needle",
+			context: pendingContext,
+		});
+		// Only the serialized arguments ({ pattern: "needle", ... }) match yet —
+		// the result text hasn't arrived.
+		expect(first.matches).toHaveLength(1);
+
+		const settledContext: TranscriptFindContext = {
+			resolveToolCall: () => ({ key: "call-1", entry: grepEntry }),
+			lookupToolEntry: () => grepEntry,
+		};
+		const second = buildTranscriptFindIndex({
+			rows: [row],
+			rowKeys: ["r0"],
+			query: "needle",
+			context: settledContext,
+			previous: first,
+		});
+		// The result text ("...const needle...") must now also be indexed.
+		expect(second.matches).toHaveLength(2);
+	});
+
+	it("rescans a row whose kind changed since it was cached, even though its key is unchanged (streaming settling into a message)", () => {
+		// transcriptRowBaseKey deliberately keeps one key across a streaming row
+		// and its finalized message row.
+		const streamingRow: Row = { kind: "streaming", message: assistant([{ type: "text", text: "nee" }]) };
+		const first = buildAll([streamingRow], ["shared-key"], "needle");
+		expect(first.matches).toHaveLength(0);
+
+		const settledRow: Row = { kind: "message", message: assistant([{ type: "text", text: "needle" }]) };
+		const second = buildAll([settledRow], ["shared-key"], "needle", first);
+		expect(second.matches).toHaveLength(1);
+	});
 });
 
 // These `matches` are hand-written literals (not built via buildTranscriptFindIndex), so

@@ -87,15 +87,31 @@ export interface TranscriptMatch {
 	locator: { occurrenceInRow: number };
 }
 
+/** A row's cached seeds, plus the row kind they were scanned from. */
+interface RowCacheEntry {
+	kind: Row["kind"];
+	seeds: readonly RowMatchSeed[];
+}
+
 export interface TranscriptFindIndex {
 	/** The normalized needle this index was built for ("" = no matches by definition). */
 	needle: string;
 	matches: readonly TranscriptMatch[];
-	/** rowKey → that row's seeds; carried forward when the needle is unchanged. */
-	rowCache: ReadonlyMap<string, readonly RowMatchSeed[]>;
+	/** rowKey → that row's seeds; carried forward when the needle and context are unchanged. */
+	rowCache: ReadonlyMap<string, RowCacheEntry>;
+	/**
+	 * The context this index was built against. A row's searchable text is not
+	 * purely a function of its key: a `message` row's key does not move when a
+	 * late tool result lands in the *tools* store, only `context` does (its
+	 * memo depends on `activeTools`). Reusing cached seeds across a context
+	 * change would silently keep serving text scanned before the result
+	 * arrived, so the whole cache is dropped whenever `context` differs by
+	 * reference from the build that produced it.
+	 */
+	context: TranscriptFindContext | null;
 }
 
-export const EMPTY_FIND_INDEX: TranscriptFindIndex = { needle: "", matches: [], rowCache: new Map() };
+export const EMPTY_FIND_INDEX: TranscriptFindIndex = { needle: "", matches: [], rowCache: new Map(), context: null };
 
 function seedRow(row: Row, rowKey: string, needle: string, context: TranscriptFindContext): RowMatchSeed[] {
 	const seeds: RowMatchSeed[] = [];
@@ -119,18 +135,25 @@ export function buildTranscriptFindIndex(input: {
 }): TranscriptFindIndex {
 	const needle = normalizeFindText(input.query);
 	if (!needle) return EMPTY_FIND_INDEX;
-	const reusable = input.previous?.needle === needle ? input.previous.rowCache : null;
-	const rowCache = new Map<string, readonly RowMatchSeed[]>();
+	const reusable =
+		input.previous?.needle === needle && input.previous.context === input.context ? input.previous.rowCache : null;
+	const rowCache = new Map<string, RowCacheEntry>();
 	const matches: TranscriptMatch[] = [];
 	for (let rowIndex = 0; rowIndex < input.rows.length; rowIndex++) {
 		const row = input.rows[rowIndex];
 		if (!row) continue;
 		const rowKey = input.rowKeys[rowIndex] ?? String(rowIndex);
 		// The streaming row keeps one identity while its text grows, so its cache
-		// entry is never trustworthy — rescan it on every rebuild.
-		const cached = row.kind === "streaming" ? undefined : reusable?.get(rowKey);
-		const seeds = cached ?? seedRow(row, rowKey, needle, input.context);
-		rowCache.set(rowKey, seeds);
+		// entry is never trustworthy — rescan it on every rebuild. A cached entry
+		// scanned under a different row kind (e.g. the row settled from
+		// "streaming" to "message" while keeping the same base key) is equally
+		// untrustworthy: its text is not the current row's text.
+		const cached = reusable?.get(rowKey);
+		const seeds =
+			row.kind !== "streaming" && cached?.kind === row.kind
+				? cached.seeds
+				: seedRow(row, rowKey, needle, input.context);
+		rowCache.set(rowKey, { kind: row.kind, seeds });
 		for (const seed of seeds) {
 			matches.push({
 				rowIndex,
@@ -141,7 +164,7 @@ export function buildTranscriptFindIndex(input: {
 			});
 		}
 	}
-	return { needle, matches, rowCache };
+	return { needle, matches, rowCache, context: input.context };
 }
 
 /** "older" travels backwards through history (down-ordinal); "newer" travels toward the live edge. */
