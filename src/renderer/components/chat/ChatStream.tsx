@@ -52,6 +52,8 @@ function MainTranscript({
 }) {
 	const tabId = useRuntimeTabId();
 	const messages = useMessagesStore(state => state.messages);
+	// Uncommitted local echo tails the committed transcript so a typed prompt
+	// paints immediately; `reconcileFetched`/`message_end` replace it in place.
 	const liveMessages = useMessagesStore(state => state.liveMessages);
 	const displayMessages = useMemo(() => [...messages, ...liveMessages], [messages, liveMessages]);
 	const streamingMessage = useMessagesStore(state => state.streamingMessage);

@@ -461,7 +461,7 @@ describe("InputArea queue shorthand submit", () => {
 		await pressEnter(findTextarea());
 		await flush();
 
-		expect(prompt).toHaveBeenCalledWith("slow network prompt", []);
+		expect(prompt).toHaveBeenCalledWith("slow network prompt", [], "steer");
 		expect(useMessagesStore.getState().liveMessages).toMatchObject([
 			{
 				role: "user",

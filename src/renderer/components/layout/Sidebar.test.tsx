@@ -368,6 +368,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				{
 					id: "chat",
 					cwd: "/neutral",
+					target: { type: "local" },
 					status: "ready",
 					kind: "chat",
 					unreadDone: false,
