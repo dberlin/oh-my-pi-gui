@@ -55,6 +55,9 @@ import { ExecutionGroup } from "./ExecutionGroup";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { TranscriptFindBar, TranscriptFindTicks } from "./TranscriptFindBar";
+import type { TranscriptFindContext } from "./transcript-find";
+import { useTranscriptFind } from "./useTranscriptFind";
 
 export interface TranscriptProjectionView {
 	transcriptId: string;
@@ -524,9 +527,34 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 		[onConversationNavigationChange],
 	);
 
+	// Messages hydrate via hydrateSession (use-rpc-events) on sidecar ready —
+	// no separate fetch here (that would double-download the transcript).
+
+	const rootRef = useRef<HTMLDivElement>(null);
+	const clearUserScrollIntent = useCallback(() => {
+		userScrollIntentRef.current = false;
+	}, []);
+	const findContext = useMemo<TranscriptFindContext>(
+		() => ({ resolveToolCall, lookupToolEntry: key => activeTools.get(key) }),
+		[resolveToolCall, activeTools],
+	);
+	const find = useTranscriptFind({
+		transcriptId,
+		isMain,
+		rows,
+		rowKeys,
+		context: findContext,
+		rootRef,
+		scrollRef: parentRef,
+		virtualizer,
+		pinned,
+		setPinned,
+		clearUserScrollIntent,
+	});
+
 	return (
 		<>
-			<div className="omp-editorial-transcript relative min-h-0 flex-1 bg-transparent">
+			<div ref={rootRef} className="omp-editorial-transcript relative min-h-0 flex-1 bg-transparent">
 				<div
 					ref={parentRef}
 					aria-label={t("chat.transcript.label")}
@@ -705,6 +733,20 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 					<ArrowDown size={14} />
 					{t("chat.jumpToLatest")}
 				</button>
+				{find.open ? (
+					<TranscriptFindBar
+						query={find.query}
+						onQueryChange={find.setQuery}
+						total={find.total}
+						current={find.current}
+						wrapped={find.wrapped}
+						onOlder={find.goOlder}
+						onNewer={find.goNewer}
+						onClose={find.close}
+						inputRef={find.inputRef}
+					/>
+				) : null}
+				{find.open ? <TranscriptFindTicks ticks={find.ticks} currentOrdinal={find.current} /> : null}
 			</div>
 			<ConversationNavigator
 				activeIndex={activeConversationIndex}
