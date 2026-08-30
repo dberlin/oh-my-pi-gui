@@ -9,7 +9,7 @@
  */
 
 import { ChevronDown, ChevronUp, X } from "lucide-react";
-import type { KeyboardEvent, ReactElement, RefObject } from "react";
+import { type KeyboardEvent, type ReactElement, type RefObject, useLayoutEffect } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import type { FindTick } from "./transcript-find";
@@ -34,6 +34,18 @@ export function TranscriptFindBar(props: TranscriptFindBarProps): ReactElement {
 	const t = useT();
 	const hasQuery = query.length > 0;
 	const noMatches = hasQuery && total === 0;
+
+	// The bar only exists while find is open, so mounting *is* the first open.
+	// Claiming focus here — synchronously, once the input is in the DOM — rather
+	// than from an animation frame in `useTranscriptFind.doOpen`, which can run
+	// before React has committed this input and so focus a null ref, leaving the
+	// user unable to type until a second ⌘F. Re-opening an already-open session
+	// keeps this component mounted, so doOpen still owns that re-select.
+	useLayoutEffect(() => {
+		const input = inputRef.current;
+		input?.focus();
+		input?.select();
+	}, [inputRef]);
 
 	const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
 		if (event.key === "Enter") {
