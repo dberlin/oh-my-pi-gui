@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
 import type { ToolEntry } from "../../stores/tools";
 import type { Row } from "./chat-stream-utils";
-import { extractRowSegments, normalizeFindText, type TranscriptFindContext } from "./transcript-find";
+import {
+	buildTranscriptFindIndex,
+	EMPTY_FIND_INDEX,
+	extractRowSegments,
+	normalizeFindText,
+	type TranscriptFindContext,
+	type TranscriptFindIndex,
+} from "./transcript-find";
 
 const grepCall: ToolCallContent = {
 	type: "toolCall",
@@ -117,5 +124,99 @@ describe("extractRowSegments", () => {
 		).toEqual([{ text: "Queued prompt", disclosureKey: null }]);
 		expect(extractRowSegments({ kind: "expander", count: 214 }, "pre-compaction-expander", context)).toEqual([]);
 		expect(extractRowSegments({ kind: "pending" }, "pending", context)).toEqual([]);
+	});
+});
+
+function textRow(text: string): Row {
+	return { kind: "message", message: assistant([{ type: "text", text }]) };
+}
+
+function buildAll(rows: Row[], keys: string[], query: string, previous?: TranscriptFindIndex | null) {
+	return buildTranscriptFindIndex({ rows, rowKeys: keys, query, context, previous });
+}
+
+describe("buildTranscriptFindIndex", () => {
+	it("returns the empty index for a blank query", () => {
+		expect(buildAll([textRow("needle")], ["r0"], "   ")).toBe(EMPTY_FIND_INDEX);
+	});
+
+	it("numbers matches 0..n-1 in document order across rows", () => {
+		const index = buildAll(
+			[textRow("needle and needle"), textRow("nothing"), textRow("one needle")],
+			["r0", "r1", "r2"],
+			"needle",
+		);
+		expect(index.matches.map(m => [m.ordinal, m.rowIndex, m.locator.occurrenceInRow])).toEqual([
+			[0, 0, 0],
+			[1, 0, 1],
+			[2, 2, 0],
+		]);
+	});
+
+	it("matches literally, never as a regex", () => {
+		expect(buildAll([textRow("call foo(x) now")], ["r0"], "foo(x)").matches).toHaveLength(1);
+		expect(buildAll([textRow("aaa")], ["r0"], "a.a").matches).toHaveLength(0);
+	});
+
+	it("is case-insensitive and whitespace-normalized on both sides", () => {
+		expect(buildAll([textRow("The  Needle\nhere")], ["r0"], "  needle HERE ").matches).toHaveLength(1);
+	});
+
+	it("counts matches hidden behind collapsed disclosures and records their keys", () => {
+		const message = assistant([{ type: "thinking", thinking: "the needle is here" }, grepCall]);
+		const index = buildAll([{ kind: "message", message }], ["r0"], "needle");
+		// grepCall's arguments ({ pattern: "needle", ... }) and grepEntry's result text both
+		// contain "needle" literally, in addition to the thinking block, so this row yields
+		// three matches: the thinking block plus both tool-disclosure segments.
+		expect(index.matches).toHaveLength(3);
+		expect(index.matches[0]?.disclosureKey).toMatch(/:thinking:0$/);
+		expect(index.matches[1]?.disclosureKey).toBe("tool:call-1");
+		expect(index.matches[2]?.disclosureKey).toBe("tool:call-1");
+	});
+
+	it("rescans only rows it has not seen when the transcript appends", () => {
+		const rows = [textRow("needle one"), textRow("needle two")];
+		const keys = ["r0", "r1"];
+		const first = buildAll(rows, keys, "needle");
+		const scanned: string[] = [];
+		const spyContext: TranscriptFindContext = {
+			resolveToolCall: context.resolveToolCall,
+			lookupToolEntry: key => {
+				scanned.push(key);
+				return context.lookupToolEntry(key);
+			},
+		};
+		const grouped: Row = {
+			kind: "readGroup",
+			entries: [{ callId: "c", toolKey: "call-1", path: "needle.ts", args: {} }],
+		};
+		const second = buildTranscriptFindIndex({
+			rows: [...rows, grouped],
+			rowKeys: [...keys, "r2"],
+			query: "needle",
+			context: spyContext,
+			previous: first,
+		});
+		// Only the appended read-group row hit the resolver.
+		expect(scanned).toEqual(["call-1"]);
+		// The read-group row contributes two matches of its own: its path ("needle.ts")
+		// and the resolved entry's result text (which also contains "needle").
+		expect(second.matches.map(m => m.ordinal)).toEqual([0, 1, 2, 3]);
+	});
+
+	it("drops matches for removed rows and renumbers the survivors", () => {
+		const first = buildAll([textRow("needle a"), textRow("needle b")], ["r0", "r1"], "needle");
+		const second = buildAll([textRow("needle b")], ["r1"], "needle", first);
+		expect(second.matches).toHaveLength(1);
+		expect(second.matches[0]).toMatchObject({ ordinal: 0, rowIndex: 0, rowKey: "r1" });
+	});
+
+	it("rescans the streaming row even when its key is already cached", () => {
+		const key = ["s0"];
+		const short: Row = { kind: "streaming", message: assistant([{ type: "text", text: "nee" }]) };
+		const grown: Row = { kind: "streaming", message: assistant([{ type: "text", text: "needle" }]) };
+		const first = buildAll([short], key, "needle");
+		expect(first.matches).toHaveLength(0);
+		expect(buildAll([grown], key, "needle", first).matches).toHaveLength(1);
 	});
 });
