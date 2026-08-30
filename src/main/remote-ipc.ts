@@ -916,6 +916,13 @@ function flattenEntries(entries: FsTreeEntry[]): FsTreeEntry[] {
 	return flattened;
 }
 
+/*
+ * Every dispatcher below admits `tabId`: the fs preload always puts it in the
+ * payload, and the FS_* handlers forward that payload verbatim after using the
+ * id to resolve the workspace. Omitting it from the allowed keys rejected the
+ * exact shape the renderer sends, which surfaced as "Invalid path" from the
+ * in-app file preview. The remote-host dispatchers above already list it.
+ */
 export async function dispatchWorkspaceList(
 	deps: WorkspaceDispatchDeps,
 	requestedTab: WorkspaceTabIdentity,
@@ -923,7 +930,7 @@ export async function dispatchWorkspaceList(
 ): Promise<IpcFsListResult> {
 	if (
 		!isPlainRecord(payload) ||
-		!hasOnlyKeys(payload, ["path", "maxDepth", "maxEntries"]) ||
+		!hasOnlyKeys(payload, ["path", "maxDepth", "maxEntries", "tabId"]) ||
 		(payload.path !== undefined && typeof payload.path !== "string") ||
 		(isRemoteWorkspaceRequest(requestedTab) &&
 			payload.path !== undefined &&
@@ -967,7 +974,7 @@ export async function dispatchWorkspaceRead(
 ): Promise<IpcFsReadResult> {
 	if (
 		!isPlainRecord(payload) ||
-		!hasOnlyKeys(payload, ["path", "maxBytes"]) ||
+		!hasOnlyKeys(payload, ["path", "maxBytes", "tabId"]) ||
 		!nonEmptyString(payload.path) ||
 		(isRemoteWorkspaceRequest(requestedTab) && !remoteInputWithinBytes(payload.path, REMOTE_PATH_MAX_BYTES)) ||
 		!isOptionalFiniteNumber(payload.maxBytes)
@@ -997,7 +1004,7 @@ export async function dispatchWorkspaceReadImage(
 ): Promise<IpcFsReadImageResult> {
 	if (
 		!isPlainRecord(payload) ||
-		!hasExactKeys(payload, ["path"]) ||
+		!hasOnlyKeys(payload, ["path", "tabId"]) ||
 		!nonEmptyString(payload.path) ||
 		(isRemoteWorkspaceRequest(requestedTab) && !remoteInputWithinBytes(payload.path, REMOTE_PATH_MAX_BYTES))
 	) {
@@ -1025,7 +1032,7 @@ export async function dispatchWorkspaceReadPlan(
 ): Promise<IpcFsReadPlanResult> {
 	if (
 		!isPlainRecord(payload) ||
-		!hasExactKeys(payload, ["fsPath", "localRoot"]) ||
+		!hasOnlyKeys(payload, ["fsPath", "localRoot", "tabId"]) ||
 		!nonEmptyString(payload.fsPath) ||
 		(payload.localRoot !== null && !nonEmptyString(payload.localRoot)) ||
 		(isRemoteWorkspaceRequest(requestedTab) &&
