@@ -34,7 +34,7 @@
     "package:win:dir": "bun run build && electron-builder --config electron-builder.win.yml --win --x64 --dir"
   },
   "dependencies": {
-    "@codemirror/commands": "6.10.4",
+    "@codemirror/commands": "6.11.0",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-markdown": "6.5.2",
     "@codemirror/view": "^6.43.8",
@@ -78,7 +78,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "electron": "43.4.0",
+    "electron": "44.0.0",
     "electron-builder": "^26.15.3",
     "linkedom": "^0.18.13",
     "micromark-extension-math": "3.1.0",

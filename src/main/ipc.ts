@@ -932,10 +932,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	sidecarPool.hostToolExecutor = (sidecar, request, win) => {
 		const result = executeGuiHostTool(request.toolName, request.arguments);
 		if (result !== undefined) {
-			void Promise.resolve(result).then(
-				value => sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result: value }),
-				error => sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, error: String(error) }),
-			);
+			if (typeof result === "string") {
+				sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result });
+			} else {
+				void result.then(
+					value => sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result: value }),
+					error => sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, error: String(error) }),
+				);
+			}
 			return true;
 		}
 		// Unknown host tools → forward to the owning renderer.
