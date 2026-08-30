@@ -1515,29 +1515,35 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// refused), absolute paths pass through: the agent can legitimately touch
 	// files outside the workspace. When no editor association exists, reveal
 	// the file in the file manager instead of failing.
-	ipcMain.handle(IPC_COMMANDS.SYSTEM_OPEN_PATH, async (event, target: string): Promise<IpcOpenPathResult> => {
-		if (typeof target !== "string" || !target.trim()) return { ok: false, error: "Empty path" };
-		let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
-		if (!path.isAbsolute(resolved)) {
-			const rootAbs = cwdFor(deps, event);
-			if (!rootAbs) return { ok: false, error: "No workspace" };
-			const within = resolveWithin(rootAbs, resolved);
-			if (!within) return { ok: false, error: "Path escapes the workspace" };
-			resolved = within;
-		}
-		// A stale tool card can reference a file that no longer exists (or never
-		// did outside the workspace). Both openPath and showItemInFolder fail
-		// silently on missing paths, so detect it here and let the link toast.
-		try {
-			await fsp.access(resolved);
-		} catch {
-			return { ok: false, error: "File not found" };
-		}
-		const openError = await shell.openPath(resolved);
-		if (!openError) return { ok: true, resolvedPath: resolved };
-		shell.showItemInFolder(resolved);
-		return { ok: true, resolvedPath: resolved };
-	});
+	ipcMain.handle(
+		IPC_COMMANDS.SYSTEM_OPEN_PATH,
+		async (event, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
+			if (typeof target !== "string" || !target.trim()) return { ok: false, error: "Empty path" };
+			let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
+			if (!path.isAbsolute(resolved)) {
+				// A tool card's relative path belongs to the tab that produced it. Without
+				// the tab id this fell back to the window's active sidecar, which resolves
+				// against the wrong workspace whenever a split pane is not the focused one.
+				const rootAbs = cwdFor(deps, event, typeof tabId === "string" ? tabId : undefined);
+				if (!rootAbs) return { ok: false, error: "No workspace" };
+				const within = resolveWithin(rootAbs, resolved);
+				if (!within) return { ok: false, error: "Path escapes the workspace" };
+				resolved = within;
+			}
+			// A stale tool card can reference a file that no longer exists (or never
+			// did outside the workspace). Both openPath and showItemInFolder fail
+			// silently on missing paths, so detect it here and let the link toast.
+			try {
+				await fsp.access(resolved);
+			} catch {
+				return { ok: false, error: "File not found" };
+			}
+			const openError = await shell.openPath(resolved);
+			if (!openError) return { ok: true, resolvedPath: resolved };
+			shell.showItemInFolder(resolved);
+			return { ok: true, resolvedPath: resolved };
+		},
+	);
 
 	ipcMain.handle(
 		IPC_COMMANDS.SYSTEM_SAVE_DIALOG,

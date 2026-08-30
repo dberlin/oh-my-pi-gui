@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isPeerIrcInvocation, resolveToolPresentation, toolPresentationSummary } from "./tool-presentation";
+import {
+	isPeerIrcInvocation,
+	resolveToolPresentation,
+	toolPresentationSummary,
+	toolPresentationSummaryParts,
+} from "./tool-presentation";
 
 describe("resolveToolPresentation", () => {
 
@@ -855,5 +860,49 @@ describe("toolPresentationSummary", () => {
 		});
 
 		expect(toolPresentationSummary(invocation)).toBe("Inspect state");
+	});
+});
+
+describe("toolPresentationSummaryParts", () => {
+	const invocation = (name: string, args: Record<string, unknown>, result: unknown = null) =>
+		resolveToolPresentation({ name, args, result, partialResult: null, isError: false });
+
+	it("links a write path to the absolute path the result resolved", () => {
+		const parts = toolPresentationSummaryParts(
+			invocation(
+				"write",
+				{ path: "notes/task.md" },
+				{ content: [], details: { resolvedPath: "/remote/notes/task.md" } },
+			),
+		);
+
+		expect(parts.path).toEqual({ text: "notes/task.md", target: "/remote/notes/task.md" });
+		expect(parts.rest).toBe("");
+	});
+
+	it("falls back to the argument path when the result resolved none", () => {
+		const parts = toolPresentationSummaryParts(invocation("read", { path: "src/app.ts" }));
+
+		expect(parts.path).toEqual({ text: "src/app.ts", target: "src/app.ts" });
+	});
+
+	it("links only the leading file of a multi-file edit and leaves the count as text", () => {
+		const parts = toolPresentationSummaryParts(invocation("edit", { edits: [{ path: "a.ts" }, { path: "b.ts" }] }));
+
+		expect(parts.path?.text).toBe("a.ts");
+		expect(parts.rest).toBe(" +1");
+	});
+
+	it("leaves a bash command as plain text so a command is never a file link", () => {
+		const parts = toolPresentationSummaryParts(invocation("bash", { command: "rm -rf build" }));
+
+		expect(parts.path).toBeNull();
+		expect(parts.rest).toBe("rm -rf build");
+	});
+
+	it("leaves a grep pattern as plain text even when it looks like a path", () => {
+		const parts = toolPresentationSummaryParts(invocation("grep", { pattern: "src/app.ts" }));
+
+		expect(parts.path).toBeNull();
 	});
 });

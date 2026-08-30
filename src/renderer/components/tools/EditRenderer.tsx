@@ -17,6 +17,7 @@ const EDIT_ERROR_LINES = 100;
 /** Per-file entry of `details.perFileResults` (multi-file edit results). */
 interface EditPerFileResult {
 	path: string;
+	resolvedPath?: string;
 	diff: string;
 	firstChangedLine?: number;
 	op?: EditOp;
@@ -45,6 +46,7 @@ function asPerFileResults(value: unknown): EditPerFileResult[] {
 		if (typeof record.path !== "string") continue;
 		out.push({
 			path: record.path,
+			resolvedPath: asString(record.resolvedPath),
 			diff: typeof record.diff === "string" ? record.diff : "",
 			firstChangedLine: typeof record.firstChangedLine === "number" ? record.firstChangedLine : undefined,
 			op: asOp(record.op),
@@ -83,6 +85,12 @@ interface EditHeaderProps {
 	/** Title override — set by move-only rows, which also take the move icon. */
 	title?: string;
 	path: string;
+	/**
+	 * Absolute path to hand the open link, when the result resolved one. The
+	 * displayed text still comes from `path`; only the link target changes, so
+	 * a relative arg path does not have to be re-resolved on the way out.
+	 */
+	openPath?: string;
 	/** Destination of a move/rename — rendered as `path → moveTo`. */
 	moveTo?: string;
 	firstChangedLine?: number;
@@ -91,7 +99,7 @@ interface EditHeaderProps {
 	isError?: boolean;
 }
 
-function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }: EditHeaderProps) {
+function EditHeader({ op, title, path, openPath, moveTo, firstChangedLine, diff, isError }: EditHeaderProps) {
 	const t = useT();
 	const Icon = op === "delete" ? Trash2 : op === "create" ? FilePlus2 : title != null ? ArrowRightLeft : Pencil;
 	const label =
@@ -112,7 +120,7 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }
 			</span>
 			{path && (
 				<>
-					<PathLink path={path} className="truncate text-[var(--omp-text)]">
+					<PathLink path={openPath || path} className="truncate text-[var(--omp-text)]">
 						{basename(path)}
 						{firstChangedLine ? `:${firstChangedLine}` : ""}
 					</PathLink>
@@ -145,11 +153,12 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }
 function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
 	const t = useT();
 	const displayPath = file.sourcePath ?? file.path;
+	const openPath = file.resolvedPath;
 
 	if (file.isError) {
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={file.op} path={displayPath} moveTo={file.move} isError />
+				<EditHeader op={file.op} path={displayPath} openPath={openPath} moveTo={file.move} isError />
 				<div className="whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
 					{file.displayErrorText ?? file.errorText ?? t("tools.edit.failed")}
 				</div>
@@ -160,14 +169,21 @@ function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
 	// Delete and move-only results carry no diff — inline status rows.
 	if (!file.diff) {
 		if (file.op === "delete") {
-			return <EditHeader op="delete" path={displayPath} moveTo={file.move} />;
+			return <EditHeader op="delete" path={displayPath} openPath={openPath} moveTo={file.move} />;
 		}
 		if (file.move || file.sourcePath) {
-			return <EditHeader title={t("tools.edit.op.move")} path={displayPath} moveTo={file.move ?? file.path} />;
+			return (
+				<EditHeader
+					title={t("tools.edit.op.move")}
+					path={displayPath}
+					openPath={openPath}
+					moveTo={file.move ?? file.path}
+				/>
+			);
 		}
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={file.op} path={displayPath} />
+				<EditHeader op={file.op} path={displayPath} openPath={openPath} />
 				{file.op !== "create" && (
 					<div className="text-omp-sm italic text-[var(--omp-dim)]">
 						{t("tools.edit.noChangesTo", { path: file.path })}
@@ -182,6 +198,7 @@ function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
 			<EditHeader
 				op={file.op}
 				path={displayPath}
+				openPath={openPath}
 				moveTo={file.move}
 				firstChangedLine={file.firstChangedLine}
 				diff={file.diff}
@@ -215,6 +232,10 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 
 	const op = asOp(args.op) ?? asOp(firstEdit?.op) ?? asOp(details?.op);
 	const rawPath = asString(details?.sourcePath) ?? argPaths[0] ?? asString(details?.path) ?? "";
+	// The agent resolves the edited file to an absolute path; prefer it as the
+	// open target so the link never depends on re-resolving a relative arg
+	// against a cwd. Matches ReadRenderer, WriteRenderer, and DiffPanel.
+	const resolvedPath = asString(details?.resolvedPath);
 	const rename =
 		asString(args.rename) ?? asString(firstEdit?.rename) ?? asString(firstEdit?.move) ?? asString(details?.move);
 	const detailDiff = typeof details?.diff === "string" ? details.diff : "";
@@ -247,7 +268,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		const { head: cappedError, omitted } = headLines(rawError || t("tools.edit.failed"), EDIT_ERROR_LINES);
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={op} path={rawPath} moveTo={rename} isError />
+				<EditHeader op={op} path={rawPath} openPath={resolvedPath} moveTo={rename} isError />
 				<div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
 					{cappedError}
 					{omitted > 0 && (
@@ -269,6 +290,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 					op={op}
 					title={op === "delete" ? undefined : t("tools.edit.op.move")}
 					path={rawPath}
+					openPath={resolvedPath}
 					moveTo={rename}
 				/>
 			);
@@ -279,6 +301,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 					<EditHeader
 						op={op}
 						path={rawPath}
+						openPath={resolvedPath}
 						moveTo={rename}
 						firstChangedLine={firstChangedLine}
 						diff={detailDiff}
@@ -290,7 +313,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		// No textual diff: a create (header says it all) or a genuine no-op.
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={op} path={rawPath} moveTo={rename} />
+				<EditHeader op={op} path={rawPath} openPath={resolvedPath} moveTo={rename} />
 				{op !== "create" && (
 					<div className="text-omp-sm italic text-[var(--omp-dim)]">
 						{rawPath ? t("tools.edit.noChangesTo", { path: rawPath }) : t("tools.edit.noChanges")}
