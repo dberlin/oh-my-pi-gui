@@ -162,6 +162,16 @@ kbd,
 	color: var(--omp-selection-text);
 }
 
+/* Transcript find (chat/transcript-find-highlight.ts registers the ranges). */
+::highlight(omp-find) {
+	background-color: var(--omp-find-match);
+}
+
+::highlight(omp-find-current) {
+	background-color: var(--omp-find-current);
+	color: var(--omp-find-current-text);
+}
+
 :focus-visible {
 	outline: 2px solid var(--omp-accent);
 	outline-offset: 1px;

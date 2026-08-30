@@ -131,17 +131,30 @@
 	--omp-scrollbar-track: transparent;
 
 	--omp-streaming-cursor: var(--omp-accent);
-	--omp-streaming-highlight: rgba(49, 95, 134, 0.04);
+	--omp-streaming-highlight: rgba(76, 94, 242, 0.05);
 
-	--omp-panel-bg: #f0f2f2;
-	--omp-panel-border: #e4e8e9;
-	--omp-panel-header: #59646b;
+	/* ── Editorial transcript ──────────────────────────────────────────── */
+	--omp-transcript-rail: #dfe2ec;
+	--omp-transcript-rule: #e9ebf2;
+	--omp-transcript-event: #8a92a0;
+	--omp-transcript-event-live: var(--omp-accent);
+	--omp-transcript-launch: #4c5ef2;
+	--omp-transcript-user-bg: rgba(76, 94, 242, 0.055);
+	--omp-transcript-user-border: rgba(76, 94, 242, 0.16);
+	--omp-transcript-code-bg: #eff1f6;
+	--omp-find-match: rgba(214, 152, 42, 0.22);
+	--omp-find-current: #e0a33a;
+	--omp-find-current-text: #1a1d29;
 
-	--omp-titlebar-bg: #f0f2f2;
-	--omp-titlebar-text: #22282d;
+	--omp-panel-bg: #f2f3f7;
+	--omp-panel-border: #dcdfe8;
+	--omp-panel-header: #5d6470;
 
-	--omp-shadow-sm: 0 1px 2px rgba(32, 40, 48, 0.035);
-	--omp-shadow-md: 0 6px 18px rgba(32, 40, 48, 0.07);
-	--omp-shadow-lg: 0 16px 48px rgba(32, 40, 48, 0.13);
-	--omp-shadow-glow: 0 0 0 1px var(--omp-border-accent);
+	--omp-titlebar-bg: #f8f9fb;
+	--omp-titlebar-text: #17191f;
+
+	--omp-shadow-sm: 0 1px 2px rgba(28, 30, 55, 0.05);
+	--omp-shadow-md: 0 6px 20px rgba(28, 30, 55, 0.09);
+	--omp-shadow-lg: 0 18px 48px rgba(28, 30, 55, 0.14);
+	--omp-shadow-glow: 0 0 0 1px var(--omp-border-accent), 0 0 16px var(--omp-input-glow);
 }
