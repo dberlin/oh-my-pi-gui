@@ -4,9 +4,13 @@ import type { ToolEntry } from "../../stores/tools";
 import type { Row } from "./chat-stream-utils";
 import {
 	buildTranscriptFindIndex,
+	clampFindOrdinal,
 	EMPTY_FIND_INDEX,
 	extractRowSegments,
+	findTickPositions,
 	normalizeFindText,
+	seedFindOrdinal,
+	stepFindOrdinal,
 	type TranscriptFindContext,
 	type TranscriptFindIndex,
 } from "./transcript-find";
@@ -218,5 +222,75 @@ describe("buildTranscriptFindIndex", () => {
 		const first = buildAll([short], key, "needle");
 		expect(first.matches).toHaveLength(0);
 		expect(buildAll([grown], key, "needle", first).matches).toHaveLength(1);
+	});
+});
+
+// These `matches` are hand-written literals (not built via buildTranscriptFindIndex), so
+// none of the grepCall/grepEntry "needle" fixture traps from Task 2 apply here — the
+// expected values below were re-derived by hand against the semantics in the brief and
+// all matched the brief's supplied values exactly.
+const matches = [
+	{ rowIndex: 2, rowKey: "r2", ordinal: 0, disclosureKey: null, locator: { occurrenceInRow: 0 } },
+	{ rowIndex: 5, rowKey: "r5", ordinal: 1, disclosureKey: null, locator: { occurrenceInRow: 0 } },
+	{ rowIndex: 9, rowKey: "r9", ordinal: 2, disclosureKey: null, locator: { occurrenceInRow: 0 } },
+];
+
+describe("seedFindOrdinal", () => {
+	it("selects the newest match at or above the viewport's bottom edge", () => {
+		expect(seedFindOrdinal(matches, 6)).toEqual({ ordinal: 1, wrapped: false });
+		expect(seedFindOrdinal(matches, 5)).toEqual({ ordinal: 1, wrapped: false });
+	});
+
+	it("wraps to the newest match when everything visible is above the first match", () => {
+		expect(seedFindOrdinal(matches, 1)).toEqual({ ordinal: 2, wrapped: true });
+	});
+
+	it("returns null with no matches", () => {
+		expect(seedFindOrdinal([], 10)).toBeNull();
+	});
+});
+
+describe("stepFindOrdinal", () => {
+	it("walks backwards through history and wraps once at the top", () => {
+		expect(stepFindOrdinal(matches, 2, "older")).toEqual({ ordinal: 1, wrapped: false });
+		expect(stepFindOrdinal(matches, 0, "older")).toEqual({ ordinal: 2, wrapped: true });
+	});
+
+	it("walks toward the live edge and wraps once at the bottom", () => {
+		expect(stepFindOrdinal(matches, 0, "newer")).toEqual({ ordinal: 1, wrapped: false });
+		expect(stepFindOrdinal(matches, 2, "newer")).toEqual({ ordinal: 0, wrapped: true });
+	});
+
+	it("seeds from an end without reporting a wrap when nothing was selected", () => {
+		expect(stepFindOrdinal(matches, null, "older")).toEqual({ ordinal: 2, wrapped: false });
+		expect(stepFindOrdinal(matches, null, "newer")).toEqual({ ordinal: 0, wrapped: false });
+		expect(stepFindOrdinal([], null, "older")).toBeNull();
+	});
+});
+
+describe("clampFindOrdinal", () => {
+	it("clamps a dangling ordinal into range instead of keeping it", () => {
+		expect(clampFindOrdinal(matches, 7)).toBe(2);
+		expect(clampFindOrdinal(matches, -3)).toBe(0);
+		expect(clampFindOrdinal([], 1)).toBeNull();
+		expect(clampFindOrdinal(matches, null)).toBeNull();
+	});
+});
+
+describe("findTickPositions", () => {
+	it("maps measured offsets to rail fractions and skips unmeasured rows", () => {
+		const offsets: Record<number, number | null> = { 2: 100, 5: null, 9: 800 };
+		expect(findTickPositions(matches, rowIndex => offsets[rowIndex] ?? null, 1000)).toEqual([
+			{ ordinal: 0, fraction: 0.1 },
+			{ ordinal: 2, fraction: 0.8 },
+		]);
+	});
+
+	it("returns zero fractions rather than NaN before the transcript is measured", () => {
+		expect(findTickPositions(matches, () => 0, 0)).toEqual([
+			{ ordinal: 0, fraction: 0 },
+			{ ordinal: 1, fraction: 0 },
+			{ ordinal: 2, fraction: 0 },
+		]);
 	});
 });
