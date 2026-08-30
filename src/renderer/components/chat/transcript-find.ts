@@ -144,6 +144,70 @@ export function buildTranscriptFindIndex(input: {
 	return { needle, matches, rowCache };
 }
 
+/** "older" travels backwards through history (down-ordinal); "newer" travels toward the live edge. */
+export type FindDirection = "older" | "newer";
+
+export interface FindStep {
+	ordinal: number;
+	/** True for exactly one step when the move crossed an end of the transcript. */
+	wrapped: boolean;
+}
+
+/** Opening / re-querying: first match at or above `visibleEndRowIndex`, searching upward, wrapping once to the bottom. */
+export function seedFindOrdinal(matches: readonly TranscriptMatch[], visibleEndRowIndex: number): FindStep | null {
+	if (matches.length === 0) return null;
+	for (let ordinal = matches.length - 1; ordinal >= 0; ordinal--) {
+		if ((matches[ordinal]?.rowIndex ?? 0) <= visibleEndRowIndex) return { ordinal, wrapped: false };
+	}
+	// Everything on screen is older than the oldest match: wrap once to the newest.
+	return { ordinal: matches.length - 1, wrapped: true };
+}
+
+/** ↵ / ⌘G ("older") and ⇧↵ / ⇧⌘G ("newer"), each wrapping once. */
+export function stepFindOrdinal(
+	matches: readonly TranscriptMatch[],
+	current: number | null,
+	direction: FindDirection,
+): FindStep | null {
+	if (matches.length === 0) return null;
+	if (current == null) return { ordinal: direction === "older" ? matches.length - 1 : 0, wrapped: false };
+	const next = direction === "older" ? current - 1 : current + 1;
+	if (next < 0) return { ordinal: matches.length - 1, wrapped: true };
+	if (next >= matches.length) return { ordinal: 0, wrapped: true };
+	return { ordinal: next, wrapped: false };
+}
+
+/** Keep a live ordinal in range after the index rebuilds; null when there are no matches. */
+export function clampFindOrdinal(matches: readonly TranscriptMatch[], current: number | null): number | null {
+	if (current == null || matches.length === 0) return null;
+	return Math.min(Math.max(current, 0), matches.length - 1);
+}
+
+export interface FindTick {
+	ordinal: number;
+	/** 0..1 down the scroll rail. */
+	fraction: number;
+}
+
+function clamp01(value: number): number {
+	return Math.min(Math.max(value, 0), 1);
+}
+
+/** Tick per match from measured virtualizer offsets; unmeasured rows are skipped, not guessed. */
+export function findTickPositions(
+	matches: readonly TranscriptMatch[],
+	offsetForRow: (rowIndex: number) => number | null,
+	totalSize: number,
+): FindTick[] {
+	const ticks: FindTick[] = [];
+	for (const match of matches) {
+		const offset = offsetForRow(match.rowIndex);
+		if (offset == null) continue;
+		ticks.push({ ordinal: match.ordinal, fraction: totalSize > 0 ? clamp01(offset / totalSize) : 0 });
+	}
+	return ticks;
+}
+
 export function extractRowSegments(row: Row, rowKey: string, context: TranscriptFindContext): FindSegment[] {
 	const segments: FindSegment[] = [];
 	switch (row.kind) {
