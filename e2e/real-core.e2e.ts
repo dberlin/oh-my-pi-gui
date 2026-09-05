@@ -126,12 +126,7 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 		await exportPage.screenshot({ path: "test-results/exported-session.png", scale: "css", animations: "disabled" });
 		await exportPage.close();
 		await page.screenshot({ path: "test-results/04-real-core.png", scale: "css", animations: "disabled" });
-		await expect(page.getByRole("dialog", { name: "Welcome to omp" })).toBeVisible();
-		await page
-			.getByRole("dialog", { name: "Welcome to omp" })
-			.getByRole("button", { name: "Close", exact: true })
-			.click();
-		await expect(page.getByRole("dialog")).toHaveCount(0);
+		await closeWelcomeIfPresent("Welcome to omp", "Close");
 		const original = evidence.saved.data as RpcSessionState;
 		await page.locator("textarea").first().fill("/new");
 		await page.getByRole("button", { name: "Send (Enter)", exact: true }).click();
@@ -152,6 +147,9 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 		await page.getByRole("button", { name: "Session stats", exact: true }).click();
 		const stats = page.getByRole("dialog");
 		await expect(stats).toBeVisible();
+		await stats.getByRole("button", { name: "Sync", exact: true }).click();
+		await expect(stats.getByRole("button", { name: "Sync", exact: true })).toBeEnabled();
+		await expect(page.getByText("Sync failed", { exact: true })).toHaveCount(0);
 		for (const label of [
 			"Overview",
 			"Models",
@@ -159,7 +157,7 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 			"Tools",
 			"Costs",
 			"Errors",
-			"Behavior",
+			"Frustration",
 			"Gain",
 			"Projects",
 			"Requests",

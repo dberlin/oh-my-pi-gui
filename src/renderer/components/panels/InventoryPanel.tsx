@@ -860,11 +860,13 @@ function InventoryContent({
 	initialTab,
 	embedded,
 	query,
+	onTabChange,
 }: {
 	active: boolean;
 	initialTab: TabId;
 	embedded: boolean;
 	query?: string;
+	onTabChange?: (tab: TabId) => void;
 }) {
 	const tabRpc = useTabRpc();
 	const t = useT();
@@ -911,7 +913,11 @@ function InventoryContent({
 			<Tabs
 				tabs={tabs}
 				activeId={tab}
-				onChange={id => setTab(id as TabId)}
+				onChange={id => {
+					const nextTab = id as TabId;
+					setTab(nextTab);
+					onTabChange?.(nextTab);
+				}}
 				className="shrink-0 px-2"
 				ariaLabel={t("invPanel.title")}
 			/>
@@ -943,7 +949,15 @@ function InventoryContent({
 	);
 }
 
-export function InventorySettingsPage({ initialTab = "plugins", query }: { initialTab?: TabId; query: string }) {
+export function InventorySettingsPage({
+	initialTab = "plugins",
+	query,
+	onTabChange,
+}: {
+	initialTab?: TabId;
+	query: string;
+	onTabChange?: (tab: TabId) => void;
+}) {
 	const t = useT();
 	return (
 		<div className="space-y-5">
@@ -958,7 +972,7 @@ export function InventorySettingsPage({ initialTab = "plugins", query }: { initi
 					{t("settings.resources.description")}
 				</p>
 			</header>
-			<InventoryContent active embedded initialTab={initialTab} query={query} />
+			<InventoryContent active embedded initialTab={initialTab} onTabChange={onTabChange} query={query} />
 		</div>
 	);
 }

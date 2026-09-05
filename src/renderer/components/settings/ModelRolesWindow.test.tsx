@@ -1,3 +1,4 @@
+import { parseArgs } from "node:util";
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -47,11 +48,12 @@ function configBackend(assignments: Record<string, string> = { default: "anthrop
 			await state.readGate;
 			return JSON.stringify(Object.fromEntries(Object.keys(state.settings).map(key => [key, entry(key)])));
 		}
-		const key = args[2]!;
+		const { positionals } = parseArgs({ args: args.slice(2), options: { json: { type: "boolean" } }, allowPositionals: true });
+		const key = positionals[0]!;
 		if (args[1] === "get") return JSON.stringify({ key, ...entry(key) });
 		if (args[1] === "set") {
 			await state.saveGate;
-			state.settings[key] = JSON.parse(args[3]!);
+			state.settings[key] = JSON.parse(positionals[1]!);
 			return JSON.stringify({ key, value: state.settings[key] });
 		}
 		throw new Error(`Unexpected config invocation: ${args.join(" ")}`);
@@ -193,6 +195,20 @@ describe("ModelRolesWindow config eligibility and recovery", () => {
 		expect(trigger("Subtask").textContent).toContain("openai/gpt");
 	});
 
+	it("preserves a sibling role completed by another window after this window loaded", async () => {
+		const backend = configBackend({ plan: "anthropic/claude", task: "old/task" });
+		const firstWindow = runtime("first-window", backend.handler);
+		const secondWindow = runtime("second-window", backend.handler);
+		await render(firstWindow.owner);
+		await secondWindow.command({ type: "set_model_role", role: "task", modelId: "openai/gpt" });
+		await choose("Architect", "openai/gpt");
+		expect(backend.state.settings.modelRoles).toEqual({ plan: "openai/gpt", task: "openai/gpt" });
+		await secondWindow.command({ type: "set_model_role", role: "task", modelId: "other/new-task" });
+		await choose("Architect", null);
+		expect(backend.state.settings.modelRoles).toEqual({ task: "other/new-task" });
+		expect(trigger("Subtask").textContent).toContain("other/new-task");
+	});
+
 	it("recovers from initial and stale config failures without replacing loaded roles", async () => {
 		const backend = configBackend();
 		backend.state.error = "socket closed";
@@ -228,7 +244,7 @@ describe("ModelRolesWindow config eligibility and recovery", () => {
 		expect(document.body.querySelector('[role="alert"]')).not.toBeNull();
 	});
 
-	it("locks every role during a whole-record save and retains assignments on rejection", async () => {
+	it("locks every role during a role save and retains assignments on rejection", async () => {
 		const backend = configBackend({ plan: "anthropic/claude", task: "openai/gpt" });
 		const gate = Promise.withResolvers<void>();
 		backend.state.saveGate = gate.promise;

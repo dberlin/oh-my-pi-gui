@@ -156,6 +156,9 @@ const LIVE_STATUSES: Record<string, true> = {
 	// hub cancel removes them; do not retain them as terminal history.
 	stale: true,
 };
+export function isLiveSubagentStatus(status: string): boolean {
+	return LIVE_STATUSES[status] === true;
+}
 
 function normalizeSnapshot(snapshot: SubagentNode): SubagentNode {
 	return snapshot.status === "running" && snapshot.live === false ? { ...snapshot, status: "stale" } : snapshot;

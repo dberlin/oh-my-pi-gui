@@ -68,6 +68,8 @@ export function activeTabCommand(command: RpcCommand, timeoutMs?: number): Promi
 export interface SessionRuntime {
 	tabId: string;
 	command: TabCommand;
+	/** Advances before an in-place context mutation can supersede pending reads. */
+	readonly commandGeneration?: number;
 	stores: Map<RuntimeStoreKey, StoreApi<unknown>>;
 	/** A process restart may allocate a new ID for an unpersisted session. */
 	recovering?: boolean;

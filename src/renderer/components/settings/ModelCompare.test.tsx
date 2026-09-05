@@ -1,7 +1,9 @@
+import { parseArgs } from "node:util";
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
+import { executeConfigRpcCommand, isConfigRpcCommand } from "../../../main/config-rpc";
 import type { SessionTarget } from "../../../shared/ipc-types";
 import type { ModelRoleEntry, ProviderInfo, RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
@@ -28,6 +30,28 @@ function ok(command: string, data?: unknown): RpcResponse {
 
 function settings(assignments: Record<string, string> = {}) {
 	return { values: { modelRoles: assignments, modelTags: {}, cycleOrder: ["smol", "default", "slow"] } };
+}
+
+function configBackend(assignments: Record<string, string>) {
+	const state = { assignments, saveGate: null as Promise<void> | null };
+	const handler = async (request: RpcCommand): Promise<RpcResponse> => {
+		if (!isConfigRpcCommand(request)) throw new Error(`Unexpected native command: ${request.type}`);
+		return executeConfigRpcCommand(request, async args => {
+			const values = settings(state.assignments).values;
+			const entries = Object.fromEntries(Object.entries(values).map(([key, value]) => [
+				key, { value, type: key === "cycleOrder" ? "array" : "record", description: "" },
+			]));
+			if (args[1] === "list") return JSON.stringify(entries);
+			const { positionals } = parseArgs({ args: args.slice(2), options: { json: { type: "boolean" } }, allowPositionals: true });
+			const key = positionals[0]!;
+			if (args[1] === "get") return JSON.stringify({ key, ...entries[key] });
+			if (args[1] !== "set" || key !== "modelRoles") throw new Error("Unexpected config invocation");
+			await state.saveGate;
+			state.assignments = JSON.parse(positionals[1]!);
+			return JSON.stringify({ key, value: state.assignments });
+		});
+	};
+	return { state, handler };
 }
 
 function provider(id: string, overrides: Partial<ProviderInfo> = {}): ProviderInfo {
@@ -128,40 +152,46 @@ describe("model role selectors", () => {
 
 describe("ModelCompare tab-scoped catalog and role assignments", () => {
 	it("updates local config roles and reloads the authoritative assignment", async () => {
-		let configured: Record<string, string> = { default: "provider/model-a", task: "other/task-model" };
+		const backend = configBackend({ default: "provider/model-a", task: "other/task-model" });
 		const tab = readyRuntime("local", async request => {
-			switch (request.type) {
-				case "get_providers": return ok(request.type, catalog());
-				case "get_settings": return ok(request.type, settings(configured));
-				case "set_setting": configured = request.value as Record<string, string>; return ok(request.type);
-				default: throw new Error(`Unexpected local command: ${request.type}`);
-			}
+			if (request.type === "get_providers") return ok(request.type, catalog());
+			return backend.handler(request);
 		});
 		await renderCompare(tab.runtime);
 		expect(selectedRole("model-a")).toBe("default");
 		await act(async () => changeRole(selectFor("model-b"), "default"));
-		expect(configured).toEqual({ default: "provider/model-b", task: "other/task-model" });
+		expect(backend.state.assignments).toEqual({ default: "provider/model-b", task: "other/task-model" });
 		expect(selectedRole("model-a")).toBe("");
 		expect(selectedRole("model-b")).toBe("default");
 	});
 
-	it("saves SSH roles in the owning pane and prevents overlapping whole-record assignments", async () => {
-		const pending = Promise.withResolvers<RpcResponse>();
-		let configured: Record<string, string> = { default: "provider/model-a", task: "other/task-model" };
-		const writes: Record<string, string>[] = [];
+	it("preserves sibling edits made by another window after comparison loaded", async () => {
+		const backend = configBackend({ default: "provider/model-a", task: "old/task" });
+		const tab = readyRuntime("stale-comparison", async request => {
+			if (request.type === "get_providers") return ok(request.type, catalog());
+			return backend.handler(request);
+		});
+		await renderCompare(tab.runtime);
+		await backend.handler({ type: "set_model_role", role: "task", modelId: "other/new-task" });
+		await act(async () => changeRole(selectFor("model-b"), "default"));
+		expect(backend.state.assignments).toEqual({ default: "provider/model-b", task: "other/new-task" });
+		await backend.handler({ type: "set_model_role", role: "task", modelId: "other/latest-task" });
+		await act(async () => changeRole(selectFor("model-b"), ""));
+		expect(backend.state.assignments).toEqual({ task: "other/latest-task" });
+		expect(selectedRole("model-b")).toBe("");
+	});
+
+	it("saves SSH roles in the owning pane and prevents overlapping role assignments", async () => {
+		const pending = Promise.withResolvers<void>();
+		const backend = configBackend({ default: "provider/model-a", task: "other/task-model" });
+		backend.state.saveGate = pending.promise;
 		const other = readyRuntime("focused-local", async request => {
 			throw new Error(`Wrong pane received ${request.type}`);
 		});
 		useTabsStore.setState({ activeTabId: other.runtime.tabId });
 		const remote = readyRuntime("remote", async request => {
 			if (request.type === "get_providers") return ok(request.type, catalog());
-			if (request.type === "get_settings") return ok(request.type, settings(configured));
-			if (request.type === "set_setting") {
-				configured = request.value as Record<string, string>;
-				writes.push(configured);
-				return pending.promise;
-			}
-			throw new Error(`Unexpected SSH command: ${request.type}`);
+			return backend.handler(request);
 		}, {
 			type: "ssh", hostAlias: "server", host: { host: "server", sourceId: "test", sourceLevel: "user" },
 			originCwd: "/srv/remote", cwd: "/srv/remote",
@@ -173,16 +203,16 @@ describe("ModelCompare tab-scoped catalog and role assignments", () => {
 			changeRole(first, "default");
 			changeRole(second, "slow");
 		});
-		expect(writes).toEqual([{ default: "provider/model-b", task: "other/task-model" }]);
+		expect(backend.state.assignments).toEqual({ default: "provider/model-a", task: "other/task-model" });
 		expect(first.hasAttribute("disabled")).toBe(true);
 		expect(second.hasAttribute("disabled")).toBe(true);
-		pending.resolve(ok("set_setting"));
+		pending.resolve();
 		await flush();
 		expect(selectedRole("model-a")).toBe("");
 		expect(selectedRole("model-b")).toBe("default");
 		expect(selectFor("model-b").hasAttribute("disabled")).toBe(false);
 		await act(async () => changeRole(selectFor("model-b"), ""));
-		expect(configured).toEqual({ task: "other/task-model" });
+		expect(backend.state.assignments).toEqual({ task: "other/task-model" });
 		expect(selectedRole("model-b")).toBe("");
 	});
 
@@ -260,26 +290,25 @@ describe("ModelCompare tab-scoped catalog and role assignments", () => {
 
 	it("locks stale assignments when the authoritative read fails after a successful save", async () => {
 		let saved = false;
-		let assignments: Record<string, string> = { default: "provider/model-a" };
+		const backend = configBackend({ default: "provider/model-a" });
 		let writes = 0;
 		const tab = readyRuntime("reload-error", async request => {
 			if (request.type === "get_providers") return ok(request.type, catalog());
 			if (request.type === "get_settings") {
 				return saved
 					? { type: "response", command: request.type, success: false, error: "Config unavailable" }
-					: ok(request.type, settings(assignments));
+					: backend.handler(request);
 			}
-			if (request.type === "set_setting") {
+			if (request.type === "set_model_role") {
 				writes++;
 				saved = true;
-				assignments = request.value as Record<string, string>;
-				return ok(request.type);
+				return backend.handler(request);
 			}
 			throw new Error(`Unexpected command: ${request.type}`);
 		});
 		await renderCompare(tab.runtime);
 		await act(async () => changeRole(selectFor("model-b"), "default"));
-		expect(assignments).toEqual({ default: "provider/model-b" });
+		expect(backend.state.assignments).toEqual({ default: "provider/model-b" });
 		expect(selectFor("model-a").hasAttribute("disabled")).toBe(true);
 		expect(selectFor("model-b").hasAttribute("disabled")).toBe(true);
 		await act(async () => changeRole(selectFor("model-a"), "slow"));

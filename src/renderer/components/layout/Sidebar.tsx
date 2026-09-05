@@ -47,6 +47,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../lib/tab-signal";
 import { type RemoteHostState, useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
+import { useRuntimeStore } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
@@ -119,6 +120,7 @@ function SidebarRowTitle({ className, title }: { className?: string; title: stri
  */
 export function Sidebar() {
 	const tabRpc = useTabRpc();
+	const sessionStore = useRuntimeStore("session", useSessionStore);
 	const t = useT();
 	const keymapOverrides = useUiStore(state => state.keymapOverrides);
 	const paletteShortcut = useMemo(
@@ -133,6 +135,8 @@ export function Sidebar() {
 	const [navigationExpanded, setNavigationExpanded] = useState(true);
 	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(null);
 	const switchPendingTo = useSessionStore(s => s.switchPending?.toId ?? null);
+	// Resizable left rail (mirrors PanelContainer's right-rail drag, but the
+	// handle sits on the right edge and dragging right grows the sidebar).
 	const SIDEBAR_MIN = 180;
 	const SIDEBAR_MAX = 420;
 	const [sidebarWidth, setSidebarWidth] = useState(236);
@@ -383,7 +387,7 @@ export function Sidebar() {
 		if (!name || name === session.title) return;
 		void renameSession(session.path, name)
 			.then(() => {
-				if (session.id === sessionId) useSessionStore.setState({ sessionName: name });
+				if (sessionStore.getState().sessionId === session.id) sessionStore.setState({ sessionName: name });
 			})
 			.catch(error => toast({ variant: "error", title: t("sidebar.renameFailed"), message: String(error) }));
 	};

@@ -44,6 +44,7 @@ import { useSessionTabs, useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { toolEntryKey, useToolsStore } from "../stores/tools";
+import { useUiStore } from "../stores/ui";
 import { hydrateSession, hydrateTabSession, recoverReadySession, useRpcEvents } from "./use-rpc-events";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -403,6 +404,48 @@ function RpcEventsProbe({ heartbeatMs }: { heartbeatMs?: number } = {}) {
 	return null;
 }
 
+it("hydrates paginated messages through the owning tab even when focus changes", async () => {
+	const { commandForTab } = installTabRoutedMockOmp();
+	useTabsStore.setState({
+		tabs: [
+			{ id: "page-a", kind: "agent", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+			{ id: "page-b", kind: "agent", cwd: "/beta", target: { type: "local" }, status: "ready", unreadDone: false },
+		],
+		activeTabId: "page-a",
+	});
+	ensureTabRuntime("page-a");
+	ensureTabRuntime("page-b");
+	setFocusedSessionRuntime("page-a");
+	const nextPage = Promise.withResolvers<RpcResponse>();
+	const defaultCommand = commandForTab.getMockImplementation()!;
+	commandForTab.mockImplementation(async (tabId, command) => {
+		if (command.type !== "get_messages_page") return defaultCommand(tabId, command);
+		if (tabId !== "page-a") return success({ messages: [], totalMessages: 0 });
+		if (command.cursor === "next") return nextPage.promise;
+		if (command.cursor !== undefined) throw new Error("Unexpected message page cursor");
+		return success({
+			messages: [textMessage("first page", 1)],
+			totalMessages: 2,
+			nextCursor: "next",
+		});
+	});
+	const other = sessionRuntimeStore<MessagesStore>("page-b", "messages")!;
+	other.getState().appendMessage({ role: "user", content: "Beta history", timestamp: 3 });
+	const hydration = hydrateTabSession("page-a");
+	await flush();
+	useTabsStore.setState({ activeTabId: "page-b" });
+	setFocusedSessionRuntime("page-b");
+	nextPage.resolve(success({ messages: [textMessage("second page", 2)], totalMessages: 2 }));
+	await hydration;
+	expect(sessionRuntimeStore<MessagesStore>("page-a", "messages")?.getState().messages).toEqual([
+		textMessage("first page", 1),
+		textMessage("second page", 2),
+	]);
+	expect(other.getState().messages).toMatchObject([{ content: "Beta history" }]);
+	expect(useMessagesStore.getState().messages).toMatchObject([{ content: "Beta history" }]);
+	expect(commandForTab.mock.calls.some(([, command]) => command.type === "get_messages")).toBe(false);
+});
+
 it("does not let a delayed startup snapshot clear the task selected after the request", async () => {
 	installTabRoutedMockOmp();
 	const status = Promise.withResolvers<IpcSidecarStatusPayload>();
@@ -524,7 +567,9 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		const selected = subagentSnapshot("background-agent");
 		const loading = background.getState().selectSubagent(selected);
 		const final: AgentMessage = {
-			role: "assistant", responseId: "background-response", timestamp: 22,
+			role: "assistant",
+			responseId: "background-response",
+			timestamp: 22,
 			content: [{ type: "text", text: "final answer" }],
 		};
 		const emit = (event: AgentSessionEvent, tabId = "t1") =>
@@ -532,16 +577,26 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		await act(async () => {
 			emit({ type: "message_start", message: final });
 			emit({
-				type: "message_update", message: final,
+				type: "message_update",
+				message: final,
 				assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "live answer", partial: final },
 			});
 			emit({
-				type: "message_update", message: final,
+				type: "message_update",
+				message: final,
 				assistantMessageEvent: { type: "thinking_delta", contentIndex: 1, delta: "live reasoning", partial: final },
 			});
-			emit({ type: "tool_execution_start", toolCallId: "background-call", toolName: "read", args: { path: "/beta" } });
+			emit({
+				type: "tool_execution_start",
+				toolCallId: "background-call",
+				toolName: "read",
+				args: { path: "/beta" },
+			});
 		});
-		expect(background.getState().messages).toMatchObject({ streamingText: "live answer", streamingThinking: "live reasoning" });
+		expect(background.getState().messages).toMatchObject({
+			streamingText: "live answer",
+			streamingThinking: "live reasoning",
+		});
 		expect(background.getState().tools.activeTools.get("background-call")).toMatchObject({ status: "running" });
 		expect(foreground.getState().target).toEqual({ kind: "main" });
 		expect(foreground.getState().messages.messages).toEqual([]);
@@ -594,32 +649,28 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		expect(useToolsStore.getState().activeTools).toBe(mainTools.activeTools);
 	});
 
-	it("reasserts events before Main hydration, awaits the authoritative roster, then reloads the selected target once", async () => {
+	it("reasserts events and paints Main while awaiting the authoritative roster before reloading the selected target once", async () => {
 		const { omp, emitSidecarStatus } = installMockOmp();
 		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/tmp" });
 		await mount(<RpcEventsProbe />);
 		const selected = subagentSnapshot();
 		useSubagentsStore.getState().setSnapshots([selected]);
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		const recovered = { ...selected, sessionFile: "/tmp/reconnected-agent.jsonl" };
+		const mainMessage = textMessage("Main reconnect history", 10);
+		const selectedMessage = textMessage("Selected reconnect history", 20);
 		const subscription = Promise.withResolvers<RpcResponse>();
 		const roster = Promise.withResolvers<RpcResponse>();
-		const sequence: string[] = [];
 		omp.rpc.setSubagentSubscription.mockClear();
 		omp.rpc.getMessages.mockClear();
 		omp.rpc.getSubagents.mockClear();
 		omp.rpc.getSubagentMessages.mockClear();
-		omp.rpc.setSubagentSubscription.mockImplementation(() => {
-			sequence.push("subscribe");
-			return subscription.promise;
-		});
-		omp.rpc.getMessages.mockImplementation(async () => {
-			sequence.push("main");
-			return success({ messages: [] });
-		});
-		omp.rpc.getSubagents.mockImplementation(() => {
-			sequence.push("roster");
-			return roster.promise;
-		});
+		omp.rpc.setSubagentSubscription.mockReturnValue(subscription.promise);
+		omp.rpc.getMessages.mockResolvedValue(success({ messages: [mainMessage] }));
+		omp.rpc.getSubagents.mockReturnValue(roster.promise);
+		omp.rpc.getSubagentMessages.mockResolvedValue(
+			success({ messages: [selectedMessage], nextByte: 12, hasMore: false }),
+		);
 
 		await act(async () => {
 			emitSidecarStatus({ status: "ready", cwd: "/tmp" });
@@ -629,14 +680,21 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
-		expect(sequence).toEqual(["subscribe", "main", "roster"]);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
+		expect(useMessagesStore.getState().messages).toEqual([mainMessage]);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+		expect(useAgentViewStore.getState().messages.messages).toEqual([]);
 		expect(omp.rpc.getSubagentMessages).not.toHaveBeenCalled();
 
-		roster.resolve(success({ subagents: [selected] }));
+		roster.resolve(success({ subagents: [recovered] }));
 		await flush();
 
 		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
-		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, selected.sessionFile, 0);
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, recovered.sessionFile, 0);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+		expect(useAgentViewStore.getState().loadState).toBe("ready");
+		expect(useAgentViewStore.getState().messages.messages).toEqual([selectedMessage]);
+		expect(useMessagesStore.getState().messages).toEqual([mainMessage]);
 		subscription.resolve(success({}));
 	});
 
@@ -673,27 +731,43 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, selected.sessionFile, 0);
 	});
 
-	it("coalesces concurrent full and light ready recovery into one subscription, roster fetch, and reload", async () => {
+	it("coalesces concurrent ready recovery into one subscription, roster fetch, and selected transcript reload", async () => {
 		const { omp } = installMockOmp();
 		const selected = subagentSnapshot("coalesced-ready");
 		useSubagentsStore.getState().setSnapshots([selected]);
 		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+		const mainMessage = textMessage("Coalesced Main history", 10);
+		const selectedMessage = textMessage("Coalesced selected history", 20);
 		const roster = Promise.withResolvers<RpcResponse>();
 		omp.rpc.setSubagentSubscription.mockClear();
 		omp.rpc.getMessages.mockClear();
 		omp.rpc.getSubagents.mockClear();
 		omp.rpc.getSubagentMessages.mockClear();
 		omp.rpc.getSubagents.mockReturnValue(roster.promise);
+		omp.rpc.getMessages.mockResolvedValue(success({ messages: [mainMessage] }));
+		omp.rpc.getSubagentMessages.mockResolvedValue(
+			success({ messages: [selectedMessage], nextByte: 12, hasMore: false }),
+		);
 
-		const fullReady = recoverReadySession(null);
-		const lightReady = recoverReadySession(null);
+		const firstReady = recoverReadySession(null);
+		const concurrentReady = recoverReadySession(null);
+		await flush();
+		expect(useMessagesStore.getState().messages).toEqual([mainMessage]);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+		expect(omp.rpc.getSubagentMessages).not.toHaveBeenCalled();
+		roster.resolve(success({ subagents: [selected] }));
+		await Promise.all([firstReady, concurrentReady]);
+
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
 		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(1);
-		roster.resolve(success({ subagents: [selected] }));
-		await Promise.all([fullReady, lightReady]);
-
 		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getSubagentMessages).toHaveBeenCalledWith(selected.id, selected.sessionFile, 0);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+		expect(useAgentViewStore.getState().loadState).toBe("ready");
+		expect(useAgentViewStore.getState().messages.messages).toEqual([selectedMessage]);
+		expect(useMessagesStore.getState().messages).toEqual([mainMessage]);
 	});
 
 	it("starts a fresh recovery when starting interrupts an older ready recovery for the same tab", async () => {
@@ -1129,20 +1203,77 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 		expect(useAgentViewStore.getState().messages.messages).toEqual([textMessage("joined selected transcript")]);
 	});
 
+	it("finishes a tab-owned ready prelude while its empty pending-open read settles in the background", async () => {
+		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+		vi.spyOn(window.omp.sidecar, "getStatus").mockResolvedValue({ status: "starting", cwd: "/alpha" });
+		useTabsStore.setState({
+			tabs: [
+				{
+					kind: "agent",
+					id: "t0",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "starting",
+					unreadDone: false,
+				},
+				{ kind: "agent", id: "t1", cwd: "/beta", target: { type: "local" }, status: "starting", unreadDone: false },
+			],
+			activeTabId: "t0",
+		});
+		ensureTabRuntime("t0");
+		ensureTabRuntime("t1");
+		setFocusedSessionRuntime("t0");
+		const otherSession = sessionRuntimeStore<SessionStore>("t1", "session")!;
+		otherSession.setState({ sessionId: "session-b", cwd: "/beta" });
+		const otherMessages = sessionRuntimeStore<MessagesStore>("t1", "messages")!;
+		otherMessages.getState().appendMessage(textMessage("B history"));
+		await mount(<RpcEventsProbe />);
+
+		const pendingOpen = Promise.withResolvers<string | null>();
+		vi.spyOn(window.omp.sessions, "consumePendingOpen").mockReturnValue(pendingOpen.promise);
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation((tabId, command) => {
+			if (tabId === "t0" && command.type === "get_state") {
+				return Promise.resolve(success({ ...sessionState(), sessionId: "ready-a", cwd: "/ready-a" }));
+			}
+			if (tabId === "t0" && command.type === "get_messages") {
+				return Promise.resolve(success({ messages: [textMessage("A ready history")] }));
+			}
+			return original(tabId, command);
+		});
+		await act(async () => {
+			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t0");
+			await useTabsStore.getState().switchTab("t1");
+		});
+		pendingOpen.resolve(null);
+		await flush();
+
+		expect(sessionRuntimeStore<SessionStore>("t0", "session")?.getState().sessionId).toBe("ready-a");
+		expect(sessionRuntimeStore<SessionStore>("t0", "session")?.getState().cwd).toBe("/ready-a");
+		expect(sessionRuntimeStore<MessagesStore>("t0", "messages")?.getState().messages).toEqual([
+			textMessage("A ready history"),
+		]);
+		expect(useSessionStore.getState().sessionId).toBe("session-b");
+		expect(useSessionStore.getState().cwd).toBe("/beta");
+		expect(useMessagesStore.getState().messages).toEqual([textMessage("B history")]);
+	});
+
 	it("hydrates a replacement without waiting for its retired session's full ready health reply", async () => {
 		const { omp, emitSidecarStatus, emitTabStatus } = installMockOmp();
 		omp.sidecar.getStatus.mockResolvedValue({ status: "starting", cwd: "/alpha" });
 		await mount(<RpcEventsAndTabsProbe />);
 		useTabsStore.setState({
-			tabs: [{
-				id: "t0",
-				kind: "agent",
-				cwd: "/alpha",
-				target: { type: "local" },
-				status: "ready",
-				sessionId: "old",
-				unreadDone: false,
-			}],
+			tabs: [
+				{
+					id: "t0",
+					kind: "agent",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					sessionId: "old",
+					unreadDone: false,
+				},
+			],
 			activeTabId: "t0",
 		});
 		ensureTabRuntime("t0");
@@ -2018,7 +2149,16 @@ describe("useRpcEvents model switch sync", () => {
 	it("lands a model switch whose get_state races a trailing event from the same batch", async () => {
 		const { emitTabBatch, commandForTab } = installTabRoutedMockOmp();
 		useTabsStore.setState({
-			tabs: [{ kind: "agent", id: "t-model", cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false }],
+			tabs: [
+				{
+					kind: "agent",
+					id: "t-model",
+					cwd: "/alpha",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+			],
 			activeTabId: "t-model",
 		});
 		ensureTabRuntime("t-model");
@@ -2100,7 +2240,9 @@ function settledState(overrides: Record<string, unknown>): RpcResponse {
 
 function seedReadyTab(tabId: string) {
 	useTabsStore.setState({
-		tabs: [{ kind: "agent", id: tabId, cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false }],
+		tabs: [
+			{ kind: "agent", id: tabId, cwd: "/alpha", target: { type: "local" }, status: "ready", unreadDone: false },
+		],
 		activeTabId: tabId,
 	});
 	ensureTabRuntime(tabId);
@@ -2149,16 +2291,19 @@ describe("useRpcEvents context usage sync", () => {
 	});
 
 	it("refreshes the usage ring from the liveness probe while the session idles", async () => {
-		const { emitTabStatus } = installTabRoutedMockOmp();
+		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
 		const session = seedReadyTab("t-idle");
 		await mount(<RpcEventsProbe heartbeatMs={25} />);
 		emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-idle");
 		await flush();
 		session.setState({ contextUsage: null });
 
-		const getState = vi
-			.spyOn(window.omp.rpc, "getState")
-			.mockResolvedValue(settledState({ contextUsage: { tokens: 900, contextWindow: 1000, percent: 90 } }));
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation((tabId, command) =>
+			command.type === "get_state"
+				? Promise.resolve(settledState({ contextUsage: { tokens: 900, contextWindow: 1000, percent: 90 } }))
+				: original(tabId, command),
+		);
 		await act(async () => {
 			const { promise, resolve } = Promise.withResolvers<void>();
 			setTimeout(resolve, 80);
@@ -2168,10 +2313,110 @@ describe("useRpcEvents context usage sync", () => {
 		// The probe is already paid for (it tokenises the context to answer at
 		// all); a session that only idles between turns had no other way to land
 		// a snapshot, so its ring stayed on the number from the last turn.
-		expect(getState).toHaveBeenCalled();
 		expect(session.getState().contextUsage).toMatchObject({ tokens: 900 });
 		expect(session.getState().statsPulse).toBeGreaterThan(0);
 	});
+
+	it("does not report a healthy sidecar as unresponsive when a context clear supersedes its heartbeat", async () => {
+		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+		const session = seedReadyTab("t-clear-heartbeat");
+		await mount(<RpcEventsProbe heartbeatMs={25} />);
+		emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-clear-heartbeat");
+		await flush();
+		useUiStore.getState().clearSidecarError();
+		const oldProbe = Promise.withResolvers<RpcResponse>();
+		const started = Promise.withResolvers<void>();
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation((tabId, command) => {
+			if (command.type !== "get_state") return original(tabId, command);
+			started.resolve();
+			return oldProbe.promise;
+		});
+		await act(async () => {
+			await started.promise;
+		});
+		await sessionRuntime("t-clear-heartbeat")!.command({ type: "clear_context" });
+		session.setState({ contextUsage: { tokens: 10, contextWindow: 1000, percent: 1 } });
+		oldProbe.resolve(settledState({ contextUsage: { tokens: 900, contextWindow: 1000, percent: 90 } }));
+		await flush();
+		expect(useUiStore.getState().sidecarError).toBeNull();
+		expect(session.getState().contextUsage).toEqual({ tokens: 10, contextWindow: 1000, percent: 1 });
+	});
+
+	it.each(["replacement", "restart"] as const)(
+		"keeps new session usage when an old heartbeat settles after a same-tab %s",
+		async change => {
+			const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+			const session = seedReadyTab("t-heartbeat");
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => ({ ...tab, sessionId: "s1" })),
+			}));
+			await mount(<RpcEventsProbe heartbeatMs={25} />);
+			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-heartbeat");
+			await flush();
+
+			const oldProbe = Promise.withResolvers<RpcResponse>();
+			const probeStarted = Promise.withResolvers<void>();
+			const probeReply = () => {
+				probeStarted.resolve();
+				return oldProbe.promise;
+			};
+			const original = commandForTab.getMockImplementation()!;
+			commandForTab.mockImplementation((tabId, command) =>
+				command.type === "get_state" ? probeReply() : original(tabId, command),
+			);
+			vi.spyOn(window.omp.rpc, "getState").mockImplementation(probeReply);
+			await act(async () => {
+				await probeStarted.promise;
+			});
+
+			const newSessionId = change === "replacement" ? "s2" : "s1";
+			commandForTab.mockImplementation((tabId, command) =>
+				command.type === "get_state"
+					? Promise.resolve(
+							settledState({
+								sessionId: newSessionId,
+								contextUsage: { tokens: 200, contextWindow: 1000, percent: 20 },
+							}),
+						)
+					: original(tabId, command),
+			);
+			await act(async () => {
+				if (change === "replacement") {
+					useTabsStore.getState().applyTabStatus({
+						kind: "agent",
+						tabId: "t-heartbeat",
+						cwd: "/alpha",
+						target: { type: "local" },
+						status: "ready",
+						sessionId: newSessionId,
+					});
+				} else {
+					emitTabStatus({ status: "starting", cwd: "/alpha" }, "t-heartbeat");
+					emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-heartbeat");
+				}
+			});
+			await recoverReadySession("t-heartbeat");
+			const currentSession = sessionRuntimeStore<SessionStore>("t-heartbeat", "session")!;
+			expect(currentSession.getState().sessionId).toBe(newSessionId);
+			expect(currentSession.getState().contextUsage).toEqual({
+				tokens: 200,
+				contextWindow: 1000,
+				percent: 20,
+			});
+			if (change === "restart") expect(currentSession).toBe(session);
+
+			oldProbe.resolve(settledState({ contextUsage: { tokens: 900, contextWindow: 1000, percent: 90 } }));
+			await flush();
+
+			expect(currentSession.getState().sessionId).toBe(newSessionId);
+			expect(currentSession.getState().contextUsage).toEqual({
+				tokens: 200,
+				contextWindow: 1000,
+				percent: 20,
+			});
+		},
+	);
 });
 
 describe("useRpcEvents awaiting-model marker", () => {
@@ -2718,8 +2963,9 @@ describe("TurnStatusRow", () => {
 });
 
 describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
-	it("retains completed subtask history when switching back to the same session", async () => {
+	it.each(["legacy", "tab"])("retains completed subtask history in the same session (%s)", async owner => {
 		installMockOmp();
+		if (owner === "tab") seedReadyTab("t-roster");
 		await hydrateSession();
 		useSubagentsStore.getState().applyFrame({
 			type: "subagent_lifecycle",
@@ -2728,6 +2974,52 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		await hydrateSession();
 		expect(useSubagentsStore.getState().subagents.get("finished")?.status).toBe("completed");
 	});
+
+	it.each(["legacy", "tab"])("drops completed subtasks when hydration observes a new session (%s)", async owner => {
+		const { omp } = installMockOmp();
+		if (owner === "tab") seedReadyTab("t-roster");
+		await hydrateSession();
+		const finished = { ...subagentSnapshot("finished-in-old-session"), status: "completed" };
+		useSubagentsStore.getState().setSnapshots([finished]);
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: finished.id });
+		omp.rpc.getState.mockResolvedValue(success({ ...sessionState(), sessionId: "new-session" }));
+		omp.rpc.getSubagents.mockResolvedValue(success({ subagents: [] }));
+
+		await hydrateSession();
+
+		expect(useSessionStore.getState().sessionId).toBe("new-session");
+		expect(useSubagentsStore.getState().subagents.has(finished.id)).toBe(false);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
+	});
+
+	it.each(["legacy", "tab"])(
+		"keeps the selected agent when an older roster poll resolves during hydration (%s)",
+		async owner => {
+			const { omp } = installMockOmp();
+			if (owner === "tab") seedReadyTab("t-roster");
+			await hydrateSession();
+			const selected = subagentSnapshot("selected-during-hydration");
+			useSubagentsStore.getState().setSnapshots([selected]);
+			useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selected.id });
+			const oldRoster = Promise.withResolvers<RpcResponse>();
+			const hydratedRoster = Promise.withResolvers<RpcResponse>();
+			omp.rpc.getSubagents.mockReturnValueOnce(oldRoster.promise).mockReturnValueOnce(hydratedRoster.promise);
+			omp.rpc.getSubagentMessages.mockResolvedValue(
+				success({ messages: [textMessage("selected agent history")], nextByte: 12, hasMore: false }),
+			);
+
+			const oldPoll = useSubagentsStore.getState().refresh();
+			const hydration = hydrateSession();
+			oldRoster.resolve(success({ subagents: [] }));
+			await oldPoll;
+			expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+			hydratedRoster.resolve(success({ subagents: [selected] }));
+			await hydration;
+
+			expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
+			expect(useAgentViewStore.getState().messages.messages).toEqual([textMessage("selected agent history")]);
+		},
+	);
 
 	it("discards an older hydration when a newer session finishes first", async () => {
 		const { omp } = installMockOmp();
@@ -2831,15 +3123,16 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		};
 		const original = commandForTab.getMockImplementation()!;
 		commandForTab.mockImplementation(async (tabId, command) => {
-			if (command.type === "get_transcript_page") return success({ messages: [hydrated], totalMessages: 1 });
-			if (command.type === "get_transcript") throw new Error("unbounded transcript RPC");
+			if (tabId === "t-page" && command.type === "get_messages_page") {
+				return success({ messages: [hydrated], totalMessages: 1 });
+			}
+			if (command.type === "get_messages") throw new Error("unbounded message RPC");
 			return original(tabId, command);
 		});
 
 		await hydrateTabSession("t-page");
 
 		expect(sessionRuntimeStore<MessagesStore>("t-page", "messages")?.getState().messages).toEqual([hydrated]);
-		expect(commandForTab.mock.calls.some(call => call[1]?.type === "get_transcript_page")).toBe(true);
 	});
 
 	it("clears the stale streaming bubble when the hydrated tab has settled", async () => {

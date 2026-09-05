@@ -34,25 +34,6 @@ describe("streaming Markdown segmentation", () => {
 		expect(result.blocks).toEqual([{ end: math.length, content: math }]);
 		expect(result.tail).toBe("Explanation");
 	});
-	it("keeps bracket math intact when delimiters share lines with the formula", () => {
-		const unfinished = String.raw`\[a
-
-\\]
-
-+ b`;
-		expect(segmentStreamingMarkdown(unfinished).blocks).toEqual([]);
-		const completed = `${unfinished}\\]\n`;
-		const result = segmentStreamingMarkdown(`${completed}Explanation`);
-		expect(result.blocks).toEqual([{ end: completed.length, content: completed }]);
-		expect(result.tail).toBe("Explanation");
-	});
-
-	it("keeps a completed list equation with its following indented explanation", () => {
-		const source = "- Equation:\n\n  \\[\n  x = y\n  \\]\n\n  Explanation";
-		const result = segmentStreamingMarkdown(source);
-		expect(result.blocks).toEqual([]);
-		expect(result.tail).toBe(source);
-	});
 	it("keeps indented list continuations in the same block across blank lines", () => {
 		// Live: `second` belongs to the first <li>; promoting at the blank line
 		// dropped it out of the list until message_end re-parsed everything.
@@ -76,4 +57,24 @@ describe("streaming Markdown segmentation", () => {
 		expect(result.blocks).toEqual([]);
 		expect(result.tail).toBe(source);
 	});
+	it("keeps bracket math intact when delimiters share lines with the formula", () => {
+		const unfinished = String.raw`\[a
+
+\\]
+
++ b`;
+		expect(segmentStreamingMarkdown(unfinished).blocks).toEqual([]);
+		const completed = `${unfinished}\\]\n`;
+		const result = segmentStreamingMarkdown(`${completed}Explanation`);
+		expect(result.blocks).toEqual([{ end: completed.length, content: completed }]);
+		expect(result.tail).toBe("Explanation");
+	});
+
+	it("keeps a completed list equation with its following indented explanation", () => {
+		const source = "- Equation:\n\n  \\[\n  x = y\n  \\]\n\n  Explanation";
+		const result = segmentStreamingMarkdown(source);
+		expect(result.blocks).toEqual([]);
+		expect(result.tail).toBe(source);
+	});
+
 });

@@ -112,14 +112,12 @@ describe("applyPluginThemeOverlay", () => {
 	it("rejects old agent colors even after the next task route has settled", async () => {
 		const pending = Promise.withResolvers<RpcResponse>();
 		const colors = vi.fn(() => pending.promise);
-		const settings = vi.fn(
-			async (): Promise<RpcResponse> => ({
-				type: "response",
-				command: "get_settings",
-				success: true,
-				data: { values: { "theme.dark": "old-task" } },
-			}),
-		);
+		const settings = vi.fn(async (): Promise<RpcResponse> => ({
+			type: "response",
+			command: "get_settings",
+			success: true,
+			data: { values: { "theme.dark": "old-task" } },
+		}));
 		vi.stubGlobal("window", {
 			omp: { rpc: { getSettings: settings, getThemeColors: colors }, events: { onConfigUpdate: () => () => {} } },
 		});

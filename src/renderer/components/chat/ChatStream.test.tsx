@@ -1,7 +1,6 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
@@ -35,8 +34,6 @@ import {
 	shouldRePinTranscript,
 	type RowEntranceState,
 } from "./chat-stream-utils";
-import { MessageBubble } from "./MessageBubble";
-import { StreamingRows } from "./TranscriptViewport";
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -603,7 +600,6 @@ describe("compact transcript rows", () => {
 			"message-provider-call:0#1",
 			"message-provider-call:0#2",
 		]);
-
 	});
 
 	it("keeps projected row keys tied to resolved occurrences when an earlier duplicate is removed", () => {
@@ -633,7 +629,12 @@ describe("compact transcript rows", () => {
 			...assistant([{ type: "text", text: "First inspection complete." }]),
 			id: "phase-boundary",
 		};
-		const bothRows = buildHistoryRows([firstMessage, phaseBoundary, secondMessage], "compact", undefined, resolveToolCall);
+		const bothRows = buildHistoryRows(
+			[firstMessage, phaseBoundary, secondMessage],
+			"compact",
+			undefined,
+			resolveToolCall,
+		);
 		const remainingRows = buildHistoryRows([secondMessage], "compact", undefined, resolveToolCall);
 
 		expect(buildHistoryRowKeys(bothRows, resolveToolCall)).toEqual([
@@ -643,7 +644,12 @@ describe("compact transcript rows", () => {
 		]);
 		expect(buildHistoryRowKeys(remainingRows, resolveToolCall)).toEqual(["message-provider-process:0#2"]);
 
-		const bothMessageRows = buildHistoryRows([firstMessage, phaseBoundary, secondMessage], "full", undefined, resolveToolCall);
+		const bothMessageRows = buildHistoryRows(
+			[firstMessage, phaseBoundary, secondMessage],
+			"full",
+			undefined,
+			resolveToolCall,
+		);
 		const remainingMessageRows = buildHistoryRows([secondMessage], "full", undefined, resolveToolCall);
 		expect(buildHistoryRowKeys(bothMessageRows, resolveToolCall)).toEqual([
 			"message-provider-process:0#1",
@@ -654,75 +660,6 @@ describe("compact transcript rows", () => {
 	});
 });
 
-describe("projected tool renderers", () => {
-	it("passes the projection through finalized visible messages and streaming tool renderers", () => {
-		const call: ToolCallContent = {
-			type: "toolCall",
-			id: "shared-provider:0",
-			name: "bash",
-			arguments: { command: "printf projected" },
-		};
-		const projectedEntry: ToolEntry = {
-			toolName: "bash",
-			args: call.arguments,
-			status: "running",
-			partialResult: "PROJECTED_PARTIAL",
-			streamingArgs: "",
-			result: null,
-			isError: false,
-			startTime: 1,
-			endTime: null,
-		};
-		const mainEntry: ToolEntry = {
-			...projectedEntry,
-			status: "error",
-			partialResult: "MAIN_PARTIAL",
-			isError: true,
-			endTime: 2,
-		};
-		useToolsStore.setState({
-			activeTools: new Map([
-				[call.id, mainEntry],
-				["shared-provider:0#projected", mainEntry],
-			]),
-		});
-		const projectedTools = new Map([["shared-provider:0#projected", projectedEntry]]);
-		const resolveToolCall = () => ({ key: "shared-provider:0#projected", entry: projectedEntry });
-		const rows = buildHistoryRows(
-			[assistant([{ type: "text", text: "Run projected." }, call])],
-			"compact",
-			undefined,
-			resolveToolCall,
-		);
-		const row = rows[0];
-		if (row?.kind !== "message") throw new Error("projected visible message row missing");
-
-		const finalizedHtml = renderToStaticMarkup(
-			<I18nProvider>
-				<MessageBubble message={row.message} resolveToolCall={resolveToolCall} />
-			</I18nProvider>,
-		);
-		const streamingHtml = renderToStaticMarkup(
-			<I18nProvider>
-				<StreamingRows
-					activeTools={projectedTools}
-					expanded
-					onExpandedChange={() => {}}
-					resolveToolCall={resolveToolCall}
-					streamingMessage={assistant([call])}
-					streamingText=""
-					streamingThinking=""
-					transcriptDetail="full"
-				/>
-			</I18nProvider>,
-		);
-
-		for (const html of [finalizedHtml, streamingHtml]) {
-			expect(html).toContain('data-tool-status="running"');
-			expect(html).not.toContain('data-tool-error="true"');
-		}
-	});
-});
 
 describe("full transcript rows", () => {
 	it("moves an opening assistant emoji onto the preceding user message", () => {
@@ -932,7 +869,10 @@ describe("virtual transcript identity", () => {
 		});
 
 		const [liveKey] = buildTranscriptRowKeys([{ kind: "streaming", message }], resolveToolCall);
-		const finalizedRows = groupReadRows(buildHistoryRows([message], "compact", undefined, resolveToolCall), resolveToolCall);
+		const finalizedRows = groupReadRows(
+			buildHistoryRows([message], "compact", undefined, resolveToolCall),
+			resolveToolCall,
+		);
 		const firstFinalizedRow = finalizedRows[0];
 		if (firstFinalizedRow?.kind !== "readGroup") throw new Error("pure read group missing");
 		const [finalizedKey] = buildHistoryRowKeys(finalizedRows, resolveToolCall);

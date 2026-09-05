@@ -1,3 +1,5 @@
+extends: ./electron-builder.identity.cjs
+
 appId: sh.omp.gui
 productName: omp
 afterPack: scripts/after-pack.cjs
@@ -18,9 +20,8 @@ protocols:
 mac:
   category: public.app-category.developer-tools
   icon: resources/icon.icns
-  # Seal the complete bundle even when no Developer ID certificate is available.
-  # This preserves macOS's user-override flow instead of presenting the app as damaged.
-  identity: "-"
+  # `identity` is resolved per machine by ./electron-builder.identity.cjs: the keychain
+  # certificate when there is one, an ad-hoc seal when there is not.
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: resources/entitlements.mac.plist

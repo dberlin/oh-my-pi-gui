@@ -98,6 +98,8 @@ import {
 	type SettingsNavGroup,
 	type SettingsResponseData,
 	SKILLS_TAB_ID,
+	globalSettingsSearchQuery,
+	settingsSearchScope,
 	SSH_TAB_ID,
 	UPDATES_TAB_ID,
 } from "./settings-window-model";
@@ -576,12 +578,18 @@ export function SettingsWindow() {
 	const isSchemaTab = schema?.tabs.some(schemaTab => schemaTab.id === tab) === true;
 	const isAgentSettingsTab = isAgentSchemaTab(tab, schema);
 	const managementTab = MANAGEMENT_TAB_IDS.has(tab);
-	const showGlobalSearch = true;
+	const searchScope = settingsSearchScope(tab, resourceTab);
+	const showSearch = searchScope !== "none";
+	const globalSearchQuery = globalSettingsSearchQuery(tab, query, resourceTab);
+
+	useEffect(() => {
+		if (searchScope === "none" && query) setQuery("");
+	}, [query, searchScope]);
 
 	// The search field advertises Cmd/Ctrl+K. Capture it while Settings is open
 	// so the application's global command palette does not steal the shortcut.
 	useEffect(() => {
-		if (!open || !showGlobalSearch) return;
+		if (!open || !showSearch) return;
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (isImeKeyEvent(event) || event.key.toLowerCase() !== "k" || (!event.metaKey && !event.ctrlKey)) return;
 			event.preventDefault();
@@ -591,13 +599,14 @@ export function SettingsWindow() {
 		};
 		document.addEventListener("keydown", onKeyDown, true);
 		return () => document.removeEventListener("keydown", onKeyDown, true);
-	}, [open]);
+	}, [open, showSearch]);
 
 	// Global search covers every GUI-relevant schema setting across all tabs.
-	// TUI-only entries never appear in results.
+	// TUI-only entries never appear in results. Management pages own their
+	// local filtering, so typing there must not replace the selected page.
 	const searchGroups = useMemo(() => {
-		const q = query.trim().toLowerCase();
-		if (!q) return null;
+		if (globalSearchQuery === null) return null;
+		const q = globalSearchQuery;
 		const matches = (sidecarReady ? (schema?.entries ?? []) : []).filter(entry => {
 			if (!isSettingVisibleInGui(entry, values)) return false;
 			return matchesSettingSearch(entry, q);
@@ -610,7 +619,7 @@ export function SettingsWindow() {
 			byTab.set(key, list);
 		}
 		return byTab;
-	}, [query, schema, sidecarReady, values]);
+	}, [globalSearchQuery, schema, sidecarReady, values]);
 
 	const guiSearchResults = useMemo(() => {
 		const q = query.trim().normalize("NFKC").toLowerCase();
@@ -894,7 +903,7 @@ export function SettingsWindow() {
 					external(() => useUiStore.getState().openForceTool());
 			}
 		},
-		[close, t],
+		[close, t, tabRpc.prompt],
 	);
 
 	if (!open) return null;
@@ -989,7 +998,7 @@ export function SettingsWindow() {
 								</h1>
 							)}
 						</div>
-						{showGlobalSearch && (
+						{showSearch && (
 							<div className="relative w-[clamp(13rem,32vw,18rem)] max-w-full min-w-0 shrink">
 								<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--omp-dim)" size={13} />
 								<input
@@ -1029,7 +1038,9 @@ export function SettingsWindow() {
 							<>
 								{tab === SKILLS_TAB_ID && <SkillsSettingsPage query={query} />}
 								{tab === MCP_TAB_ID && <ExtensionSettingsPage query={query} tabId="mcp" />}
-								{tab === RESOURCES_TAB_ID && <InventorySettingsPage initialTab={resourceTab} query={query} />}
+								{tab === RESOURCES_TAB_ID && (
+									<InventorySettingsPage initialTab={resourceTab} onTabChange={setResourceTab} query={query} />
+								)}
 								{tab === HOOKS_TAB_ID && <ExtensionSettingsPage query={query} tabId="hooks" />}
 								{tab === COMMANDS_TAB_ID && <ExtensionSettingsPage query={query} tabId="commands" />}
 								{tab === SECURITY_TAB_ID && <SecuritySettingsPage />}

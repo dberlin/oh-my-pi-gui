@@ -126,6 +126,7 @@ beforeEach(() => {
 		messages: [{ role: "user", content: [{ type: "text", text: "Main resend payload" }], timestamp: 1 }],
 	});
 	useSessionStore.getState().reset();
+	useSessionStore.setState({ status: "ready" });
 	useTabsStore.setState({
 		tabs: [
 			{

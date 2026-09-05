@@ -7,8 +7,8 @@ import { useEffect, useMemo } from "react";
 import { Bar, Pie } from "react-chartjs-2";
 import { baseChartOptions, CHART_COLORS, compact, formatUsd } from "../../lib/chart";
 import "../../lib/chart";
-import type { ProviderRow, ProvidersData, ProviderWindowsData, WindowInsight } from "../../../shared/stats-types";
-import { useStats } from "../../hooks/use-stats";
+import type { ProviderRow, WindowInsight } from "../../../shared/stats-types";
+import { useProviderStats } from "../../hooks/use-stats";
 import { useT } from "../../lib/i18n";
 import type { StatsRange } from "./StatsDashboard";
 import { ChartBox, RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
@@ -16,19 +16,14 @@ import { ChartBox, RouteFrame, SectionTitle, type StatColumn, StatTable } from "
 export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
 	const params = useMemo(() => ({ range }), [range]);
-	const { data, isLoading, error, refetch } = useStats<ProvidersData>("/api/stats/providers", params);
-	const windows = useStats<ProviderWindowsData>("/api/stats/provider-windows", params);
-	const refetchWindows = windows.refetch;
+	const { data, isLoading, error, refetch } = useProviderStats(params);
 
 	useEffect(() => {
-		if (refreshKey > 0) {
-			refetch();
-			refetchWindows();
-		}
-	}, [refreshKey, refetch, refetchWindows]);
+		if (refreshKey > 0) refetch();
+	}, [refreshKey, refetch]);
 
 	const stats = data;
-	const windowInsights = windows.data?.windowInsights ?? [];
+	const windowInsights = data?.windowInsights ?? [];
 
 	const columns: StatColumn<ProviderRow>[] = useMemo(
 		() => [

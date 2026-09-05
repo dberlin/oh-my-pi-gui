@@ -16,7 +16,7 @@ import type { QueueLane } from "../../stores/queue";
 import type { TodoSnapshot } from "../../stores/todo";
 import type { ToolEntry } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
-import { isCompletionMessage, launchCompletionFailureCount } from "./completion-events";
+import { launchCompletionFailureCount } from "./completion-events";
 
 interface ProcessMeta {
 	identityKey: string;
@@ -149,12 +149,13 @@ export type Row =
 	| { kind: "expander"; count: number }
 	| { kind: "queued"; item: RpcQueuedMessage; lane: QueueLane };
 function messageKey(message: AgentMessage, resolveToolCall: ResolveToolCall): string {
-	const identity = messageIdentity(message);
-	if (identity) return identity;
 	if (typeof message.id === "string" && message.id.length > 0) return message.id;
 	const firstTool = messageContent(message).find(block => block.type === "toolCall");
+	if (firstTool?.type === "toolCall" && resolveToolCall !== resolveMainToolCall) return resolveToolCall(firstTool).key;
+	const identity = messageIdentity(message);
+	if (identity) return identity;
 	if (firstTool?.type === "toolCall") return resolveToolCall(firstTool).key;
-	return `${message.role}-${String(message.timestamp ?? "untimed")}`;
+	return `${message.role}-untimed`;
 }
 
 function transcriptRowBaseKey(row: Row, resolveToolCall: ResolveToolCall): string {
@@ -270,15 +271,6 @@ function splitMessageReaction(message: AgentMessage): { message: AgentMessage; r
 	return { message: { ...message, content }, reaction: split.emoji };
 }
 
-
-/** A real narration/reasoning block starts a new visual execution phase. */
-function hasProcessNarration(message: AgentMessage): boolean {
-	return messageContent(message).some(block => {
-		if (block.type === "text") return isRenderableMessageText(block.text);
-		if (block.type === "thinking") return isRenderableMessageText(block.thinking);
-		return false;
-	});
-}
 
 /**
  * Keep zero-height/non-display messages out of the virtualizer. Estimating an

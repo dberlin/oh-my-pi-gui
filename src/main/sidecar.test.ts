@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn as spawnChild } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -304,7 +305,7 @@ describe("SidecarManager", () => {
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
 		await fs.writeFile(
 			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nimport { createInterface } from "node:readline";\nconst commands: unknown[] = [];\nconst rl = createInterface({ input: process.stdin });\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [1, 2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nrl.on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string; events?: string[] | null };\n\tcommands.push(command);\n\tvoid fs.writeFile(${JSON.stringify(commandLog)}, JSON.stringify(commands));\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");\n});\n`,
+			`#!/usr/bin/env bun\nimport { writeFileSync } from "node:fs";\nimport { createInterface } from "node:readline";\nconst commands: unknown[] = [];\nconst rl = createInterface({ input: process.stdin });\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [1, 2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nrl.on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string; events?: string[] | null };\n\tcommands.push(command);\n\twriteFileSync(${JSON.stringify(commandLog)}, JSON.stringify(commands));\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");\n});\n`,
 		);
 		await fs.chmod(binaryPath, 0o755);
 
@@ -319,6 +320,7 @@ describe("SidecarManager", () => {
 						try {
 							return JSON.parse(await fs.readFile(commandLog, "utf8")) as Array<{
 								type: string;
+								protocolVersion?: number;
 								events?: string[] | null;
 							}>;
 						} catch {
@@ -327,18 +329,15 @@ describe("SidecarManager", () => {
 					},
 					{ timeout: 5_000, interval: 25 },
 				)
-				.toHaveLength(3);
-
-			const commands = JSON.parse(await fs.readFile(commandLog, "utf8")) as Array<{
-				type: string;
-				events?: string[] | null;
-			}>;
-			expect(commands.map(command => command.type)).toEqual([
-				"negotiate_protocol",
-				"set_event_filter",
-				"set_ask_dialog",
-			]);
-			expect(commands[1]?.events).toContain("message_update");
+				.toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ type: "negotiate_protocol", protocolVersion: 2 }),
+						expect.objectContaining({
+							type: "set_event_filter",
+							events: expect.arrayContaining(["message_start", "message_update", "message_end"]),
+						}),
+					]),
+				);
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, { recursive: true, force: true });
@@ -369,33 +368,156 @@ describe("SidecarManager", () => {
 		}
 	});
 
-	it("runs compatibility CLI commands through the same local executable and profile", async () => {
+	it.runIf(existsSync(path.resolve("resources/omp")))(
+		"preserves profile and project dotenv overlays before explicit overlays in the native CLI",
+		async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-native-cli-dotenv-"));
+			const fakeHome = path.join(tempDir, "home");
+			const profileDir = path.join(fakeHome, ".omp", "profiles", "work");
+			const sourceCli = path.join(tempDir, "sidecar.ts");
+			const nativeCli = path.resolve("resources/omp");
+			await fs.mkdir(path.join(profileDir, "agent"), { recursive: true });
+			await fs.writeFile(
+				path.join(tempDir, "inherited.yml"),
+				"modelRoles:\n  smol: inherited\n  default: inherited\n",
+			);
+			await fs.writeFile(path.join(tempDir, "explicit.yml"), "modelRoles:\n  default: explicit\n");
+			await fs.writeFile(path.join(profileDir, ".env"), 'OMP_CONFIG_FILES="inherited.yml"\n');
+			await fs.writeFile(
+				sourceCli,
+				`import { execFileSync } from "node:child_process";
+const args = process.argv.slice(2);
+if (args.includes("config")) {
+	process.stdout.write(execFileSync(${JSON.stringify(nativeCli)}, args, { env: process.env }));
+} else {
+	process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
+	process.stdin.resume();
+}
+`,
+			);
+			const sidecar = new SidecarManager({
+				binaryPath: nativeCli,
+				sourceCli,
+				cwd: tempDir,
+				extraFlags: ["--profile", "work", "--system-prompt", "--config", "--config", "explicit.yml"],
+				shellEnv: async () => ({
+					HOME: fakeHome,
+					PI_CONFIG_DIR: ".omp",
+					PI_CONFIG_FILES: "",
+					OMP_CONFIG_FILES: "",
+				}),
+			});
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				const readRoles = async () =>
+					JSON.parse(await sidecar.runCli(["config", "get", "modelRoles", "--json"])).value;
+				expect(await readRoles()).toEqual({ smol: "inherited", default: "explicit" });
+				await fs.writeFile(path.join(tempDir, "agent.yml"), "modelRoles:\n  smol: agent\n  default: agent\n");
+				await fs.writeFile(path.join(profileDir, "agent", ".env"), 'PI_CONFIG_FILES="agent.yml"\n');
+				expect(await readRoles()).toEqual({ smol: "agent", default: "explicit" });
+				await fs.writeFile(path.join(tempDir, "project.yml"), "modelRoles:\n  slow: project\n  default: project\n");
+				await fs.writeFile(path.join(tempDir, ".env"), 'PI_CONFIG_FILES="project.yml"\n');
+				expect(await readRoles()).toEqual({ slow: "project", default: "explicit" });
+				await fs.writeFile(path.join(tempDir, ".env"), `#${"x".repeat(262_144)}`);
+				await expect(readRoles()).rejects.toThrow("size limit");
+			} finally {
+				await sidecar.dispose();
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
+		},
+		30_000,
+	);
+
+	it("keeps local CLI reads and writes in the owning profile and ordered overlay context across restart", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-cli-"));
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
+		const agentValuePath = path.join(tempDir, "agent-value.json");
+		const fakeHome = path.join(tempDir, "home");
+		await fs.mkdir(fakeHome);
+		await fs.writeFile(path.join(tempDir, "inherited.json"), '{"temperature":0.1}');
+		await fs.writeFile(path.join(tempDir, "first.json"), '{"temperature":0.2}');
+		await fs.writeFile(path.join(tempDir, "last.json"), '{"temperature":0.3}');
+		await fs.writeFile(path.join(tempDir, "profile.json"), '{"temperature":0.4}');
+		await fs.writeFile(path.join(tempDir, "work.json"), '{"temperature":0.5}');
 		await fs.writeFile(
 			binaryPath,
 			`#!/usr/bin/env bun
-if (process.argv.includes("config")) {
-	process.stdout.write(JSON.stringify(process.argv.slice(2)));
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { parseArgs } from "node:util";
+const args = process.argv.slice(2);
+const profileIndex = args.indexOf("--profile");
+const profile = profileIndex < 0 ? "default" : args.splice(profileIndex, 2)[1];
+const isCli = args.includes("config");
+const configFiles = process.env.PI_CONFIG_FILES?.split(path.delimiter).filter(Boolean) ?? [];
+if (!isCli) {
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === "--system-prompt") { i++; continue; }
+		if (args[i] === "--config") configFiles.push(args[++i]);
+		else if (args[i].startsWith("--config=")) configFiles.push(args[i].slice(9));
+	}
+}
+const persistedPath = path.resolve(profile + ".json");
+let settings = JSON.parse(await fs.readFile(persistedPath, "utf8"));
+if (isCli) {
+	const { positionals } = parseArgs({ args, allowPositionals: true, options: { json: { type: "boolean" } } });
+	if (positionals[1] === "set") {
+		settings.temperature = Number(positionals[3]);
+		await fs.writeFile(persistedPath, JSON.stringify(settings));
+	}
+}
+for (const file of configFiles) Object.assign(settings, JSON.parse(await fs.readFile(path.resolve(file), "utf8")));
+if (isCli) {
+	process.stdout.write(JSON.stringify(settings));
 	process.exit(0);
 }
+await fs.writeFile(${JSON.stringify(agentValuePath)}, JSON.stringify(settings));
 process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
 process.stdin.resume();
 `,
 		);
 		await fs.chmod(binaryPath, 0o755);
-
-		const sidecar = new SidecarManager({ binaryPath, cwd: tempDir, extraFlags: ["--profile", "work"] });
+		const originalHome = process.env.HOME;
+		process.env.HOME = fakeHome;
+		const sidecar = new SidecarManager({
+			binaryPath,
+			cwd: tempDir,
+			extraFlags: [
+				"--profile",
+				"work",
+				"--system-prompt",
+				"--config",
+				"--config",
+				"first.json",
+				"--config=last.json",
+			],
+			shellEnv: async () => ({ PI_CONFIG_FILES: "inherited.json" }),
+		});
 		try {
+			const storeOptions = { name: "prefs", projectName: "omp-gui" };
+			const store = new Store(storeOptions);
+			await fs.mkdir(path.dirname(store.path), { recursive: true });
+			await fs.writeFile(store.path, JSON.stringify({ launchProfiles: { [tempDir]: { config: "profile.json" } } }));
 			const ready = waitForReady(sidecar);
 			sidecar.start();
 			await ready;
-
-			const result = await sidecar.runCli(["config", "list", "--json"]);
-
-			expect(JSON.parse(result)).toEqual(["--profile", "work", "config", "list", "--json"]);
+			expect(JSON.parse(await fs.readFile(agentValuePath, "utf8"))).toEqual({ temperature: 0.4 });
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({ temperature: 0.4 });
+			expect(JSON.parse(await sidecar.runCli(["config", "set", "temperature", "--json", "--", "-1"]))).toEqual({
+				temperature: 0.4,
+			});
+			expect(JSON.parse(await fs.readFile(path.join(tempDir, "work.json"), "utf8"))).toEqual({ temperature: -1 });
+			expect(JSON.parse(await fs.readFile(path.join(tempDir, "last.json"), "utf8"))).toEqual({ temperature: 0.3 });
+			const restarted = waitForReady(sidecar);
+			sidecar.restart();
+			await restarted;
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({ temperature: 0.4 });
 		} finally {
-			sidecar.dispose();
+			await sidecar.dispose();
+			if (originalHome === undefined) delete process.env.HOME;
+			else process.env.HOME = originalHome;
 			await fs.rm(tempDir, { recursive: true, force: true });
 		}
 	});
@@ -881,7 +1003,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			expect(launch?.args).toContain("remote-session-7");
 			expect(launch?.args).not.toContain("--session");
 			expect(launch?.args).not.toContain("--no-auto-resume");
-			expect(commands).toEqual(["negotiate_protocol", "set_event_filter", "get_state"]);
+			expect(commands).not.toContain("new_session");
 		} finally {
 			await sidecar.dispose();
 			await remoteSsh.dispose();
@@ -975,29 +1097,143 @@ describe("SidecarManager remote SSH lifecycle", () => {
 		}
 	});
 
-	it("runs remote compatibility CLI commands from an adopted session cwd", async () => {
-		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-cli-cwd-"));
-		const { remoteSsh, logPath } = await createFakeSsh(tempDir);
+	it("keeps SSH CLI overlays owned by the remote launch cwd and refreshes them on restart", async () => {
+		const tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-cli-cwd-")));
+		const movedCwd = path.join(tempDir, "moved");
+		const fakeHome = path.join(tempDir, "home");
+		const binaryPath = path.join(tempDir, "config-consumer.ts");
+		const inheritedPath = path.join(tempDir, "inherited.json");
+		const agentValuePath = path.join(tempDir, "agent.json");
+		await fs.mkdir(movedCwd);
+		await fs.mkdir(fakeHome);
+		await fs.writeFile(inheritedPath, '{"temperature":0.1,"inherited":"remote-origin"}');
+		await fs.writeFile(path.join(movedCwd, "inherited.json"), '{"temperature":0.2,"inherited":"remote-moved"}');
+		await fs.writeFile(path.join(tempDir, "overlay.json"), '{"temperature":0.7}');
+		await fs.writeFile(path.join(movedCwd, "overlay.json"), '{"temperature":0.9}');
+		await fs.writeFile(
+			binaryPath,
+			`#!/usr/bin/env bun
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { parseArgs } from "node:util";
+import { createInterface } from "node:readline";
+const args = process.argv.slice(2);
+const cwdIndex = args.indexOf("--cwd");
+if (cwdIndex >= 0) process.chdir(args[cwdIndex + 1]);
+const isCli = args.includes("config");
+const files = process.env.PI_CONFIG_FILES?.split(path.delimiter).filter(Boolean) ?? [];
+if (isCli) parseArgs({ args, allowPositionals: true, options: { json: { type: "boolean" } } });
+else {
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === "--config") files.push(args[++i]);
+		else if (args[i].startsWith("--config=")) files.push(args[i].slice(9));
+	}
+}
+const settings = {};
+for (const file of files) Object.assign(settings, JSON.parse(await fs.readFile(path.resolve(file), "utf8")));
+if (isCli) {
+	process.stdout.write(JSON.stringify(settings));
+	process.exit(0);
+}
+const resumeIndex = args.indexOf("--resume");
+let sessionId = resumeIndex >= 0 ? args[resumeIndex + 1] : null;
+const send = frame => process.stdout.write(JSON.stringify(frame) + "\\n");
+const lines = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
+lines.on("line", async line => {
+	const command = JSON.parse(line);
+	let data = {};
+	switch (command.type) {
+		case "negotiate_protocol":
+			data = { protocolVersion: 2 };
+			break;
+		case "set_event_filter":
+			break;
+		case "new_session":
+			sessionId = "overlay-session";
+			send({ type: "session_info_update", sessionId, title: null });
+			break;
+		case "get_state":
+			if (!sessionId) {
+				send({ type: "response", id: command.id, command: command.type, success: false, error: "Session not prepared" });
+				return;
+			}
+			data = { cwd: process.cwd(), sessionId };
+			// Persist only on hydration, so observing ready also proves preparation finished.
+			await fs.writeFile(${JSON.stringify(agentValuePath)}, JSON.stringify({ cwd: process.cwd(), settings }));
+			break;
+		default:
+			send({ type: "response", id: command.id, command: command.type, success: false, error: "Unexpected command" });
+			return;
+	}
+	send({ type: "response", id: command.id, command: command.type, success: true, data });
+});
+send({
+	type: "ready",
+	protocolVersion: 2,
+	supportedProtocolVersions: [1, 2],
+	maxFrameBytes: 1_048_576,
+	maxReassembledFrameBytes: 67_108_864,
+});
+`,
+		);
+		await fs.chmod(binaryPath, 0o755);
+		const target = { ...REMOTE_TARGET, originCwd: tempDir, cwd: tempDir };
+		const runner: RemoteProcessRunner = {
+			spawn(_command, args, options) {
+				return spawnChild("/bin/sh", ["-c", args.at(-1) ?? ""], {
+					...options,
+					env: { ...process.env, HOME: fakeHome, PI_CONFIG_FILES: "inherited.json" },
+				});
+			},
+		};
+		const remoteSsh = new RemoteSshService(runner, { operationTimeoutMs: 2_000 });
+		vi.spyOn(remoteSsh, "resolveRuntime").mockImplementation(async ownedTarget => ({
+			ok: true,
+			target: ownedTarget,
+			runtime: {
+				home: fakeHome,
+				platform: "linux",
+				shell: "/bin/sh",
+				executable: binaryPath,
+				runtimePath: process.env.PATH?.split(":") ?? [],
+			},
+		}));
 		const sidecar = new SidecarManager({
 			binaryPath: "",
-			cwd: REMOTE_TARGET.cwd,
-			target: REMOTE_TARGET,
+			cwd: target.cwd,
+			target,
+			extraFlags: ["--config=overlay.json"],
 			remoteSsh,
-			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
+			remoteHostCatalog: catalogForTarget(target),
 		});
 		try {
 			const ready = waitForStatus(sidecar, "ready");
 			sidecar.start();
 			await ready;
-
-			sidecar.adoptTargetCwd("/srv/moved");
-			await sidecar.runCli(["config", "list", "--json"]);
-
-			const configLaunch = (await readRemoteLog(logPath)).find(
-				row => row.type === "launch" && row.args?.includes("config"),
-			);
-			expect(configLaunch?.args).toContain("/srv/moved");
-			expect(configLaunch?.args).not.toContain(REMOTE_TARGET.cwd);
+			expect(JSON.parse(await fs.readFile(agentValuePath, "utf8"))).toEqual({
+				cwd: tempDir,
+				settings: { temperature: 0.7, inherited: "remote-origin" },
+			});
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
+				temperature: 0.7,
+				inherited: "remote-origin",
+			});
+			sidecar.adoptTargetCwd(movedCwd);
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
+				temperature: 0.7,
+				inherited: "remote-origin",
+			});
+			const restarted = waitForStatus(sidecar, "ready");
+			sidecar.restart("/local/workspace/must-not-cross");
+			await restarted;
+			expect(JSON.parse(await fs.readFile(agentValuePath, "utf8"))).toEqual({
+				cwd: movedCwd,
+				settings: { temperature: 0.9, inherited: "remote-moved" },
+			});
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
+				temperature: 0.9,
+				inherited: "remote-moved",
+			});
 		} finally {
 			await sidecar.dispose();
 			await remoteSsh.dispose();

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ProvidersData, ProviderWindowsData } from "../../shared/stats-types";
 
 const POLL_INTERVAL_MS = 30_000;
 /** While the bundled stats server is still booting, retry quickly instead of waiting a full poll tick. */
@@ -27,8 +28,34 @@ function unavailableError(result: unknown): string | null {
 	return null;
 }
 
+function fetchStats(path: string, params: Record<string, string>): Promise<unknown> {
+	return window.omp.stats.fetch(path, params);
+}
+
+/** Both canonical endpoints belong to one visible provider snapshot. */
+async function fetchProviderStats(path: string, params: Record<string, string>): Promise<unknown> {
+	const [providers, windows] = await Promise.allSettled([
+		fetchStats(path, params),
+		fetchStats("/api/stats/provider-windows", params),
+	]);
+	// Wait for both requests even on rejection so a refresh never overlaps half
+	// of the previous snapshot. Resolved bridge failures must also reach the frame.
+	if (providers.status === "rejected") throw providers.reason;
+	if (windows.status === "rejected") throw windows.reason;
+	for (const reply of [providers.value, windows.value]) {
+		if (unavailableError(reply) !== null) return reply;
+		if (reply && typeof reply === "object" && "error" in reply && typeof reply.error === "string") return reply;
+	}
+	return { ...(providers.value as ProvidersData), ...(windows.value as ProviderWindowsData) };
+}
+
 /** One visible query at a time; stale responses never cross a path/range boundary. */
-function useStatsResource<T>(path: string, params: Record<string, string> | undefined, expectList: boolean) {
+function useStatsResource<T>(
+	path: string,
+	params: Record<string, string> | undefined,
+	expectList: boolean,
+	fetchResource = fetchStats,
+) {
 	const sortedParams = Object.entries(params ?? {}).sort(([a], [b]) => a.localeCompare(b));
 	const serializedParams = JSON.stringify(sortedParams);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: serializedParams is the semantic key for this freshly rebuilt entries array.
@@ -58,7 +85,7 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 					: { key, data: null, isLoading: true, error: null, updatedAt: null },
 			);
 			try {
-				const result = await window.omp.stats.fetch(path, queryParams);
+				const result = await fetchResource(path, queryParams);
 				const starting = unavailableError(result);
 				if (starting !== null) {
 					// Server still booting: stay in the loading state and retry quickly so
@@ -100,7 +127,7 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 			window.clearInterval(timer);
 			document.removeEventListener("visibilitychange", refreshVisible);
 		};
-	}, [expectList, key, path, queryParams]);
+	}, [expectList, fetchResource, key, path, queryParams]);
 
 	return state.key === key
 		? { ...state, refetch }
@@ -114,4 +141,14 @@ export function useStats<T>(path: string, params?: Record<string, string>) {
 /** Endpoints whose contract is a bare JSON array; a wrong-shaped reply is an error state, not rows. */
 export function useStatsList<T>(path: string, params?: Record<string, string>) {
 	return useStatsResource<T[]>(path, params, true);
+}
+
+/** Provider usage and quota windows share loading, errors, polling, and retries. */
+export function useProviderStats(params?: Record<string, string>) {
+	return useStatsResource<ProvidersData & ProviderWindowsData>(
+		"/api/stats/providers",
+		params,
+		false,
+		fetchProviderStats,
+	);
 }

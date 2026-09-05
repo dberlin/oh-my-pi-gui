@@ -8,6 +8,7 @@ import { useAgentViewStore } from "../../stores/agent-view";
 import { thinkingDisclosureKey, useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
+import { type SessionRuntime, SessionRuntimeProvider } from "../../stores/session-runtime-context";
 import { useSettingsStore } from "../../stores/settings";
 import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
@@ -163,6 +164,7 @@ function seedLiveCompactGrep({
 }
 afterEach(async () => {
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 	if (root) {
 		await act(async () => {
 			root?.unmount();
@@ -937,7 +939,74 @@ describe("TranscriptViewport find", () => {
 		todoHistory: [],
 		queued: { steering: [], followUp: [] },
 		isChat: false,
+		tabId: undefined,
+		hasLiveToolsForStream: false,
+		lastAppended: [],
+		transcriptPinNonce: 0,
+		transcriptView: null,
+		saveTranscriptView: () => {},
 	};
+
+	function paneRuntime(tabId: string): SessionRuntime {
+		return { tabId, command: vi.fn(), stores: new Map() };
+	}
+
+	it("routes find and next from a split composer to its owning main viewport", async () => {
+		const originalActiveElement = Object.getOwnPropertyDescriptor(document, "activeElement");
+		let focused: unknown = null;
+		Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused });
+		try {
+			useTabsStore.setState({ activeTabId: "pane-b" });
+			await mount(
+				<>
+					<SessionRuntimeProvider runtime={paneRuntime("pane-a")}>
+						<div data-pane="a">
+							<TranscriptViewport
+								mode="main"
+								projection={findProjection([{ role: "user", content: "left only", timestamp: 1 }], "shared-session")}
+								main={FIND_MAIN_AUGMENTS}
+							/>
+							<textarea data-composer="a" />
+						</div>
+					</SessionRuntimeProvider>
+					<SessionRuntimeProvider runtime={paneRuntime("pane-b")}>
+						<div data-pane="b">
+							<TranscriptViewport
+								mode="main"
+								projection={findProjection(
+									[
+										{ role: "user", content: "right needle first", timestamp: 2 },
+										{ role: "user", content: "right needle second", timestamp: 3 },
+									],
+									"shared-session",
+								)}
+								main={FIND_MAIN_AUGMENTS}
+							/>
+							<textarea data-composer="b" />
+						</div>
+					</SessionRuntimeProvider>
+				</>,
+			);
+			const paneA = container?.querySelector('[data-pane="a"]');
+			const paneB = container?.querySelector('[data-pane="b"]');
+			focused = paneB?.querySelector('[data-composer="b"]');
+			expect(dispatchFind("open").claimed).toBe(false);
+			expect(dispatchFind("open", true).claimed).toBe(true);
+			expect(paneA?.querySelector("[data-find-input]")).toBeNull();
+			const input = paneB?.querySelector("[data-find-input]") ?? null;
+			expect(input).not.toBeNull();
+			await typeInto(input, "right needle");
+			const counterBeforeNext = paneB?.querySelector("[data-find-counter]")?.textContent;
+			focused = paneB?.querySelector('[data-composer="b"]');
+			expect(dispatchFind("next").claimed).toBe(false);
+			expect(dispatchFind("next", true).claimed).toBe(true);
+			expect(paneB?.querySelector("[data-find-counter]")?.textContent).not.toBe(counterBeforeNext);
+			expect(paneA?.querySelector("[data-find-input]")).toBeNull();
+		} finally {
+			if (originalActiveElement) Object.defineProperty(document, "activeElement", originalActiveElement);
+			else Reflect.deleteProperty(document, "activeElement");
+		}
+	});
 
 	/**
 	 * 60 rows; the needle lives only in row 40, far below the mounted window.
@@ -1006,25 +1075,97 @@ describe("TranscriptViewport find", () => {
 		}
 	});
 
-	it("counts matches inside a collapsed thinking block and opens that disclosure on landing", async () => {
+	it("reveals and highlights compact reasoning inside its enclosing process without opening another pane's disclosure", async () => {
+		const registry = new Map<string, { ranges: Range[] }>();
+		vi.stubGlobal("CSS", { highlights: registry });
+		// The browser owns Range/Highlight; linkedom lacks their text-boundary API.
+		vi.stubGlobal(
+			"Highlight",
+			class {
+				readonly ranges: Range[];
+				constructor(...ranges: Range[]) {
+					this.ranges = ranges;
+				}
+			},
+		);
+		vi.spyOn(document, "createRange").mockImplementation(() => {
+			const range = {
+				startContainer: null as Text | null,
+				startOffset: 0,
+				endContainer: null as Text | null,
+				endOffset: 0,
+				setStart(node: Text, offset: number) {
+					this.startContainer = node;
+					this.startOffset = offset;
+				},
+				setEnd(node: Text, offset: number) {
+					this.endContainer = node;
+					this.endOffset = offset;
+				},
+			};
+			return range as unknown as Range;
+		});
 		const message: AgentMessage = {
 			role: "assistant",
-			content: [{ type: "thinking", thinking: "hidden needle inside reasoning" }],
+			content: [{ type: "thinking", thinking: `${"Earlier reasoning. ".repeat(30)}hidden needle inside reasoning` }],
 			timestamp: 2_000,
 		};
+		useTabsStore.setState({ activeTabId: "other-pane" });
 		await mount(
-			<TranscriptViewport
-				mode="main"
-				projection={findProjection([message], "find-thinking")}
-				main={FIND_MAIN_AUGMENTS}
-			/>,
+			<>
+				<SessionRuntimeProvider runtime={paneRuntime("other-pane")}>
+					<div data-pane="other">
+						<TranscriptViewport
+							mode="main"
+							projection={findProjection([message], "find-thinking")}
+							main={FIND_MAIN_AUGMENTS}
+						/>
+					</div>
+				</SessionRuntimeProvider>
+				<SessionRuntimeProvider runtime={paneRuntime("reasoning-pane")}>
+					<div data-pane="reasoning">
+						<TranscriptViewport
+							mode="main"
+							projection={findProjection([message], "find-thinking")}
+							main={FIND_MAIN_AUGMENTS}
+						/>
+					</div>
+				</SessionRuntimeProvider>
+			</>,
 		);
-		dispatchFind("open", true);
-		const input = container?.querySelector("[data-find-input]") ?? null;
-		await typeInto(input, "hidden needle");
-		expect(container?.querySelector("[data-find-counter]")?.textContent).toBe("1 / 1");
-		const key = scopedDisclosureKey(useTabsStore.getState().activeTabId, thinkingDisclosureKey(message, 0));
-		expect(useUiStore.getState().disclosureOpen[key]).toBe(true);
+		expect(container?.querySelector("[data-transcript-kind='process']")).not.toBeNull();
+		expect(container?.textContent).not.toContain("hidden needle");
+		const reasoningPane = container?.querySelector('[data-pane="reasoning"]');
+		const otherPane = container?.querySelector('[data-pane="other"]');
+		const originalActiveElement = Object.getOwnPropertyDescriptor(document, "activeElement");
+		Object.defineProperty(document, "activeElement", {
+			configurable: true,
+			value: reasoningPane?.querySelector("[tabindex='0']"),
+		});
+		try {
+			dispatchFind("open");
+			await typeInto(reasoningPane?.querySelector("[data-find-input]") ?? null, "hidden needle");
+			await act(async () => {
+				const { promise, resolve } = Promise.withResolvers<void>();
+				setTimeout(resolve, 0);
+				await promise;
+			});
+			expect(reasoningPane?.querySelector("[data-find-counter]")?.textContent).toBe("1 / 1");
+			expect(reasoningPane?.textContent).toContain("hidden needle inside reasoning");
+			expect(otherPane?.textContent).not.toContain("hidden needle");
+			const key = thinkingDisclosureKey(message, 0);
+			expect(useUiStore.getState().disclosureOpen[scopedDisclosureKey("reasoning-pane", key)]).toBe(true);
+			expect(useUiStore.getState().disclosureOpen[scopedDisclosureKey("other-pane", key)]).toBeUndefined();
+			const range = registry.get("omp-find-current")?.ranges[0];
+			expect(range?.startContainer).toBe(range?.endContainer);
+			expect((range?.startContainer as Text | undefined)?.data.slice(range?.startOffset, range?.endOffset)).toBe(
+				"hidden needle",
+			);
+			expect((reasoningPane as unknown as HTMLElement).contains(range?.startContainer ?? null)).toBe(true);
+		} finally {
+			if (originalActiveElement) Object.defineProperty(document, "activeElement", originalActiveElement);
+			else Reflect.deleteProperty(document, "activeElement");
+		}
 	});
 
 	it("keeps the match count stable when the user expands a tool card", async () => {
@@ -1167,16 +1308,16 @@ describe("TranscriptViewport find", () => {
 				</>,
 			);
 			const mounted = container as unknown as HTMLElement;
-			const paneA = mounted.querySelector<HTMLElement>('[data-pane="a"] .omp-transcript-editorial');
-			const paneB = mounted.querySelector<HTMLElement>('[data-pane="b"] .omp-transcript-editorial');
+			const paneA = mounted.querySelector<HTMLElement>('[data-pane="a"]');
+			const paneB = mounted.querySelector<HTMLElement>('[data-pane="b"]');
 			if (!paneA || !paneB) throw new Error("find panes missing");
 
-			focusOverride(paneA);
+			focusOverride(paneA.querySelector("[tabindex='0']"));
 			dispatchFind("open");
 			expect(paneA.querySelector("[data-find-input]")).not.toBeNull();
 			expect(paneB.querySelector("[data-find-input]")).toBeNull();
 
-			focusOverride(paneB);
+			focusOverride(paneB.querySelector("[tabindex='0']"));
 			dispatchFind("open");
 			expect(paneB.querySelector("[data-find-input]")).not.toBeNull();
 			expect(paneA.querySelector("[data-find-input]")).toBeNull();

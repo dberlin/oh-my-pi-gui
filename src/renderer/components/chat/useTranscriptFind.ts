@@ -14,6 +14,8 @@
  */
 
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
 import { scopedDisclosureKey, useDisclosureScope, useUiStore } from "../../stores/ui";
 import type { Row } from "./chat-stream-utils";
 import {
@@ -49,7 +51,7 @@ export type TranscriptFindAction = "open" | "next" | "previous";
 /**
  * Routing detail for the window event App.tsx dispatches. Round one: the
  * viewport containing document.activeElement claims it. If nothing claimed,
- * App re-dispatches with `fallback: true` and the main-mode viewport claims.
+ * App re-dispatches with `fallback: true` and the focused pane's main viewport claims.
  */
 export interface TranscriptFindEventDetail {
 	action: TranscriptFindAction;
@@ -84,6 +86,8 @@ export interface TranscriptFindHost {
 	setPinned: (pinned: boolean) => void;
 	/** Mirrors jumpToConversation: clears userScrollIntentRef so a programmatic scroll never unpins. */
 	clearUserScrollIntent: () => void;
+	/** Mount an enclosing process before revealing a disclosure inside it. */
+	expandProcess: (rowKey: string) => void;
 }
 
 export interface TranscriptFindState {
@@ -108,6 +112,7 @@ interface SavedView {
 /** Everything the stable window listener and the query-seeding effect need, kept fresh via a no-deps effect. */
 interface LiveState {
 	host: TranscriptFindHost;
+	runtimeTabId: string | null;
 	matches: readonly TranscriptMatch[];
 	needle: string;
 	open: boolean;
@@ -131,6 +136,7 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	// own mount — see the comment above that effect.
 	const didMountRef = useRef(false);
 	const scope = useDisclosureScope();
+	const runtimeTabId = useRuntimeTabId();
 	// Stable per-instance identity for the single-open-session broadcast below.
 	// A plain object (not a string) is enough: it never leaves this same JS
 	// realm, so reference equality is all `handleOpenedElsewhere` needs.
@@ -162,6 +168,8 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 			if (!match) return;
 			setCurrent(step.ordinal);
 			setWrapped(step.wrapped);
+			const row = host.rows[match.rowIndex];
+			if (row?.kind === "process") host.expandProcess(match.rowKey);
 			if (match.disclosureKey != null) {
 				useUiStore.getState().setDisclosureOpen(scopedDisclosureKey(scope, match.disclosureKey), true);
 			}
@@ -240,6 +248,7 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	// query-seeding effect below never close over a stale host/query/action.
 	const liveRef = useRef<LiveState>({
 		host,
+		runtimeTabId,
 		matches,
 		needle: index.needle,
 		open,
@@ -250,7 +259,18 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 		goNewer,
 	});
 	useEffect(() => {
-		liveRef.current = { host, matches, needle: index.needle, open, landOn, doOpen, doClose: close, goOlder, goNewer };
+		liveRef.current = {
+			host,
+			runtimeTabId,
+			matches,
+			needle: index.needle,
+			open,
+			landOn,
+			doOpen,
+			doClose: close,
+			goOlder,
+			goNewer,
+		};
 	});
 
 	// Registered once. Re-registering on every keystroke would let a stale
@@ -263,7 +283,10 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 			const liveHost = liveRef.current.host;
 			if (!detail.fallback) {
 				if (!liveHost.rootRef.current?.contains(document.activeElement)) return;
-			} else if (!liveHost.isMain) {
+			} else if (
+				!liveHost.isMain ||
+				(liveRef.current.runtimeTabId ?? useTabsStore.getState().activeTabId) !== useTabsStore.getState().activeTabId
+			) {
 				return;
 			}
 			detail.claimed = true;

@@ -362,7 +362,10 @@ export function CommandPalette() {
 				openBenchmark,
 				openHandoffDialog,
 				forkSession: forkSessionFromGui,
-				hydrateSession: () => (tabId ? hydrateTabSession(tabId) : hydrateSession()),
+				hydrateSession: async () => {
+					if (tabId) await hydrateTabSession(tabId);
+					else await hydrateSession();
+				},
 				openExtensions,
 				openInventory,
 				openThemePicker,

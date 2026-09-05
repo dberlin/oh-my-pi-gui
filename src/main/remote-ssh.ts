@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { parseEnv } from "node:util";
 import type {
 	FsTreeEntry,
 	RemoteDirectoryEntry,
@@ -12,6 +13,7 @@ import type {
 	SshConnectionSnapshot,
 	SshSessionTarget,
 } from "../shared/ipc-types";
+import { VALUED_FLAGS } from "../shared/launch-profile";
 import { isSshSessionTarget } from "../shared/session-target";
 
 export interface RemoteProcessRunner {
@@ -134,6 +136,96 @@ export const REMOTE_PATH_MAX_BYTES = 16_384;
 export const REMOTE_EXECUTABLE_OVERRIDE_MAX_BYTES = REMOTE_PATH_MAX_BYTES;
 export const REMOTE_ROOTS_MAX_COUNT = 128;
 export const REMOTE_LAUNCH_ARGS_MAX_COUNT = 256;
+
+const CONFIG_DOTENV_MAX_BYTES = 262_144;
+const CONFIG_ENV_KEYS = ["PI_CONFIG_FILES", "OMP_PROFILE", "PI_PROFILE", "PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"] as const;
+
+/**
+ * `omp config` has no --config flag. Match pi-utils/env's bootstrap before
+ * putting explicit overlays into PI_CONFIG_FILES, using the runtime dotenv
+ * grammar rather than sourcing files or implementing a second parser.
+ * The reader always belongs to the launch host, never the GUI's SSH client.
+ */
+export async function resolveConfigCliFiles(
+	explicitFiles: readonly string[],
+	cwd: string,
+	home: string,
+	paths: typeof path.posix,
+	env: Record<string, string | undefined>,
+	explicitProfile?: string,
+	readFiles: (files: string[]) => Promise<string[]> = async files =>
+		Promise.all(
+			files.map(async file => {
+				let handle: fs.FileHandle;
+				try {
+					handle = await fs.open(file, "r");
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+					throw error;
+				}
+				try {
+					const buffer = Buffer.alloc(CONFIG_DOTENV_MAX_BYTES + 1);
+					let count = 0;
+					while (count < buffer.length) {
+						const { bytesRead } = await handle.read(buffer, count, buffer.length - count, count);
+						if (bytesRead === 0) break;
+						count += bytesRead;
+					}
+					if (count > CONFIG_DOTENV_MAX_BYTES) throw new Error("Config dotenv file exceeds the size limit");
+					return buffer.toString("utf8", 0, count);
+				} finally {
+					await handle.close();
+				}
+			}),
+		),
+): Promise<string[]> {
+	let inherited = env.PI_CONFIG_FILES;
+	if (!inherited) {
+		const profile = (explicitProfile ?? env.OMP_PROFILE ?? env.PI_PROFILE)?.trim();
+		if (
+			profile && profile !== "default" &&
+			(!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(profile) || profile.endsWith(".") ||
+				/^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?$/i.test(profile))
+		) throw new Error("Invalid OMP profile");
+		const baseRoot = paths.join(home, env.PI_CONFIG_DIR || ".omp");
+		const namedProfile = profile && profile !== "default" ? profile : undefined;
+		const root = namedProfile ? paths.join(baseRoot, "profiles", namedProfile) : baseRoot;
+		// A profile-derived inherited agent dir is not a default-profile override.
+		const inheritedProfile = (env.OMP_PROFILE || env.PI_PROFILE)?.trim();
+		const profileAgentDir = inheritedProfile && inheritedProfile !== "default"
+			? paths.join(baseRoot, "profiles", inheritedProfile, "agent")
+			: undefined;
+		const override = env.PI_CODING_AGENT_DIR &&
+			(!profileAgentDir || paths.resolve(cwd, env.PI_CODING_AGENT_DIR) !== profileAgentDir)
+			? paths.resolve(cwd, env.PI_CODING_AGENT_DIR)
+			: undefined;
+		const agentDir = !namedProfile && override ? override : paths.join(root, "agent");
+		const files = await readFiles([
+			paths.join(cwd, ".env"),
+			paths.join(agentDir, ".env"),
+			paths.join(root, ".env"),
+			paths.join(home, ".env"),
+		]);
+		for (const content of files) {
+			if (Buffer.byteLength(content, "utf8") > CONFIG_DOTENV_MAX_BYTES) {
+				throw new Error("Config dotenv file exceeds the size limit");
+			}
+			const parsed = parseEnv(content);
+			// pi-utils ignores spawn-unsafe values; OMP_ aliases override PI_
+			// inside each file, and files only fill an absent/empty environment.
+			const ompValue = parsed.OMP_CONFIG_FILES?.includes("\0") ? undefined : parsed.OMP_CONFIG_FILES;
+			const piValue = parsed.PI_CONFIG_FILES?.includes("\0") ? undefined : parsed.PI_CONFIG_FILES;
+			const value = ompValue ?? piValue;
+			if (value) {
+				inherited = value;
+				break;
+			}
+		}
+	}
+	return [...(inherited?.split(paths.delimiter).filter(Boolean) ?? []), ...explicitFiles].map(file =>
+		paths.resolve(cwd, file === "~" ? home : file.startsWith("~/") ? paths.join(home, file.slice(2)) : file),
+	);
+}
 
 export function remoteInputWithinBytes(value: unknown, maxBytes: number): value is string {
 	return typeof value === "string" && Buffer.byteLength(value, "utf8") <= maxBytes;
@@ -618,22 +710,110 @@ export class RemoteSshService {
 		target: SshSessionTarget,
 		runtime: RemoteRuntimeInfo,
 		args: string[],
+		configFiles: readonly string[] = [],
+		configCwd: string = target.cwd,
 		signal?: AbortSignal,
 	): Promise<RemoteCliResult> {
 		if (
 			!isBoundedRemoteTargetInput(target) ||
 			!isBoundedRemoteRuntimeInput(runtime) ||
-			!areBoundedRemoteLaunchArgs(args)
+			!areBoundedRemoteLaunchArgs(args) ||
+			!Array.isArray(configFiles) ||
+			configFiles.length > REMOTE_LAUNCH_ARGS_MAX_COUNT ||
+			configFiles.some(file => !remoteInputWithinBytes(file, REMOTE_PATH_MAX_BYTES)) ||
+			!configCwd ||
+			!remoteInputWithinBytes(configCwd, REMOTE_PATH_MAX_BYTES)
 		) {
 			throw new TypeError("Invalid remote CLI request");
 		}
+		const resolvedFiles = configFiles.length || configCwd !== target.cwd
+			? await this.#configCliFiles(target, runtime, args, configFiles, configCwd, signal)
+			: undefined;
 		const remoteCommand =
 			runtime.platform === "windows"
-				? this.#windowsLaunchCommand(runtime, args, target.cwd)
-				: this.#posixLaunchCommand(runtime, args, target.cwd);
+				? this.#windowsLaunchCommand(runtime, args, target.cwd, resolvedFiles)
+				: this.#posixLaunchCommand(runtime, args, target.cwd, resolvedFiles);
 		const result = await this.#runBounded(target, remoteCommand, signal);
 		if (!result.ok) return { ok: false, error: result.error ?? "Remote CLI command failed" };
 		return { ok: true, stdout: Buffer.from(result.stdout).toString("utf8") };
+	}
+
+	async #configCliFiles(
+		target: SshSessionTarget,
+		runtime: RemoteRuntimeInfo,
+		args: string[],
+		configFiles: readonly string[],
+		cwd: string,
+		signal?: AbortSignal,
+	): Promise<string[]> {
+		const windows = runtime.platform === "windows";
+		const metadataCommand = windows
+			? `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encodePowerShell([
+					WINDOWS_UTF8_OUTPUT,
+					...CONFIG_ENV_KEYS.map(key => `[Console]::WriteLine([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$env:${key})))`),
+					`[Console]::WriteLine($(if ($null -ne [Environment]::GetEnvironmentVariable('OMP_PROFILE')) { 'eA==' } else { '' }))`,
+				].join("; "))}`
+			: [
+					posixEncodeFunction(),
+					...CONFIG_ENV_KEYS.map(key => `encode_b64 "\${${key}-}"; printf '\\n'`),
+					`encode_b64 "\${OMP_PROFILE+x}"; printf '\\n'`,
+				].join("\n");
+		const metadata = await this.#runBounded(target, metadataCommand, signal, 131_072);
+		if (!metadata.ok) throw new Error(metadata.error ?? "Remote config environment read failed");
+		const records = Buffer.from(metadata.stdout).toString("utf8").replaceAll("\r\n", "\n").split("\n");
+		if (records.pop() !== "" || records.length !== CONFIG_ENV_KEYS.length + 1) {
+			throw new Error("Invalid remote config environment response");
+		}
+		const env: Record<string, string | undefined> = {};
+		for (let index = 0; index < CONFIG_ENV_KEYS.length; index++) {
+			const value = records[index] === "" ? "" : decodeBase64(records[index]);
+			if (value === null || value.includes("\0")) throw new Error("Invalid remote config environment value");
+			env[CONFIG_ENV_KEYS[index]] = value;
+		}
+		if (records.at(-1) === "") delete env.OMP_PROFILE;
+		else if (records.at(-1) !== "eA==") throw new Error("Invalid remote config profile response");
+		let profile: string | undefined;
+		for (let index = 0; index < args.length; index++) {
+			const arg = args[index];
+			if (arg === "--" || !arg.startsWith("-")) break;
+			if (arg === "--profile") profile = args[++index];
+			else if (arg.startsWith("--profile=")) profile = arg.slice(10);
+			else if (!arg.includes("=") && VALUED_FLAGS[arg] === true) index++;
+		}
+		const resolved = await resolveConfigCliFiles(configFiles, cwd, runtime.home, windows ? path.win32 : path.posix, env, profile, async files => {
+			const command = windows
+				? `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encodePowerShell([
+						WINDOWS_UTF8_OUTPUT,
+						"$ErrorActionPreference = 'Stop'",
+						...files.map(file =>
+							`if ([IO.File]::Exists(${powershellQuote(file)})) { $stream = [IO.File]::OpenRead(${powershellQuote(file)}); try { if ($stream.Length -gt ${CONFIG_DOTENV_MAX_BYTES}) { throw 'Config dotenv file exceeds the size limit' }; $bytes = [byte[]]::new(${CONFIG_DOTENV_MAX_BYTES + 1}); $count = 0; do { $read = $stream.Read($bytes, $count, $bytes.Length - $count); $count += $read } while ($read -gt 0 -and $count -lt $bytes.Length); if ($count -gt ${CONFIG_DOTENV_MAX_BYTES}) { throw 'Config dotenv file exceeds the size limit' }; [Console]::WriteLine([Convert]::ToBase64String($bytes, 0, $count)) } finally { $stream.Dispose() } } else { [Console]::WriteLine('') }`,
+						),
+					].join("; "))}`
+				: files.map(file => [
+						`if [ -e ${shellQuote(file)} ]; then`,
+						`[ -f ${shellQuote(file)} ] && [ -r ${shellQuote(file)} ] || exit 1`,
+						`omp_dotenv_size=$(wc -c < ${shellQuote(file)}) || exit 1`,
+						`[ "$omp_dotenv_size" -le ${CONFIG_DOTENV_MAX_BYTES} ] || { printf '%s\\n' 'Config dotenv file exceeds the size limit' >&2; exit 1; }`,
+						`omp_dotenv=$(base64 < ${shellQuote(file)}) || exit 1`,
+						`printf '%s' "$omp_dotenv" | tr -d '\\r\\n'`,
+						"fi",
+						"printf '\\n'",
+					].join("\n")).join("\n");
+			const result = await this.#runBounded(target, command, signal, 4 * CONFIG_DOTENV_MAX_BYTES * 2);
+			if (!result.ok) throw new Error(result.error ?? "Remote config dotenv read failed");
+			const values = Buffer.from(result.stdout).toString("utf8").replaceAll("\r\n", "\n").split("\n");
+			if (values.pop() !== "" || values.length !== files.length) throw new Error("Invalid remote config dotenv response");
+			return values.map(value => {
+				const decoded = value === "" ? "" : decodeBase64(value);
+				if (decoded === null) throw new Error("Invalid remote config dotenv encoding");
+				return decoded;
+			});
+		});
+		if (
+			resolved.length > REMOTE_LAUNCH_ARGS_MAX_COUNT ||
+			resolved.some(file => !remoteInputWithinBytes(file, REMOTE_PATH_MAX_BYTES) || file.includes("\0"))
+		) throw new Error("Invalid remote config overlay context");
+		return resolved;
 	}
 
 	dispose(): Promise<void> {
@@ -659,8 +839,8 @@ export class RemoteSshService {
 		}
 		const remoteCommand =
 			runtime.platform === "windows"
-				? this.#windowsLaunchCommand(runtime, args)
-				: this.#posixLaunchCommand(runtime, args);
+				? this.#windowsLaunchCommand(runtime, args, target.cwd)
+				: this.#posixLaunchCommand(runtime, args, target.cwd);
 		const child = this.#spawnSsh(target, remoteCommand);
 		return this.#ownChild(child);
 	}
@@ -1517,16 +1697,29 @@ export class RemoteSshService {
 		return `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encodePowerShell(script)}`;
 	}
 
-	#posixLaunchCommand(runtime: RemoteRuntimeInfo, args: string[], cwd?: string): string {
-		const path = runtime.runtimePath.join(":");
+	#posixLaunchCommand(
+		runtime: RemoteRuntimeInfo,
+		args: string[],
+		cwd?: string,
+		configFiles?: readonly string[],
+	): string {
+		// A delimiter-only list is empty to Settings, but nonempty to dotenv:
+		// it prevents an adopted cwd from replacing an empty launch overlay list.
+		const configEnv = configFiles ? ` PI_CONFIG_FILES=${shellQuote(configFiles.join(":") || ":")}` : "";
 		const launch =
-			`env PATH=${shellQuote(path)} ${shellQuote(runtime.executable)} ${args.map(shellQuote).join(" ")}`.trimEnd();
+			`env PATH=${shellQuote(runtime.runtimePath.join(":"))}${configEnv} ${shellQuote(runtime.executable)} ${args.map(shellQuote).join(" ")}`.trimEnd();
 		return cwd ? `cd -- ${shellQuote(cwd)} && ${launch}` : launch;
 	}
 
-	#windowsLaunchCommand(runtime: RemoteRuntimeInfo, args: string[], cwd?: string): string {
+	#windowsLaunchCommand(
+		runtime: RemoteRuntimeInfo,
+		args: string[],
+		cwd?: string,
+		configFiles?: readonly string[],
+	): string {
 		const script = [
 			`$env:PATH = ${powershellQuote(runtime.runtimePath.join(";"))}`,
+			...(configFiles ? [`$env:PI_CONFIG_FILES = ${powershellQuote(configFiles.join(";") || ";")}`] : []),
 			...(cwd ? [`Set-Location -LiteralPath ${powershellQuote(cwd)} -ErrorAction Stop`] : []),
 			`& ${powershellQuote(runtime.executable)} ${args.map(powershellQuote).join(" ")}`,
 			"exit $LASTEXITCODE",

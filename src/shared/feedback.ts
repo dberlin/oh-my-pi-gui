@@ -3,8 +3,8 @@
  * opens; nothing is sent until the user confirms on GitHub, and no session
  * content is ever included — only what the dialog previews.
  *
- * Shared (not renderer-only) because the error log tail is assembled in the
- * main process and the fallback page uses the same URL builder.
+ * Shared because the main process assembles the error log tail and the
+ * renderer builds the issue URL from the previewed diagnostics.
  */
 
 import type { RuntimeErrorReport } from "./ipc-types";

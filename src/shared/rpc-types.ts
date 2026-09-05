@@ -74,6 +74,8 @@ export type RpcCommand =
 	| { id?: string; type: "get_settings_schema" }
 	| { id?: string; type: "get_settings"; paths?: string[] }
 	| { id?: string; type: "set_setting"; path: string; value: unknown }
+	// Main serializes role deltas through the local native setter or fresh SSH config state.
+	| { id?: string; type: "set_model_role"; role: string; modelId: string | null }
 	| { id?: string; type: "get_providers"; forceRefresh?: boolean }
 	| { id?: string; type: "set_plan_mode"; enabled: boolean }
 	| { id?: string; type: "get_plan_mode" }

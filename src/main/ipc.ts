@@ -1113,9 +1113,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				error: `Sidecar not ready (${sidecar.status})`,
 			};
 		}
-		if (isConfigRpcCommand(incomingCommand)) {
-			return executeConfigRpcCommand(incomingCommand, args => sidecar.runCli(args));
-		}
 		const { id: _id, ...cmd } = payload.command;
 		const issuerTabInfo = issuerTabId
 			? sidecarPool.tabsForWindow(win).find(tab => tab.tabId === issuerTabId)
@@ -1123,6 +1120,23 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const issuerTab: WorkspaceTabIdentity | null = issuerTabInfo
 			? { tabId: issuerTabInfo.tabId, target: issuerTabInfo.target }
 			: null;
+		if (isConfigRpcCommand(incomingCommand)) {
+			const target = issuerTab?.target ?? (!issuerTabId ? sidecarPool.entryForWindow(win)?.target : undefined);
+			if (!target) {
+				return {
+					id: incomingCommand.id,
+					type: "response",
+					command: incomingCommand.type,
+					success: false,
+					error: "Sidecar target unavailable",
+				};
+			}
+			return executeConfigRpcCommand(
+				incomingCommand,
+				args => sidecar.runCli(args),
+				target.type === "local" ? command => client.command(command, payload.timeoutMs) : undefined,
+			);
+		}
 		// F-OWN refuse-or-focus backstop: a switch_session onto a file a
 		// DIFFERENT tab owns would double-attach it (the owner itself re-attaches
 		// freely). Refuse BEFORE dispatch — the sidecar would attach for real

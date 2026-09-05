@@ -6,10 +6,11 @@ import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import * as path from "node:path";
 import { join } from "node:path";
 import { PassThrough, type Readable } from "node:stream";
 import Store from "electron-store";
-import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
+import { parseLaunchProfile, profileToFlags, stripDenylistedFlags, VALUED_FLAGS } from "../shared/launch-profile";
 import type { SessionTarget, SshSessionTarget } from "../shared/ipc-types";
 import type {
 	AgentSessionEvent,
@@ -35,7 +36,12 @@ import type {
 import { sameSessionTarget } from "../shared/session-target";
 import { EventBatcher } from "./event-batcher";
 import type { RemoteHostCatalog } from "./remote-host-catalog";
-import type { RemoteChildHandle, RemoteRuntimeInfo, RemoteSshService } from "./remote-ssh";
+import {
+	resolveConfigCliFiles,
+	type RemoteChildHandle,
+	type RemoteRuntimeInfo,
+	type RemoteSshService,
+} from "./remote-ssh";
 import { attachNdjsonParser, RPC_MAX_FRAME_BYTES, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 
@@ -226,20 +232,32 @@ export function missingSidecarMessage(packaged: boolean, resourcesPath?: string)
 	return `omp is missing from this installation (${target}). Reinstall omp GUI, then relaunch.`;
 }
 
-function configProfileFlags(flags: readonly string[]): string[] {
+/** Snapshot the agent's bootstrap settings context, not its other launch options. */
+function configCliContext(
+	flags: readonly string[],
+	cwd: string,
+	paths: typeof path.posix,
+	home: string,
+): { profileFlags: string[]; configFiles: string[]; cwd: string } {
 	let profile: string | undefined;
+	const configFiles: string[] = [];
 	for (let index = 0; index < flags.length; index++) {
 		const flag = flags[index];
-		if (flag === "--profile") {
-			const value = flags[index + 1];
-			if (value && !value.startsWith("-")) profile = value;
-			index++;
-		} else if (flag.startsWith("--profile=")) {
-			const value = flag.slice("--profile=".length);
-			if (value) profile = value;
-		}
+		const equals = flag.indexOf("=");
+		const name = equals < 0 ? flag : flag.slice(0, equals);
+		const value = equals < 0 ? flags[index + 1] : flag.slice(equals + 1);
+		if (name === "--profile" && value && (equals >= 0 || !value.startsWith("-"))) profile = value;
+		else if (name === "--config" && value) configFiles.push(value);
+		// A prompt/path/tool value is opaque, even when it spells --config.
+		if (equals < 0 && VALUED_FLAGS[name] === true) index++;
 	}
-	return profile ? ["--profile", profile] : [];
+	return {
+		cwd,
+		profileFlags: profile ? ["--profile", profile] : [],
+		configFiles: configFiles.map(file =>
+			paths.resolve(cwd, file === "~" ? home : file.startsWith("~/") ? paths.join(home, file.slice(2)) : file),
+		),
+	};
 }
 
 export interface SidecarEvents {
@@ -395,7 +413,12 @@ export class SidecarManager extends EventEmitter {
 	#latestRemoteSessionId: string | null;
 	#remoteTarget: SshSessionTarget | null = null;
 	#remoteRuntime: RemoteRuntimeInfo | null = null;
-	#configProfileFlags: string[] = [];
+	#configContext: { profileFlags: string[]; configFiles: string[]; cwd: string } = {
+		profileFlags: [],
+		configFiles: [],
+		cwd: "",
+	};
+	#configEnv: NodeJS.ProcessEnv = {};
 	#disposePromise: Promise<void> | null = null;
 	#freshLaunchPending: boolean;
 	#disposed = false;
@@ -422,17 +445,36 @@ export class SidecarManager extends EventEmitter {
 	async runCli(args: string[]): Promise<string> {
 		if (this.#disposed) throw new Error("Sidecar is disposed");
 		const remoteSsh = this.#options.remoteSsh;
-		const cliArgs = [...this.#configProfileFlags, ...args];
+		const cliArgs = [...this.#configContext.profileFlags, ...args];
 		if (this.#options.target?.type === "ssh") {
 			if (!remoteSsh || !this.#remoteTarget || !this.#remoteRuntime) {
 				throw new Error("Remote sidecar runtime is unavailable");
 			}
-			const result = await remoteSsh.runCli(this.#remoteTarget, this.#remoteRuntime, cliArgs);
+			const result = await remoteSsh.runCli(
+				this.#remoteTarget,
+				this.#remoteRuntime,
+				cliArgs,
+				this.#configContext.configFiles,
+				this.#configContext.cwd,
+			);
 			if (!result.ok) throw new Error(result.error);
 			return result.stdout;
 		}
 
-		const { binaryPath, sourceCli, cwd } = this.#options;
+		const { binaryPath, sourceCli } = this.#options;
+		const env = { ...this.#configEnv };
+		if (this.#configContext.configFiles.length) {
+			env.PI_CONFIG_FILES = (
+				await resolveConfigCliFiles(
+					this.#configContext.configFiles,
+					this.#configContext.cwd,
+					process.platform === "win32" ? env.USERPROFILE || homedir() : env.HOME || homedir(),
+					path,
+					env,
+					this.#configContext.profileFlags[1],
+				)
+			).join(path.delimiter);
+		}
 		const command = sourceCli ? resolveBunExe() : binaryPath;
 		const commandArgs = sourceCli ? [sourceCli, ...cliArgs] : cliArgs;
 		const { promise, resolve, reject } = Promise.withResolvers<string>();
@@ -440,9 +482,9 @@ export class SidecarManager extends EventEmitter {
 			command,
 			commandArgs,
 			{
-				cwd,
+				cwd: this.#configContext.cwd,
 				encoding: "utf8",
-				env: { ...process.env, ...this.#shellEnvVars, ...this.#proxyEnvVars },
+				env,
 				maxBuffer: 1_048_576,
 				timeout: 15_000,
 				windowsHide: true,
@@ -542,7 +584,12 @@ export class SidecarManager extends EventEmitter {
 			if (isChat) args.push("--no-tools");
 			const userFlags = [...(this.#options.extraFlags ?? []), ...loadLaunchProfileFlags(resolution.target.cwd)];
 			const launchFlags = stripDenylistedFlags(userFlags, isChat);
-			this.#configProfileFlags = configProfileFlags(launchFlags);
+			this.#configContext = configCliContext(
+				launchFlags,
+				resolution.target.cwd,
+				resolution.runtime.platform === "windows" ? path.win32 : path.posix,
+				resolution.runtime.home,
+			);
 			args.push(...launchFlags);
 
 			this.#remoteTarget = resolution.target;
@@ -586,7 +633,13 @@ export class SidecarManager extends EventEmitter {
 		// launches also strip tool selections so --no-tools remains authoritative.
 		const userFlags = [...(extraFlags ?? []), ...loadLaunchProfileFlags(cwd)];
 		const launchFlags = stripDenylistedFlags(userFlags, isChat);
-		this.#configProfileFlags = configProfileFlags(launchFlags);
+		this.#configEnv = { ...process.env, ...this.#shellEnvVars, ...this.#proxyEnvVars };
+		this.#configContext = configCliContext(
+			launchFlags,
+			cwd,
+			path,
+			process.platform === "win32" ? this.#configEnv.USERPROFILE || homedir() : this.#configEnv.HOME || homedir(),
+		);
 		args.push(...launchFlags);
 
 		// Source sidecar (monorepo dev): run the workspace coding-agent from
@@ -839,8 +892,10 @@ export class SidecarManager extends EventEmitter {
 					.catch(() => undefined);
 				if (!this.#isLive(generation) || this.#child !== child) return;
 				if (negotiated?.success) {
-					void client.command({ type: "set_event_filter", events: Object.keys(AGENT_EVENT_TYPES) }).catch(() => {});
-					void client.command({ type: "set_ask_dialog", enabled: true }).catch(() => {});
+					void client
+						.command({ type: "set_event_filter", events: Object.keys(AGENT_EVENT_TYPES) })
+						.catch(() => {});
+					// Keep select/editor fallback: native ask cannot carry the GUI's notes/chat results.
 				}
 			}
 			if (!this.#isLive(generation) || this.#child !== child) return;

@@ -458,7 +458,6 @@ export const zh: Record<string, string> = {
 	"appError.description": "错误已写入运行时日志。重新加载界面后可继续使用。",
 	"appError.logPath": "运行时日志：{path}",
 	"appError.reload": "重新加载界面",
-	"appError.report": "到 GitHub 反馈",
 
 	// 深链接（omp:// 协议）
 	"deepLink.notFound": "没有与此链接匹配的已保存会话。",
@@ -846,8 +845,6 @@ export const zh: Record<string, string> = {
 	"modelRoles.failed": "失败",
 	"modelRoles.loadFailed": "模型角色加载失败。",
 	"modelRoles.stale": "显示上次成功加载的角色。",
-	"modelRoles.notConnected": "当前会话未连接。",
-	"modelRoles.loadError": "无法加载模型角色：{error}",
 	"modelRoles.empty": "无配置的模型角色。",
 	"modelRoles.section.chat": "对话角色",
 	"modelRoles.section.kind": "专用角色",
@@ -2188,7 +2185,6 @@ export const zh: Record<string, string> = {
 	"stats.errors.col.message": "错误信息",
 	"stats.errors.noMessage": "（无信息）",
 
-	// Stats frustration route
 	// Feedback dialog
 	"feedback.title": "提交反馈",
 	"feedback.intro": "请尽量详细地描述情况：你做了什么、期望的结果、实际看到的现象。不会包含任何会话内容。",
@@ -2211,6 +2207,7 @@ export const zh: Record<string, string> = {
 	"feedback.cancel": "取消",
 	"feedback.submit": "在 GitHub 上继续",
 
+	// Stats frustration route
 	"stats.frustration.annoyed": "不满",
 	"stats.frustration.atAssistant": "针对助手",
 	"stats.frustration.angry": "愤怒",

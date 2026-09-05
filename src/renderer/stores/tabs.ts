@@ -500,7 +500,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const target = state.tabs.find(tab => tab.id === id);
 		if (!target) return;
 		const version = ++switchVersion;
-		invalidateReadyRecovery();
+		// Focus changes do not retire the outgoing tab's runtime or its ready recovery.
 		sessionRuntimeStore<SubagentsStore>(id, "subagents")?.getState().invalidateRefresh();
 		ensureTabRuntime(id);
 		beginTabRoute(state.activeTabId, id);
@@ -905,7 +905,6 @@ export function consumePendingSession(tabId: string): Promise<boolean> {
 				setFocusedSessionRuntime(tabId);
 			}
 			invalidateReadyRecovery(true, tabId);
-			sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().invalidateRefresh();
 			await recoverReadySession(tabId);
 			return true;
 		} catch (error) {

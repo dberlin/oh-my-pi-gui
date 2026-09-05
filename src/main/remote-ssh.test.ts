@@ -365,21 +365,131 @@ describe("RemoteSshService SSH process ownership", () => {
 		expect(signals).toEqual(["SIGTERM"]);
 	});
 
-	it("runs a bounded remote CLI command in the session cwd with the resolved executable and PATH", async () => {
-		const runner = new FakeRunner();
-		runner.respond('{"modelRoles":{"type":"record","value":{}}}\n');
-		const ssh = service(runner);
+	it.runIf(existsSync(path.resolve("resources/omp")))(
+		"bootstraps remote profile and project dotenv overlays before explicit native CLI overlays",
+		async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-remote-native-dotenv-"));
+			const fakeHome = path.join(tempDir, "home");
+			const profileDir = path.join(fakeHome, ".omp", "profiles", "work");
+			const movedCwd = path.join(tempDir, "adopted");
+			const overlayPath = path.join(tempDir, "owner's $(touch leaked) overlay.yml");
+			await fs.mkdir(path.join(profileDir, "agent"), { recursive: true });
+			await fs.mkdir(movedCwd);
+			await fs.writeFile(path.join(tempDir, "inherited.yml"), "modelRoles:\n  smol: inherited\n  default: inherited\n");
+			await fs.writeFile(path.join(profileDir, ".env"), 'OMP_CONFIG_FILES="inherited.yml"\n');
+			await fs.writeFile(overlayPath, "modelRoles:\n  default: explicit\n");
+			const runner: RemoteProcessRunner = {
+				spawn(_command, args, options) {
+					return spawn("/bin/sh", ["-c", args.at(-1) ?? ""], {
+						...options,
+						env: {
+							...process.env,
+							HOME: fakeHome,
+							PI_CONFIG_DIR: ".omp",
+							PI_CONFIG_FILES: "",
+							OMP_CONFIG_FILES: "",
+						},
+					});
+				},
+			};
+			const ssh = new RemoteSshService(runner, { operationTimeoutMs: 15_000 });
+			try {
+				const target = sshTarget({ cwd: movedCwd, originCwd: tempDir });
+				const remoteRuntime = runtime({
+					home: fakeHome,
+					executable: path.resolve("resources/omp"),
+					runtimePath: process.env.PATH?.split(":") ?? [],
+				});
+				const readRoles = async () => {
+					const result = await ssh.runCli(
+						target,
+						remoteRuntime,
+						["--profile", "work", "config", "get", "modelRoles", "--json"],
+						[overlayPath],
+						tempDir,
+					);
+					if (!result.ok) throw new Error(result.error);
+					return JSON.parse(result.stdout).value;
+				};
+				expect(await readRoles()).toEqual({ smol: "inherited", default: "explicit" });
+				await fs.writeFile(path.join(tempDir, "agent.yml"), "modelRoles:\n  smol: agent\n  default: agent\n");
+				await fs.writeFile(path.join(profileDir, "agent", ".env"), 'PI_CONFIG_FILES="agent.yml"\n');
+				expect(await readRoles()).toEqual({ smol: "agent", default: "explicit" });
+				await fs.writeFile(path.join(tempDir, "project.yml"), "modelRoles:\n  slow: project\n  default: project\n");
+				await fs.writeFile(path.join(tempDir, ".env"), 'PI_CONFIG_FILES="project.yml"\n');
+				await fs.writeFile(path.join(movedCwd, ".env"), 'PI_CONFIG_FILES="must-not-read.yml"\n');
+				expect(await readRoles()).toEqual({ slow: "project", default: "explicit" });
+				await expect(fs.access(path.join(tempDir, "leaked"))).rejects.toThrow();
+				await fs.rm(path.join(tempDir, ".env"));
+				await fs.rm(path.join(profileDir, ".env"));
+				await fs.rm(path.join(profileDir, "agent", ".env"));
+				await fs.writeFile(path.join(movedCwd, "must-not-read.yml"), "modelRoles:\n  default: adopted\n");
+				const emptyOrigin = await ssh.runCli(
+					target,
+					remoteRuntime,
+					["--profile", "work", "config", "get", "modelRoles", "--json"],
+					[],
+					tempDir,
+				);
+				if (!emptyOrigin.ok) throw new Error(emptyOrigin.error);
+				expect(JSON.parse(emptyOrigin.stdout).value).toEqual({});
+				await fs.writeFile(path.join(tempDir, ".env"), `#${"x".repeat(262_144)}`);
+				await expect(readRoles()).rejects.toThrow("size limit");
+			} finally {
+				await ssh.dispose();
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
+		},
+		30_000,
+	);
 
-		const result = await ssh.runCli(sshTarget(), runtime(), ["config", "list", "--json"]);
-
-		expect(result).toEqual({
-			ok: true,
-			stdout: '{"modelRoles":{"type":"record","value":{}}}\n',
-		});
-		const command = runner.calls[0]?.args.at(-1) ?? "";
-		expect(command).toContain("PATH=");
-		expect(command).toContain("cd -- '/work/repo' &&");
-		expect(command).toContain("'/home/danny/.bun/bin/omp' 'config' 'list' '--json'");
+	it("applies CLI overlays after remote inherited files without copying the GUI environment", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-remote-cli-overlay-"));
+		const binaryPath = path.join(tempDir, "config-consumer.ts");
+		const inheritedPath = path.join(tempDir, "inherited.json");
+		const overlayPath = path.join(tempDir, "owner's $(touch leaked) overlay.json");
+		await fs.writeFile(inheritedPath, '{"temperature":0.1,"inherited":"remote"}');
+		await fs.writeFile(overlayPath, '{"temperature":0.7}');
+		await fs.writeFile(
+			binaryPath,
+			`#!/usr/bin/env bun
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { parseArgs } from "node:util";
+parseArgs({ allowPositionals: true, options: { json: { type: "boolean" } } });
+const settings = {};
+for (const file of process.env.PI_CONFIG_FILES?.split(path.delimiter).filter(Boolean) ?? []) {
+	Object.assign(settings, JSON.parse(await fs.readFile(path.resolve(file), "utf8")));
+}
+process.stdout.write(JSON.stringify(settings));
+`,
+		);
+		await fs.chmod(binaryPath, 0o755);
+		const runner: RemoteProcessRunner = {
+			spawn(_command, args, options) {
+				return spawn("/bin/sh", ["-c", args.at(-1) ?? ""], {
+					...options,
+					env: { ...process.env, PI_CONFIG_FILES: inheritedPath },
+				});
+			},
+		};
+		const ssh = new RemoteSshService(runner, { operationTimeoutMs: 2_000 });
+		try {
+			const target = sshTarget({ cwd: tempDir, originCwd: tempDir });
+			const remoteRuntime = runtime({ executable: binaryPath, runtimePath: process.env.PATH?.split(":") ?? [] });
+			expect(await ssh.runCli(target, remoteRuntime, ["config", "list", "--json"], [overlayPath])).toEqual({
+				ok: true,
+				stdout: '{"temperature":0.7,"inherited":"remote"}',
+			});
+			await expect(fs.access(path.join(tempDir, "leaked"))).rejects.toThrow();
+			expect(await ssh.runCli(target, remoteRuntime, ["config", "list", "--json"])).toEqual({
+				ok: true,
+				stdout: '{"temperature":0.1,"inherited":"remote"}',
+			});
+		} finally {
+			await ssh.dispose();
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
 	});
 
 	it("stops a Windows CLI command when the session cwd cannot be entered", async () => {

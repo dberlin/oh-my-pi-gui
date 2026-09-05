@@ -66,6 +66,21 @@ export const SEARCHABLE_MANAGEMENT_TAB_IDS = new Set([
 	COMMANDS_TAB_ID,
 ]);
 
+export type SettingsSearchScope = "global" | "local" | "none";
+
+export function settingsSearchScope(tabId: string, resourceTab?: string): SettingsSearchScope {
+	if (tabId === RESOURCES_TAB_ID && resourceTab === "memory") return "none";
+	if (SEARCHABLE_MANAGEMENT_TAB_IDS.has(tabId)) return "local";
+	if (MANAGEMENT_TAB_IDS.has(tabId)) return "none";
+	return "global";
+}
+
+export function globalSettingsSearchQuery(tabId: string, query: string, resourceTab?: string): string | null {
+	if (settingsSearchScope(tabId, resourceTab) !== "global") return null;
+	const normalized = query.trim().toLowerCase();
+	return normalized || null;
+}
+
 export interface SettingsNavGroup {
 	id: "experience" | "models" | "tasks" | "tools" | "extensions" | "security" | "memory" | "system";
 	items: TabItem[];

@@ -54,4 +54,53 @@ describe("message pagination", () => {
 			{ type: "get_messages_page", cursor: "next", timeoutMs: 30_000 },
 		]);
 	});
+
+	it("falls back to the canonical snapshot on sidecars without pagination", async () => {
+		const calls: string[] = [];
+		const messages = [{ role: "user" as const, content: "legacy", timestamp: 1 }];
+		const rpc = createSessionRpcClient(async command => {
+			calls.push(command.type);
+			if (command.type === "get_messages_page") {
+				return { type: "response", command: command.type, success: false, error: "Unknown command" };
+			}
+			return { type: "response", command: command.type, success: true, data: { messages } };
+		});
+		expect(await rpc.getMessages()).toEqual({
+			type: "response",
+			command: "get_messages",
+			success: true,
+			data: { messages },
+		});
+		expect(calls).toEqual(["get_messages_page", "get_messages"]);
+	});
+
+	it("discards partial pages when the next page fails", async () => {
+		const calls: string[] = [];
+		const messages = [{ role: "user" as const, content: "authoritative", timestamp: 1 }];
+		const rpc = createSessionRpcClient(async command => {
+			calls.push(command.type);
+			if (command.type === "get_messages_page") {
+				return command.cursor === undefined
+					? {
+							type: "response",
+							command: command.type,
+							success: true,
+							data: {
+								messages: [{ role: "user", content: "stale", timestamp: 0 }],
+								totalMessages: 2,
+								nextCursor: "next",
+							},
+						}
+					: { type: "response", command: command.type, success: false, error: "Cursor expired" };
+			}
+			return { type: "response", command: command.type, success: true, data: { messages } };
+		});
+		expect(await rpc.getMessages()).toEqual({
+			type: "response",
+			command: "get_messages",
+			success: true,
+			data: { messages },
+		});
+		expect(calls).toEqual(["get_messages_page", "get_messages_page", "get_messages"]);
+	});
 });

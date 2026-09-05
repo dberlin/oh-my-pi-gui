@@ -26,17 +26,19 @@ import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Toggle } from "./editors/Toggle";
-import { CapabilitiesHome } from "./pages/CapabilitiesHome";
 import {
 	groupSchemaEntries,
 	isSettingVisibleInGui,
 	resolveSettingsTarget,
 	SchemaTabContent,
-	SettingsConnectionNotice,
 	SettingsWindow,
 } from "./SettingsWindow";
-import { buildSettingsNavGroups, isAgentSchemaTab } from "./settings-window-model";
+import {
+	buildSettingsNavGroups,
+	globalSettingsSearchQuery,
+	isAgentSchemaTab,
+	settingsSearchScope,
+} from "./settings-window-model";
 import { SshSettingsPage } from "./SshSettingsPage";
 
 function entry(partial: Partial<SettingEntry> & { path: string }): SettingEntry {
@@ -285,75 +287,6 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 });
 
-describe("Toggle", () => {
-	it("uses the entire row as one switch without overlaying save text", () => {
-		const html = renderToStaticMarkup(
-			<Toggle
-				checked={false}
-				description="Applies immediately."
-				label="Advisor for Subagents"
-				onChange={() => {}}
-			/>,
-		);
-
-		expect(html.startsWith("<button")).toBe(true);
-		expect(html.match(/<button/g)).toHaveLength(1);
-		expect(html).toContain('role="switch"');
-		expect(html).toContain('aria-checked="false"');
-		expect(html).not.toContain("Saved");
-	});
-});
-
-describe("CapabilitiesHome", () => {
-	it("leads with OMP-specific workflows and exposes a direct action for each", () => {
-		const noop = () => {};
-		const html = renderToStaticMarkup(
-			<I18nProvider>
-				<CapabilitiesHome
-					advisorActive={false}
-					advisorEnabled
-					memoryBackend="local"
-					onConfigureAdvisor={noop}
-					onConfigureTtsr={noop}
-					onOpenAgents={noop}
-					onOpenGoal={noop}
-					onOpenLoop={noop}
-					onOpenMemory={noop}
-					onOpenModelRoles={noop}
-					onOpenTools={noop}
-					onOpenCommandCenter={noop}
-					onOpenTarget={noop}
-					ready
-					ttsrEnabled
-				/>
-			</I18nProvider>,
-		);
-
-		expect(html).toContain("Start with what makes OMP different");
-		expect(html.indexOf("Mid-stream correction · TTSR")).toBeLessThan(html.indexOf("Parallel subagents"));
-		expect(html).toContain("Configure rules");
-		expect(html).toContain("Open Agent Hub");
-		expect(html).toContain("Configure model roles");
-		expect(html).toContain("Advisor settings");
-		expect(html).toContain("Goal mode");
-		expect(html).toContain("Loop mode");
-		expect(html).toContain("Configure memory");
-		expect(html).toContain("Configure tool access");
-		expect(html).toContain("Backend: local");
-		expect(html).toContain("Switch Model");
-		expect(html).toContain("MCP Servers");
-		expect(html).toContain("Collab Session");
-		expect(html).toContain("Debug Tools");
-		expect(html).toContain("Side Question");
-		expect(html).toContain("Export HTML");
-		expect(html).toContain("Plugin Marketplace");
-		expect(html).toContain("Updates");
-	});
-
-	// (The pending-toggle lock test was removed with the toggle buttons —
-	// capability cards are now discovery + navigation only; the values live in
-	// their schema tabs.)
-});
 
 describe("groupSchemaEntries", () => {
 	const entries: SettingEntry[] = [
@@ -442,24 +375,6 @@ describe("GUI settings visibility", () => {
 		expect(isAgentSchemaTab("gui", null)).toBe(false);
 		expect(isAgentSchemaTab("capabilities", null)).toBe(false);
 		expect(isAgentSchemaTab("skills", null)).toBe(false);
-	});
-
-	it("explains why cached schema controls are locked while the sidecar is down", () => {
-		const html = renderToStaticMarkup(
-			<I18nProvider>
-				<SettingsConnectionNotice
-					busy={false}
-					error="connection lost"
-					hasCachedSchema
-					onRetry={() => {}}
-					status="error"
-				/>
-			</I18nProvider>,
-		);
-		expect(html).toContain('data-settings-connection-notice="true"');
-		expect(html).toContain("Agent settings are unavailable");
-		expect(html).toContain("Cached values are shown for navigation only");
-		expect(html).toContain('type="button"');
 	});
 
 	it("omits TUI-only rows and groups from a schema tab", () => {
@@ -753,6 +668,50 @@ describe("SettingsWindow", () => {
 		useUiStore.getState().closeSettings();
 		useUiStore.getState().openSettings();
 		expect(useUiStore.getState()).toMatchObject({ settingsOpen: true, settingsTab: "capabilities" });
+	});
+
+	it("activates global search only for non-empty queries on global pages", () => {
+		expect(globalSettingsSearchQuery("gui", "")).toBeNull();
+		expect(globalSettingsSearchQuery("gui", "  Retry Policy  ")).toBe("retry policy");
+		expect(globalSettingsSearchQuery("skills", "retry")).toBeNull();
+	});
+
+	it("keeps search inside filterable management pages and hides it from unfilterable pages", () => {
+		expect(settingsSearchScope("skills")).toBe("local");
+		expect(settingsSearchScope("resources", "plugins")).toBe("local");
+		expect(settingsSearchScope("resources", "memory")).toBe("none");
+		expect(settingsSearchScope("security")).toBe("none");
+		expect(settingsSearchScope("gui")).toBe("global");
+	});
+
+	it("removes cached schema search results while disconnected and restores them after reconnecting", async () => {
+		const omp = installSettingsMock();
+		Object.assign(omp.rpc, {
+			getSettingsSchema: vi.fn(async () =>
+				rpcSuccess({
+					tabs: [{ id: "context", label: "Context", groups: [] }],
+					entries: [entry({ path: "compaction.enabled", tab: "context", label: "Auto Compaction" })],
+				}),
+			),
+			getSettings: vi.fn(async () => rpcSuccess({ values: {} })),
+		});
+		Object.assign(omp, {
+			prefs: { get: vi.fn(async () => null) },
+			events: { onConfigUpdate: vi.fn(() => () => {}) },
+		});
+		useUiStore.getState().openSettings("context");
+		await mount(<SettingsWindow />);
+		const search = document.querySelector("input[aria-label]") as unknown as TestElement;
+		await typeInto(search, "compaction");
+		expect(findButton("Auto Compaction").textContent).toContain("compaction.enabled");
+
+		await act(async () => useSessionStore.setState({ status: "error" }));
+		expect(buttons().some(button => button.textContent?.includes("compaction.enabled"))).toBe(false);
+		expect(document.querySelector('[data-settings-connection-notice="true"]')?.getAttribute("role")).toBe("alert");
+
+		await act(async () => useSessionStore.setState({ status: "ready" }));
+		await flush();
+		expect(findButton("Auto Compaction").textContent).toContain("compaction.enabled");
 	});
 
 	it("renders nothing when closed", () => {

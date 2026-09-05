@@ -43,11 +43,11 @@ import { type AgentViewStore, useAgentViewStore } from "./agent-view";
 import { useComposerStore } from "./composer";
 import { useExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
-import { useMessagesStore } from "./messages";
+import { type MessagesStore, useMessagesStore } from "./messages";
 import { useModelStore } from "./model";
 import { usePlanApprovalStore } from "./plan-approval";
 import { useQueueStore } from "./queue";
-import { useSessionStore } from "./session";
+import { SessionStore, useSessionStore } from "./session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "./session-runtime-context";
 import { useSubagentsStore } from "./subagents";
 import { ensureTabRuntime } from "./tab-runtime";
@@ -389,16 +389,14 @@ describe("tabs store boot reconciliation", () => {
 
 	it("retains unsent input when restarting an unpersisted session changes its identity", () => {
 		seedTabs();
-		useTabsStore
-			.getState()
-			.applyTabStatus({
-				kind: "agent",
-				tabId: "t0",
-				cwd: "/alpha",
-				target: { type: "local" },
-				status: "ready",
-				sessionId: "before-restart",
-			});
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/alpha",
+			target: { type: "local" },
+			status: "ready",
+			sessionId: "before-restart",
+		});
 		useComposerStore.getState().setDraft("unsent recovery draft");
 		useComposerStore.getState().setSubmissionUncertain(true);
 		useTabsStore.getState().applyTabStatus({
@@ -409,16 +407,14 @@ describe("tabs store boot reconciliation", () => {
 			status: "starting",
 			sessionId: "before-restart",
 		});
-		useTabsStore
-			.getState()
-			.applyTabStatus({
-				kind: "agent",
-				tabId: "t0",
-				cwd: "/alpha",
-				target: { type: "local" },
-				status: "ready",
-				sessionId: "after-restart",
-			});
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/alpha",
+			target: { type: "local" },
+			status: "ready",
+			sessionId: "after-restart",
+		});
 		expect(useComposerStore.getState()).toMatchObject({
 			draft: "unsent recovery draft",
 			sending: false,
@@ -578,6 +574,19 @@ describe("tabs store switch", () => {
 		});
 		expect(hydrated?.target.type === "ssh" ? hydrated.target.host : null).toBe(target.host);
 		expect(useSessionStore.getState().cwd).toBe("/srv/new");
+	});
+
+	it("keeps the focused workspace unchanged when a background pane hydrates its cwd", async () => {
+		seedTabs();
+		useSessionStore.setState({ cwd: "/alpha" });
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ cwd: "/background/recovered" })));
+
+		await recoverReadySession("t1");
+
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t0")?.cwd).toBe("/alpha");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.cwd).toBe("/background/recovered");
+		expect(useSessionStore.getState().cwd).toBe("/alpha");
 	});
 
 	it("closes outgoing session overlays while keeping global windows open", async () => {
@@ -1115,20 +1124,53 @@ describe("tabs store switch", () => {
 		useTabsStore.setState(state => ({
 			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "starting" } : tab)),
 		}));
+		const backgroundSession = sessionRuntimeStore<SessionStore>("t1", "session")!;
+		backgroundSession.setState({ sessionId: "session-b", cwd: "/beta" });
 		const pendingA = Promise.withResolvers<RpcResponse>();
 		omp.rpc.getState.mockReturnValueOnce(pendingA.promise);
+		omp.rpc.getMessages.mockResolvedValue(ok({ messages: [msg("recovered A history")] }));
 
 		const oldRecovery = recoverReadySession("t0");
 		await useTabsStore.getState().switchTab("t1");
+		expect(useSessionStore.getState().sessionId).toBe("session-b");
 		const switchingBack = useTabsStore.getState().switchTab("t0");
 		await Promise.resolve();
 		expect(useSessionStore.getState().sessionId).not.toBe("recovered-a");
 		pendingA.resolve(ok(serverState({ sessionId: "recovered-a", cwd: "/recovered-a" })));
 		await Promise.all([oldRecovery, switchingBack]);
 
-		expect(omp.rpc.getState).toHaveBeenCalledTimes(1);
 		expect(useSessionStore.getState().sessionId).toBe("recovered-a");
 		expect(useSessionStore.getState().cwd).toBe("/recovered-a");
+		expect(useMessagesStore.getState().messages).toEqual([msg("recovered A history")]);
+		expect(backgroundSession.getState().sessionId).toBe("session-b");
+		expect(backgroundSession.getState().cwd).toBe("/beta");
+		expect(omp.rpc.getState).toHaveBeenCalledTimes(1);
+	});
+
+	it("finishes a parked tab's recovery without changing the focused tab's state", async () => {
+		seedTabs();
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "starting" } : tab)),
+		}));
+		const backgroundSession = sessionRuntimeStore<SessionStore>("t1", "session")!;
+		backgroundSession.setState({ sessionId: "session-b", cwd: "/beta" });
+		const pendingA = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(pendingA.promise);
+		omp.rpc.getMessages.mockResolvedValue(ok({ messages: [msg("parked A history")] }));
+
+		const recovery = recoverReadySession("t0");
+		await useTabsStore.getState().switchTab("t1");
+		pendingA.resolve(ok(serverState({ sessionId: "recovered-a", cwd: "/recovered-a" })));
+		await recovery;
+
+		expect(sessionRuntimeStore<SessionStore>("t0", "session")?.getState().sessionId).toBe("recovered-a");
+		expect(sessionRuntimeStore<SessionStore>("t0", "session")?.getState().cwd).toBe("/recovered-a");
+		expect(sessionRuntimeStore<MessagesStore>("t0", "messages")?.getState().messages).toEqual([
+			msg("parked A history"),
+		]);
+		expect(useSessionStore.getState().sessionId).toBe("session-b");
+		expect(useSessionStore.getState().cwd).toBe("/beta");
+		expect(useMessagesStore.getState().messages).toEqual([]);
 	});
 
 	it("rejects a delayed roster poll after switching to a newer tab roster", async () => {

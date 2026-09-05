@@ -29,7 +29,11 @@ function Broken(): ReactNode {
 describe("RootErrorBoundary", () => {
 	it("replaces a root render crash with a reload surface and exposes the log path", async () => {
 		const logPath = vi.fn(async () => "/tmp/gui-runtime.jsonl");
-		(window as unknown as { omp: OmpApi }).omp = {
+		const reload = vi.fn();
+		// linkedom does not provide browser navigation or the native preload API.
+		const testWindow = window as unknown as { location: { reload: () => void }; omp: OmpApi };
+		testWindow.location = { reload };
+		testWindow.omp = {
 			runtime: { report: vi.fn(), logPath },
 		} as unknown as OmpApi;
 		container = document.createElement("div") as unknown as TestElement;
@@ -48,5 +52,9 @@ describe("RootErrorBoundary", () => {
 		expect(container.textContent).toContain("Reload interface");
 		expect(container.textContent).toContain("/tmp/gui-runtime.jsonl");
 		expect(logPath).toHaveBeenCalledOnce();
+		const buttons = [...document.querySelectorAll("button")];
+		expect(buttons).toHaveLength(1);
+		await act(async () => buttons[0].dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+		expect(reload).toHaveBeenCalledOnce();
 	});
 });

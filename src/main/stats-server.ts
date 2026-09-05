@@ -78,15 +78,22 @@ export class StatsServerManager extends EventEmitter {
 
 		let stdout = "";
 		child.stdout?.on("data", (chunk: Buffer) => {
+			if (this.#port !== DEFAULT_PORT) return;
 			stdout = (stdout + chunk.toString("utf-8")).slice(-4096);
-			const text = stripVTControlCharacters(stdout);
-			const port = statsServerPort(text);
-			if (port !== null) {
-				this.#port = port;
-				this.#budget.noteReady();
-				console.log(`[stats-server] ready on port ${this.#port}`);
-				this.emit("ready", this.#port);
-				stdout = "";
+			let newlineIndex = stdout.indexOf("\n");
+			while (newlineIndex >= 0) {
+				const line = stdout.slice(0, newlineIndex + 1);
+				stdout = stdout.slice(newlineIndex + 1);
+				const port = statsServerPort(stripVTControlCharacters(line));
+				if (port !== null) {
+					this.#port = port;
+					this.#budget.noteReady();
+					console.log(`[stats-server] ready on port ${this.#port}`);
+					this.emit("ready", this.#port);
+					stdout = "";
+					return;
+				}
+				newlineIndex = stdout.indexOf("\n");
 			}
 		});
 		child.stderr?.on("data", (chunk: Buffer) => {

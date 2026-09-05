@@ -3,7 +3,14 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import {
+	focusedRuntimeTabId,
+	type SessionRuntime,
+	SessionRuntimeProvider,
+	setFocusedSessionRuntime,
+} from "../../stores/session-runtime-context";
 import { useSettingsStore } from "../../stores/settings";
+import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { ThinkingBlock } from "./ThinkingBlock";
 
@@ -143,6 +150,73 @@ describe("ThinkingBlock", () => {
 		await mount(<ThinkingBlock compact disclosureKey="msg-2:thinking:0" text={HEADLINED_THINKING} />);
 
 		expect(container.querySelector(".omp-thinking-compact-toggle")?.getAttribute("aria-expanded")).toBe("false");
+	});
+
+	it("keeps same-message reasoning choices in their owning split panes when focus changes", async () => {
+		const previousActiveTabId = useTabsStore.getState().activeTabId;
+		const previousFocusedTabId = focusedRuntimeTabId();
+		const runtime = (tabId: string): SessionRuntime => ({
+			tabId,
+			stores: new Map(),
+			command: async () => {
+				throw new Error("Thinking disclosure must not send runtime commands");
+			},
+		});
+		const leftRuntime = runtime("thinking-left");
+		const rightRuntime = runtime("thinking-right");
+		const disclosureKey = "split-msg:thinking:0";
+		useUiStore.setState({ disclosureOpen: {}, thinkingExpanded: false });
+		useTabsStore.setState({ activeTabId: leftRuntime.tabId });
+		setFocusedSessionRuntime(leftRuntime.tabId);
+		try {
+			await mount(
+				<>
+					<SessionRuntimeProvider runtime={leftRuntime}>
+						<div data-pane="left">
+							<ThinkingBlock compact disclosureKey={disclosureKey} text={HEADLINED_THINKING} />
+						</div>
+					</SessionRuntimeProvider>
+					<SessionRuntimeProvider runtime={rightRuntime}>
+						<div data-pane="right">
+							<ThinkingBlock compact disclosureKey={disclosureKey} text={HEADLINED_THINKING} />
+						</div>
+					</SessionRuntimeProvider>
+				</>,
+			);
+			const left = container.querySelector('[data-pane="left"] .omp-thinking-compact-toggle');
+			const right = container.querySelector('[data-pane="right"] .omp-thinking-compact-toggle');
+			expect(left?.getAttribute("aria-expanded")).toBe("false");
+			expect(right?.getAttribute("aria-expanded")).toBe("false");
+			await act(async () => {
+				left?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+			});
+			expect(left?.getAttribute("aria-expanded")).toBe("true");
+			expect(right?.getAttribute("aria-expanded")).toBe("false");
+			await act(async () => {
+				setFocusedSessionRuntime(rightRuntime.tabId);
+				useTabsStore.setState({ activeTabId: rightRuntime.tabId });
+			});
+			expect(left?.getAttribute("aria-expanded")).toBe("true");
+			expect(right?.getAttribute("aria-expanded")).toBe("false");
+			await act(async () => {
+				right?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+				setFocusedSessionRuntime(leftRuntime.tabId);
+				useTabsStore.setState({ activeTabId: leftRuntime.tabId });
+			});
+			expect(left?.getAttribute("aria-expanded")).toBe("true");
+			expect(right?.getAttribute("aria-expanded")).toBe("true");
+			await act(async () => {
+				left?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+			});
+			expect(left?.getAttribute("aria-expanded")).toBe("false");
+			expect(right?.getAttribute("aria-expanded")).toBe("true");
+		} finally {
+			await act(async () => {
+				setFocusedSessionRuntime(previousFocusedTabId);
+				useTabsStore.setState({ activeTabId: previousActiveTabId });
+				useUiStore.setState({ disclosureOpen: {} });
+			});
+		}
 	});
 
 	it("uses only the streaming caret as motion while visible reasoning grows", async () => {
