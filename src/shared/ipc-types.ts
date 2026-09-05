@@ -1158,9 +1158,6 @@ export interface OmpApi {
 		getProviders(forceRefresh?: boolean): Promise<RpcResponse>;
 		setPlanMode(enabled: boolean): Promise<RpcResponse>;
 		getPlanMode(): Promise<RpcResponse>;
-		getModelRoles(): Promise<RpcResponse>;
-		setModelRole(role: string, modelId: string | null): Promise<RpcResponse>;
-		getModelRoleMetadata(): Promise<RpcResponse>;
 		getAvailableCommands(): Promise<RpcResponse>;
 		getSkills(): Promise<RpcResponse>;
 		getSkillDetail(name: string): Promise<RpcResponse>;

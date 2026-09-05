@@ -864,6 +864,8 @@ export const en: Record<string, string> = {
 	"modelRoles.failed": "Failed",
 	"modelRoles.loadFailed": "Could not load model roles.",
 	"modelRoles.stale": "Showing the last roles that loaded successfully.",
+	"modelRoles.notConnected": "The active session is not connected.",
+	"modelRoles.loadError": "Could not load model roles: {error}",
 	"modelRoles.empty": "No model roles configured.",
 	"modelRoles.section.chat": "Chat roles",
 	"modelRoles.section.kind": "Specialized roles",

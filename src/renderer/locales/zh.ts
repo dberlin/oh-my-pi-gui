@@ -846,6 +846,8 @@ export const zh: Record<string, string> = {
 	"modelRoles.failed": "失败",
 	"modelRoles.loadFailed": "模型角色加载失败。",
 	"modelRoles.stale": "显示上次成功加载的角色。",
+	"modelRoles.notConnected": "当前会话未连接。",
+	"modelRoles.loadError": "无法加载模型角色：{error}",
 	"modelRoles.empty": "无配置的模型角色。",
 	"modelRoles.section.chat": "对话角色",
 	"modelRoles.section.kind": "专用角色",

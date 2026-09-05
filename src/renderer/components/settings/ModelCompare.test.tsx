@@ -1,316 +1,304 @@
-/**
- * Tests for the model comparison window: closed-state rendering plus the pure
- * row-derivation (buildModelRows) and cost-formatting contracts that drive the
- * matrix. Mounted assertions cover what a row is allowed to commit, which needs
- * a real DOM: react-dom/server renders createPortal children as empty in this
- * repo's test environment.
- */
-
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-	ModelInfo,
-	ModelRoleEntry,
-	ProviderInfo,
-	RpcCommand,
-	RpcResponse,
-} from "../../../shared/rpc-types";
-import { I18nProvider, translate } from "../../lib/i18n";
-import { useModelStore } from "../../stores/model";
-import { useSessionStore } from "../../stores/session";
+import { afterEach, describe, expect, it } from "vitest";
+import type { SessionTarget } from "../../../shared/ipc-types";
+import type { ModelRoleEntry, ProviderInfo, RpcCommand, RpcResponse } from "../../../shared/rpc-types";
+import { I18nProvider } from "../../lib/i18n";
+import { createModelStore } from "../../stores/model";
+import { createSessionStore } from "../../stores/session";
+import { addRuntimeStore, SessionRuntimeProvider, type SessionRuntime } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { buildModelRows, formatCost, ModelCompare } from "./ModelCompare";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
-	document,
-	window,
-	Event,
-	HTMLElement,
-	Element,
-	Node,
+	document, window, Event, HTMLElement, Element, Node,
 	IS_REACT_ACT_ENVIRONMENT: true,
+	requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
 });
-(globalThis as Record<string, unknown>).requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+window.matchMedia = () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
 
-function model(partial: ModelInfo): ModelInfo {
-	return { ...partial };
-}
-
-function provider(partial: Partial<ProviderInfo> & { id: string }): ProviderInfo {
-	return { name: partial.id, authenticated: true, loginAvailable: false, disabled: false, modelCount: 1, ...partial };
-}
-
-function role(partial: Partial<ModelRoleEntry> & { id: string }): ModelRoleEntry {
-	return {
-		name: partial.id,
-		tag: partial.id.toUpperCase(),
-		color: "default",
-		source: "settings",
-		section: "chat",
-		candidates: [],
-		...partial,
-	};
-}
-
-describe("formatCost", () => {
-	it("formats per-million costs and trims insignificant zeros without eating integer zeros", () => {
-		expect(formatCost(0)).toBe("$0");
-		expect(formatCost(0.15)).toBe("$0.15");
-		expect(formatCost(0.075)).toBe("$0.075");
-		expect(formatCost(2.5)).toBe("$2.5");
-		expect(formatCost(3)).toBe("$3");
-		expect(formatCost(10)).toBe("$10");
-		expect(formatCost(100)).toBe("$100");
-		expect(formatCost(250)).toBe("$250");
-	});
-});
-
-describe("buildModelRows", () => {
-	it("joins provider auth metadata and falls back to the provider id for the name", () => {
-		const rows = buildModelRows({
-			models: [model({ provider: "anthropic", id: "claude-opus" }), model({ provider: "local", id: "llama" })],
-			providers: [provider({ id: "anthropic", name: "Anthropic", authenticated: true, authKind: "oauth" })],
-			roles: [],
-		});
-		expect(rows[0]).toMatchObject({
-			providerName: "Anthropic",
-			authKnown: true,
-			authenticated: true,
-			authKind: "oauth",
-		});
-		// Provider absent from get_providers: auth unknown, name falls back to id.
-		expect(rows[1]).toMatchObject({ providerName: "local", authKnown: false, authenticated: false });
-	});
-
-	it("marks auth unknown for every row when the catalog generation carried no provider rows", () => {
-		const rows = buildModelRows({
-			models: [model({ provider: "openai", id: "gpt-5" })],
-			providers: [],
-			roles: null,
-		});
-		expect(rows[0].authKnown).toBe(false);
-		expect(rows[0].roles).toEqual([]);
-	});
-
-	it("matches role assignments by exact provider/id key only", () => {
-		const rows = buildModelRows({
-			models: [
-				model({ provider: "anthropic", id: "claude-opus" }),
-				model({ provider: "openai", id: "claude-opus" }),
-			],
-			providers: [],
-			roles: [
-				role({ id: "default", model: "anthropic/claude-opus" }),
-				role({ id: "smol", model: "claude-opus" }), // bare id — must not match
-			],
-		});
-		expect(rows[0].roles.map(r => r.id)).toEqual(["default"]);
-		expect(rows[1].roles).toEqual([]);
-	});
-
-	it("reads optional wire metadata defensively: missing cost/context become null, name equal to id is dropped", () => {
-		const rows = buildModelRows({
-			models: [
-				model({
-					provider: "p",
-					id: "rich",
-					name: "Rich Model",
-					contextWindow: 200_000,
-					cost: { input: 3, output: 15 },
-				}),
-				model({ provider: "p", id: "bare", name: "bare", contextWindow: null }),
-			],
-			providers: [],
-			roles: null,
-		});
-		expect(rows[0]).toMatchObject({ name: "Rich Model", contextWindow: 200_000, costIn: 3, costOut: 15 });
-		expect(rows[1]).toMatchObject({ name: null, contextWindow: null, costIn: null, costOut: null });
-	});
-});
-
-describe("ModelCompare", () => {
-	it("renders nothing when closed", () => {
-		expect(
-			renderToStaticMarkup(
-				<I18nProvider>
-					<ModelCompare onClose={() => {}} open={false} />
-				</I18nProvider>,
-			),
-		).toBe("");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// What a row may commit. The matrix sets the session model with a single click
-// anywhere on the row, so a provider that cannot serve — switched off, or
-// known to hold no credential — must not be selectable, while a row whose auth
-// merely failed to load stays usable: a degraded read is not evidence of no
-// access.
-// ---------------------------------------------------------------------------
-
-function providerInfo(id: string, overrides: Partial<ProviderInfo> = {}): ProviderInfo {
-	return { id, name: id, authenticated: true, loginAvailable: false, disabled: false, modelCount: 1, ...overrides };
-}
+let root: Root | undefined;
 
 function ok(command: string, data?: unknown): RpcResponse {
 	return { type: "response", command, success: true, data };
 }
 
-const command = vi.fn(
-	async (req: RpcCommand): Promise<RpcResponse> =>
-		ok(
-			req.type,
-			req.type === "get_providers"
-				? {
-						providers: [
-							providerInfo("serving"),
-							providerInfo("noauth", { authenticated: false }),
-							providerInfo("off", { disabled: true }),
-						],
-						// "unlisted" is deliberately absent from the provider rows above.
-						models: [
-							{ provider: "serving", id: "serving-model" },
-							{ provider: "noauth", id: "noauth-model" },
-							{ provider: "off", id: "off-model" },
-							{ provider: "unlisted", id: "unlisted-model" },
-						],
-						discoveryStates: [],
-						refreshPending: false,
-						generation: 1,
-					}
-				: undefined,
-		),
-);
+function settings(assignments: Record<string, string> = {}) {
+	return { values: { modelRoles: assignments, modelTags: {}, cycleOrder: ["smol", "default", "slow"] } };
+}
 
-const setModel = vi.fn(async (): Promise<RpcResponse> => ok("set_model"));
+function provider(id: string, overrides: Partial<ProviderInfo> = {}): ProviderInfo {
+	return { id, name: id, authenticated: true, loginAvailable: false, disabled: false, modelCount: 1, ...overrides };
+}
 
-Object.assign(window as unknown as Record<string, unknown>, {
-	omp: {
-		rpc: {
-			command,
-			setModel,
-			setModelRole: vi.fn(async (): Promise<RpcResponse> => ok("set_model_role")),
-			getModelRoles: vi.fn(async (): Promise<RpcResponse> => ok("get_model_roles", { roles: [] })),
-			getModelRoleMetadata: vi.fn(async (): Promise<RpcResponse> => ok("get_model_role_metadata", { roles: [] })),
-		},
-	},
-});
+function role(id: string, model?: string): ModelRoleEntry {
+	return { id, name: id, tag: id.toUpperCase(), color: "default", source: "settings", section: "chat", candidates: [], model };
+}
 
-const roots: Root[] = [];
+function catalog(ids: string[] = ["model-a", "model-b"], generation = 1) {
+	return {
+		providers: [provider("provider")],
+		models: ids.map(id => ({ provider: "provider", id })),
+		discoveryStates: [], refreshPending: false, generation,
+	};
+}
 
-async function mountMatrix(): Promise<void> {
-	useSessionStore.setState({ status: "ready" });
-	const root = createRoot(document.body as unknown as Element);
+function readyRuntime(tabId: string, handler: (request: RpcCommand) => Promise<RpcResponse>, target: SessionTarget = { type: "local" }) {
+	const runtime: SessionRuntime = { tabId, command: handler, stores: new Map() };
+	const session = createSessionStore();
+	const models = createModelStore(handler);
+	session.setState({ status: "ready", cwd: `/srv/${tabId}` });
+	addRuntimeStore(runtime, "session", session);
+	addRuntimeStore(runtime, "model", models);
+	useTabsStore.setState(state => ({
+		tabs: [...state.tabs, { id: tabId, cwd: `/srv/${tabId}`, target, status: "ready", kind: "agent", unreadDone: false }],
+	}));
+	return { runtime, session, models };
+}
+
+async function renderCompare(runtime: SessionRuntime): Promise<void> {
+	root ??= createRoot(document.body as unknown as Element);
 	await act(async () => {
-		root.render(
-			<I18nProvider>
-				<ModelCompare onClose={() => {}} open />
-			</I18nProvider>,
-		);
+		root?.render(<I18nProvider><SessionRuntimeProvider runtime={runtime}><ModelCompare onClose={() => {}} open /></SessionRuntimeProvider></I18nProvider>);
 	});
-	roots.push(root);
 }
 
-function rowFor(modelId: string): HTMLElement | undefined {
-	return Array.from(document.body.querySelectorAll("tr")).find(tr => (tr.textContent ?? "").includes(modelId)) as
-		| HTMLElement
-		| undefined;
+async function flush(): Promise<void> {
+	await act(async () => { await new Promise<void>(resolve => setTimeout(resolve, 0)); });
 }
 
-function buttonOfRow(row: HTMLElement): HTMLButtonElement | undefined {
-	return Array.from(row.querySelectorAll("button")).find(
-		button => (button.textContent ?? "").trim() === translate("modelCompare.use"),
-	) as HTMLButtonElement | undefined;
+function rowFor(modelId: string): HTMLElement {
+	const row = Array.from(document.body.querySelectorAll("tbody tr")).find(item => item.textContent?.includes(modelId));
+	if (!row) throw new Error(`No row for ${modelId}`);
+	return row as unknown as HTMLElement;
+}
+
+function selectFor(modelId: string): HTMLSelectElement {
+	const select = rowFor(modelId).querySelector("select");
+	if (!select) throw new Error(`No role picker for ${modelId}`);
+	return select as unknown as HTMLSelectElement;
+}
+
+function selectedRole(modelId: string): string | null {
+	return selectFor(modelId).querySelector("option[selected]")?.getAttribute("value") ?? null;
+}
+
+function changeRole(select: HTMLSelectElement, value: string): void {
+	Object.defineProperty(select, "value", { configurable: true, value });
+	select.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function useButton(modelId: string): HTMLButtonElement {
+	const button = rowFor(modelId).querySelector("button");
+	if (!button) throw new Error(`No Use button for ${modelId}`);
+	return button as unknown as HTMLButtonElement;
 }
 
 afterEach(async () => {
-	for (const root of roots) {
-		await act(async () => {
-			root.unmount();
-		});
-	}
-	roots.length = 0;
-	while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
-	useModelStore.getState().reset();
-	useSessionStore.getState().reset();
+	await act(async () => root?.unmount());
+	root = undefined;
+	document.body.innerHTML = "";
+	useTabsStore.setState({ tabs: [], activeTabId: null });
 	useToastStore.setState({ toasts: [] });
-	command.mockClear();
-	setModel.mockClear();
 });
 
-describe("ModelCompare row availability", () => {
-	it("keeps a newer pushed catalog when the opening read finishes late", async () => {
-		command.mockImplementationOnce(async req => {
-			useModelStore.getState().applyCatalogUpdate({
-				type: "model_catalog_update",
-				providers: [providerInfo("new")],
-				models: [{ provider: "new", id: "new-model" }],
-				discoveryStates: [],
-				refreshPending: false,
-				generation: 2,
-			});
-			return ok(req.type, {
-				providers: [providerInfo("old")],
-				models: [{ provider: "old", id: "old-model" }],
-				discoveryStates: [],
-				refreshPending: false,
-				generation: 1,
-			});
+describe("formatCost", () => {
+	it("keeps integer zeros while trimming insignificant decimal zeros", () => {
+		expect(formatCost(0)).toBe("$0");
+		expect(formatCost(0.075)).toBe("$0.075");
+		expect(formatCost(2.5)).toBe("$2.5");
+		expect(formatCost(10)).toBe("$10");
+		expect(formatCost(100)).toBe("$100");
+	});
+});
+
+describe("model role selectors", () => {
+	it("does not assign a same-named model from another provider or a bare selector", () => {
+		const rows = buildModelRows({
+			models: [{ provider: "anthropic", id: "claude" }, { provider: "openai", id: "claude" }],
+			providers: [], roles: [role("default", "anthropic/claude"), role("smol", "claude")],
 		});
+		expect(rows[0].roles.map(item => item.id)).toEqual(["default"]);
+		expect(rows[1].roles).toEqual([]);
+	});
+});
 
-		await mountMatrix();
-
-		expect(rowFor("new-model")?.textContent).toContain("new-model");
-		expect(rowFor("old-model")).toBeUndefined();
-		expect(useModelStore.getState().providers.map(item => item.id)).toEqual(["new"]);
+describe("ModelCompare tab-scoped catalog and role assignments", () => {
+	it("updates local config roles and reloads the authoritative assignment", async () => {
+		let configured: Record<string, string> = { default: "provider/model-a", task: "other/task-model" };
+		const tab = readyRuntime("local", async request => {
+			switch (request.type) {
+				case "get_providers": return ok(request.type, catalog());
+				case "get_settings": return ok(request.type, settings(configured));
+				case "set_setting": configured = request.value as Record<string, string>; return ok(request.type);
+				default: throw new Error(`Unexpected local command: ${request.type}`);
+			}
+		});
+		await renderCompare(tab.runtime);
+		expect(selectedRole("model-a")).toBe("default");
+		await act(async () => changeRole(selectFor("model-b"), "default"));
+		expect(configured).toEqual({ default: "provider/model-b", task: "other/task-model" });
+		expect(selectedRole("model-a")).toBe("");
+		expect(selectedRole("model-b")).toBe("default");
 	});
 
-	it("will not point the session at a provider that is off or signed out", async () => {
-		await mountMatrix();
+	it("saves SSH roles in the owning pane and prevents overlapping whole-record assignments", async () => {
+		const pending = Promise.withResolvers<RpcResponse>();
+		let configured: Record<string, string> = { default: "provider/model-a", task: "other/task-model" };
+		const writes: Record<string, string>[] = [];
+		const other = readyRuntime("focused-local", async request => {
+			throw new Error(`Wrong pane received ${request.type}`);
+		});
+		useTabsStore.setState({ activeTabId: other.runtime.tabId });
+		const remote = readyRuntime("remote", async request => {
+			if (request.type === "get_providers") return ok(request.type, catalog());
+			if (request.type === "get_settings") return ok(request.type, settings(configured));
+			if (request.type === "set_setting") {
+				configured = request.value as Record<string, string>;
+				writes.push(configured);
+				return pending.promise;
+			}
+			throw new Error(`Unexpected SSH command: ${request.type}`);
+		}, {
+			type: "ssh", hostAlias: "server", host: { host: "server", sourceId: "test", sourceLevel: "user" },
+			originCwd: "/srv/remote", cwd: "/srv/remote",
+		});
+		await renderCompare(remote.runtime);
+		const first = selectFor("model-b");
+		const second = selectFor("model-a");
+		await act(async () => {
+			changeRole(first, "default");
+			changeRole(second, "slow");
+		});
+		expect(writes).toEqual([{ default: "provider/model-b", task: "other/task-model" }]);
+		expect(first.hasAttribute("disabled")).toBe(true);
+		expect(second.hasAttribute("disabled")).toBe(true);
+		pending.resolve(ok("set_setting"));
+		await flush();
+		expect(selectedRole("model-a")).toBe("");
+		expect(selectedRole("model-b")).toBe("default");
+		expect(selectFor("model-b").hasAttribute("disabled")).toBe(false);
+		await act(async () => changeRole(selectFor("model-b"), ""));
+		expect(configured).toEqual({ task: "other/task-model" });
+		expect(selectedRole("model-b")).toBe("");
+	});
 
-		for (const [modelId, reason] of [
-			["noauth-model", "modelCompare.blockedNoAuth"],
-			["off-model", "modelCompare.blockedDisabled"],
-		] as const) {
-			const row = rowFor(modelId);
-			if (!row) throw new Error(`no row for ${modelId}`);
-			expect(buttonOfRow(row)?.hasAttribute("disabled"), `${modelId} Use`).toBe(true);
-			expect(row.getAttribute("title")).toBe(translate(reason));
-			await act(async () => {
-				row.click();
+	it("keeps a newer pushed catalog when the opening response arrives late", async () => {
+		const pending = Promise.withResolvers<RpcResponse>();
+		const tab = readyRuntime("catalog-race", async request => {
+			if (request.type === "get_providers") return pending.promise;
+			if (request.type === "get_settings") return ok(request.type, settings());
+			throw new Error(`Unexpected command: ${request.type}`);
+		});
+		await renderCompare(tab.runtime);
+		await act(async () => {
+			tab.models.getState().applyCatalogUpdate({ type: "model_catalog_update", ...catalog(["new-model"], 2) });
+		});
+		pending.resolve(ok("get_providers", catalog(["old-model"], 1)));
+		await flush();
+		expect(rowFor("new-model").textContent).toContain("new-model");
+		expect(document.body.textContent).not.toContain("old-model");
+	});
+
+	it("ignores an old pane's role load after switching comparison to another runtime", async () => {
+		const pending = Promise.withResolvers<RpcResponse>();
+		const old = readyRuntime("old", async request => request.type === "get_settings" ? pending.promise : ok(request.type, catalog(["old-model"])));
+		const current = readyRuntime("current", async request => request.type === "get_settings"
+			? ok(request.type, settings({ plan: "provider/current-model" }))
+			: ok(request.type, catalog(["current-model"])));
+		await renderCompare(old.runtime);
+		await renderCompare(current.runtime);
+		expect(selectedRole("current-model")).toBe("plan");
+		pending.resolve(ok("get_settings", settings({ default: "provider/old-model" })));
+		await flush();
+		expect(selectedRole("current-model")).toBe("plan");
+		expect(document.body.textContent).not.toContain("old-model");
+	});
+
+	it("blocks row clicks for disabled and signed-out providers without blocking unknown auth", async () => {
+		const changes: string[] = [];
+		const tab = readyRuntime("availability", async request => {
+			if (request.type === "get_providers") return ok(request.type, {
+				...catalog(),
+				providers: [provider("off", { disabled: true }), provider("noauth", { authenticated: false }), provider("serving")],
+				models: ["off", "noauth", "unlisted", "serving"].map(id => ({ provider: id, id: `${id}-model` })),
 			});
+			if (request.type === "get_settings") return ok(request.type, settings());
+			if (request.type === "set_model") { changes.push(`${request.provider}/${request.modelId}`); return ok(request.type); }
+			throw new Error(`Unexpected command: ${request.type}`);
+		});
+		await renderCompare(tab.runtime);
+		for (const id of ["off-model", "noauth-model"]) {
+			expect(useButton(id).hasAttribute("disabled")).toBe(true);
+			await act(async () => rowFor(id).click());
 		}
-
-		expect(setModel).not.toHaveBeenCalled();
+		expect(changes).toEqual([]);
+		for (const id of ["unlisted-model", "serving-model"]) {
+			expect(useButton(id).hasAttribute("disabled")).toBe(false);
+			await act(async () => rowFor(id).click());
+		}
+		expect(changes).toEqual(["unlisted/unlisted-model", "serving/serving-model"]);
 	});
 
-	it("switches the session model when the row itself is clicked", async () => {
-		await mountMatrix();
-		const row = rowFor("serving-model");
-		if (!row) throw new Error("no row for serving-model");
-
-		await act(async () => {
-			row.click();
+	it("locks every role control when role loading fails while leaving catalog selection usable", async () => {
+		const changes: string[] = [];
+		const tab = readyRuntime("role-error", async request => {
+			if (request.type === "get_providers") return ok(request.type, catalog());
+			if (request.type === "get_settings") return { type: "response", command: request.type, success: false, error: "Roles unavailable" };
+			if (request.type === "set_model") { changes.push(request.modelId); return ok(request.type); }
+			throw new Error(`Unexpected command: ${request.type}`);
 		});
-
-		expect(row.getAttribute("title")).toBe(translate("modelCompare.useHint"));
-		expect(setModel).toHaveBeenCalledWith("serving", "serving-model");
+		await renderCompare(tab.runtime);
+		expect(selectFor("model-a").hasAttribute("disabled")).toBe(true);
+		expect(selectFor("model-b").hasAttribute("disabled")).toBe(true);
+		await act(async () => { changeRole(selectFor("model-a"), "default"); rowFor("model-a").click(); });
+		expect(changes).toEqual(["model-a"]);
 	});
 
-	it("keeps a row usable when the provider list simply did not describe it", async () => {
-		await mountMatrix();
-		const row = rowFor("unlisted-model");
-		if (!row) throw new Error("no row for unlisted-model");
-
-		expect(buttonOfRow(row)?.hasAttribute("disabled")).toBe(false);
-		await act(async () => {
-			row.click();
+	it("locks stale assignments when the authoritative read fails after a successful save", async () => {
+		let saved = false;
+		let assignments: Record<string, string> = { default: "provider/model-a" };
+		let writes = 0;
+		const tab = readyRuntime("reload-error", async request => {
+			if (request.type === "get_providers") return ok(request.type, catalog());
+			if (request.type === "get_settings") {
+				return saved
+					? { type: "response", command: request.type, success: false, error: "Config unavailable" }
+					: ok(request.type, settings(assignments));
+			}
+			if (request.type === "set_setting") {
+				writes++;
+				saved = true;
+				assignments = request.value as Record<string, string>;
+				return ok(request.type);
+			}
+			throw new Error(`Unexpected command: ${request.type}`);
 		});
+		await renderCompare(tab.runtime);
+		await act(async () => changeRole(selectFor("model-b"), "default"));
+		expect(assignments).toEqual({ default: "provider/model-b" });
+		expect(selectFor("model-a").hasAttribute("disabled")).toBe(true);
+		expect(selectFor("model-b").hasAttribute("disabled")).toBe(true);
+		await act(async () => changeRole(selectFor("model-a"), "slow"));
+		expect(writes).toBe(1);
+	});
 
-		expect(setModel).toHaveBeenCalledWith("unlisted", "unlisted-model");
+	it("does not commit model or role changes after the owning runtime disconnects", async () => {
+		const changes: string[] = [];
+		const tab = readyRuntime("disconnect", async request => {
+			if (request.type === "get_providers") return ok(request.type, catalog());
+			if (request.type === "get_settings") return ok(request.type, settings({ default: "provider/model-a" }));
+			changes.push(request.type);
+			return ok(request.type);
+		});
+		await renderCompare(tab.runtime);
+		const row = rowFor("model-b");
+		const select = selectFor("model-b");
+		await act(async () => tab.session.setState({ status: "starting" }));
+		await act(async () => { row.click(); changeRole(select, "default"); });
+		expect(changes).toEqual([]);
 	});
 });

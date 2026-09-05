@@ -77,9 +77,6 @@ export type RpcCommand =
 	| { id?: string; type: "get_providers"; forceRefresh?: boolean }
 	| { id?: string; type: "set_plan_mode"; enabled: boolean }
 	| { id?: string; type: "get_plan_mode" }
-	| { id?: string; type: "get_model_roles" }
-	| { id?: string; type: "set_model_role"; role: string; modelId: string | null }
-	| { id?: string; type: "get_model_role_metadata" }
 
 	// Domain inspection (read-only)
 	| { id?: string; type: "get_skills" }
@@ -1009,6 +1006,9 @@ export interface ModelInfo {
 	provider: string;
 	id: string;
 	name?: string;
+	/** Catalog capability; omitted kinds are ordinary chat models. */
+	kind?: ModelRoleCandidate["kind"] | "embedding" | "rerank" | "video";
+	webSearch?: "gemini" | "anthropic" | "codex" | "xai" | "openrouter" | "openai";
 	description?: string;
 	isNew?: boolean;
 	isBeta?: boolean;
@@ -1716,10 +1716,6 @@ export interface ModelRoleEntry extends ModelRoleMetadata {
 	candidates: ModelRoleCandidate[];
 }
 
-export interface ModelRolesResult {
-	roles: ModelRoleEntry[];
-}
-
 export interface ModelRoleMetadata {
 	id: string;
 	name: string;
@@ -1727,10 +1723,6 @@ export interface ModelRoleMetadata {
 	color?: string;
 	hidden?: boolean;
 	section: "chat" | "kind";
-}
-
-export interface ModelRoleMetadataResult {
-	roles: ModelRoleMetadata[];
 }
 
 // ============================================================================

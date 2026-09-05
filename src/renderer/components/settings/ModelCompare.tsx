@@ -4,8 +4,8 @@ import { useTabRpc } from "../../lib/tab-rpc";
  * across providers — auth status, context window, cost per 1M tokens, role
  * assignments, and the current session model.
  *
- * Row click sets the session model (set_model); the per-row role picker assigns
- * the model to a role (set_model_role). Current model + role assignments are
+ * Row click sets the session model (set_model); the per-row role picker updates
+ * modelRoles through the settings RPC. Current model + role assignments are
  * highlighted.
  *
  * Catalog note: the model and provider columns come from the per-tab model
@@ -21,18 +21,19 @@ import { useTabRpc } from "../../lib/tab-rpc";
  */
 
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, RefreshCw, Search } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	ModelInfo,
 	ModelRoleEntry,
 	ModelRoleMetadata,
-	ModelRolesResult,
 	ProviderInfo,
 } from "../../../shared/rpc-types";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { loadModelRoleSettings, withModelRoleAssignment } from "../../lib/model-role-settings";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
+import { useRuntimeStore } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Modal, Spinner } from "../common";
 
@@ -222,6 +223,7 @@ export interface ModelCompareProps {
 
 export function ModelCompare({ open, onClose }: ModelCompareProps) {
 	const tabRpc = useTabRpc();
+	const modelStore = useRuntimeStore("model", useModelStore);
 	const t = useT();
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
 	const current = useModelStore(s => s.model);
@@ -231,6 +233,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 
 	const [roles, setRoles] = useState<ModelRoleEntry[] | null>(null);
 	const [roleMeta, setRoleMeta] = useState<ModelRoleMetadata[] | null>(null);
+	const [roleAssignments, setRoleAssignments] = useState<Record<string, string>>({});
 	const [loading, setLoading] = useState(false);
 	const [fatalError, setFatalError] = useState<string | null>(null);
 	const [failedSections, setFailedSections] = useState<string[]>([]);
@@ -239,64 +242,85 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 	const [authOnly, setAuthOnly] = useState(false);
 	const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "provider", dir: 1 });
 	const [busyKey, setBusyKey] = useState<string | null>(null);
+	const sessionGeneration = useRef(0);
+	const busyRef = useRef(false);
 
-	const load = useCallback(async () => {
-		setLoading(true);
-		setFatalError(null);
-		setFailedSections([]);
-		if (!sidecarReady) {
-			setFatalError(t("modelCompare.notConnected"));
-			setLoading(false);
-			return;
-		}
-		// One forced read for both catalog columns: models and providers must come
-		// from the same generation, and a non-forced one is satisfied by a
-		// still-fresh cache row after a credential or models.yml change.
-		const [catalogR, rolesR, metaR] = await Promise.allSettled([
-			refreshProviders(true),
-			tabRpc.getModelRoles(),
-			tabRpc.getModelRoleMetadata(),
-		]);
-		const failed: string[] = [];
-
-		if (catalogR.status === "rejected") {
-			setFatalError(
-				catalogR.reason instanceof Error
-					? catalogR.reason.message
-					: String(catalogR.reason ?? t("modelCompare.unknownError")),
-			);
-		}
-
-		if (rolesR.status === "fulfilled" && rolesR.value.success) {
-			setRoles((rolesR.value.data as ModelRolesResult | undefined)?.roles ?? []);
-		} else {
+	const load = useCallback(
+		async (generation = sessionGeneration.current) => {
+			setLoading(true);
+			setFatalError(null);
+			setFailedSections([]);
 			setRoles(null);
-			failed.push("roles");
-		}
-
-		if (metaR.status === "fulfilled" && metaR.value.success) {
-			setRoleMeta((metaR.value.data as { roles?: ModelRoleMetadata[] } | undefined)?.roles ?? []);
-		} else {
 			setRoleMeta(null);
-		}
+			setRoleAssignments({});
+			if (!sidecarReady) {
+				setFatalError(t("modelCompare.notConnected"));
+				setLoading(false);
+				return;
+			}
+			// The store owns the catalog generation: a newer push must win over an
+			// opening response, and models/providers must describe one snapshot.
+			const [catalogR, rolesR] = await Promise.allSettled([
+				refreshProviders(true),
+				loadModelRoleSettings(tabRpc, modelStore.getState().availableModels),
+			]);
+			if (generation !== sessionGeneration.current) return;
+			const failed: string[] = [];
 
-		setFailedSections(failed);
-		setLoading(false);
-	}, [sidecarReady, t, refreshProviders, tabRpc.getModelRoles, tabRpc.getModelRoleMetadata]);
+			if (catalogR.status === "rejected") {
+				setFatalError(
+					catalogR.reason instanceof Error
+						? catalogR.reason.message
+						: String(catalogR.reason ?? t("modelCompare.unknownError")),
+				);
+			}
+
+			if (rolesR.status === "fulfilled") {
+				setRoles(rolesR.value.roles);
+				setRoleMeta(rolesR.value.metadata);
+				setRoleAssignments(rolesR.value.assignments);
+			} else {
+				setRoles(null);
+				setRoleMeta(null);
+				setRoleAssignments({});
+				failed.push("roles");
+			}
+
+			setFailedSections(failed);
+			setLoading(false);
+		},
+		[modelStore, sidecarReady, t, refreshProviders, tabRpc],
+	);
 
 	useEffect(() => {
-		if (open) void load();
+		const generation = ++sessionGeneration.current;
+		busyRef.current = false;
+		setBusyKey(null);
+		if (open) void load(generation);
+		return () => {
+			if (sessionGeneration.current === generation) sessionGeneration.current++;
+		};
 	}, [open, load]);
 
-	const reloadRoles = useCallback(async () => {
-		if (!sidecarReady) return;
-		try {
-			const res = await tabRpc.getModelRoles();
-			if (res.success) setRoles((res.data as ModelRolesResult | undefined)?.roles ?? []);
-		} catch {
-			/* keep stale role list; the next full load retries */
-		}
-	}, [sidecarReady, tabRpc.getModelRoles]);
+	const reloadRoles = useCallback(
+		async (generation: number) => {
+			if (!sidecarReady) return;
+			try {
+				const snapshot = await loadModelRoleSettings(tabRpc, modelStore.getState().availableModels);
+				if (generation !== sessionGeneration.current) return;
+				setRoles(snapshot.roles);
+				setRoleMeta(snapshot.metadata);
+				setRoleAssignments(snapshot.assignments);
+			} catch {
+				if (generation !== sessionGeneration.current) return;
+				setRoles(null);
+				setRoleMeta(null);
+				setRoleAssignments({});
+				setFailedSections(previous => (previous.includes("roles") ? previous : [...previous, "roles"]));
+			}
+		},
+		[modelStore, sidecarReady, tabRpc],
+	);
 
 	const metaById = useMemo(() => new Map((roleMeta ?? []).map(m => [m.id, m])), [roleMeta]);
 
@@ -344,54 +368,70 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 
 	const assignSession = useCallback(
 		async (row: Row) => {
-			// The unusable check belongs here rather than only on the controls: the
-			// whole row is a click target, so a disabled "Use" button alone would not
-			// keep an off or signed-out provider from becoming the session model.
-			if (!sidecarReady || busyKey !== null || isCurrent(row) || unusableReason(row) !== null) return;
+			// The whole row is a target; the Use button alone cannot lock it.
+			if (!sidecarReady || busyRef.current || isCurrent(row) || unusableReason(row) !== null) return;
+			const generation = sessionGeneration.current;
+			busyRef.current = true;
 			setBusyKey(row.key);
 			try {
 				const res = await tabRpc.setModel(row.provider, row.id);
+				if (generation !== sessionGeneration.current) return;
 				if (res.success) {
 					toast({ variant: "success", message: t("modelCompare.setSuccess", { model: row.key }) });
 				} else {
 					toast({ variant: "error", title: t("modelCompare.setFailed"), message: res.error });
 				}
 			} catch (cause) {
-				toast({ variant: "error", title: t("modelCompare.setFailed"), message: String(cause) });
+				if (generation === sessionGeneration.current) {
+					toast({ variant: "error", title: t("modelCompare.setFailed"), message: String(cause) });
+				}
 			} finally {
-				setBusyKey(null);
+				if (generation === sessionGeneration.current) {
+					busyRef.current = false;
+					setBusyKey(null);
+				}
 			}
 		},
-		[busyKey, isCurrent, sidecarReady, t, tabRpc.setModel],
+		[isCurrent, sidecarReady, t, tabRpc.setModel],
 	);
 
 	const assignRole = useCallback(
 		async (row: Row, roleId: string) => {
 			const currentRoleId = row.roles[0]?.id ?? "";
-			if (!sidecarReady || roleId === currentRoleId || busyKey !== null) return;
+			if (!sidecarReady || roles === null || roleId === currentRoleId || busyRef.current) return;
+			const generation = sessionGeneration.current;
+			busyRef.current = true;
 			setBusyKey(row.key);
 			try {
-				const res = roleId
-					? await tabRpc.setModelRole(roleId, row.key)
-					: await tabRpc.setModelRole(currentRoleId, null);
+				const nextAssignments = roleId
+					? withModelRoleAssignment(roleAssignments, roleId, row.key)
+					: withModelRoleAssignment(roleAssignments, currentRoleId, null);
+				const res = await tabRpc.setSetting("modelRoles", nextAssignments);
+				if (generation !== sessionGeneration.current) return;
 				if (res.success) {
+					setRoleAssignments(nextAssignments);
 					toast({
 						variant: "success",
 						message: roleId
 							? t("modelCompare.roleSet", { role: roleId, model: row.key })
 							: t("modelCompare.roleCleared", { role: currentRoleId }),
 					});
-					await reloadRoles();
+					await reloadRoles(generation);
 				} else {
 					toast({ variant: "error", title: t("modelCompare.roleFailed"), message: res.error });
 				}
 			} catch (cause) {
-				toast({ variant: "error", title: t("modelCompare.roleFailed"), message: String(cause) });
+				if (generation === sessionGeneration.current) {
+					toast({ variant: "error", title: t("modelCompare.roleFailed"), message: String(cause) });
+				}
 			} finally {
-				setBusyKey(null);
+				if (generation === sessionGeneration.current) {
+					busyRef.current = false;
+					setBusyKey(null);
+				}
 			}
 		},
-		[busyKey, reloadRoles, sidecarReady, t, tabRpc.setModelRole],
+		[reloadRoles, roleAssignments, roles, sidecarReady, t, tabRpc],
 	);
 
 	/** Roles offered in the per-row picker: non-hidden, plus any hidden role already on this row (so it can be cleared). */
@@ -561,7 +601,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 											<select
 												aria-label={t("modelCompare.assignRole")}
 												className="h-6 max-w-[140px] rounded border border-(--omp-border-muted) bg-(--omp-input-bg) px-1.5 text-omp-xs text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none disabled:opacity-45"
-												disabled={busy || roles === null || !sidecarReady}
+												disabled={busyKey !== null || roles === null || !sidecarReady}
 												onChange={event => void assignRole(row, event.target.value)}
 												title={!sidecarReady ? t("modelCompare.notConnected") : undefined}
 												value={row.roles[0]?.id ?? ""}

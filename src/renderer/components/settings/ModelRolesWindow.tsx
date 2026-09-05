@@ -1,4 +1,4 @@
-/** Model role assignments and eligible candidates are owned by the backend. */
+/** Role assignments use the owning session's config facade and model catalog. */
 
 import { ChevronDown, RefreshCw, Search, Tag } from "lucide-react";
 import {
@@ -10,8 +10,9 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { ModelRoleCandidate, ModelRoleEntry, ModelRolesResult } from "../../../shared/rpc-types";
+import type { ModelInfo, ModelRoleCandidate, ModelRoleEntry } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
+import { loadModelRoleSettings, withModelRoleAssignment } from "../../lib/model-role-settings";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
@@ -292,38 +293,57 @@ export function ModelRolesWindow() {
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
 
 	const [roles, setRoles] = useState<ModelRoleEntry[]>([]);
+	const assignmentsRef = useRef<Record<string, string>>({});
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [busyRole, setBusyRole] = useState<string | null>(null);
+	const savingRef = useRef(false);
+	const loadGeneration = useRef(0);
+	const sessionGeneration = useRef(0);
 
 	const load = useCallback(async () => {
+		const session = sessionGeneration.current;
+		const generation = ++loadGeneration.current;
 		setLoading(true);
 		if (!sidecarReady) {
-			// Not connecting is a distinct state from an empty answer: the list keeps
-			// whatever it last showed and says why it cannot refresh.
 			setError(t("modelRoles.notConnected"));
 			setLoading(false);
 			return;
 		}
 		try {
-			// The backend owns role metadata and the eligible candidate pool per
-			// role; get_model_roles returns everything the window renders.
-			const res = await tabRpc.getModelRoles();
-			if (res.success) {
-				setRoles((res.data as ModelRolesResult).roles);
-				setError(null);
-			} else {
-				setError(res.error);
-			}
+			const modelsRes = await tabRpc.getAvailableModels();
+			if (!modelsRes.success) throw new Error(modelsRes.error);
+			if (session !== sessionGeneration.current || generation !== loadGeneration.current) return;
+			const modelsData = modelsRes.data as { models?: ModelInfo[] } | undefined;
+			const snapshot = await loadModelRoleSettings(tabRpc, modelsData?.models ?? []);
+			if (session !== sessionGeneration.current || generation !== loadGeneration.current) return;
+			assignmentsRef.current = snapshot.assignments;
+			setRoles(snapshot.roles);
+			setError(null);
 		} catch (cause) {
+			if (session !== sessionGeneration.current || generation !== loadGeneration.current) return;
 			setError(cause instanceof Error ? cause.message : String(cause));
 		} finally {
-			setLoading(false);
+			if (session === sessionGeneration.current && generation === loadGeneration.current) setLoading(false);
 		}
-	}, [sidecarReady, t, tabRpc.getModelRoles]);
+	}, [sidecarReady, t, tabRpc]);
 
 	useEffect(() => {
+		setRoles([]);
+		assignmentsRef.current = {};
+		setError(null);
+	}, [tabRpc]);
+
+	useEffect(() => {
+		const session = ++sessionGeneration.current;
+		savingRef.current = false;
+		setBusyRole(null);
 		if (open) void load();
+		return () => {
+			if (sessionGeneration.current === session) sessionGeneration.current++;
+			loadGeneration.current++;
+			savingRef.current = false;
+		};
 	}, [open, load]);
 
 	const sections = useMemo(() => {
@@ -335,11 +355,16 @@ export function ModelRolesWindow() {
 	}, [roles]);
 
 	const handleChange = async (role: string, modelId: string | null) => {
-		if (!sidecarReady) return;
+		if (!sidecarReady || savingRef.current) return;
+		const session = sessionGeneration.current;
+		savingRef.current = true;
 		setBusyRole(role);
 		try {
-			const res = await tabRpc.setModelRole(role, modelId);
+			const nextAssignments = withModelRoleAssignment(assignmentsRef.current, role, modelId);
+			const res = await tabRpc.setSetting("modelRoles", nextAssignments);
+			if (session !== sessionGeneration.current) return;
 			if (res.success) {
+				assignmentsRef.current = nextAssignments;
 				toast({
 					variant: "success",
 					message: modelId ? t("modelRoles.set", { role, model: modelId }) : t("modelRoles.cleared", { role }),
@@ -349,9 +374,14 @@ export function ModelRolesWindow() {
 				toast({ variant: "error", title: t("modelRoles.failed"), message: res.error });
 			}
 		} catch (cause) {
-			toast({ variant: "error", title: t("modelRoles.failed"), message: String(cause) });
+			if (session === sessionGeneration.current) {
+				toast({ variant: "error", title: t("modelRoles.failed"), message: String(cause) });
+			}
 		} finally {
-			setBusyRole(null);
+			if (session === sessionGeneration.current) {
+				savingRef.current = false;
+				setBusyRole(null);
+			}
 		}
 	};
 
@@ -383,7 +413,7 @@ export function ModelRolesWindow() {
 					errorTitle={t("modelRoles.loadFailed")}
 					hasData={sections.length > 0}
 					loading={loading}
-					onRetry={() => void load()}
+					onRetry={sidecarReady ? () => void load() : undefined}
 					staleLabel={t("modelRoles.stale")}
 				>
 					{sections.map(section => (
@@ -396,7 +426,7 @@ export function ModelRolesWindow() {
 									key={role.id}
 									role={role}
 									onChange={handleChange}
-									busy={busyRole === role.id}
+									busy={busyRole !== null}
 									sidecarReady={sidecarReady}
 									t={t}
 								/>

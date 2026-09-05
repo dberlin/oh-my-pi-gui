@@ -46,6 +46,7 @@ export type RemoteFileResult =
 	| { ok: true; data: Uint8Array; size: number; truncated: boolean }
 	| { ok: false; error: string };
 
+export type RemoteCliResult = { ok: true; stdout: string } | { ok: false; error: string };
 export type RemoteWorkspaceListResult =
 	| { ok: true; entries: FsTreeEntry[]; truncated: boolean }
 	| { ok: false; error: string };
@@ -611,6 +612,28 @@ export class RemoteSshService {
 
 	spawnAcp(target: SshSessionTarget, runtime: RemoteRuntimeInfo): RemoteChildHandle {
 		return this.#spawnLongLived(target, runtime, ["acp"]);
+	}
+
+	async runCli(
+		target: SshSessionTarget,
+		runtime: RemoteRuntimeInfo,
+		args: string[],
+		signal?: AbortSignal,
+	): Promise<RemoteCliResult> {
+		if (
+			!isBoundedRemoteTargetInput(target) ||
+			!isBoundedRemoteRuntimeInput(runtime) ||
+			!areBoundedRemoteLaunchArgs(args)
+		) {
+			throw new TypeError("Invalid remote CLI request");
+		}
+		const remoteCommand =
+			runtime.platform === "windows"
+				? this.#windowsLaunchCommand(runtime, args, target.cwd)
+				: this.#posixLaunchCommand(runtime, args, target.cwd);
+		const result = await this.#runBounded(target, remoteCommand, signal);
+		if (!result.ok) return { ok: false, error: result.error ?? "Remote CLI command failed" };
+		return { ok: true, stdout: Buffer.from(result.stdout).toString("utf8") };
 	}
 
 	dispose(): Promise<void> {
@@ -1494,14 +1517,17 @@ export class RemoteSshService {
 		return `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encodePowerShell(script)}`;
 	}
 
-	#posixLaunchCommand(runtime: RemoteRuntimeInfo, args: string[]): string {
+	#posixLaunchCommand(runtime: RemoteRuntimeInfo, args: string[], cwd?: string): string {
 		const path = runtime.runtimePath.join(":");
-		return `env PATH=${shellQuote(path)} ${shellQuote(runtime.executable)} ${args.map(shellQuote).join(" ")}`.trimEnd();
+		const launch =
+			`env PATH=${shellQuote(path)} ${shellQuote(runtime.executable)} ${args.map(shellQuote).join(" ")}`.trimEnd();
+		return cwd ? `cd -- ${shellQuote(cwd)} && ${launch}` : launch;
 	}
 
-	#windowsLaunchCommand(runtime: RemoteRuntimeInfo, args: string[]): string {
+	#windowsLaunchCommand(runtime: RemoteRuntimeInfo, args: string[], cwd?: string): string {
 		const script = [
 			`$env:PATH = ${powershellQuote(runtime.runtimePath.join(";"))}`,
+			...(cwd ? [`Set-Location -LiteralPath ${powershellQuote(cwd)} -ErrorAction Stop`] : []),
 			`& ${powershellQuote(runtime.executable)} ${args.map(powershellQuote).join(" ")}`,
 			"exit $LASTEXITCODE",
 		].join("; ");

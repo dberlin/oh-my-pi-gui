@@ -133,6 +133,10 @@ if (remoteCommand.includes(${JSON.stringify(REMOTE_MARKER)})) {
 } else {
 	const args = [...remoteCommand.matchAll(/'([^']*)'/g)].map(match => match[1]);
 	await append({ type: "launch", args, sshArgs: process.argv.slice(2, -1) });
+	if (args.includes("config")) {
+		process.stdout.write("{}");
+		process.exit(0);
+	}
 	process.on("SIGTERM", () => {
 		void append({ type: "terminated" }).finally(() => process.exit(0));
 	});
@@ -359,6 +363,37 @@ describe("SidecarManager", () => {
 
 			const launch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
 			expect(launch).toEqual(["--mode", "rpc-ui", "--no-tools"]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("runs compatibility CLI commands through the same local executable and profile", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-cli-"));
+		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
+		await fs.writeFile(
+			binaryPath,
+			`#!/usr/bin/env bun
+if (process.argv.includes("config")) {
+	process.stdout.write(JSON.stringify(process.argv.slice(2)));
+	process.exit(0);
+}
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
+process.stdin.resume();
+`,
+		);
+		await fs.chmod(binaryPath, 0o755);
+
+		const sidecar = new SidecarManager({ binaryPath, cwd: tempDir, extraFlags: ["--profile", "work"] });
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+
+			const result = await sidecar.runCli(["config", "list", "--json"]);
+
+			expect(JSON.parse(result)).toEqual(["--profile", "work", "config", "list", "--json"]);
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, { recursive: true, force: true });
@@ -933,6 +968,36 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			expect(
 				rows.filter(row => row.type === "command" && row.pid === reconnectPid).map(row => row.command?.type),
 			).toEqual(["negotiate_protocol", "set_event_filter", "get_state"]);
+		} finally {
+			await sidecar.dispose();
+			await remoteSsh.dispose();
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("runs remote compatibility CLI commands from an adopted session cwd", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-cli-cwd-"));
+		const { remoteSsh, logPath } = await createFakeSsh(tempDir);
+		const sidecar = new SidecarManager({
+			binaryPath: "",
+			cwd: REMOTE_TARGET.cwd,
+			target: REMOTE_TARGET,
+			remoteSsh,
+			remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
+		});
+		try {
+			const ready = waitForStatus(sidecar, "ready");
+			sidecar.start();
+			await ready;
+
+			sidecar.adoptTargetCwd("/srv/moved");
+			await sidecar.runCli(["config", "list", "--json"]);
+
+			const configLaunch = (await readRemoteLog(logPath)).find(
+				row => row.type === "launch" && row.args?.includes("config"),
+			);
+			expect(configLaunch?.args).toContain("/srv/moved");
+			expect(configLaunch?.args).not.toContain(REMOTE_TARGET.cwd);
 		} finally {
 			await sidecar.dispose();
 			await remoteSsh.dispose();
