@@ -342,7 +342,6 @@ export function WorkspaceCanvas({
 		frozenCompactRef.current = compact;
 		setDragging(true);
 		setPreviewWidth(startWidth);
-		let drag: HorizontalDrag;
 		const onMove = (moveEvent: PointerEvent) => {
 			if (drag.finished) return;
 			drag.previewWidth = clampWidth(drag.startWidth + drag.startX - moveEvent.clientX);
@@ -362,7 +361,7 @@ export function WorkspaceCanvas({
 			setPreviewWidth(null);
 			setDragging(false);
 		};
-		drag = {
+		const drag: HorizontalDrag = {
 			finished: false,
 			previewWidth: startWidth,
 			startWidth,

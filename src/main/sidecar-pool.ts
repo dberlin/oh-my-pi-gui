@@ -838,8 +838,7 @@ export class SidecarPool {
 	#disposalFailures: unknown[] = [];
 
 	#trackDisposal(disposal: Promise<void>): void {
-		let tracked: Promise<void>;
-		tracked = disposal
+		const tracked: Promise<void> = disposal
 			.catch(error => {
 				this.#disposalFailures.push(error);
 			})

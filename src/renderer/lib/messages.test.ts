@@ -41,12 +41,10 @@ function installWindow(messages: Array<{ text: string; mode: "steer" | "followUp
 			success: true as const,
 			data: { sessionPath: "/sessions/branch.jsonl", sessionId: "branch-session" },
 		})),
-		getSessionTree: vi.fn(
-			async (): Promise<SessionTreeResponse> => ({
-				success: true,
-				data: { tree: [], activeLeafId: null },
-			}),
-		),
+		getSessionTree: vi.fn(async (): Promise<SessionTreeResponse> => ({
+			success: true,
+			data: { tree: [], activeLeafId: null },
+		})),
 	};
 	(globalThis as Record<string, unknown>).window = {
 		omp: { rpc },

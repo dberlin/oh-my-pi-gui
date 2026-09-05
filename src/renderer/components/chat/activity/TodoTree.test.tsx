@@ -42,14 +42,12 @@ styleWindow.getComputedStyle = () => ({
 	transformOrigin: "0 0",
 });
 
-const setTodos = vi.fn(
-	async (_phases: TodoPhase[]): Promise<RpcResponse> => ({
-		type: "response",
-		command: "set_todos",
-		success: true,
-		data: {},
-	}),
-);
+const setTodos = vi.fn(async (_phases: TodoPhase[]): Promise<RpcResponse> => ({
+	type: "response",
+	command: "set_todos",
+	success: true,
+	data: {},
+}));
 const ompWindow = window as unknown as { omp: { rpc: { setTodos: typeof setTodos } } };
 ompWindow.omp = { rpc: { setTodos } };
 

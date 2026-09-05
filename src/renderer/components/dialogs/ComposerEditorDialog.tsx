@@ -70,7 +70,7 @@ export function ComposerEditorDialog() {
 	};
 
 	// The dialog mounts once per open with the draft already in `initial`.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: mount-once by design
+	// Deps are deliberate: mount-once by design
 	useEffect(() => {
 		const host = hostRef.current;
 		if (!host) return;
