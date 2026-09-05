@@ -7,20 +7,31 @@ Fork-specific changes relative to `nornzach/oh-my-pi-gui`. The shared `CHANGELOG
 ### Added
 
 - **Find in transcript**: ⌘F (or ⌃F) opens a find bar over the transcript that searches the whole conversation — including text folded inside collapsed thinking blocks, tool results, and todo snapshots that are not currently on screen. ↵ and ⌘G walk matches backwards through history, ⇧↵ and ⇧⌘G forwards (the ⌘G chords work with focus anywhere in the pane); matches are washed in amber with the current one solid, a tick strip along the transcript's right edge shows where the hits sit while find is open, and wrapping past either end is announced rather than silent.
+- Feedback reports now offer environment and recent-error diagnostics as unchecked, per-report opt-ins, with captured errors disclosed before continuing to GitHub.
 
 ### Changed
 
 - Agent questions now render inline above the composer so the transcript remains scrollable while choosing an answer.
 - Completed tool cards now expose bounded, scrollbar-free collapsed previews that remain wheel- and touch-scrollable; context-mode cards show actual execution output rather than echoed commands.
 - The composer now fills the available workspace width with standard horizontal gutters.
-- Conversation jumping now lives in an expandable Activity section after Goal instead of a persistent marker rail beside the transcript.
+- Conversation navigation and compact reasoning now follow the upstream transcript layout while retaining the fork's resizable Activity sidebar.
+- Updated to upstream 0.9.15 while preserving inline questions with notes and chat, Reload-only React recovery, and the existing native crash interface.
 - **Lint and format tooling**: replaced Biome with oxlint and oxfmt, matching the monorepo root — which dropped its own `biome.json`, leaving this package extending a config that no longer existed. The oxfmt options reproduce the previous Biome output, so only 6 of 481 files reformatted, and formatting runs off explicit globs because oxfmt denies by extension and would otherwise reach the CSS and JSON Biome never touched. Config lives in the package rather than reaching outside it, so upstream rebases stay self-contained.
 
 ### Fixed
 
+- Tab recovery and usage updates stay tied to the owning session across tab switches, context clears, and sidecar restarts.
+- Split-pane find and disclosure choices stay within their owning pane, and find reveals matches inside collapsed reasoning groups.
+- Model-role edits preserve concurrent sibling changes and update explicit runtime role overrides.
+- SSH settings retain the owning session's profile, dotenv, and launch-overlay configuration across directory changes.
+- Frustration stats now show percentages, counts, and model-version groups; Sync reports completed indexing counts or ongoing background work.
+- Provider usage and quota windows load and refresh together, with one error boundary instead of mixed snapshots.
 - **Remote settings compatibility**: model roles and schema-backed settings now use the installed omp CLI instead of unsupported RPC commands, with load failures shown in the dialog.
 - Update error banners can now be dismissed permanently for the affected release without hiding future release warnings.
+- **macOS signing identity**: `mac.identity` was pinned to `"-"` so a machine with no certificate would still produce a sealed ad-hoc bundle, preserving macOS's user-override flow instead of reporting the app as damaged. But a non-null `identity` becomes the keychain *search qualifier*, and `"-"` matches no identity line, so `Developer ID Application` lookup, the `Mac Developer` development fallback, and `CSC_NAME` all missed — machines that did hold a certificate were silently forced to ad-hoc as well, and with no stable code identity macOS re-prompted for the microphone and local-network access declared here on every rebuild. The identity is now resolved per machine by `electron-builder.identity.cjs`, which leaves `identity` unset when the keychain holds a usable certificate and falls back to the ad-hoc seal only when it does not.
 - **Assistant reaction badges**: upstream 0.9.4 lifts an assistant's opening emoji onto the user turn it answers, but wires it inside `ChatStream`, which this fork replaced with `TranscriptViewport` — so the feature arrived inert, computed and rendered but passed by nobody. The viewport now forwards the reaction and the badge appears as upstream intended.
+- Management-page searches now stay scoped to Skills, MCP, resources, hooks, and commands instead of replacing the page with global setting results.
+- Bundled sidecar builds verify GUI protocol compatibility against the required agent fork before compiling.
 
 ## Imported fork history
 

@@ -32,6 +32,7 @@ const ModelRoleSettingsDataSchema = z.object({
 		.optional()
 		.default({}),
 });
+const ModelRoleAssignmentDataSchema = z.object({ assignments: z.record(z.string(), z.string()) });
 
 export interface ModelRoleSettingsSnapshot {
 	assignments: Record<string, string>;
@@ -151,13 +152,14 @@ export async function loadModelRoleSettings(
 	return modelRoleSettingsSnapshot(response.data, models);
 }
 
-export function withModelRoleAssignment(
-	assignments: Record<string, string>,
+export async function saveModelRoleAssignment(
+	rpc: TabRpc,
 	role: string,
 	modelId: string | null,
-): Record<string, string> {
-	const next = { ...assignments };
-	if (modelId) next[role] = modelId;
-	else delete next[role];
-	return next;
+): Promise<Record<string, string>> {
+	const response = await rpc.setModelRole(role, modelId);
+	if (!response.success) throw new Error(response.error);
+	const parsed = ModelRoleAssignmentDataSchema.safeParse(response.data);
+	if (!parsed.success) throw new Error("Malformed model role assignment response");
+	return parsed.data.assignments;
 }

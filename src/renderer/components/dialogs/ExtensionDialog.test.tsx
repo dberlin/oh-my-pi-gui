@@ -68,7 +68,7 @@ async function click(element: TestElement): Promise<void> {
 	await flush();
 }
 
-async function changeTextarea(element: HTMLTextAreaElement, value: string): Promise<void> {
+async function changeTextarea(element: HTMLTextAreaElement | HTMLInputElement, value: string): Promise<void> {
 	const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value");
 	if (descriptor?.set) descriptor.set.call(element, value);
 	else element.value = value;
@@ -199,6 +199,85 @@ describe("ExtensionDialog askDialog", () => {
 		});
 	});
 
+	it("preserves notes separately from a single custom answer", async () => {
+		await mount();
+		await act(async () => showAskDialog());
+		const staging = buttonWithText("Staging");
+		if (!staging) throw new Error("missing Staging option");
+		await click(staging);
+		const inputs = document.querySelectorAll("input");
+		const custom = inputs[0];
+		const note = inputs[1];
+		if (!custom || !note) throw new Error("missing custom answer or note input");
+		await changeTextarea(custom, "Canary");
+		await changeTextarea(note, "Keep rollback available");
+		const form = document.querySelector("form");
+		if (!form) throw new Error("missing ask form");
+		await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "ask-1",
+			askDialog: {
+				kind: "submit",
+				results: [
+					{
+						id: "deploy",
+						question: "Where should this deploy?",
+						options: ["Staging", "Production"],
+						multi: false,
+						selectedOptions: [],
+						customInput: "Canary",
+						note: "Keep rollback available",
+					},
+				],
+			},
+		});
+	});
+
+	it("preserves multiple selections alongside custom input and a note", async () => {
+		await mount();
+		await act(async () => {
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "ask-multi",
+				method: "askDialog",
+				questions: [
+					{ id: "targets", question: "Targets?", multi: true, options: [{ label: "A" }, { label: "B" }] },
+				],
+			});
+		});
+		const a = buttonWithText("A");
+		const b = buttonWithText("B");
+		if (!a || !b) throw new Error("missing target options");
+		await click(a);
+		await click(b);
+		const inputs = document.querySelectorAll("input");
+		if (!inputs[0] || !inputs[1]) throw new Error("missing custom answer or note input");
+		await changeTextarea(inputs[0], "C");
+		await changeTextarea(inputs[1], "In order");
+		const form = document.querySelector("form");
+		if (!form) throw new Error("missing ask form");
+		await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "ask-multi",
+			askDialog: {
+				kind: "submit",
+				results: [
+					{
+						id: "targets",
+						question: "Targets?",
+						options: ["A", "B"],
+						multi: true,
+						selectedOptions: ["A", "B"],
+						customInput: "C",
+						note: "In order",
+					},
+				],
+			},
+		});
+	});
+
 	it("returns the chat redirect discriminator", async () => {
 		await mount();
 		await act(async () => showAskDialog());
@@ -212,6 +291,41 @@ describe("ExtensionDialog askDialog", () => {
 			id: "ask-1",
 			askDialog: { kind: "chat" },
 		});
+	});
+
+	it("cancels an inline question without converting it into a chat answer", async () => {
+		await mount();
+		await act(async () => showAskDialog());
+		const cancel = buttonWithText("Cancel");
+		if (!cancel) throw new Error("missing cancel button");
+		await click(cancel);
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "ask-1",
+			cancelled: true,
+		});
+		expect(useExtensionUiStore.getState().pendingRequests).toEqual([]);
+	});
+
+	it("times out an inline question with the cancellation wire envelope", async () => {
+		await mount();
+		await act(async () => {
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "ask-timeout",
+				method: "askDialog",
+				timeout: 0,
+				questions: [{ id: "target", question: "Target?", options: [{ label: "Staging" }] }],
+			});
+		});
+		await flush();
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "ask-timeout",
+			cancelled: true,
+			timedOut: true,
+		});
+		expect(useExtensionUiStore.getState().pendingRequests).toEqual([]);
 	});
 });
 

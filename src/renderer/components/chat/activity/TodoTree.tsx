@@ -72,9 +72,11 @@ function nextStatus(current: TodoTask["status"]): TodoTask["status"] {
  * the transcript carries that the rail otherwise drops.
  */
 export function taskHoverTitle(task: TodoTask, t: (key: string) => string): string {
-	if (task.status !== "blocked") return task.content;
+	const content = sanitizeToolText(task.content);
+	if (task.status !== "blocked") return content;
 	const label = t("todoPanel.status.blocked");
-	return `${task.content}\n${task.blocker ? `${label}: ${task.blocker}` : label}`;
+	const blocker = task.blocker ? sanitizeToolText(task.blocker) : "";
+	return `${content}\n${blocker ? `${label}: ${blocker}` : label}`;
 }
 
 interface VisibleRow {

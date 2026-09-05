@@ -4,8 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
-import { useToolsStore } from "../../stores/tools";
-import { useUiStore } from "../../stores/ui";
 import { StreamingText } from "./StreamingText";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -152,7 +150,6 @@ describe("StreamingText presentation", () => {
 		);
 		expect(container.querySelector(".omp-streaming-tail")?.textContent).toBe("");
 	});
-
 	it("keeps an unfinished bracket equation together and typesets it when it closes", async () => {
 		const unfinished = String.raw`\[
 TPS_{\text{decode}}
@@ -175,4 +172,5 @@ TPS_{\text{decode}}
 		expect(container.querySelector("h1, h2, .katex-error")).toBeNull();
 		expect(container.querySelector(".omp-streaming-tail")?.textContent).toBe("Explanation");
 	});
+
 });

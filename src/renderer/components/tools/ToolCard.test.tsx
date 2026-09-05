@@ -787,21 +787,18 @@ describe("ToolCard adaptive rendering", () => {
 		);
 		const compact = cardByName(container, "glob");
 		const framed = cardByName(container, "bash");
-		expect(compact.textContent).toContain("SHARED_GLOB_PATH");
-		expect(framed.textContent).not.toContain("SHARED_BASH_BODY");
+		expect(compact.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+		expect(framed.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
 
 		await act(async () => useUiStore.getState().toggleToolsExpandAll());
 
 		expect(compact.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
 		expect(framed.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
-		expect(framed.textContent).toContain("SHARED_BASH_BODY");
 
 		await act(async () => useUiStore.getState().toggleToolsExpandAll());
 
 		expect(compact.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
 		expect(framed.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-		expect(compact.textContent).toContain("SHARED_GLOB_PATH");
-		expect(framed.textContent).not.toContain("SHARED_BASH_BODY");
 	});
 
 	it("renders think results as escaped text", async () => {

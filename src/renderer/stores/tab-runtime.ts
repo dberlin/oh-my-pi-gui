@@ -76,7 +76,14 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 		return response;
 	};
 
-	const runtime: SessionRuntime = { tabId, command, stores: new Map() };
+	const runtime: SessionRuntime = {
+		tabId,
+		command,
+		stores: new Map(),
+		get commandGeneration() {
+			return generation;
+		},
+	};
 	const agentView = createAgentViewStore(
 		{
 			getSubagentMessages: (subagentId, sessionFile, fromByte) =>

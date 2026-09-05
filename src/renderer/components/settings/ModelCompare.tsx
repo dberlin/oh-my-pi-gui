@@ -5,7 +5,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
  * assignments, and the current session model.
  *
  * Row click sets the session model (set_model); the per-row role picker updates
- * modelRoles through the settings RPC. Current model + role assignments are
+ * modelRoles through the GUI-owned single-role config bridge. Current model + role assignments are
  * highlighted.
  *
  * Catalog note: the model and provider columns come from the per-tab model
@@ -30,7 +30,7 @@ import type {
 } from "../../../shared/rpc-types";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { loadModelRoleSettings, withModelRoleAssignment } from "../../lib/model-role-settings";
+import { loadModelRoleSettings, saveModelRoleAssignment } from "../../lib/model-role-settings";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeStore } from "../../stores/session-runtime-context";
@@ -233,7 +233,6 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 
 	const [roles, setRoles] = useState<ModelRoleEntry[] | null>(null);
 	const [roleMeta, setRoleMeta] = useState<ModelRoleMetadata[] | null>(null);
-	const [roleAssignments, setRoleAssignments] = useState<Record<string, string>>({});
 	const [loading, setLoading] = useState(false);
 	const [fatalError, setFatalError] = useState<string | null>(null);
 	const [failedSections, setFailedSections] = useState<string[]>([]);
@@ -252,7 +251,6 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 			setFailedSections([]);
 			setRoles(null);
 			setRoleMeta(null);
-			setRoleAssignments({});
 			if (!sidecarReady) {
 				setFatalError(t("modelCompare.notConnected"));
 				setLoading(false);
@@ -278,11 +276,9 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 			if (rolesR.status === "fulfilled") {
 				setRoles(rolesR.value.roles);
 				setRoleMeta(rolesR.value.metadata);
-				setRoleAssignments(rolesR.value.assignments);
 			} else {
 				setRoles(null);
 				setRoleMeta(null);
-				setRoleAssignments({});
 				failed.push("roles");
 			}
 
@@ -310,12 +306,10 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 				if (generation !== sessionGeneration.current) return;
 				setRoles(snapshot.roles);
 				setRoleMeta(snapshot.metadata);
-				setRoleAssignments(snapshot.assignments);
 			} catch {
 				if (generation !== sessionGeneration.current) return;
 				setRoles(null);
 				setRoleMeta(null);
-				setRoleAssignments({});
 				setFailedSections(previous => (previous.includes("roles") ? previous : [...previous, "roles"]));
 			}
 		},
@@ -403,26 +397,22 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 			busyRef.current = true;
 			setBusyKey(row.key);
 			try {
-				const nextAssignments = roleId
-					? withModelRoleAssignment(roleAssignments, roleId, row.key)
-					: withModelRoleAssignment(roleAssignments, currentRoleId, null);
-				const res = await tabRpc.setSetting("modelRoles", nextAssignments);
+				await saveModelRoleAssignment(tabRpc, roleId || currentRoleId, roleId ? row.key : null);
 				if (generation !== sessionGeneration.current) return;
-				if (res.success) {
-					setRoleAssignments(nextAssignments);
-					toast({
-						variant: "success",
-						message: roleId
-							? t("modelCompare.roleSet", { role: roleId, model: row.key })
-							: t("modelCompare.roleCleared", { role: currentRoleId }),
-					});
-					await reloadRoles(generation);
-				} else {
-					toast({ variant: "error", title: t("modelCompare.roleFailed"), message: res.error });
-				}
+				toast({
+					variant: "success",
+					message: roleId
+						? t("modelCompare.roleSet", { role: roleId, model: row.key })
+						: t("modelCompare.roleCleared", { role: currentRoleId }),
+				});
+				await reloadRoles(generation);
 			} catch (cause) {
 				if (generation === sessionGeneration.current) {
-					toast({ variant: "error", title: t("modelCompare.roleFailed"), message: String(cause) });
+					toast({
+						variant: "error",
+						title: t("modelCompare.roleFailed"),
+						message: cause instanceof Error ? cause.message : String(cause),
+					});
 				}
 			} finally {
 				if (generation === sessionGeneration.current) {
@@ -431,7 +421,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 				}
 			}
 		},
-		[reloadRoles, roleAssignments, roles, sidecarReady, t, tabRpc],
+		[reloadRoles, roles, sidecarReady, t, tabRpc],
 	);
 
 	/** Roles offered in the per-row picker: non-hidden, plus any hidden role already on this row (so it can be cleared). */

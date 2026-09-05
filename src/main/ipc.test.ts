@@ -1,8 +1,9 @@
 import { promises as fsp } from "node:fs";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { IPC_COMMANDS, type SessionTarget } from "../shared/ipc-types";
+import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import {
 	type IpcDeps,
 	parsePersistedSubagentMessages,
@@ -21,6 +22,8 @@ const ipcTestState = vi.hoisted(() => ({
 vi.mock("electron", () => ({
 	app: {
 		getLocale: vi.fn(() => "en"),
+		getVersion: vi.fn(() => "0.7.2"),
+		isPackaged: true,
 		name: "OMP",
 		showAboutPanel: vi.fn(),
 	},
@@ -61,6 +64,10 @@ vi.mock("electron-store", () => ({
 		}
 	},
 }));
+
+// electron-updater constructs its native Electron adapter when autoUpdater is
+// read. Keep that external runtime out of these IPC tests; appVersion stays real.
+vi.mock("electron-updater", () => ({ default: { autoUpdater: {} } }));
 
 const MAIN_OWNED_KEYS = ["remoteHosts", "remoteExecutableOverrides", "remoteRecentWorkspaces"] as const;
 
@@ -114,7 +121,7 @@ function registerProjectHandlerFixture(target: SessionTarget): ProjectHandlerFix
 		sessionIndex: {},
 		statsClient: {},
 		logWatcher: {},
-		windowManager: { setRecordCwd },
+		windowManager: { setRecordCwd, subscribeWindowClosed: vi.fn(() => () => {}) },
 		spawnWindow: vi.fn(),
 		remoteSsh: {},
 		remoteHostCatalog: {},
@@ -142,7 +149,7 @@ function registerTranscriptHandlerFixture(target: SessionTarget, remoteSsh: obje
 		sessionIndex: {},
 		statsClient: {},
 		logWatcher: {},
-		windowManager: {},
+		windowManager: { subscribeWindowClosed: vi.fn(() => () => {}) },
 		spawnWindow: vi.fn(),
 		remoteSsh,
 		remoteHostCatalog: {},
@@ -200,7 +207,9 @@ function registerLocalSshHandlerFixture(
 		entryForWindow: vi.fn(() => ({ sidecar: activeSidecar, target: active.target })),
 		foreignSessionOwner: vi.fn(() => null),
 		sidecarForWindow: vi.fn(() => activeSidecar),
+		sidecarForTab: vi.fn(() => activeSidecar),
 		tabsForWindow: vi.fn(() => [
+			{ kind: "agent", tabId: "active-tab", cwd: active.cwd, target: active.target, status: "ready" },
 			{ kind: "agent", tabId: "local-tab", cwd: "/Users/test/project", target: { type: "local" }, status: "ready" },
 			{ kind: "agent", tabId: "remote-tab", cwd: "/srv/app", target: SSH_TARGET, status: "ready" },
 		]),
@@ -210,7 +219,10 @@ function registerLocalSshHandlerFixture(
 		sessionIndex: {},
 		statsClient: {},
 		logWatcher: {},
-		windowManager: { recordFor: vi.fn(() => ({ cwd: "/Users/test/project" })) },
+		windowManager: {
+			recordFor: vi.fn(() => ({ cwd: "/Users/test/project" })),
+			subscribeWindowClosed: vi.fn(() => () => {}),
+		},
 		spawnWindow: vi.fn(),
 		remoteSsh: {},
 		remoteHostCatalog: { replaceFromRpc: vi.fn() },
@@ -225,6 +237,21 @@ function registerLocalSshHandlerFixture(
 beforeEach(() => {
 	ipcTestState.handlers.clear();
 	vi.clearAllMocks();
+});
+
+afterEach(() => {
+	ipcTestState.handlers.clear();
+	vi.clearAllMocks();
+});
+
+describe("IPC startup", () => {
+	it("exposes the packaged app version through the system info handler", async () => {
+		const fixture = registerProjectHandlerFixture({ type: "local" });
+
+		expect(await invokeProjectHandler(IPC_COMMANDS.SYSTEM_INFO, fixture.event)).toMatchObject({
+			appVersion: "0.7.2",
+		});
+	});
 });
 
 describe("renderer preference catalog ownership", () => {
@@ -375,7 +402,7 @@ describe("local SSH settings handlers", () => {
 		expect(fixture.executeLocal).toHaveBeenCalledWith("/Users/test/second-project", { type: "get_ssh_hosts" });
 	});
 
-	it("redirects settings RPC through the active sidecar CLI", async () => {
+	it("uses the active SSH sidecar CLI for remote settings", async () => {
 		const fixture = registerLocalSshHandlerFixture();
 
 		const result = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, fixture.event, {
@@ -391,6 +418,148 @@ describe("local SSH settings handlers", () => {
 		});
 		expect(fixture.runCli).toHaveBeenCalledWith(["config", "list", "--json"]);
 		expect(fixture.activeCommand).not.toHaveBeenCalled();
+	});
+
+	it("preserves local setting provenance and applies writes to the running session", async () => {
+		const fixture = registerLocalSshHandlerFixture({ target: { type: "local" }, cwd: "/Users/test/project" });
+		const live = { "compaction.enabled": true };
+		const provenance = { source: "project", sourcePath: "/Users/test/project/.omp/config.yml", shadowed: false };
+		const schema = {
+			entries: [
+				{
+					path: "compaction.enabled",
+					type: "boolean",
+					value: true,
+					default: true,
+					description: "Automatic context compaction",
+					advanced: false,
+					tab: "session",
+					provenance,
+				},
+			],
+			tabs: [{ id: "session", label: "Session" }],
+		};
+		const updates: unknown[] = [];
+		fixture.activeCommand.mockImplementation(async (command: RpcCommand): Promise<RpcResponse> => {
+			if (command.type === "get_settings_schema") {
+				return { type: "response", command: command.type, success: true, data: schema };
+			}
+			if (command.type === "get_settings") {
+				return {
+					type: "response",
+					command: command.type,
+					success: true,
+					data: {
+						values: { ...live },
+						provenance: { "compaction.enabled": provenance },
+						advisorEnabled: false,
+						advisorActive: false,
+					},
+				};
+			}
+			if (
+				command.type === "set_setting" &&
+				command.path === "compaction.enabled" &&
+				typeof command.value === "boolean"
+			) {
+				live["compaction.enabled"] = command.value;
+				updates.push({ type: "config_update", compactionEnabled: live["compaction.enabled"] });
+				return {
+					type: "response",
+					command: command.type,
+					success: true,
+					data: { path: command.path, value: live["compaction.enabled"], savedValue: command.value, provenance },
+				};
+			}
+			throw new Error(`Unexpected native command: ${command.type}`);
+		});
+		const settingsSchema = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, fixture.event, {
+			command: { type: "get_settings_schema" },
+		});
+		expect(settingsSchema).toMatchObject({ success: true, data: schema });
+		const saved = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, fixture.event, {
+			command: { type: "set_setting", path: "compaction.enabled", value: false },
+		});
+		expect(saved).toMatchObject({
+			success: true,
+			data: { path: "compaction.enabled", value: false, savedValue: false, provenance },
+		});
+		const settings = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, fixture.event, {
+			tabId: "active-tab",
+			command: { type: "get_settings", paths: ["compaction.enabled"] },
+		});
+		expect(settings).toMatchObject({
+			success: true,
+			data: {
+				values: { "compaction.enabled": false },
+				provenance: { "compaction.enabled": provenance },
+				advisorEnabled: false,
+				advisorActive: false,
+			},
+		});
+		expect(updates).toEqual([{ type: "config_update", compactionEnabled: false }]);
+		expect(fixture.runCli).not.toHaveBeenCalled();
+	});
+
+	it("selects SSH config transport from the addressed tab rather than the focused local tab", async () => {
+		const fixture = registerLocalSshHandlerFixture({ target: { type: "local" }, cwd: "/Users/test/project" });
+		const settings = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, fixture.event, {
+			tabId: "remote-tab",
+			command: { type: "get_settings", paths: ["modelRoles"] },
+		});
+		expect(settings).toMatchObject({ success: true, data: { values: { modelRoles: { plan: "openai/gpt-5" } } } });
+		expect(fixture.activeCommand).not.toHaveBeenCalled();
+	});
+
+	it("updates the addressed local session when saving a role while an SSH tab is focused", async () => {
+		const fixture = registerLocalSshHandlerFixture();
+		const persisted = { modelRoles: { task: "other/task" } as Record<string, string> };
+		const runtime = { modelRoles: { smol: "runtime/A" } as Record<string, string> };
+		const live = { modelRoles: { ...persisted.modelRoles, ...runtime.modelRoles } };
+		const updates: unknown[] = [];
+		fixture.runCli.mockImplementation(async () => {
+			throw new Error("Unexpected local CLI access");
+		});
+		fixture.activeCommand.mockImplementation(async (command: RpcCommand): Promise<RpcResponse> => {
+			if (command.type === "get_settings") {
+				return {
+					type: "response",
+					command: command.type,
+					success: true,
+					data: { values: { modelRoles: live.modelRoles } },
+				};
+			}
+			if (command.type !== "set_model_role") throw new Error("Unexpected native command");
+			if (command.modelId === null) {
+				delete persisted.modelRoles[command.role];
+				delete runtime.modelRoles[command.role];
+			} else {
+				persisted.modelRoles[command.role] = command.modelId;
+				if (Object.hasOwn(runtime.modelRoles, command.role)) runtime.modelRoles[command.role] = command.modelId;
+			}
+			live.modelRoles = { ...persisted.modelRoles, ...runtime.modelRoles };
+			updates.push({ type: "config_update", assignments: { ...live.modelRoles } });
+			return {
+				type: "response",
+				command: command.type,
+				success: true,
+				data: { role: command.role, modelId: command.modelId },
+			};
+		});
+		const saved = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, fixture.event, {
+			tabId: "local-tab",
+			command: { id: "local-role", type: "set_model_role", role: "smol", modelId: "selected/B" },
+		});
+		const assignments = { task: "other/task", smol: "selected/B" };
+		expect(saved).toMatchObject({
+			id: "local-role",
+			command: "set_model_role",
+			success: true,
+			data: { assignments },
+		});
+		expect(live.modelRoles).toEqual(assignments);
+		expect(persisted.modelRoles).toEqual(assignments);
+		expect(updates).toEqual([{ type: "config_update", assignments }]);
 	});
 });
 
@@ -420,7 +589,7 @@ function registerSideChannelHandlerFixture(routeState: "routed" | "foreign" | "u
 		sessionIndex: {},
 		statsClient: {},
 		logWatcher: {},
-		windowManager: {},
+		windowManager: { subscribeWindowClosed: vi.fn(() => () => {}) },
 		spawnWindow: vi.fn(),
 		remoteSsh: {},
 		remoteHostCatalog: {},
@@ -654,7 +823,7 @@ describe("persisted subagent transcripts", () => {
 			sessionIndex: {},
 			statsClient: {},
 			logWatcher: {},
-			windowManager: {},
+			windowManager: { subscribeWindowClosed: vi.fn(() => () => {}) },
 			spawnWindow: vi.fn(),
 			remoteSsh: { resolveRuntime, readFile },
 			remoteHostCatalog: {},

@@ -1,29 +1,8 @@
 import { Component, type ReactNode, useEffect, useState } from "react";
-import { buildIssueUrl } from "../../../shared/feedback";
 import { translate } from "../../lib/i18n";
 
 interface RootErrorBoundaryProps {
 	children: ReactNode;
-}
-
-/** Opens a prefilled issue with the crash message; the user reviews and posts on GitHub. */
-function reportOnGithub(error: Error): void {
-	const omp = window.omp;
-	if (!omp) return;
-	void omp.system
-		.info()
-		.then(info =>
-			omp.system.openExternal(
-				buildIssueUrl({
-					kind: "bug",
-					title: `App crash: ${error.message.slice(0, 80)}`,
-					description: "",
-					environment: info,
-					prefillError: `${error.message}\n${error.stack ?? ""}`.trim(),
-				}),
-			),
-		)
-		.catch(() => {});
 }
 
 interface RootErrorBoundaryState {
@@ -61,13 +40,6 @@ function RootErrorFallback({ error }: { error: Error }) {
 						className="omp-pressable rounded-lg bg-(--omp-btn-primary-bg) px-4 py-2 text-xs font-semibold text-(--omp-btn-primary-text) hover:brightness-110"
 					>
 						{translate("appError.reload")}
-					</button>
-					<button
-						type="button"
-						onClick={() => reportOnGithub(error)}
-						className="omp-pressable rounded-lg border border-(--omp-border-muted) px-4 py-2 text-xs font-semibold text-(--omp-muted) hover:text-(--omp-text)"
-					>
-						{translate("appError.report")}
 					</button>
 				</div>
 			</section>

@@ -24,8 +24,8 @@ export function FeedbackDialog() {
 	const [kind, setKind] = useState<FeedbackKind>("bug");
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");
-	const [includeEnv, setIncludeEnv] = useState(true);
-	const [includeErrors, setIncludeErrors] = useState(true);
+	const [includeEnv, setIncludeEnv] = useState(false);
+	const [includeErrors, setIncludeErrors] = useState(false);
 	const [info, setInfo] = useState<SystemInfo | null>(null);
 	const [errorTail, setErrorTail] = useState<readonly string[]>([]);
 
@@ -35,8 +35,8 @@ export function FeedbackDialog() {
 		setTitle(prefill?.title ?? "");
 		setDescription(prefill?.description ?? "");
 		setKind("bug");
-		setIncludeEnv(true);
-		setIncludeErrors(true);
+		setIncludeEnv(false);
+		setIncludeErrors(false);
 		setInfo(null);
 		setErrorTail([]);
 		window.omp.system

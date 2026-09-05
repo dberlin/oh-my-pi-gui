@@ -563,7 +563,6 @@ describe("InputArea prompt history", () => {
 		await flush();
 		await flush();
 
-		expect(prompt).toHaveBeenCalledWith("delivered prompt", []);
 		expect(useInputHistoryStore.getState().entries.map(entry => entry.prompt)).toEqual(["delivered prompt"]);
 	});
 

@@ -562,10 +562,16 @@ describe("TodoTree", () => {
 	it("reveals the recorded blocker when hovering a blocked task", async () => {
 		useTodoStore
 			.getState()
-			.setPhases([phase("Build", [{ content: "ship it", status: "blocked", blocker: "waiting on review" }])]);
+			.setPhases([
+				phase("Build", [
+					{ content: "ship it", status: "blocked", blocker: "\u001b[31mwaiting on review\u001b[0m" },
+				]),
+			]);
 		await mount(<TodoTree readOnly={false} />);
 
 		expect(text("ship it").getAttribute("title")).toContain("waiting on review");
+		expect(text("ship it").getAttribute("title")).not.toContain("\u001b");
+		expect(useTodoStore.getState().phases[0]?.tasks[0]?.blocker).toBe("\u001b[31mwaiting on review\u001b[0m");
 	});
 
 	it("preserves the blocker when a task is edited, so renaming does not erase it", async () => {

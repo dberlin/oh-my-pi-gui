@@ -1773,7 +1773,10 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 				}),
 			),
 		forkSession: forkSessionFromGui,
-		hydrateSession: () => (runtime ? hydrateTabSession(runtime.tabId) : hydrateSession()),
+		hydrateSession: async () => {
+			if (runtime) await hydrateTabSession(runtime.tabId);
+			else await hydrateSession();
+		},
 		rpc: {
 			setFastMode: enabled => rpc.setFastMode(enabled),
 			setAutoCompaction: enabled => rpc.setAutoCompaction(enabled),

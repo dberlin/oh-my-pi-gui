@@ -26,12 +26,11 @@ import { abortActiveTurn } from "../../lib/messages";
 import { useNowTick } from "../../lib/now-tick";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { useSessionStore } from "../../stores/session";
-import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { useSubagentsStore } from "../../stores/subagents";
+import { useRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
+import { isLiveSubagentStatus, useSubagentsStore } from "../../stores/subagents";
 import { toast } from "../../stores/toast";
 import {
 	formatElapsed,
-	isLiveSubagentStatus,
 	statusMeta,
 	subagentElapsedMs,
 	subagentPrimaryLabel,
@@ -672,6 +671,7 @@ const HubRow = memo(function HubRow({
 function HubTab({ onClose }: { onClose: () => void }) {
 	const tabRpc = useTabRpc();
 	const tabId = useRuntimeTabId();
+	const sessionStore = useRuntimeStore("session", useSessionStore);
 	const t = useT();
 	const selectSubagent = useAgentViewStore(state => state.selectSubagent);
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
@@ -743,7 +743,7 @@ function HubTab({ onClose }: { onClose: () => void }) {
 			if (!response.success) throw new Error(response.error);
 			const data = response.data as { paused?: boolean; pausedAt?: number } | undefined;
 			const paused = data?.paused ?? !agentsPaused;
-			useSessionStore.setState({
+			sessionStore.setState({
 				agentsPaused: paused,
 				agentsPausedAt: paused ? (data?.pausedAt ?? Date.now()) : null,
 			});
@@ -752,7 +752,7 @@ function HubTab({ onClose }: { onClose: () => void }) {
 		} finally {
 			setPausePending(false);
 		}
-	}, [agentsPaused, pausePending, sidecarReady, t, tabRpc.setAgentsPaused]);
+	}, [agentsPaused, pausePending, sessionStore, sidecarReady, t, tabRpc.setAgentsPaused]);
 
 	// Per-agent lifecycle actions (TUI hub `x`/`r` parity). Refetch the list
 	// after each mutation — the release/revival may not emit a lifecycle frame.

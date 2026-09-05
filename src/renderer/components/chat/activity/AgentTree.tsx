@@ -21,7 +21,7 @@ import { acceptsActiveTabEvents } from "../../../lib/tab-routing";
 import { type AgentViewTarget, useAgentViewStore } from "../../../stores/agent-view";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
-import { useSubagentsStore } from "../../../stores/subagents";
+import { isLiveSubagentStatus, useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { toast } from "../../../stores/toast";
 import { Badge, Button } from "../../common";
@@ -29,7 +29,6 @@ import {
 	buildSubagentList,
 	extractTaskToolCallIds,
 	formatElapsed,
-	isLiveSubagentStatus,
 	statusMeta,
 	subagentElapsedMs,
 	subagentPrimaryLabel,

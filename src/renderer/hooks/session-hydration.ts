@@ -9,6 +9,7 @@ import type {
 	SubagentSnapshot,
 	RpcVibeModeState,
 } from "../../shared/rpc-types";
+import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { type AgentViewStore, useAgentViewStore } from "../stores/agent-view";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
@@ -24,8 +25,12 @@ import {
 	withSessionRuntime,
 } from "../stores/session-runtime-context";
 import { type SettingsStore, useSettingsStore } from "../stores/settings";
+import {
+	historicalSubagentsFromMessages,
+	type SubagentsStore,
+	useSubagentsStore,
+} from "../stores/subagents";
 import { useSubagentGraphStore } from "../stores/subagent-graph";
-import { historicalSubagentsFromMessages, type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
 import { isTabClosed, useTabsStore } from "../stores/tabs";
 import { useTodoStore } from "../stores/todo";
@@ -229,19 +234,26 @@ export function invalidateSessionHydration(tabId: string | null = useTabsStore.g
 export async function hydrateLegacySession(fallbackName?: string, initialState?: RpcResponse): Promise<void> {
 	const version = ++legacyHydrationVersion;
 	const originRuntime = focusedSessionRuntime();
-	const isCurrent = () => version === legacyHydrationVersion && focusedSessionRuntime() === originRuntime;
+	const isCurrent = () =>
+		version === legacyHydrationVersion && focusedSessionRuntime() === originRuntime && acceptsActiveTabEvents();
 	// This path has no tab runtime to scope to, so its stores are resolved by
 	// focus at apply time. Remember who we fetched for and refuse to write that
 	// snapshot into a pane the user switched to while the RPC was in flight.
 	const beforeMessages = useMessagesStore.getState().messages;
 	const beforeLiveMessages = useMessagesStore.getState().liveMessages;
+	const beforeSessionId = useSessionStore.getState().sessionId;
 	const beforeEventVersion = useSessionStore.getState().eventVersion;
 	const tools = useToolsStore.getState();
 	const hydrationStartToolEventRevision = tools.snapshotProjection().toolEventRevision;
 	const agentViewGeneration = useAgentViewStore.getState().generation;
 	const subagents = useSubagentsStore.getState();
+	subagents.invalidateRefresh();
 	const beforeRoster = subagents.subagents;
-	void activeTabCommand({ type: "set_subagent_subscription", level: "events" }).catch(() => {});
+	try {
+		void activeTabCommand({ type: "set_subagent_subscription", level: "events" }).catch(() => {});
+	} catch {
+		// Best-effort: the next ready transition retries.
+	}
 	const core = Promise.allSettled([
 		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
 		createSessionRpcClient(activeTabCommand).getMessages(),
@@ -267,6 +279,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 		stateResult.value.success &&
 		(stateResult.value.data as RpcSessionState | null)?.isStreaming === true;
 	const stateIsIdle =
+		eventsUnchanged &&
 		stateResult.status === "fulfilled" &&
 		stateResult.value.success &&
 		stateResult.value.data != null &&
@@ -290,7 +303,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 		const fetched = (messagesResult.value.data as { messages?: AgentMessage[] } | undefined)?.messages ?? [];
 		const current = useMessagesStore.getState().messages;
 		useMessagesStore.getState().reconcileFetched(mergeFetchedTranscript(fetched, beforeMessages, current));
-		if (eventsUnchanged && stateIsIdle && useMessagesStore.getState().liveMessages === beforeLiveMessages) {
+		if (stateIsIdle && useMessagesStore.getState().liveMessages === beforeLiveMessages) {
 			useMessagesStore.getState().clearDeliveredLiveMessages();
 		}
 		const authoritativeStreaming = eventsUnchanged ? stateIsStreaming : useSessionStore.getState().isStreaming;
@@ -319,7 +332,9 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 			).map(snapshot => [snapshot.id, snapshot]),
 		);
 		for (const snapshot of data?.subagents ?? []) roster.set(snapshot.id, snapshot);
-		if (useSubagentsStore.getState().subagents === beforeRoster) subagents.setSnapshots([...roster.values()], true);
+		if (useSubagentsStore.getState().subagents === beforeRoster) {
+			subagents.setSnapshots([...roster.values()], useSessionStore.getState().sessionId === beforeSessionId);
+		}
 	}
 	if (isCurrent()) {
 		const selectedView = useAgentViewStore.getState();
@@ -357,22 +372,27 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 	const version = (hydrationVersions.get(runtime) ?? 0) + 1;
 	hydrationVersions.set(runtime, version);
 	const isCurrent = (): boolean => hydrationVersions.get(runtime) === version && sessionRuntime(tabId) === runtime;
+	try {
+		void runtime.command({ type: "set_subagent_subscription", level: "events" }).catch(() => {});
+	} catch {
+		// Best-effort: the next ready transition retries.
+	}
 	// Capture before the fetch: committed agent_end rows arriving while the
 	// transcript RPC is in flight must survive the merge below.
 	const initialMessagesStore = sessionRuntimeStore<MessagesStore>(tabId, "messages")?.getState();
 	const beforeMessages = initialMessagesStore?.messages ?? [];
 	const beforeLiveMessages = initialMessagesStore?.liveMessages ?? [];
-	const beforeEventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
 	const subagents = sessionRuntimeStore<SubagentsStore>(tabId, "subagents");
 	const beforeRoster = subagents?.getState().subagents;
+	subagents?.getState().invalidateRefresh();
 	const tools = sessionRuntimeStore<ToolsStore>(tabId, "tools");
 	const agentView = sessionRuntimeStore<AgentViewStore>(tabId, "agentView");
 	const beforeAgentViewGeneration = agentView?.getState().generation;
 	const hydrationStartToolEventRevision = tools?.getState().snapshotProjection().toolEventRevision ?? 0;
 	let hydratedMessages = beforeMessages;
-	// Subscribe before fetching history so live child frames cannot fall in the reconnect gap.
-	void runtime.command({ type: "set_subagent_subscription", level: "events" }).catch(() => {});
 
+	const beforeSessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
+	const beforeEventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
 	const coreResult = Promise.allSettled([
 		runtime.command({ type: "get_state" }),
 		createSessionRpcClient(runtime.command).getMessages(),
@@ -412,6 +432,7 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		stateResult.value.success &&
 		(stateResult.value.data as RpcSessionState | null)?.isStreaming === true;
 	const stateIsIdle =
+		eventsUnchanged &&
 		stateResult.status === "fulfilled" &&
 		stateResult.value.success &&
 		stateResult.value.data != null &&
@@ -452,7 +473,7 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		const messages = sessionRuntimeStore<MessagesStore>(tabId, "messages");
 		const current = messages?.getState().messages ?? [];
 		messages?.getState().reconcileFetched(mergeFetchedTranscript(fetched, beforeMessages, current));
-		if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === beforeLiveMessages) {
+		if (stateIsIdle && messages?.getState().liveMessages === beforeLiveMessages) {
 			messages.getState().clearDeliveredLiveMessages();
 		}
 		hydratedMessages = messages?.getState().messages ?? [];
@@ -488,7 +509,8 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		);
 		for (const snapshot of data?.subagents ?? []) roster.set(snapshot.id, snapshot);
 		if (subagents && subagents.getState().subagents === beforeRoster) {
-			subagents.getState().setSnapshots([...roster.values()], true);
+			const sameSession = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId === beforeSessionId;
+			subagents.getState().setSnapshots([...roster.values()], sameSession);
 		}
 	}
 	const selectedView = agentView?.getState();

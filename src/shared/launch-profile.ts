@@ -93,7 +93,7 @@ const DENYLISTED_WITH_VALUE: Record<string, true> = {
  * of these is DATA (a prompt, a path, a tool list) and must never be inspected
  * as a potential smuggled flag — a prompt that happens to be "--session" is a
  * legitimate value, not an override. */
-const VALUED_FLAGS: Record<string, true> = {
+export const VALUED_FLAGS: Readonly<Record<string, true>> = {
 	"--system-prompt": true,
 	"--append-system-prompt": true,
 	"--add-dir": true,

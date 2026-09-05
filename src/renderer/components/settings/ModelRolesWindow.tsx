@@ -12,7 +12,7 @@ import {
 } from "react";
 import type { ModelInfo, ModelRoleCandidate, ModelRoleEntry } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
-import { loadModelRoleSettings, withModelRoleAssignment } from "../../lib/model-role-settings";
+import { loadModelRoleSettings, saveModelRoleAssignment } from "../../lib/model-role-settings";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
@@ -293,7 +293,6 @@ export function ModelRolesWindow() {
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
 
 	const [roles, setRoles] = useState<ModelRoleEntry[]>([]);
-	const assignmentsRef = useRef<Record<string, string>>({});
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [busyRole, setBusyRole] = useState<string | null>(null);
@@ -317,7 +316,6 @@ export function ModelRolesWindow() {
 			const modelsData = modelsRes.data as { models?: ModelInfo[] } | undefined;
 			const snapshot = await loadModelRoleSettings(tabRpc, modelsData?.models ?? []);
 			if (session !== sessionGeneration.current || generation !== loadGeneration.current) return;
-			assignmentsRef.current = snapshot.assignments;
 			setRoles(snapshot.roles);
 			setError(null);
 		} catch (cause) {
@@ -330,7 +328,6 @@ export function ModelRolesWindow() {
 
 	useEffect(() => {
 		setRoles([]);
-		assignmentsRef.current = {};
 		setError(null);
 	}, [tabRpc]);
 
@@ -360,22 +357,20 @@ export function ModelRolesWindow() {
 		savingRef.current = true;
 		setBusyRole(role);
 		try {
-			const nextAssignments = withModelRoleAssignment(assignmentsRef.current, role, modelId);
-			const res = await tabRpc.setSetting("modelRoles", nextAssignments);
+			await saveModelRoleAssignment(tabRpc, role, modelId);
 			if (session !== sessionGeneration.current) return;
-			if (res.success) {
-				assignmentsRef.current = nextAssignments;
-				toast({
-					variant: "success",
-					message: modelId ? t("modelRoles.set", { role, model: modelId }) : t("modelRoles.cleared", { role }),
-				});
-				await load();
-			} else {
-				toast({ variant: "error", title: t("modelRoles.failed"), message: res.error });
-			}
+			toast({
+				variant: "success",
+				message: modelId ? t("modelRoles.set", { role, model: modelId }) : t("modelRoles.cleared", { role }),
+			});
+			await load();
 		} catch (cause) {
 			if (session === sessionGeneration.current) {
-				toast({ variant: "error", title: t("modelRoles.failed"), message: String(cause) });
+				toast({
+					variant: "error",
+					title: t("modelRoles.failed"),
+					message: cause instanceof Error ? cause.message : String(cause),
+				});
 			}
 		} finally {
 			if (session === sessionGeneration.current) {

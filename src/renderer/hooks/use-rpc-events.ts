@@ -47,7 +47,7 @@ import {
 	type TabCommand,
 } from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
-import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
+import { useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
 import {
 	consumePendingSession,
@@ -358,7 +358,6 @@ export function recoverReadySession(tabId: string | null = useTabsStore.getState
 		if (tabId === null) {
 			await hydrateLegacySession();
 		} else {
-			sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().invalidateRefresh();
 			await hydrateTabSession(tabId);
 		}
 	})();
@@ -642,7 +641,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		// command, including a lightweight get_state. A periodic probe detects
 		// that post-boot brick and surfaces the SidecarBanner (with Restart),
 		// which the one-shot boot health check cannot catch.
-		let heartbeat: ReturnType<typeof setInterval> | null = null;
+		let heartbeat: NodeJS.Timeout | null = null;
 		let probing = false;
 		const startHeartbeat = () => {
 			if (heartbeat) return;
@@ -652,11 +651,23 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				if (useSessionStore.getState().status !== "ready") return;
 				probing = true;
 				const probeTabId = useTabsStore.getState().activeTabId;
-				void window.omp.rpc
-					.getState()
+				const probeRuntime = sessionRuntime(probeTabId);
+				const probeGeneration = recoveryGeneration(probeTabId);
+				const probeCommandGeneration = probeRuntime?.commandGeneration;
+				const probeSessionId = useSessionStore.getState().sessionId;
+				const isProbeCurrent = (): boolean =>
+					!disposed &&
+					acceptsActiveTabEvents() &&
+					useTabsStore.getState().activeTabId === probeTabId &&
+					sessionRuntime(probeTabId) === probeRuntime &&
+					recoveryGeneration(probeTabId) === probeGeneration &&
+					probeRuntime?.commandGeneration === probeCommandGeneration &&
+					useSessionStore.getState().sessionId === probeSessionId;
+				const command = probeRuntime?.command ?? activeTabCommand;
+				void command({ type: "get_state" })
 					.then(res => {
 						probing = false;
-						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== probeTabId) return;
+						if (!isProbeCurrent()) return;
 						if (!res.success) {
 							useUiStore.getState().setSidecarError(translate("events.sidecarNoResponse"));
 							return;
@@ -669,7 +680,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 					})
 					.catch(() => {
 						probing = false;
-						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== probeTabId) return;
+						if (!isProbeCurrent()) return;
 						useUiStore.getState().setSidecarError(translate("events.sidecarNoResponse"));
 					});
 			}, heartbeatMs);
@@ -722,6 +733,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 					let pendingOwnerTabId = statusTabId;
 					let ownerGeneration = statusGeneration;
 					let ownerRuntime = sessionRuntime(statusTabId);
+					let ownerSessionId = sessionRuntimeStore<SessionStore>(statusTabId, "session")?.getState().sessionId;
 					const pendingOwnerReady = statusTabId === null ? Promise.withResolvers<string | null>() : null;
 					const stopPendingOwnerCapture =
 						statusTabId === null
@@ -732,18 +744,22 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									pendingOwnerTabId = reconciledTabId;
 									ownerGeneration = recoveryGeneration(reconciledTabId);
 									ownerRuntime = sessionRuntime(reconciledTabId);
+									ownerSessionId = sessionRuntimeStore<SessionStore>(reconciledTabId, "session")?.getState().sessionId;
 									pendingOwnerReady?.resolve(reconciledTabId);
 									promoteFullReadyPrelude(reconciledTabId);
 								})
 							: null;
+					// A tab-owned prelude follows its runtime; only ownerless legacy work follows window focus.
 					const isStatusCurrent = (): boolean =>
 						!disposed &&
 						statusGeneration === recoveryGeneration(statusTabId) &&
 						(pendingOwnerTabId === null ||
 							(!isTabClosed(pendingOwnerTabId) &&
 								ownerGeneration === recoveryGeneration(pendingOwnerTabId) &&
-								sessionRuntime(pendingOwnerTabId) === ownerRuntime)) &&
-						(!wasFocused || (acceptsActiveTabEvents() && isFocused()));
+								sessionRuntime(pendingOwnerTabId) === ownerRuntime &&
+								sessionRuntimeStore<SessionStore>(pendingOwnerTabId, "session")?.getState().sessionId ===
+									ownerSessionId)) &&
+						(statusTabId !== null || !wasFocused || (acceptsActiveTabEvents() && isFocused()));
 					try {
 						let pendingClaim: RetainedBootPending | null = null;
 						if (wasFocused) {
@@ -791,7 +807,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									!disposed &&
 									statusGeneration === recoveryGeneration(statusTabId) &&
 									ownerGeneration === recoveryGeneration(pendingTabId) &&
-									sessionRuntime(pendingTabId) === ownerRuntime
+									sessionRuntime(pendingTabId) === ownerRuntime &&
+									sessionRuntimeStore<SessionStore>(pendingTabId, "session")?.getState().sessionId === ownerSessionId
 								) {
 									await consumePendingSession(pendingTabId);
 								}
@@ -806,6 +823,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									statusGeneration === recoveryGeneration(null) &&
 									ownerGeneration === recoveryGeneration(pendingOwnerTabId) &&
 									sessionRuntime(pendingOwnerTabId) === ownerRuntime &&
+									sessionRuntimeStore<SessionStore>(pendingOwnerTabId, "session")?.getState().sessionId ===
+										ownerSessionId &&
 									current.activeTabId === pendingOwnerTabId &&
 									(owner?.status === "ready" || owner?.status === "running") &&
 									acceptsActiveTabEvents()

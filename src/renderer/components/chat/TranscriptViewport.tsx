@@ -534,6 +534,7 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 	const clearUserScrollIntent = useCallback(() => {
 		userScrollIntentRef.current = false;
 	}, []);
+	const expandFindProcess = useCallback((rowKey: string) => updateProcessExpanded(rowKey, true), [updateProcessExpanded]);
 	const findContext = useMemo<TranscriptFindContext>(
 		() => ({ resolveToolCall, lookupToolEntry: key => activeTools.get(key) }),
 		[resolveToolCall, activeTools],
@@ -550,6 +551,7 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 		pinned,
 		setPinned,
 		clearUserScrollIntent,
+		expandProcess: expandFindProcess,
 	});
 
 	return (

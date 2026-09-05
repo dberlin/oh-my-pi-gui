@@ -56,6 +56,32 @@ describe("runStatsSync", () => {
 		});
 	});
 
+	it("surfaces failures while polling rather than reporting queue acknowledgement as success", async () => {
+		const booting = server(status("syncing"), [{ error: "listener restarting", unavailable: true }]);
+		expect(await runStatsSync(booting.fetchStats, instant)).toEqual({
+			kind: "unavailable",
+			message: "listener restarting",
+		});
+		const broken = server(status("syncing"), [{ error: "status failed", unavailable: false }]);
+		expect(await runStatsSync(broken.fetchStats, instant)).toEqual({
+			kind: "error",
+			message: "status failed",
+		});
+	});
+
+	it("does not infer successful completion from malformed acknowledgement or status replies", async () => {
+		const acknowledged = server({ processed: 0, files: 0 }, []);
+		expect(await runStatsSync(acknowledged.fetchStats, instant)).toEqual({
+			kind: "error",
+			message: "Unexpected /api/sync reply",
+		});
+		const malformed = server(status("syncing"), [null]);
+		expect(await runStatsSync(malformed.fetchStats, instant)).toEqual({
+			kind: "error",
+			message: "Unexpected /api/status reply",
+		});
+	});
+
 	it("gives up waiting after the timeout while the sync keeps running", async () => {
 		let clock = 0;
 		const { fetchStats } = server(

@@ -220,6 +220,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getSettingsSchema: () => rpcCommand({ type: "get_settings_schema" }),
 		getSettings: (paths?: string[]) => rpcCommand({ type: "get_settings", paths }),
 		setSetting: (path: string, value: unknown) => rpcCommand({ type: "set_setting", path, value }),
+		setModelRole: (role: string, modelId: string | null) => rpcCommand({ type: "set_model_role", role, modelId }),
 		getProviders: (forceRefresh?: boolean) => rpcCommand({ type: "get_providers", forceRefresh }),
 		setPlanMode: (enabled: boolean) => rpcCommand({ type: "set_plan_mode", enabled }),
 		getPlanMode: () => rpcCommand({ type: "get_plan_mode" }),

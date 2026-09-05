@@ -192,7 +192,6 @@ export function AppGlobalActions() {
 	const { lang, setLang } = useLang();
 	const t = useT();
 
-
 	// User keybinding overrides → precompiled chord → actionId lookup (B3,
 	// plan/15 §3.5): keydown dispatch is an O(1) map hit, never a config walk.
 	// The memo recomputes only when the overrides object identity changes.
@@ -632,7 +631,6 @@ export function App() {
 	const activeTabStatus = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.status);
 	const themeSidecarReady = activeTabStatus === "ready" || activeTabStatus === "running";
 	const t = useT();
-
 
 	// Seed theme/fontSize from persisted prefs once at boot.
 	useEffect(() => {

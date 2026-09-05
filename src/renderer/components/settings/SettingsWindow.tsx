@@ -48,7 +48,6 @@ import {
 import type { SettingEntry, SettingsSchemaResult, SidecarStatus } from "../../../shared/rpc-types";
 import { forkSessionFromGui, prefillComposer, requestUsageReport, retryFailedTurn } from "../../lib/command-registry";
 import { exportSessionHtml } from "../../lib/export-session";
-import { cx } from "../../lib/format";
 import { useLang, useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { setCodeLineNumbersPref } from "../../lib/markdown";
@@ -99,6 +98,8 @@ import {
 	type SettingsNavGroup,
 	type SettingsResponseData,
 	SKILLS_TAB_ID,
+	globalSettingsSearchQuery,
+	settingsSearchScope,
 	SSH_TAB_ID,
 	UPDATES_TAB_ID,
 } from "./settings-window-model";
@@ -120,9 +121,7 @@ function DisplayPreferenceRow({ field }: { field: (typeof GUI_DISPLAY_BOOL_FIELD
 			<div className="flex-1">
 				<Toggle
 					label={t(`settings.display.${field}`)}
-					// The section intro already explains that unset rows read the Agent
-					// setting; only a row that diverges from it needs a marker.
-					description={overridden ? t("settings.display.local") : undefined}
+					description={t(overridden ? "settings.display.local" : "settings.display.legacy")}
 					checked={value}
 					disabled={saving}
 					onChange={next => void save(next)}
@@ -579,12 +578,18 @@ export function SettingsWindow() {
 	const isSchemaTab = schema?.tabs.some(schemaTab => schemaTab.id === tab) === true;
 	const isAgentSettingsTab = isAgentSchemaTab(tab, schema);
 	const managementTab = MANAGEMENT_TAB_IDS.has(tab);
-	const showGlobalSearch = true;
+	const searchScope = settingsSearchScope(tab, resourceTab);
+	const showSearch = searchScope !== "none";
+	const globalSearchQuery = globalSettingsSearchQuery(tab, query, resourceTab);
+
+	useEffect(() => {
+		if (searchScope === "none" && query) setQuery("");
+	}, [query, searchScope]);
 
 	// The search field advertises Cmd/Ctrl+K. Capture it while Settings is open
 	// so the application's global command palette does not steal the shortcut.
 	useEffect(() => {
-		if (!open || !showGlobalSearch) return;
+		if (!open || !showSearch) return;
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (isImeKeyEvent(event) || event.key.toLowerCase() !== "k" || (!event.metaKey && !event.ctrlKey)) return;
 			event.preventDefault();
@@ -594,13 +599,14 @@ export function SettingsWindow() {
 		};
 		document.addEventListener("keydown", onKeyDown, true);
 		return () => document.removeEventListener("keydown", onKeyDown, true);
-	}, [open]);
+	}, [open, showSearch]);
 
 	// Global search covers every GUI-relevant schema setting across all tabs.
-	// TUI-only entries never appear in results.
+	// TUI-only entries never appear in results. Management pages own their
+	// local filtering, so typing there must not replace the selected page.
 	const searchGroups = useMemo(() => {
-		const q = query.trim().toLowerCase();
-		if (!q) return null;
+		if (globalSearchQuery === null) return null;
+		const q = globalSearchQuery;
 		const matches = (sidecarReady ? (schema?.entries ?? []) : []).filter(entry => {
 			if (!isSettingVisibleInGui(entry, values)) return false;
 			return matchesSettingSearch(entry, q);
@@ -613,7 +619,7 @@ export function SettingsWindow() {
 			byTab.set(key, list);
 		}
 		return byTab;
-	}, [query, schema, sidecarReady, values]);
+	}, [globalSearchQuery, schema, sidecarReady, values]);
 
 	const guiSearchResults = useMemo(() => {
 		const q = query.trim().normalize("NFKC").toLowerCase();
@@ -897,7 +903,7 @@ export function SettingsWindow() {
 					external(() => useUiStore.getState().openForceTool());
 			}
 		},
-		[close, t],
+		[close, t, tabRpc.prompt],
 	);
 
 	if (!open) return null;
@@ -992,8 +998,8 @@ export function SettingsWindow() {
 								</h1>
 							)}
 						</div>
-						{showGlobalSearch && (
-							<div className="relative w-[clamp(13rem,32vw,20rem)] max-w-full min-w-0 shrink">
+						{showSearch && (
+							<div className="relative w-[clamp(13rem,32vw,18rem)] max-w-full min-w-0 shrink">
 								<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--omp-dim)" size={13} />
 								<input
 									aria-label={t("settings.searchPlaceholder")}
@@ -1018,14 +1024,7 @@ export function SettingsWindow() {
 							<X size={16} />
 						</button>
 					</header>
-					<div
-						className={cx(
-							"settings-content omp-column min-h-0 flex-1 overflow-y-auto py-4 min-[1080px]:py-5",
-							// Forms read on the narrow column so a switch stays beside its label;
-							// management pages (lists with detail panes) keep the wide one.
-							managementTab || tab === CAPABILITIES_TAB_ID ? "omp-column-workspace" : "omp-column-settings",
-						)}
-					>
+					<div className="settings-content omp-column omp-column-workspace min-h-0 flex-1 overflow-y-auto py-4 min-[1080px]:py-5">
 						{!sidecarReady && isAgentSettingsTab && (
 							<SettingsConnectionNotice
 								busy={sidecarBusy}
@@ -1039,7 +1038,9 @@ export function SettingsWindow() {
 							<>
 								{tab === SKILLS_TAB_ID && <SkillsSettingsPage query={query} />}
 								{tab === MCP_TAB_ID && <ExtensionSettingsPage query={query} tabId="mcp" />}
-								{tab === RESOURCES_TAB_ID && <InventorySettingsPage initialTab={resourceTab} query={query} />}
+								{tab === RESOURCES_TAB_ID && (
+									<InventorySettingsPage initialTab={resourceTab} onTabChange={setResourceTab} query={query} />
+								)}
 								{tab === HOOKS_TAB_ID && <ExtensionSettingsPage query={query} tabId="hooks" />}
 								{tab === COMMANDS_TAB_ID && <ExtensionSettingsPage query={query} tabId="commands" />}
 								{tab === SECURITY_TAB_ID && <SecuritySettingsPage />}
@@ -1096,7 +1097,7 @@ export function SettingsWindow() {
 
 								{tab === GUI_TAB_ID && (
 									<>
-										<Section id="setting-gui-theme" title={t("settings.gui.themeSection")}>
+										<Section id="setting-gui-theme" title={t("settings.gui.theme")}>
 											<Button
 												onClick={() => {
 													close();
@@ -1120,41 +1121,31 @@ export function SettingsWindow() {
 													<DisplayPreferenceRow key={field} field={field} />
 												))}
 											</div>
-											{/* Same row geometry as the switches above: label left, a
-											    number-sized field right — not a full-width text box. */}
-											<div
-												id="setting-gui-pasteMenuThreshold"
-												className="flex items-center justify-between gap-4 px-2 py-2"
-											>
-												<span className="text-xs font-medium text-(--omp-text)">
-													{t("settings.display.pasteMenuThreshold")}
-												</span>
-												<div className="w-24 shrink-0">
-													<Input
-														aria-label={t("settings.display.pasteMenuThreshold")}
-														type="number"
-														min={0}
-														step={1}
-														value={pasteThresholdDraft ?? String(pasteMenuThreshold)}
-														onChange={event => setPasteThresholdDraft(event.target.value)}
-														onBlur={() => {
-															if (pasteThresholdDraft === null) return;
-															const value = Number(pasteThresholdDraft);
-															if (
-																pasteThresholdDraft.trim() === "" ||
-																!Number.isInteger(value) ||
-																value < 0
-															) {
-																toast({ variant: "error", message: t("settings.editors.errNumber") });
-																return;
-															}
-															void setDisplayPreference("pasteMenuThreshold", value).then(ok => {
-																if (ok) setPasteThresholdDraft(null);
-															});
-														}}
-													/>
-												</div>
-											</div>
+											<label id="setting-gui-pasteMenuThreshold" className="mt-4 block text-omp-sm">
+												{t("settings.display.pasteMenuThreshold")}
+												<Input
+													type="number"
+													min={0}
+													step={1}
+													value={pasteThresholdDraft ?? String(pasteMenuThreshold)}
+													onChange={event => setPasteThresholdDraft(event.target.value)}
+													onBlur={() => {
+														if (pasteThresholdDraft === null) return;
+														const value = Number(pasteThresholdDraft);
+														if (
+															pasteThresholdDraft.trim() === "" ||
+															!Number.isInteger(value) ||
+															value < 0
+														) {
+															toast({ variant: "error", message: t("settings.editors.errNumber") });
+															return;
+														}
+														void setDisplayPreference("pasteMenuThreshold", value).then(ok => {
+															if (ok) setPasteThresholdDraft(null);
+														});
+													}}
+												/>
+											</label>
 										</Section>
 										<Section id="setting-gui-readability" title={t("settings.gui.readability")}>
 											<Toggle
@@ -1195,6 +1186,7 @@ export function SettingsWindow() {
 												options={[
 													{ value: "diff", label: t("settings.gui.panel.diff") },
 													{ value: "files", label: t("settings.gui.panel.files") },
+													{ value: "logs", label: t("settings.gui.panel.logs") },
 												]}
 												value={panelTab}
 											/>

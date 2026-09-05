@@ -471,7 +471,6 @@ export const en: Record<string, string> = {
 	"appError.description": "The error was saved to the runtime log. Reload the interface to continue.",
 	"appError.logPath": "Runtime log: {path}",
 	"appError.reload": "Reload interface",
-	"appError.report": "Report on GitHub",
 
 	// Deep links (omp:// protocol)
 	"deepLink.notFound": "No saved session matches this link.",
@@ -864,8 +863,6 @@ export const en: Record<string, string> = {
 	"modelRoles.failed": "Failed",
 	"modelRoles.loadFailed": "Could not load model roles.",
 	"modelRoles.stale": "Showing the last roles that loaded successfully.",
-	"modelRoles.notConnected": "The active session is not connected.",
-	"modelRoles.loadError": "Could not load model roles: {error}",
 	"modelRoles.empty": "No model roles configured.",
 	"modelRoles.section.chat": "Chat roles",
 	"modelRoles.section.kind": "Specialized roles",
@@ -2238,7 +2235,6 @@ export const en: Record<string, string> = {
 	"stats.errors.col.message": "Error message",
 	"stats.errors.noMessage": "(no message)",
 
-	// Stats frustration route
 	// Feedback dialog
 	"feedback.title": "Send Feedback",
 	"feedback.intro":
@@ -2262,6 +2258,7 @@ export const en: Record<string, string> = {
 	"feedback.cancel": "Cancel",
 	"feedback.submit": "Continue on GitHub",
 
+	// Stats frustration route
 	"stats.frustration.annoyed": "Annoyed",
 	"stats.frustration.atAssistant": "At the assistant",
 	"stats.frustration.angry": "Angry",

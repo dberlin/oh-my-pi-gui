@@ -3,6 +3,7 @@ import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
 import type { SidecarRestartProgress } from "../../shared/rpc-types";
 import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
 import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
+import { useRuntimeTabId } from "./session-runtime-context";
 import { useTabsStore } from "./tabs";
 
 export type { ThemeMode };
@@ -246,7 +247,9 @@ export function scopedDisclosureKey(tabId: string | null, key: string): string {
 
 /** The tab that owns the disclosures currently on screen. */
 export function useDisclosureScope(): string | null {
-	return useTabsStore(state => state.activeTabId);
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	return runtimeTabId ?? activeTabId;
 }
 
 export const useUiStore = create<UiStore>()((set, get) => ({

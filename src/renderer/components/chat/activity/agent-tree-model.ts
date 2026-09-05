@@ -25,12 +25,8 @@ export function statusMeta(status: string): StatusMeta {
 	return STATUS_META[status] ?? { label: status, variant: "muted", live: false, labelKey: "subagent.status.unknown" };
 }
 
-export function isLiveSubagentStatus(status: string): boolean {
-	return statusMeta(status).live;
-}
-
 export function subagentElapsedMs(agent: SubagentSnapshot, now: number): number | null {
-	const live = isLiveSubagentStatus(agent.status);
+	const live = statusMeta(agent.status).live;
 	const sampled = agent.progress?.durationMs;
 	if (typeof sampled === "number" && Number.isFinite(sampled)) {
 		const sinceSample = live && Number.isFinite(agent.lastUpdate) ? Math.max(0, now - agent.lastUpdate) : 0;

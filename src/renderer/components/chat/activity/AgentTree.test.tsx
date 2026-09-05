@@ -186,6 +186,7 @@ afterEach(async () => {
 			root?.unmount();
 		});
 	}
+	vi.useRealTimers();
 	container?.remove();
 	container = undefined;
 	activeElement = null;
@@ -629,6 +630,8 @@ describe("AgentTree", () => {
 	});
 
 	it("updates elapsed time for live agents and freezes terminal and stale duration samples", async () => {
+		vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+		vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
 		const now = Date.now();
 		useSubagentsStore.getState().setSnapshots([
 			snap({
@@ -660,7 +663,7 @@ describe("AgentTree", () => {
 		expect(row("done-agent").textContent).toContain("4s");
 		expect(row("stale-agent").textContent).toContain("7s");
 		await act(async () => {
-			await sleep(1_050);
+			vi.advanceTimersByTime(1_000);
 		});
 		expect(row("live-agent").textContent).toContain("2s");
 		expect(row("done-agent").textContent).toContain("4s");

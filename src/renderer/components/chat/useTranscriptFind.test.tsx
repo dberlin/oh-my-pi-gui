@@ -148,6 +148,7 @@ function makeHost(overrides: Partial<TranscriptFindHost> = {}): BuiltHost {
 		pinned: true,
 		setPinned,
 		clearUserScrollIntent,
+		expandProcess: () => {},
 		...overrides,
 	};
 	return { host, rootDiv, scrolls, offsets, setPinned, clearUserScrollIntent };

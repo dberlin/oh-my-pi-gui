@@ -88,7 +88,17 @@ test("fetch sends POST for /api/sync, which 405s a plain GET", async () => {
 		const client = new StatsClient((server.address() as AddressInfo).port);
 		await expect(client.fetch("/api/sync")).resolves.toEqual({});
 		await client.fetch("/api/stats/models");
-		expect(methods).toEqual(["POST /api/sync", "GET /api/stats/models"]);
+		await client.fetch("/api/status");
+		await client.fetch("/api/stats/providers");
+		await client.fetch("/api/stats/provider-windows");
+		await expect(client.fetch("/api/stats/behavior")).rejects.toThrow("Invalid stats path");
+		expect(methods).toEqual([
+			"POST /api/sync",
+			"GET /api/stats/models",
+			"GET /api/status",
+			"GET /api/stats/providers",
+			"GET /api/stats/provider-windows",
+		]);
 	} finally {
 		server.close();
 	}
@@ -96,19 +106,25 @@ test("fetch sends POST for /api/sync, which 405s a plain GET", async () => {
 
 describe("statsServerArgs", () => {
 	it("binds the bundled dashboard to loopback without opening an external browser", () => {
-		expect(statsServerArgs(3847)).toEqual([
-			"stats",
-			"--host",
-			"127.0.0.1",
-			"--port",
-			"3847",
-			"--no-open",
-		]);
+		expect(statsServerArgs(3847)).toEqual(["stats", "--host", "127.0.0.1", "--port", "3847", "--no-open"]);
 	});
 });
 
 describe("statsServerPort", () => {
-	it("accepts the IPv4 loopback URL emitted by the bundled stats command", () => {
-		expect(statsServerPort("Dashboard available at: http://127.0.0.1:3847")).toBe(3847);
+	it.each([
+		["http://127.0.0.1:3847", 3847],
+		["http://localhost:54321", 54321],
+		["http://[::1]:49152", 49152],
+	])("accepts a complete loopback readiness line for %s", (url, port) => {
+		expect(statsServerPort(`Dashboard available at: ${url}\n`)).toBe(port);
+	});
+
+	it.each([
+		"Dashboard available at: http://127.0.0.1:54",
+		"Dashboard available at: http://127.0.0.1:54321",
+		"Dashboard available at: http://127.0.0.1:0\n",
+		"Dashboard available at: http://example.com:3847\n",
+	])("does not announce readiness from an incomplete or unusable listener: %s", output => {
+		expect(statsServerPort(output)).toBeNull();
 	});
 });
