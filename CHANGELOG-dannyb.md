@@ -14,10 +14,12 @@ Fork-specific changes relative to `nornzach/oh-my-pi-gui`. The shared `CHANGELOG
 - Completed tool cards now expose bounded, scrollbar-free collapsed previews that remain wheel- and touch-scrollable; context-mode cards show actual execution output rather than echoed commands.
 - The composer now fills the available workspace width with standard horizontal gutters.
 - Conversation jumping now lives in an expandable Activity section after Goal instead of a persistent marker rail beside the transcript.
+- **Lint and format tooling**: replaced Biome with oxlint and oxfmt, matching the monorepo root — which dropped its own `biome.json`, leaving this package extending a config that no longer existed. The oxfmt options reproduce the previous Biome output, so only 6 of 481 files reformatted, and formatting runs off explicit globs because oxfmt denies by extension and would otherwise reach the CSS and JSON Biome never touched. Config lives in the package rather than reaching outside it, so upstream rebases stay self-contained.
 
 ### Fixed
 
 - Update error banners can now be dismissed permanently for the affected release without hiding future release warnings.
+- **Assistant reaction badges**: upstream 0.9.4 lifts an assistant's opening emoji onto the user turn it answers, but wires it inside `ChatStream`, which this fork replaced with `TranscriptViewport` — so the feature arrived inert, computed and rendered but passed by nobody. The viewport now forwards the reaction and the badge appears as upstream intended.
 
 ## Imported fork history
 
