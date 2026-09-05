@@ -697,8 +697,7 @@ export class RemoteSshService {
 	}
 
 	#ownChild(child: ChildProcess): RemoteChildHandle {
-		let handle: RemoteChildHandle;
-		handle = new ServiceChildHandle(child, () => this.#terminateChild(child));
+		const handle: RemoteChildHandle = new ServiceChildHandle(child, () => this.#terminateChild(child));
 		this.#activeHandles.add(handle);
 		child.once("close", () => {
 			this.#closedChildren.add(child);
@@ -1023,7 +1022,7 @@ export class RemoteSshService {
 			'printf "H\\t%s\\t%s\\0" "$(encode_b64 "$canonical")" "$(encode_b64 "$parent")"',
 			'for entry in "$canonical"/* "$canonical"/.[!.]* "$canonical"/..?*; do',
 			'  [ -d "$entry" ] || continue',
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: POSIX parameter expansion is literal shell source.
+			// oxlint-disable-next-line eslint/no-template-curly-in-string -- POSIX parameter expansion is literal shell source.
 			"  name=${entry##*/}",
 			`  hidden=0; case "$name" in .*) hidden=1 ;; esac; [ ${showHidden ? "1" : "0"} = 1 ] || [ "$hidden" = 0 ] || continue`,
 			'  kind=directory; [ -L "$entry" ] && kind=symlink-directory',
@@ -1112,7 +1111,7 @@ export class RemoteSshService {
 			'  case "$root_physical" in /) selected_root=/; break ;; *) case "$canonical" in "$root_physical"|"$root_physical"/*) selected_root=$root_physical; break ;; esac ;; esac',
 			"done",
 			'[ -n "$selected_root" ] || exit 85',
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: POSIX parameter expansion is literal shell source.
+			// oxlint-disable-next-line eslint/no-template-curly-in-string -- POSIX parameter expansion is literal shell source.
 			'case "$selected_root" in /) prefix=${canonical#/} ;; *) case "$canonical" in "$selected_root") prefix="" ;; *) prefix=${canonical#"$selected_root"/} ;; esac ;; esac',
 			"count=0",
 			"truncated=0",
@@ -1121,7 +1120,7 @@ export class RemoteSshService {
 			'  for entry in "$directory"/* "$directory"/.[!.]* "$directory"/..?*; do',
 			'    [ -e "$entry" ] || continue',
 			'    [ -L "$entry" ] && continue',
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: POSIX parameter expansion is literal shell source.
+			// oxlint-disable-next-line eslint/no-template-curly-in-string -- POSIX parameter expansion is literal shell source.
 			"    name=${entry##*/}",
 			'    case "$name" in .git|node_modules|.DS_Store|dist|build|coverage|target|__pycache__|.venv|venv|.next|out|.turbo) continue ;; esac',
 			`    physical=$(${shellQuote(helper.readlink)} -f "$entry") || continue`,

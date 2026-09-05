@@ -91,7 +91,7 @@ Commit remaining monorepo changes at the monorepo root and push to the fork's `o
 1. Bump `version` in `package.json`.
 2. Write the release's `CHANGELOG.md` section.
 3. Update README install links, version mentions, and release notes in **both** the English and 中文 sections — keep them in sync.
-4. Verify: `bunx vitest run && bun run check:types && bun run build`, plus `bunx biome check <touched files>`.
+4. Verify: `bunx vitest run && bun run check && bun run build`.
 
 ### Phase 3 — Commit, tag, push (GUI repo only)
 
@@ -151,7 +151,7 @@ Never commit sidecar binaries. Never push to `upstream`.
 ## Build, Test, Release
 
 - Commit messages carry no AI attribution trailers — no `Generated with`, `Co-Authored-By`, or similar lines.
-- Check: `bun run check:types` (tsc) and `bunx biome check .` — keep touched files clean even if legacy diagnostics remain.
+- Check: `bun run check:types` (tsc) and `bun run lint` (oxlint) — keep touched files clean even if legacy diagnostics remain.
 - Test: `bunx vitest run` (full suite must stay green).
 - Build: `bun run build` (electron-vite → `out/`), then `bun run package:mac:arm64 -- --publish never` (arm64) or `bun run package:mac:x64 -- --publish never` (Intel).
 - **Every release follows the [Release Runbook](#release-runbook) below, phase by phase, no substitutions.**
@@ -176,7 +176,7 @@ Never commit sidecar binaries. Never push to `upstream`.
 bun run dev                              # HMR against resources/omp
 # …edit src/renderer/…
 bunx vitest run && bun run check:types
-bunx biome check <touched files>         # whole-repo check has legacy diagnostics
+bunx oxlint <touched files>              # whole-repo check has legacy diagnostics
 git commit -am "Add X to the settings window"   # → nornzach/oh-my-pi-gui
 git push origin main
 ```

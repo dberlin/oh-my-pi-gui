@@ -82,7 +82,7 @@ export function ImportForeignDialog() {
 	);
 
 	// Reload only when the source tab changes (load() closes over cached states).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed reload by design
+	// Deps are deliberate: keyed reload by design
 	useEffect(() => {
 		if (!sidecarReady) {
 			setStates(current => ({

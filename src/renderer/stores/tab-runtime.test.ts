@@ -18,14 +18,12 @@ beforeAll(() => {
 	(globalThis as { window?: unknown }).window = {
 		omp: {
 			rpc: {
-				commandForTab: vi.fn(
-					async (_tabId: string, command: RpcCommand): Promise<RpcResponse> => ({
-						type: "response",
-						command: command.type,
-						success: true,
-						data: {},
-					}),
-				),
+				commandForTab: vi.fn(async (_tabId: string, command: RpcCommand): Promise<RpcResponse> => ({
+					type: "response",
+					command: command.type,
+					success: true,
+					data: {},
+				})),
 			},
 		},
 	};

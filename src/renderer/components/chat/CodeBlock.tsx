@@ -112,7 +112,7 @@ export function CodeBlock({
 
 	const codeElement =
 		html != null ? (
-			// biome-ignore lint/security/noDangerouslySetInnerHtml: hljs/escapeHtml output only; pattern matches are escapeHtml'd before the <mark> wrap
+			// Safe HTML: hljs/escapeHtml output only; pattern matches are escapeHtml'd before the <mark> wrap
 			<code className={`language-${lang}`} dangerouslySetInnerHTML={{ __html: html }} />
 		) : (
 			<code className={`language-${lang}`}>{code ?? ""}</code>

@@ -552,8 +552,8 @@ describe("agent view store", () => {
 	});
 
 	it("falls back to Main immediately when an authoritative roster no longer contains the restored target", () => {
-		const getSubagentMessages = vi.fn(
-			async (): Promise<RpcResponse> => ok({ messages: [], nextByte: 0, hasMore: false }),
+		const getSubagentMessages = vi.fn(async (): Promise<RpcResponse> =>
+			ok({ messages: [], nextByte: 0, hasMore: false }),
 		);
 		const store = createAgentViewStore(loader(getSubagentMessages));
 		store.getState().restoreTarget({ kind: "subagent", id: "missing" });
@@ -575,8 +575,8 @@ describe("agent view store", () => {
 	});
 
 	it("does not infer authoritative absence when reload has no reconciled locator", async () => {
-		const getSubagentMessages = vi.fn(
-			async (): Promise<RpcResponse> => ok({ messages: [], nextByte: 0, hasMore: false }),
+		const getSubagentMessages = vi.fn(async (): Promise<RpcResponse> =>
+			ok({ messages: [], nextByte: 0, hasMore: false }),
 		);
 		const store = createAgentViewStore(loader(getSubagentMessages));
 		store.getState().restoreTarget({ kind: "subagent", id: "unconfirmed" });

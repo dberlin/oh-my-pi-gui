@@ -93,7 +93,7 @@ export function StatsDashboard({ open, onClose }: { open: boolean; onClose: () =
 	);
 
 	// Auto-sync on modal open (quiet, no toast spam)
-	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally fire only on open transition, not sync changes
+	// Deps are deliberate: intentionally fire only on open transition, not sync changes
 	useEffect(() => {
 		if (open) {
 			void sync({ quiet: true });

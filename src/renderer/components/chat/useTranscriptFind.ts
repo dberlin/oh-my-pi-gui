@@ -295,7 +295,7 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	// find opens) — an unrelated rows change (e.g. a streamed append) must not
 	// rip the current match away, which is why matches/host/landOn are read
 	// through liveRef rather than listed as deps.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: query is the explicit re-seed trigger, read through liveRef so unrelated matches/host changes don't also trigger it
+	// Deps are deliberate: query is the explicit re-seed trigger, read through liveRef so unrelated matches/host changes don't also trigger it
 	useEffect(() => {
 		if (!open) return;
 		const { matches: liveMatches, host: liveHost, landOn: liveLandOn } = liveRef.current;
@@ -314,7 +314,7 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	// instance mounting (e.g. expanding a subagent panel while find is already
 	// open in the main transcript) must not wipe another instance's highlights
 	// just because it mounted.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: transcriptId is the explicit reset trigger, not read in the body
+	// Deps are deliberate: transcriptId is the explicit reset trigger, not read in the body
 	useEffect(() => {
 		if (!didMountRef.current) {
 			didMountRef.current = true;
@@ -360,7 +360,7 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	// host/needle come through liveRef so the effect doesn't need them as deps;
 	// rangeStart/rangeEnd are read directly (not through liveRef) purely to
 	// retrigger the effect when the mounted row set changes.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: matches/rangeStart/rangeEnd are the explicit repaint triggers; host/needle are read through liveRef
+	// Deps are deliberate: matches/rangeStart/rangeEnd are the explicit repaint triggers; host/needle are read through liveRef
 	useEffect(() => {
 		if (!open) return;
 		const { host: liveHost, matches: liveMatches, needle } = liveRef.current;
@@ -393,7 +393,7 @@ export function useTranscriptFind(host: TranscriptFindHost): TranscriptFindState
 	// rangeStart/rangeEnd aren't read in the body below — they force a
 	// recompute when measurements settle on scroll, since host.virtualizer's
 	// identity doesn't change (see comment above rangeStart/rangeEnd).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: rangeStart/rangeEnd retrigger recompute as measurements settle; not read in the body
+	// Deps are deliberate: rangeStart/rangeEnd retrigger recompute as measurements settle; not read in the body
 	const ticks = useMemo(
 		() =>
 			findTickPositions(

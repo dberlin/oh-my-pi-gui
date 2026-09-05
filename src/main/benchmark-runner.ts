@@ -124,11 +124,15 @@ export class BenchmarkRunner {
 		let stderr = "";
 		let outputBytes = 0;
 		let settled = false;
+		const timeout = setTimeout(() => {
+			this.#terminate("Benchmark timed out after 15 minutes");
+		}, BENCHMARK_TIMEOUT_MS);
+		timeout.unref();
 		const { promise, resolve } = Promise.withResolvers<IpcBenchmarkRunResult>();
 		const finish = (result: IpcBenchmarkRunResult) => {
 			if (settled) return;
 			settled = true;
-			if (timeout) clearTimeout(timeout);
+			clearTimeout(timeout);
 			this.#child = null;
 			resolve(result);
 		};
@@ -164,10 +168,6 @@ export class BenchmarkRunner {
 				});
 			}
 		});
-		const timeout = setTimeout(() => {
-			this.#terminate("Benchmark timed out after 15 minutes");
-		}, BENCHMARK_TIMEOUT_MS);
-		timeout.unref();
 		return promise;
 	}
 }

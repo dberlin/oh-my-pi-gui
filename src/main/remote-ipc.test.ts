@@ -98,15 +98,13 @@ function remoteDeps(
 		catalog,
 		lookupTab: tabId => ownedTabs.get(tabId) ?? null,
 		ssh: {
-			preflight: vi.fn(
-				async (target: SshSessionTarget): Promise<RemotePreflightResult> => ({
-					ok: true,
-					target,
-					home: "/home/deploy",
-					platform: "linux",
-					executable: "/usr/bin/omp",
-				}),
-			),
+			preflight: vi.fn(async (target: SshSessionTarget): Promise<RemotePreflightResult> => ({
+				ok: true,
+				target,
+				home: "/home/deploy",
+				platform: "linux",
+				executable: "/usr/bin/omp",
+			})),
 			listDirectories: vi.fn(
 				async (_target: SshSessionTarget, path: string): Promise<RemoteDirectoryListResult> => ({
 					ok: true,
@@ -148,39 +146,31 @@ function workspaceDeps(
 		trust,
 		local: {
 			list: vi.fn(async (): Promise<IpcFsListResult> => ({ ok: true, entries: [], truncated: false })),
-			read: vi.fn(
-				async (): Promise<IpcFsReadResult> => ({
-					ok: true,
-					content: "local",
-					truncated: false,
-					binary: false,
-					size: 5,
-				}),
-			),
-			readImage: vi.fn(
-				async (): Promise<IpcFsReadImageResult> => ({
-					ok: true,
-					dataUrl: "data:image/png;base64,bG9jYWw=",
-					mime: "image/png",
-					size: 5,
-				}),
-			),
-			readPlan: vi.fn(
-				async (): Promise<IpcFsReadPlanResult> => ({
-					ok: true,
-					path: "/local/plan.md",
-					content: "local plan",
-				}),
-			),
+			read: vi.fn(async (): Promise<IpcFsReadResult> => ({
+				ok: true,
+				content: "local",
+				truncated: false,
+				binary: false,
+				size: 5,
+			})),
+			readImage: vi.fn(async (): Promise<IpcFsReadImageResult> => ({
+				ok: true,
+				dataUrl: "data:image/png;base64,bG9jYWw=",
+				mime: "image/png",
+				size: 5,
+			})),
+			readPlan: vi.fn(async (): Promise<IpcFsReadPlanResult> => ({
+				ok: true,
+				path: "/local/plan.md",
+				content: "local plan",
+			})),
 		},
 		remote: {
-			listWorkspace: vi.fn(
-				async (): Promise<RemoteWorkspaceListResult> => ({
-					ok: true,
-					entries: [{ name: "remote.ts", path: "remote.ts", kind: "file" }],
-					truncated: false,
-				}),
-			),
+			listWorkspace: vi.fn(async (): Promise<RemoteWorkspaceListResult> => ({
+				ok: true,
+				entries: [{ name: "remote.ts", path: "remote.ts", kind: "file" }],
+				truncated: false,
+			})),
 			readFile: vi.fn(async () => ({
 				ok: true as const,
 				data: new Uint8Array(Buffer.from("remote", "utf8")),

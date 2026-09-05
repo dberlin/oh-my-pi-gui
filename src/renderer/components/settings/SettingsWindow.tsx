@@ -265,7 +265,7 @@ export function SettingsWindow() {
 
 	// Hydrate the schema, current values, and GUI prefs each time the window
 	// opens or the sidecar reconnects.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is the explicit retry trigger.
+	// Deps are deliberate: reloadToken is the explicit retry trigger.
 	useEffect(() => {
 		if (!open || !sidecarReady) return;
 		let cancelled = false;

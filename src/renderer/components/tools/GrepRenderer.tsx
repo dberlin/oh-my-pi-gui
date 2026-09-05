@@ -142,7 +142,7 @@ function HighlightedContent({ content, pattern }: { content: string; pattern: st
 			)
 		: escapeHtml(content);
 	return (
-		// biome-ignore lint/security/noDangerouslySetInnerHtml: content and pattern are escapeHtml'd first; only <mark> wrappers are added
+		// Safe HTML: content and pattern are escapeHtml'd first; only <mark> wrappers are added
 		<span dangerouslySetInnerHTML={{ __html: html }} />
 	);
 }
