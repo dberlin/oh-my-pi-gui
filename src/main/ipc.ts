@@ -53,6 +53,7 @@ import { parseLaunchProfile } from "../shared/launch-profile";
 import type { AgentMessage, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { requestQuit } from "./app-quit";
 import { BenchmarkRunner } from "./benchmark-runner";
+import { executeConfigRpcCommand, isConfigRpcCommand } from "./config-rpc";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { mainT } from "./i18n";
@@ -1111,6 +1112,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				success: false,
 				error: `Sidecar not ready (${sidecar.status})`,
 			};
+		}
+		if (isConfigRpcCommand(incomingCommand)) {
+			return executeConfigRpcCommand(incomingCommand, args => sidecar.runCli(args));
 		}
 		const { id: _id, ...cmd } = payload.command;
 		const issuerTabInfo = issuerTabId

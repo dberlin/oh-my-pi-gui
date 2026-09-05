@@ -365,6 +365,45 @@ describe("RemoteSshService SSH process ownership", () => {
 		expect(signals).toEqual(["SIGTERM"]);
 	});
 
+	it("runs a bounded remote CLI command in the session cwd with the resolved executable and PATH", async () => {
+		const runner = new FakeRunner();
+		runner.respond('{"modelRoles":{"type":"record","value":{}}}\n');
+		const ssh = service(runner);
+
+		const result = await ssh.runCli(sshTarget(), runtime(), ["config", "list", "--json"]);
+
+		expect(result).toEqual({
+			ok: true,
+			stdout: '{"modelRoles":{"type":"record","value":{}}}\n',
+		});
+		const command = runner.calls[0]?.args.at(-1) ?? "";
+		expect(command).toContain("PATH=");
+		expect(command).toContain("cd -- '/work/repo' &&");
+		expect(command).toContain("'/home/danny/.bun/bin/omp' 'config' 'list' '--json'");
+	});
+
+	it("stops a Windows CLI command when the session cwd cannot be entered", async () => {
+		const runner = new FakeRunner();
+		runner.respond("{}");
+		const ssh = service(runner, { platform: "win32" });
+		const target = sshTarget({
+			cwd: "C:\\work repo",
+			host: { ...sshTarget().host, os: "windows" },
+		});
+		const remoteRuntime = runtime({
+			platform: "windows",
+			executable: "C:\\bin\\omp.exe",
+			runtimePath: ["C:\\bin", "C:\\Windows"],
+		});
+
+		await ssh.runCli(target, remoteRuntime, ["config", "list", "--json"]);
+
+		const command = runner.calls[0]?.args.at(-1) ?? "";
+		const encoded = command.split(" ").at(-1) ?? "";
+		const script = Buffer.from(encoded, "base64").toString("utf16le");
+		expect(script).toContain("Set-Location -LiteralPath 'C:\\work repo' -ErrorAction Stop");
+	});
+
 	it("escalates POSIX process-group termination from SIGTERM to SIGKILL", async () => {
 		const runner = new FakeRunner();
 		const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];

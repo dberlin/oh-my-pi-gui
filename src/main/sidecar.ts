@@ -2,7 +2,7 @@
  * Sidecar lifecycle manager: spawns omp --mode rpc-ui, handles restart,
  * routes frames to RpcClient and EventBatcher.
  */
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -35,7 +35,7 @@ import type {
 import { sameSessionTarget } from "../shared/session-target";
 import { EventBatcher } from "./event-batcher";
 import type { RemoteHostCatalog } from "./remote-host-catalog";
-import type { RemoteChildHandle, RemoteSshService } from "./remote-ssh";
+import type { RemoteChildHandle, RemoteRuntimeInfo, RemoteSshService } from "./remote-ssh";
 import { attachNdjsonParser, RPC_MAX_FRAME_BYTES, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 
@@ -226,6 +226,22 @@ export function missingSidecarMessage(packaged: boolean, resourcesPath?: string)
 	return `omp is missing from this installation (${target}). Reinstall omp GUI, then relaunch.`;
 }
 
+function configProfileFlags(flags: readonly string[]): string[] {
+	let profile: string | undefined;
+	for (let index = 0; index < flags.length; index++) {
+		const flag = flags[index];
+		if (flag === "--profile") {
+			const value = flags[index + 1];
+			if (value && !value.startsWith("-")) profile = value;
+			index++;
+		} else if (flag.startsWith("--profile=")) {
+			const value = flag.slice("--profile=".length);
+			if (value) profile = value;
+		}
+	}
+	return profile ? ["--profile", profile] : [];
+}
+
 export interface SidecarEvents {
 	status: (payload: SidecarStatusPayload) => void;
 	events: (events: AgentSessionEvent[]) => void;
@@ -377,6 +393,9 @@ export class SidecarManager extends EventEmitter {
 	#localPreparingChild: ChildProcess | null = null;
 	#remoteLaunchResumed = false;
 	#latestRemoteSessionId: string | null;
+	#remoteTarget: SshSessionTarget | null = null;
+	#remoteRuntime: RemoteRuntimeInfo | null = null;
+	#configProfileFlags: string[] = [];
 	#disposePromise: Promise<void> | null = null;
 	#freshLaunchPending: boolean;
 	#disposed = false;
@@ -398,6 +417,46 @@ export class SidecarManager extends EventEmitter {
 
 	get rpcClient(): RpcClient | null {
 		return this.#rpcClient;
+	}
+
+	async runCli(args: string[]): Promise<string> {
+		if (this.#disposed) throw new Error("Sidecar is disposed");
+		const remoteSsh = this.#options.remoteSsh;
+		const cliArgs = [...this.#configProfileFlags, ...args];
+		if (this.#options.target?.type === "ssh") {
+			if (!remoteSsh || !this.#remoteTarget || !this.#remoteRuntime) {
+				throw new Error("Remote sidecar runtime is unavailable");
+			}
+			const result = await remoteSsh.runCli(this.#remoteTarget, this.#remoteRuntime, cliArgs);
+			if (!result.ok) throw new Error(result.error);
+			return result.stdout;
+		}
+
+		const { binaryPath, sourceCli, cwd } = this.#options;
+		const command = sourceCli ? resolveBunExe() : binaryPath;
+		const commandArgs = sourceCli ? [sourceCli, ...cliArgs] : cliArgs;
+		const { promise, resolve, reject } = Promise.withResolvers<string>();
+		execFile(
+			command,
+			commandArgs,
+			{
+				cwd,
+				encoding: "utf8",
+				env: { ...process.env, ...this.#shellEnvVars, ...this.#proxyEnvVars },
+				maxBuffer: 1_048_576,
+				timeout: 15_000,
+				windowsHide: true,
+			},
+			(error, stdout, stderr) => {
+				if (!error) {
+					resolve(stdout);
+					return;
+				}
+				const detail = stderr.trim();
+				reject(new Error(detail || error.message));
+			},
+		);
+		return promise;
 	}
 
 	start(): void {
@@ -456,6 +515,8 @@ export class SidecarManager extends EventEmitter {
 		this.#setStatus("starting", `Resolving SSH host ${target.hostAlias}`);
 		this.#setStatus("starting", `Authenticating SSH host ${target.hostAlias}`);
 		this.#setStatus("starting", `Probing remote runtime on ${target.hostAlias}`);
+		this.#remoteTarget = null;
+		this.#remoteRuntime = null;
 		try {
 			const resolution = await remoteSsh.resolveRuntime(target, controller.signal);
 			if (this.#disposed || this.#remoteAbortController !== controller) return;
@@ -480,8 +541,12 @@ export class SidecarManager extends EventEmitter {
 			const isChat = this.#options.kind === "chat";
 			if (isChat) args.push("--no-tools");
 			const userFlags = [...(this.#options.extraFlags ?? []), ...loadLaunchProfileFlags(resolution.target.cwd)];
-			args.push(...stripDenylistedFlags(userFlags, isChat));
+			const launchFlags = stripDenylistedFlags(userFlags, isChat);
+			this.#configProfileFlags = configProfileFlags(launchFlags);
+			args.push(...launchFlags);
 
+			this.#remoteTarget = resolution.target;
+			this.#remoteRuntime = resolution.runtime;
 			this.#setStatus("starting", `Launching remote omp on ${target.hostAlias}`);
 			const handle = remoteSsh.spawnRpc(resolution.target, resolution.runtime, args);
 			if (this.#disposed || this.#remoteAbortController !== controller) {
@@ -520,7 +585,9 @@ export class SidecarManager extends EventEmitter {
 		// append: neither can override the code-controlled argv above. Chat
 		// launches also strip tool selections so --no-tools remains authoritative.
 		const userFlags = [...(extraFlags ?? []), ...loadLaunchProfileFlags(cwd)];
-		args.push(...stripDenylistedFlags(userFlags, isChat));
+		const launchFlags = stripDenylistedFlags(userFlags, isChat);
+		this.#configProfileFlags = configProfileFlags(launchFlags);
+		args.push(...launchFlags);
 
 		// Source sidecar (monorepo dev): run the workspace coding-agent from
 		// source via bun so in-repo RPC fixes are live in the running GUI.
@@ -966,6 +1033,7 @@ export class SidecarManager extends EventEmitter {
 		const target: SessionTarget =
 			previous?.type === "ssh" ? Object.freeze({ ...previous, cwd }) : Object.freeze({ type: "local" });
 		this.#options = { ...this.#options, cwd, target };
+		if (target.type === "ssh") this.#remoteTarget = target;
 		return target;
 	}
 	restart(cwd?: string, resumeSessionPath?: string): void {

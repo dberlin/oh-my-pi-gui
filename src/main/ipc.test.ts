@@ -157,6 +157,7 @@ interface LocalSshHandlerFixture {
 	event: { sender: object };
 	activeCommand: Mock;
 	executeLocal: Mock;
+	runCli: Mock;
 }
 
 function registerLocalSshHandlerFixture(
@@ -188,7 +189,12 @@ function registerLocalSshHandlerFixture(
 			warnings: [],
 		},
 	}));
-	const activeSidecar = { cwd: active.cwd, status: "ready", rpcClient: { command: activeCommand } };
+	const runCli = vi.fn(async () =>
+		JSON.stringify({
+			modelRoles: { value: { plan: "openai/gpt-5" }, type: "record", description: "" },
+		}),
+	);
+	const activeSidecar = { cwd: active.cwd, status: "ready", rpcClient: { command: activeCommand }, runCli };
 	const sidecarPool = {
 		activeTabForWindow: vi.fn(() => "active-tab"),
 		entryForWindow: vi.fn(() => ({ sidecar: activeSidecar, target: active.target })),
@@ -213,7 +219,7 @@ function registerLocalSshHandlerFixture(
 	} as unknown as IpcDeps;
 	ipcTestState.fromWebContents.mockReturnValue(win);
 	registerIpcHandlers(deps);
-	return { event: { sender }, activeCommand, executeLocal };
+	return { event: { sender }, activeCommand, executeLocal, runCli };
 }
 
 beforeEach(() => {
@@ -367,6 +373,24 @@ describe("local SSH settings handlers", () => {
 		});
 
 		expect(fixture.executeLocal).toHaveBeenCalledWith("/Users/test/second-project", { type: "get_ssh_hosts" });
+	});
+
+	it("redirects settings RPC through the active sidecar CLI", async () => {
+		const fixture = registerLocalSshHandlerFixture();
+
+		const result = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, fixture.event, {
+			command: { id: "settings-1", type: "get_settings", paths: ["modelRoles"] },
+		});
+
+		expect(result).toEqual({
+			id: "settings-1",
+			type: "response",
+			command: "get_settings",
+			success: true,
+			data: { values: { modelRoles: { plan: "openai/gpt-5" } } },
+		});
+		expect(fixture.runCli).toHaveBeenCalledWith(["config", "list", "--json"]);
+		expect(fixture.activeCommand).not.toHaveBeenCalled();
 	});
 });
 

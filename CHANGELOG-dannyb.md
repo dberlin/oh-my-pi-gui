@@ -18,6 +18,7 @@ Fork-specific changes relative to `nornzach/oh-my-pi-gui`. The shared `CHANGELOG
 
 ### Fixed
 
+- **Remote settings compatibility**: model roles and schema-backed settings now use the installed omp CLI instead of unsupported RPC commands, with load failures shown in the dialog.
 - Update error banners can now be dismissed permanently for the affected release without hiding future release warnings.
 - **Assistant reaction badges**: upstream 0.9.4 lifts an assistant's opening emoji onto the user turn it answers, but wires it inside `ChatStream`, which this fork replaced with `TranscriptViewport` — so the feature arrived inert, computed and rendered but passed by nobody. The viewport now forwards the reaction and the badge appears as upstream intended.
 
