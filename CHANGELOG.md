@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.9.14] - 2026-10-01
+
+### Added
+
+- **Feedback dialog** reachable from the sidebar, the Help menu, the command palette, and the crash page — collects a detailed report and opens a prefilled GitHub issue in the browser. No token is embedded; sign-in happens on github.com. Optional environment info and the recent-error log tail are previewable before anything leaves the app.
+
+### Fixed
+
+- **Black screen on Windows** (and any GPU crash): a dead GPU process now relaunches the app with software rendering, and a renderer that crashes past the reload cooldown offers a native restart dialog instead of a black window. `--disable-gpu` / `--enable-gpu` force the mode. (issue #12)
+
+### Changed
+
+- Bundled agent rebuilt from upstream `main` (monorepo merges `ae326c53`, `5abd0e9f`), adding queued-message promote/remove commands, `predict_word` completion, `cancel_subagent`/`steer_subagent`, native Windows clipboard paste, and session-file ownership fixes; RPC `prompt` responses now acknowledge at admission.
+- The GUI opts into upstream's `set_ask_dialog` protocol so extension ask dialogs keep working under the new wire contract.
+
 ## [0.9.13] - 2026-10-01
 
 ### Changed
