@@ -105,7 +105,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shopt -s nullglob
-          files=(omp-*.AppImage omp-*.AppImage.blockmap omp-*.deb latest-linux.yml)
+          files=(omp-*.AppImage omp-*.AppImage.blockmap omp-*.deb omp_*.deb latest-linux.yml)
           printf 'uploading: %s\n' "${files[@]}"
           gh release upload "${{ steps.refs.outputs.tag }}" \
             "${files[@]}" --repo "$GUI_REPO" --clobber
