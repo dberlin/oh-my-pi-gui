@@ -14,6 +14,7 @@ import { installQuitGuard, requestQuit } from "./app-quit";
 import { bundledOmpFilename, resolveOmpCandidate } from "./bundled-omp-path";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
+import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
 import { LogWatcher } from "./log-watcher";
@@ -38,6 +39,10 @@ if (userDataDirectory) {
 	mkdirSync(directory, { recursive: true });
 	app.setPath("userData", directory);
 }
+
+// Software-rendering escape hatch (must precede whenReady): a crashed GPU
+// process leaves every window black — the marker relaunches without it.
+applyGpuFallbackIfNeeded();
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -241,6 +246,7 @@ function installMainRuntimeLogging(): void {
 				name: details.name ?? null,
 			},
 		});
+		handleGpuProcessGone(details);
 	});
 }
 

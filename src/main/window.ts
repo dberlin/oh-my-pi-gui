@@ -18,7 +18,7 @@ import {
 	shouldReloadRenderer,
 	shouldRestartForChangedResources,
 } from "./renderer-recovery";
-import { writeRuntimeLog } from "./runtime-log";
+import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { type Rect, restoreWithinDisplays } from "./window-bounds";
 
 interface WindowState {
@@ -235,6 +235,11 @@ export class WindowManager {
 				queueMicrotask(() => {
 					if (!win.isDestroyed() && !win.webContents.isDestroyed()) this.#loadRenderer(win);
 				});
+			} else if (!resourcesChanged) {
+				// Repeated renderer crash inside the cooldown: the window would
+				// sit black forever, so surface a native dialog (a dead renderer
+				// can't show one itself) and let the user relaunch or close.
+				this.#offerCrashRecovery(win);
 			}
 		});
 
@@ -333,6 +338,30 @@ export class WindowManager {
 		if (answer.response !== 0) return;
 		// `requestQuit` carries the approval, so the guard below the restart
 		// prompt never asks a second time about the same running sessions.
+		app.relaunch();
+		requestQuit();
+	}
+
+	#crashRecoveryOffered = new Set<number>();
+
+	async #offerCrashRecovery(win: BrowserWindow): Promise<void> {
+		// One dialog per window — a renderer that keeps dying would otherwise
+		// queue a new dialog per crash.
+		if (this.#crashRecoveryOffered.has(win.webContents.id)) return;
+		this.#crashRecoveryOffered.add(win.webContents.id);
+		const language = getMainLanguage();
+		const options: MessageBoxOptions = {
+			type: "error",
+			buttons: [mainT("restart.now", language), mainT("crash.close", language)],
+			defaultId: 0,
+			cancelId: 1,
+			message: mainT("crash.title", language),
+			detail: mainT("crash.body", language, { logPath: runtimeLogPath() }),
+		};
+		const answer = win.isDestroyed()
+			? await dialog.showMessageBox(options)
+			: await dialog.showMessageBox(win, options);
+		if (answer.response !== 0) return;
 		app.relaunch();
 		requestQuit();
 	}
