@@ -14,6 +14,9 @@ on:
       tag:
         description: "Release tag to attach artifacts to (e.g. v0.9.14)"
         required: true
+      gui_ref:
+        description: "GUI checkout ref (default: the tag; use main to backfill an old tag)"
+        required: false
       monorepo_sha:
         description: "Monorepo commit override (default: sidecar-source.json pin)"
         required: false
@@ -34,8 +37,10 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+            echo "gui_ref=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "gui_ref=${{ inputs.gui_ref || inputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout monorepo fork (sidecar source)
@@ -50,7 +55,7 @@ jobs:
         with:
           repository: nornzach/oh-my-pi-gui
           path: oh-my-pi/packages/gui
-          ref: ${{ steps.refs.outputs.tag }}
+          ref: ${{ steps.refs.outputs.gui_ref }}
           fetch-depth: 1
 
       - name: Pin monorepo to the sidecar source commit
@@ -86,9 +91,11 @@ jobs:
         working-directory: oh-my-pi/packages/gui
         # NOTE: invoke electron-builder through bun — the bunx shim falls back
         # to Node, which crashes on ESM deps under Node < 22 (see issue #10).
+        # The monorepo's bun install hoists deps to the workspace root, so the
+        # cli.js lives two levels up, not in packages/gui/node_modules.
         run: |
           bun run build
-          bun node_modules/electron-builder/cli.js \
+          bun ../../node_modules/electron-builder/cli.js \
             --config electron-builder.yml --linux AppImage deb --publish never
 
       - name: Upload Linux assets to the release
