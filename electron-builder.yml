@@ -80,6 +80,10 @@ nsis:
 linux:
   icon: resources/icons
   category: Development
+  # electron-builder defaults Linux executableName to lowercased metadata.name
+  # (@oh-my-pi/omp-gui → "@oh-my-piomp-gui"), which would disagree with
+  # StartupWMClass and the AppRun BIN — window/taskbar association breaks.
+  executableName: omp-gui
   target:
     - target: AppImage
       arch: [x64]

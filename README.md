@@ -8,7 +8,7 @@
 <a href="https://github.com/nornzach/oh-my-pi-gui/releases"><img src="https://img.shields.io/github/v/release/nornzach/oh-my-pi-gui?style=flat&colorA=222222&colorB=3FB950" alt="Release"></a>
 <a href="https://github.com/nornzach/oh-my-pi-gui/releases"><img src="https://img.shields.io/github/downloads/nornzach/oh-my-pi-gui/total?style=flat&colorA=222222&colorB=58A6FF" alt="Downloads"></a>
 <a href="./LICENSE"><img src="https://img.shields.io/github/license/nornzach/oh-my-pi-gui?style=flat&colorA=222222&colorB=BE185D" alt="License"></a>
-<img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-222222?style=flat" alt="Platform: macOS | Windows">
+<img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-222222?style=flat" alt="Platform: macOS | Windows | Linux">
 <img src="https://img.shields.io/badge/Electron-35-47848F?style=flat&logo=electron&logoColor=white" alt="Electron">
 <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=white" alt="React">
 
@@ -154,6 +154,11 @@ Search with `⌘K`. Supported commands lead to native controls; pass-through and
 | Installer | [omp-0.9.14-setup.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.14/omp-0.9.14-setup.exe) |
 | Portable | [omp-0.9.14-portable.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.14/omp-0.9.14-portable.exe) |
 
+| Linux x64 | v0.9.14 download |
+|---|---|
+| AppImage | [omp-0.9.14.AppImage](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.14/omp-0.9.14.AppImage) |
+| Debian/Ubuntu | [omp_0.9.14_amd64.deb](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.14/omp_0.9.14_amd64.deb) |
+
 Open the DMG and drag **omp** into **Applications**. The app and bundled macOS sidecar are ad-hoc signed but not notarized. If macOS blocks the first launch, use **right-click → Open**, or **System Settings → Privacy & Security → Open Anyway**, after confirming the download's source.
 
 Windows packages are currently unsigned. Windows SmartScreen may require **More info → Run anyway** on first launch after confirming the download's source.
@@ -210,7 +215,7 @@ Never stage `packages/gui/` into the monorepo: its untracked status there is int
 
 #### Build from source
 
-**Prerequisites:** Git and [Bun](https://bun.sh) **≥ 1.4**. macOS is required for the macOS sidecar and DMG commands; Windows x64 can be cross-built from macOS or Linux when the neighboring monorepo is available.
+**Prerequisites:** Git and [Bun](https://bun.sh) **≥ 1.4**. macOS is required for the macOS sidecar and DMG commands; Windows x64 and Linux x64 (AppImage/deb) can be cross-built — Linux packages build natively on Ubuntu via `bun run package:linux` (or CI: `.github/workflows/release-linux.yml`).
 
 ```bash
 # Clone the monorepo fork, then nest the GUI repository inside it.
@@ -233,6 +238,9 @@ bun run package:mac:arm64 -- --publish never    # dist/omp-<version>-arm64.dmg
 bun run package:mac:x64 -- --publish never      # dist/omp-<version>.dmg
 bun run build:omp:win                           # Windows x64 -> resources/omp.exe
 bun run package:win -- --publish never           # Windows NSIS + portable installers
+# On a Linux host only:
+bun run build:omp                                # linux-x64 host -> resources/omp
+bun run package:linux -- --publish never         # AppImage + deb + latest-linux.yml
 ```
 
 `build:omp` compiles the neighboring monorepo agent source and embeds the native addon. It stages the matching `pi_natives` version, downloads the published package when needed, replaces stale addons, and restores temporary staging afterwards. Sidecars at `resources/omp*` are ignored build artifacts: **never commit them**.
@@ -434,6 +442,11 @@ v0.9.14 新增反馈入口并强化 Windows 启动稳定性：
 |---|---|
 | 安装程序 | [omp-0.9.14-setup.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.14/omp-0.9.14-setup.exe) |
 | 便携版 | [omp-0.9.14-portable.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.14/omp-0.9.14-portable.exe) |
+
+| Linux x64 | v0.9.14 下载 |
+|---|---|
+| AppImage | [omp-0.9.14.AppImage](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.14/omp-0.9.14.AppImage) |
+| Debian/Ubuntu | [omp_0.9.14_amd64.deb](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.14/omp_0.9.14_amd64.deb) |
 
 打开 DMG，把 **omp** 拖入**应用程序**。应用与内置 macOS sidecar 均采用 ad-hoc 签名，未经公证。如果 macOS 拦截首次启动，请先确认下载来源，再使用**右键 → 打开**，或**系统设置 → 隐私与安全性 → 仍要打开**。
 

@@ -129,6 +129,7 @@ Inspect every artifact before publishing:
 - `file "<path>/omp.app/Contents/Resources/omp"` — the bundled sidecar arch must match the DMG (`omp-X.Y.Z-arm64.dmg` = arm64; `omp-X.Y.Z.dmg` = Intel).
 - Launch each package on a compatible host: sidecar reaches `ready`, `get_settings` RPC succeeds, one settings toggle persists.
 - Windows: `file win-unpacked/resources/omp.exe`.
+- Linux is built by CI, not locally: `.github/workflows/release-linux.yml` (ubuntu-latest) runs on release publish — or dispatch it for an existing tag — and reproduces the sidecar from `sidecar-source.json`'s monorepo pin, smoke-tests it, then attaches AppImage + deb + `latest-linux.yml` itself.
 
 ### Phase 6 — Publish
 
@@ -145,6 +146,7 @@ Never commit sidecar binaries. Never push to `upstream`.
 
 - `site/` needs no edit: version strings and DMG links resolve from the GitHub releases API at page load.
 - Verify the release page lists every expected asset and that the updater feed resolves `latest-mac.yml`.
+- Confirm the Linux workflow run attached `omp-*.AppImage`, `omp_*.deb`, and `latest-linux.yml` (check the Actions run if they're missing).
 
 ## Build, Test, Release
 

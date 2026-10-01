@@ -78,4 +78,11 @@ bun --cwd="$GUI" run build
 bun --cwd="$GUI" run check:types
 bun --cwd="$GUI" run test
 
+# Record the monorepo commit the bundled sidecar was built from. The Linux
+# release workflow (release-linux.yml) checks this file out at the release tag
+# to reproduce the exact sidecar CI-side.
+printf '{"repo": "%s", "commit": "%s"}\n' \
+	"$(git remote get-url origin | sed -E 's#.*github.com[/:]##; s#\.git$##')" \
+	"$(git rev-parse HEAD)" > "$GUI/sidecar-source.json"
+
 say "sync complete — review with: git log --oneline -5; git status --short"
