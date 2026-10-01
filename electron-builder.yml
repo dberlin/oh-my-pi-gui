@@ -92,10 +92,11 @@ linux:
   desktop:
     entry:
       StartupWMClass: omp-gui
-  # Default deb artifactName embeds the scoped package name (@oh-my-pi/omp-gui)
-  # — the slash makes fpm write into a nonexistent dist/@oh-my-pi/ directory.
-  deb:
-    artifactName: omp_${version}_${arch}.${ext}
+
+# Default deb artifactName embeds the scoped package name (@oh-my-pi/omp-gui)
+# — the slash makes fpm write into a nonexistent dist/@oh-my-pi/ directory.
+deb:
+  artifactName: omp_${version}_${arch}.${ext}
 
 publish:
   provider: github
