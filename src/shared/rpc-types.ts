@@ -25,6 +25,8 @@ export type RpcCommand =
 	| { id?: string; type: "set_host_uri_schemes"; schemes: HostUriSchemeDefinition[] }
 	| { id?: string; type: "set_subagent_subscription"; level: SubagentSubscriptionLevel }
 	| { id?: string; type: "set_event_filter"; events: string[] | null }
+	/** Opts the host into upstream's `ask` extension-dialog protocol (`answers` responses). */
+	| { id?: string; type: "set_ask_dialog"; enabled: boolean }
 	| { id?: string; type: "get_subagents" }
 	| { id?: string; type: "get_subagent_messages"; subagentId?: string; sessionFile?: string; fromByte?: number }
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
@@ -1149,6 +1151,13 @@ export type ExtensionUIRequest =
 	| {
 			type: "extension_ui_request";
 			id: string;
+			method: "ask";
+			questions: ExtensionAskDialogQuestion[];
+			timeout?: number;
+	  }
+	| {
+			type: "extension_ui_request";
+			id: string;
 			method: "input";
 			title: string;
 			placeholder?: string;
@@ -1201,6 +1210,12 @@ export type ExtensionUIResponse =
 	| { type: "extension_ui_response"; id: string; value: string }
 	| { type: "extension_ui_response"; id: string; confirmed: boolean }
 	| { type: "extension_ui_response"; id: string; askDialog: ExtensionAskDialogResult }
+	/** Upstream `ask` protocol: one answer per question, in request order. */
+	| {
+			type: "extension_ui_response";
+			id: string;
+			answers: Array<{ id: string; selectedOptions: string[]; customInput?: string }>;
+	  }
 	| { type: "extension_ui_response"; id: string; cancelled: true; timedOut?: boolean };
 
 // ============================================================================
@@ -1423,6 +1438,7 @@ export const BLOCKING_UI_METHODS: Record<string, true> = {
 	select: true,
 	confirm: true,
 	askDialog: true,
+	ask: true,
 	input: true,
 	editor: true,
 	open_url: true,

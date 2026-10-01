@@ -519,6 +519,8 @@ export class SidecarManager extends EventEmitter {
 				void this.#rpcClient
 					.command({ type: "set_event_filter", events: Object.keys(AGENT_EVENT_TYPES) })
 					.catch(() => {});
+				// Opt into upstream's `ask` protocol — the GUI renders ask dialogs.
+				void this.#rpcClient.command({ type: "set_ask_dialog", enabled: true }).catch(() => {});
 			}
 			announceReady();
 		};

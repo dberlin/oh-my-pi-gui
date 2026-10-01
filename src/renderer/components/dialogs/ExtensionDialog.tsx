@@ -68,7 +68,7 @@ function useCountdown(request: ExtensionUIRequest | null): number | null {
 			? request.timeout
 			: request && request.method === "confirm"
 				? request.timeout
-				: request && (request.method === "input" || request.method === "askDialog")
+				: request && (request.method === "input" || request.method === "askDialog" || request.method === "ask")
 					? request.timeout
 					: undefined;
 	// Remaining time is derived PER REQUEST at render: a state-only countdown
@@ -240,7 +240,7 @@ function AskDialog({
 	onSubmit,
 	onCancel,
 }: {
-	request: Extract<ExtensionUIRequest, { method: "askDialog" }>;
+	request: Extract<ExtensionUIRequest, { method: "askDialog" | "ask" }>;
 	remaining: number | null;
 	onSubmit: (result: ExtensionAskDialogResult) => void;
 	onCancel: () => void;
@@ -561,6 +561,7 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 			| { value: string }
 			| { confirmed: boolean }
 			| { askDialog: ExtensionAskDialogResult }
+			| { answers: Array<{ id: string; selectedOptions: string[]; customInput?: string }> }
 			| { cancelled: true },
 	) => {
 		window.omp.ui.respondExtensionUi({ type: "extension_ui_response", id: request.id, ...response });
@@ -607,6 +608,31 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 					key={request.id}
 					onCancel={cancel}
 					onSubmit={result => respond({ askDialog: result })}
+					remaining={remaining}
+					request={request}
+				/>
+			);
+		case "ask":
+			// Upstream's opt-in protocol (enabled via set_ask_dialog at session
+			// start): same dialog, but the wire wants one `answers` entry per
+			// question. "Chat instead" has no answers shape — report it as a cancel.
+			return (
+				<AskDialog
+					key={request.id}
+					onCancel={cancel}
+					onSubmit={result =>
+						respond(
+							result.kind === "submit"
+								? {
+										answers: result.results.map(item => ({
+											id: item.id,
+											selectedOptions: item.selectedOptions,
+											customInput: item.customInput,
+										})),
+									}
+								: { cancelled: true },
+						)
+					}
 					remaining={remaining}
 					request={request}
 				/>
