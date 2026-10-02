@@ -109,5 +109,6 @@ publish:
   owner: nornzach
   repo: oh-my-pi-gui
 
-electronLanguages:
-  - en
+# NO `electronLanguages` here on purpose — see the note in
+# electron-builder.win.yml: exact-basename matching deleted every `locales/*.pak`,
+# and the missing `en-US.pak` makes Chromium abort the renderer (issue #12).
