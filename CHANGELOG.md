@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.9.15] - 2026-10-02
+
+### Changed
+
+- Bundled agent rebuilt from upstream `main` at monorepo merge `a859518c`: RPC user input now flows through a single ordered pipeline (`dispatchOrderedUserInput`) that hooks extension `input` handlers, skills, and built-in slash commands before admission; a new `goal` command and goal-mode state land in `get_state`; `fork` accepts an optional `entryId` and refuses while the session is busy; session-change commands (new/switch/drop/branch/fork) quiesce pending goal continuations before switching.
+
 ### Fixed
 
 - **Blank window on Windows (issue #12)**: `electronLanguages: [en]` in the electron-builder configs matched none of Electron's `locales/*.pak` basenames (`en-US.pak`, not `en.pak`), so the build stripped **every** Chromium locale file. Chromium hard-requires `locales/en-US.pak` and aborts the renderer without it — the window drew for an instant, then stayed black. Removed `electronLanguages` from all three configs, so packages ship Electron's stock locale set again (verified: the shipped v0.9.14 payloads have an empty `locales/`; the same binaries run with paks restored). — thanks [@mwyborski](https://github.com/mwyborski) ([#13](https://github.com/nornzach/oh-my-pi-gui/pull/13))
