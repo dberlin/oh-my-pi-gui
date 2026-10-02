@@ -93,6 +93,12 @@ linux:
     entry:
       StartupWMClass: omp-gui
 
+# Root compression "maximum" maps to xz on the FUSE2 toolset, which
+# AppImageHub's mounter and some FUSE environments can't open — gzip is the
+# canonical AppImage compression.
+appImage:
+  compression: gzip
+
 # Default deb artifactName embeds the scoped package name (@oh-my-pi/omp-gui)
 # — the slash makes fpm write into a nonexistent dist/@oh-my-pi/ directory.
 deb:
