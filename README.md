@@ -215,7 +215,7 @@ Never stage `packages/gui/` into the monorepo: its untracked status there is int
 
 #### Build from source
 
-**Prerequisites:** Git and [Bun](https://bun.sh) **≥ 1.4**. macOS is required for the macOS sidecar and DMG commands; Windows x64 and Linux x64 (AppImage/deb) can be cross-built — Linux packages build natively on Ubuntu via `bun run package:linux` (or CI: `.github/workflows/release-linux.yml`).
+**Prerequisites:** Git and [Bun](https://bun.sh) **≥ 1.4**. macOS is required for the macOS sidecar and DMG commands; Windows x64 and Linux x64 (AppImage/deb) can be cross-built — Linux packages build natively on Ubuntu via `bun run package:linux` (or CI: `.github/workflows/release-linux.yml`); Windows x64 packages build natively via `bun run package:win` (or CI: `.github/workflows/release-windows.yml`).
 
 ```bash
 # Clone the monorepo fork, then nest the GUI repository inside it.
@@ -504,7 +504,7 @@ omp-monorepo/                    # nornzach/oh-my-pi：fork 与 sidecar 构建�
 
 #### 从源码构建
 
-**前置条件：**Git、[Bun](https://bun.sh) **≥ 1.4**。macOS sidecar 与 DMG 命令需要 macOS；Windows x64 sidecar 可以在 macOS 或 Linux 上交叉构建，但仍需相邻的 monorepo。
+**前置条件：**Git、[Bun](https://bun.sh) **≥ 1.4**。macOS sidecar 与 DMG 命令需要 macOS；Windows x64 sidecar 可以在 macOS 或 Linux 上交叉构建，但仍需相邻的 monorepo。Windows 安装包可在 Windows 上用 `bun run package:win` 构建，或由 CI(`.github/workflows/release-windows.yml`)在发布时自动构建并附加。
 
 ```bash
 # 克隆 monorepo fork，再将 GUI 仓库嵌套其中。

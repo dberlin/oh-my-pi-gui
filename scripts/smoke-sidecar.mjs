@@ -13,9 +13,12 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
-const CLI = new URL("../../coding-agent/src/cli.ts", import.meta.url).pathname;
-const CWD = new URL("../../../", import.meta.url).pathname;
+// `URL.pathname` keeps a leading slash on Windows (`/E:/…`), which `spawn`
+// rejects as a missing cwd — the probe would ENOENT on a healthy binary.
+const CLI = fileURLToPath(new URL("../../coding-agent/src/cli.ts", import.meta.url));
+const CWD = fileURLToPath(new URL("../../../", import.meta.url));
 const WEDGE_MS = 6000;
 const HARD_TIMEOUT_MS = Number(process.env.OMP_SIDECAR_SMOKE_TIMEOUT_MS ?? 40_000);
 
