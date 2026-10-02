@@ -4,8 +4,8 @@
 
 ### Fixed
 
-- **Blank window on Windows (issue #12)**: `electronLanguages: [en]` in the electron-builder configs matched none of Electron's `locales/*.pak` basenames (`en-US.pak`, not `en.pak`), so the build stripped **every** Chromium locale file. Chromium hard-requires `locales/en-US.pak` and aborts the renderer without it — the window drew for an instant, then stayed black. Removed `electronLanguages` from all three configs, so packages ship Electron's stock locale set again (verified: the shipped v0.9.14 payloads have an empty `locales/`; the same binaries run with paks restored).
-- `bun run build` failed after `electron-vite build` on Windows: `check-main-bundle.ts` resolved its bundle with `URL.pathname`, which keeps a leading slash (`/E:/…`) on Windows. Now uses `fileURLToPath`.
+- **Blank window on Windows (issue #12)**: `electronLanguages: [en]` in the electron-builder configs matched none of Electron's `locales/*.pak` basenames (`en-US.pak`, not `en.pak`), so the build stripped **every** Chromium locale file. Chromium hard-requires `locales/en-US.pak` and aborts the renderer without it — the window drew for an instant, then stayed black. Removed `electronLanguages` from all three configs, so packages ship Electron's stock locale set again (verified: the shipped v0.9.14 payloads have an empty `locales/`; the same binaries run with paks restored). — thanks [@mwyborski](https://github.com/mwyborski) ([#13](https://github.com/nornzach/oh-my-pi-gui/pull/13))
+- `bun run build` failed after `electron-vite build` on Windows: `check-main-bundle.ts` resolved its bundle with `URL.pathname`, which keeps a leading slash (`/E:/…`) on Windows. Now uses `fileURLToPath`. — thanks [@mwyborski](https://github.com/mwyborski) ([#13](https://github.com/nornzach/oh-my-pi-gui/pull/13))
 
 ## [0.9.14] - 2026-10-01
 
