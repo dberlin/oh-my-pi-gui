@@ -150,6 +150,7 @@ Never commit sidecar binaries. Never push to `upstream`.
 
 ## Build, Test, Release
 
+- Commit messages carry no AI attribution trailers — no `Generated with`, `Co-Authored-By`, or similar lines.
 - Check: `bun run check:types` (tsc) and `bunx biome check .` — keep touched files clean even if legacy diagnostics remain.
 - Test: `bunx vitest run` (full suite must stay green).
 - Build: `bun run build` (electron-vite → `out/`), then `bun run package:mac:arm64 -- --publish never` (arm64) or `bun run package:mac:x64 -- --publish never` (Intel).
