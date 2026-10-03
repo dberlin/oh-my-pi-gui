@@ -114,6 +114,7 @@ jobs:
 
       - name: Build GUI + Windows packages
         working-directory: oh-my-pi/packages/gui
+        shell: bash
         # NOTE: invoke electron-builder through bun — the bunx shim falls back
         # to Node, which crashes on ESM deps under Node < 22 (see issue #10).
         # The monorepo's bun install hoists deps to the workspace root, so the
