@@ -128,7 +128,7 @@ Inspect every artifact before publishing:
 - Mount each DMG; verify the seal: `codesign --verify --deep --strict --verbose=2 "<path>/omp.app"`.
 - `file "<path>/omp.app/Contents/Resources/omp"` — the bundled sidecar arch must match the DMG (`omp-X.Y.Z-arm64.dmg` = arm64; `omp-X.Y.Z.dmg` = Intel).
 - Launch each package on a compatible host: sidecar reaches `ready`, `get_settings` RPC succeeds, one settings toggle persists.
-- Windows: `file win-unpacked/resources/omp.exe`.
+- Windows: `file win-unpacked/resources/omp.exe` (arch must be x86-64). Preferred path is CI: `.github/workflows/release-windows.yml` (windows-latest) runs on release publish — or dispatch it for an existing tag — and reproduces the sidecar from `sidecar-source.json`'s monorepo pin, smoke-tests it (sidecar RPC handshake + packaged-GUI launch with no renderer crash, plus the locale-pak regression guard), then attaches the setup/portable installers + `latest.yml` itself. Local `bun run package:win -- --publish never` remains available on a Windows host.
 - Linux is built by CI, not locally: `.github/workflows/release-linux.yml` (ubuntu-latest) runs on release publish — or dispatch it for an existing tag — and reproduces the sidecar from `sidecar-source.json`'s monorepo pin, smoke-tests it, then attaches AppImage + deb + `latest-linux.yml` itself.
 
 ### Phase 6 — Publish
