@@ -144,7 +144,7 @@ jobs:
         # also appends `renderer-process … crashed` to the runtime log — both are
         # checked. Only log lines written after this launch are considered.
         run: |
-          $runtimeLog = Join-Path $env:APPDATA "@oh-my-pi\omp-gui\logs\gui-runtime.jsonl"
+          $runtimeLog = Join-Path $env:APPDATA "omp\logs\gui-runtime.jsonl"
           $before = 0
           if (Test-Path $runtimeLog) { $before = (Get-Content $runtimeLog | Measure-Object -Line).Lines }
 
