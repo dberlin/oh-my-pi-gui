@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Windows release CI** (`.github/workflows/release-windows.yml`): builds the NSIS installer, portable exe, and `latest.yml` on `windows-latest` at release publish — dispatchable for existing tags — smoke-tests the sidecar, verifies the PE architecture, guards the locale-pak set (issue #12 regression guard), and launches the packaged GUI to fail on a dying renderer. — thanks [@mwyborski](https://github.com/mwyborski) ([#14](https://github.com/nornzach/oh-my-pi-gui/pull/14))
+
 ## [0.9.15] - 2026-10-02
 
 ### Changed
