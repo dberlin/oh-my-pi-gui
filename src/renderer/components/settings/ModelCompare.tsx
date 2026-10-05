@@ -22,12 +22,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, RefreshCw, Search } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-	ModelInfo,
-	ModelRoleEntry,
-	ModelRoleMetadata,
-	ProviderInfo,
-} from "../../../shared/rpc-types";
+import type { ModelInfo, ModelRoleEntry, ModelRoleMetadata, ProviderInfo } from "../../../shared/rpc-types";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { loadModelRoleSettings, saveModelRoleAssignment } from "../../lib/model-role-settings";
@@ -318,10 +313,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 
 	const metaById = useMemo(() => new Map((roleMeta ?? []).map(m => [m.id, m])), [roleMeta]);
 
-	const rows = useMemo<Row[]>(
-		() => buildModelRows({ models, providers, roles }),
-		[models, providers, roles],
-	);
+	const rows = useMemo<Row[]>(() => buildModelRows({ models, providers, roles }), [models, providers, roles]);
 
 	const providerOptions = useMemo(() => {
 		const nameById = new Map<string, string>();
@@ -413,6 +405,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 						title: t("modelCompare.roleFailed"),
 						message: cause instanceof Error ? cause.message : String(cause),
 					});
+					await reloadRoles(generation);
 				}
 			} finally {
 				if (generation === sessionGeneration.current) {

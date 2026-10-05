@@ -229,7 +229,7 @@ export interface GainData {
 	projects: string[];
 }
 
-// GET /api/stats/requests, GET /api/request/:id
+// GET /api/stats/recent (bounded recent array), GET /api/request/:id
 
 export interface RequestRow {
 	id?: number;
@@ -252,13 +252,6 @@ export interface RequestRow {
 		totalTokens: number;
 		cost: { total: number };
 	};
-}
-
-export interface RequestPage {
-	rows: RequestRow[];
-	total: number;
-	nextCursor: string | null;
-	snapshotAt: number;
 }
 
 export interface RequestDetail extends RequestRow {

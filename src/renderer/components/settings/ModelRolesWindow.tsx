@@ -371,6 +371,7 @@ export function ModelRolesWindow() {
 					title: t("modelRoles.failed"),
 					message: cause instanceof Error ? cause.message : String(cause),
 				});
+				await load();
 			}
 		} finally {
 			if (session === sessionGeneration.current) {

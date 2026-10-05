@@ -11,7 +11,7 @@
 import type { AvailableCommand, ImageContent, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession } from "../hooks/use-rpc-events";
 import { toast } from "../stores/toast";
-import { buildCurrentCommandMenu, type CommandAffordance } from "./command-registry";
+import { buildCurrentCommandMenu, type CommandAffordance, type CommandMenuItem } from "./command-registry";
 import { translate } from "./i18n";
 import type { TabRpc } from "./tab-rpc";
 
@@ -34,19 +34,22 @@ export type ComposerSubmit =
 	/** Dispatch this lazy request; on success call {@link settleComposerResponse}. */
 	| { kind: "send"; request: () => Promise<RpcResponse> };
 
-function runGuiAffordance(affordance: CommandAffordance, args?: string): boolean {
+function runGuiAffordance(affordance: CommandAffordance, args?: string, beforeRun?: () => void): boolean {
 	const reportFailure = (cause: unknown): void => {
 		toast({ variant: "error", title: translate("palette.failed"), message: String(cause) });
 	};
 	switch (affordance.kind) {
 		case "action":
+			beforeRun?.();
 			void Promise.resolve(affordance.run(args)).catch(reportFailure);
 			return true;
 		case "toggle":
+			beforeRun?.();
 			void Promise.resolve(affordance.set(!affordance.get())).catch(reportFailure);
 			return true;
 		case "picker":
 		case "window":
+			beforeRun?.();
 			affordance.open();
 			return true;
 		case "unavailable":
@@ -59,38 +62,54 @@ function runGuiAffordance(affordance: CommandAffordance, args?: string): boolean
 	}
 }
 
-function findGuiOnlyBuiltin(message: string, commands: AvailableCommand[]): AvailableCommand | undefined {
-	const name = /^\/([a-z0-9-]+)/i.exec(message)?.[1]?.toLowerCase();
+function findGuiOnlyBuiltin(message: string, commands: AvailableCommand[]): CommandMenuItem | undefined {
+	const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(message.trim());
+	const name = match?.[1]?.toLowerCase();
 	if (!name) return undefined;
 	const command = commands.find(
 		command => command.name.toLowerCase() === name || command.aliases?.some(alias => alias.toLowerCase() === name),
 	);
-	if (GUI_CONFIRMATION_COMMANDS.has(name) && (!command || command.source === "builtin")) {
-		return command ?? { name, source: "builtin", description: name, textModeExecutable: false };
+	// Advertised vanilla builtins have text handlers; TUI-only builtins are
+	// omitted. Explicit extension/template ownership and executable overrides
+	// retain dispatch, while absent GUI commands use their native affordances.
+	if (command && command.source !== "builtin") return undefined;
+	const needsConfirmation = GUI_CONFIRMATION_COMMANDS.has(name);
+	if (!needsConfirmation && command && command.textModeExecutable !== false) return undefined;
+	const primaryName = command?.name.toLowerCase() ?? name;
+	const item = buildCurrentCommandMenu(commands).find(
+		candidate =>
+			candidate.name.toLowerCase() === primaryName || candidate.aliases?.some(alias => alias.toLowerCase() === name),
+	);
+	if (!item) return undefined;
+	if (needsConfirmation || command?.textModeExecutable === false) return item;
+	switch (item.affordance.kind) {
+		case "action":
+		case "toggle":
+		case "picker":
+		case "window":
+		case "unavailable":
+			if (match?.[2]?.trim()) {
+				return {
+					...item,
+					affordance: { kind: "unavailable", reason: translate("unavailable.commandArguments") },
+				};
+			}
+			return item;
+		default:
+			return undefined;
 	}
-	return command?.source === "builtin" && command.textModeExecutable === false ? command : undefined;
 }
 
 export function isGuiOnlyBuiltinCommand(message: string, commands: AvailableCommand[]): boolean {
 	return findGuiOnlyBuiltin(message, commands) !== undefined;
 }
 
-function runGuiOnlyBuiltin(message: string, commands: AvailableCommand[]): boolean | undefined {
-	const wireCommand = findGuiOnlyBuiltin(message, commands);
-	if (!wireCommand) return undefined;
-	const match = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/i.exec(message.trim());
-	const name = match?.[1]?.toLowerCase() ?? wireCommand.name.toLowerCase();
+function runGuiOnlyBuiltin(message: string, commands: AvailableCommand[], beforeRun?: () => void): boolean | undefined {
+	const item = findGuiOnlyBuiltin(message, commands);
+	if (!item) return undefined;
+	const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(message.trim());
 	const args = match?.[2]?.trim() || undefined;
-	const item = buildCurrentCommandMenu(commands).find(
-		candidate =>
-			candidate.name.toLowerCase() === wireCommand.name.toLowerCase() ||
-			candidate.aliases?.some(alias => alias.toLowerCase() === name),
-	);
-	if (!item) {
-		toast({ variant: "warning", message: translate("unavailable.tuiOnly") });
-		return false;
-	}
-	return runGuiAffordance(item.affordance, args);
+	return runGuiAffordance(item.affordance, args, beforeRun);
 }
 
 export function planComposerSubmit(input: {
@@ -100,29 +119,39 @@ export function planComposerSubmit(input: {
 	mode: ComposerSendMode;
 	commands: AvailableCommand[];
 	rpc?: Pick<TabRpc, "compact" | "followUp" | "prompt" | "steer">;
+	/** Clear the submitted draft before a native action can supply a replacement. */
+	beforeGuiCommand?: () => void;
 }): ComposerSubmit {
 	const { message, images, isStreaming, mode, commands, rpc = window.omp.rpc } = input;
 	const isSlashCommand = message.startsWith("/");
-	if (isSlashCommand && isStreaming) {
-		const commandName = /^\/([a-z-]+)/i.exec(message)?.[1]?.toLowerCase();
-		if (commandName !== undefined && SESSION_REPLACING_COMMANDS[commandName]) {
-			toast({ variant: "warning", message: translate("sessionSwitch.busyBlocked") });
-			return { kind: "blocked" };
-		}
+	const slash = isSlashCommand ? /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(message.trim()) : null;
+	const commandName = slash?.[1]?.toLowerCase();
+	const args = slash?.[2]?.trim() || undefined;
+	const advertised = commandName
+		? commands.find(
+				command =>
+					command.name.toLowerCase() === commandName ||
+					command.aliases?.some(alias => alias.toLowerCase() === commandName),
+			)
+		: undefined;
+	const nativeBuiltin = !advertised || advertised.source === "builtin";
+	if (nativeBuiltin && isStreaming && commandName !== undefined && SESSION_REPLACING_COMMANDS[commandName]) {
+		toast({ variant: "warning", message: translate("sessionSwitch.busyBlocked") });
+		return { kind: "blocked" };
 	}
 	// Typed `/clear` (no args) takes the native clear_context RPC — forwarding it
 	// as prompt text would fall through the TUI-only builtin and reach the model
 	// as a literal user message.
-	if (isSlashCommand && message.trim() === "/clear") {
+	if (nativeBuiltin && commandName === "clear" && args === undefined) {
 		return { kind: "clear" };
 	}
 	// Manual compaction can spend minutes in provider summarization. Route the
-	// exact command through its dedicated RPC so it gets the compact timeout
-	// instead of timing out as an 8s prompt while still blocking the RPC queue.
-	if (isSlashCommand && message.trim() === "/compact") {
-		return { kind: "send", request: () => rpc.compact() };
+	// parameterized command through its dedicated RPC so instructions survive
+	// and it gets the compact timeout instead of the short prompt timeout.
+	if (nativeBuiltin && commandName === "compact") {
+		return { kind: "send", request: () => rpc.compact(args) };
 	}
-	const guiHandled = isSlashCommand ? runGuiOnlyBuiltin(message, commands) : undefined;
+	const guiHandled = isSlashCommand ? runGuiOnlyBuiltin(message, commands, input.beforeGuiCommand) : undefined;
 	if (guiHandled !== undefined) return { kind: guiHandled ? "handled" : "blocked" };
 	// The sidecar owns the authoritative run state. Passing the intended queue
 	// lane through prompt closes the turn-end race: idle starts immediately,

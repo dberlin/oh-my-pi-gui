@@ -22,16 +22,20 @@ Fork-specific changes relative to `nornzach/oh-my-pi-gui`. The shared `CHANGELOG
 
 - Tab recovery and usage updates stay tied to the owning session across tab switches, context clears, and sidecar restarts.
 - Split-pane find and disclosure choices stay within their owning pane, and find reveals matches inside collapsed reasoning groups.
-- Model-role edits preserve concurrent sibling changes and update explicit runtime role overrides.
-- SSH settings retain the owning session's profile, dotenv, and launch-overlay configuration across directory changes.
+- Model-role edits preserve concurrent sibling changes and report saved assignments that are shadowed by another configuration source.
+- Settings follow the owning session's current project while retaining its launch profile, dotenv, and resolved overlay files.
 - Frustration stats now show percentages, counts, and model-version groups; Sync reports completed indexing counts or ongoing background work.
 - Provider usage and quota windows load and refresh together, with one error boundary instead of mixed snapshots.
-- **Remote settings compatibility**: model roles and schema-backed settings now use the installed omp CLI instead of unsupported RPC commands, with load failures shown in the dialog.
+- Local and SSH model roles and schema-backed settings use the vanilla omp config CLI, with load failures shown in the dialog.
 - Update error banners can now be dismissed permanently for the affected release without hiding future release warnings.
 - **macOS signing identity**: `mac.identity` was pinned to `"-"` so a machine with no certificate would still produce a sealed ad-hoc bundle, preserving macOS's user-override flow instead of reporting the app as damaged. But a non-null `identity` becomes the keychain *search qualifier*, and `"-"` matches no identity line, so `Developer ID Application` lookup, the `Mac Developer` development fallback, and `CSC_NAME` all missed — machines that did hold a certificate were silently forced to ad-hoc as well, and with no stable code identity macOS re-prompted for the microphone and local-network access declared here on every rebuild. The identity is now resolved per machine by `electron-builder.identity.cjs`, which leaves `identity` unset when the keychain holds a usable certificate and falls back to the ad-hoc seal only when it does not.
 - **Assistant reaction badges**: upstream 0.9.4 lifts an assistant's opening emoji onto the user turn it answers, but wires it inside `ChatStream`, which this fork replaced with `TranscriptViewport` — so the feature arrived inert, computed and rendered but passed by nobody. The viewport now forwards the reaction and the badge appears as upstream intended.
 - Management-page searches now stay scoped to Skills, MCP, resources, hooks, and commands instead of replacing the page with global setting results.
-- Bundled sidecar builds verify GUI protocol compatibility against the required agent fork before compiling.
+- **Vanilla agent compatibility**: use pinned `can1357/oh-my-pi` source for bundled builds and installed vanilla omp over SSH, without an agent fork. Align RPC startup, settings CLI access, text queues, and thinking levels with upstream; unsupported fork-only controls report errors instead of simulated success.
+- Bundled builds restore pre-existing native addons and generated assets after both successful and failed compilation.
+- The bundled stats dashboard runs privately inside the GUI without opening a browser or requiring fork-only CLI flags.
+- GUI-native slash commands target the submitting pane, preserve composer prefills, and stay out of model context when vanilla omits builtin metadata.
+- Typed commands preserve compaction instructions and upstream argument and extension ownership semantics.
 
 ## Imported fork history
 

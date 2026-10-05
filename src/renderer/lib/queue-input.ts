@@ -1,10 +1,10 @@
 /**
- * Queue shorthand parsing, ported verbatim from the TUI
- * (`packages/coding-agent/src/modes/queue-input.ts`). One parser feeds BOTH
- * the composer preview badge and the submit dispatch so highlight and split
- * can never drift (see plan/17 §3.1).
+ * GUI follow-up shorthand parsing. One parser feeds BOTH the composer preview
+ * badge and submit dispatch so highlighting and splitting cannot drift.
+ * The resulting strings are submitted through the canonical follow_up command;
+ * this parser does not require a sidecar shorthand parser or queue IDs.
  *
- * - `->` / `=>` prefix = yield-queue shorthand (identical semantics)
+ * - `->` / `=>` prefix = follow-up queue shorthand (identical semantics)
  * - Enumerated lists (decimal / Roman / alpha, same indent + punctuation,
  *   strictly sequential) split into one queue entry per item
  * - Non-list text (after the prefix) is a single entry
@@ -29,7 +29,7 @@ interface EnumeratedList {
 	items: EnumeratedItem[];
 }
 
-/** Extract the message body from the `->` / `=>` yield-queue shorthand. */
+/** Extract the message body from the `->` / `=>` follow-up shorthand. */
 export function parseQueueShorthand(text: string): string | undefined {
 	const prefix = QUEUE_PREFIXES.find(candidate => text.startsWith(candidate));
 	return prefix ? text.slice(prefix.length).trim() : undefined;

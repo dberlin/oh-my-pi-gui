@@ -207,7 +207,7 @@ export const createSettingsStore = (command: TabCommand = activeTabCommand) => {
 					followUpMode: state.followUpMode,
 					interruptMode: state.interruptMode,
 					autoCompaction: state.autoCompactionEnabled,
-					autoRetry: state.autoRetryEnabled,
+					...(state.autoRetryEnabled !== undefined ? { autoRetry: state.autoRetryEnabled } : {}),
 				});
 				void syncApproval();
 				void syncDisplay();

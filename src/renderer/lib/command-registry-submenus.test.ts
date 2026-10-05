@@ -267,6 +267,24 @@ describe("nativized action wiring", () => {
 		expect(lastToast()?.variant).toBe("info");
 	});
 
+	it.each(["advisor on", "computer on", "browser headless"])(
+		"%s does not toast an overridden persisted write as active success",
+		async name => {
+			rpc.setSetting.mockResolvedValueOnce({
+				type: "response",
+				command: "set_setting",
+				success: false,
+				code: "setting_not_applied",
+				error: "Saved globally, but project settings still override it.",
+				data: { saved: true, savedValue: true, effectiveValue: false, overriddenBy: "project" },
+			});
+			const affordance = wired(name);
+			if (affordance.kind !== "action") throw new Error("expected action");
+			await expect(affordance.run()).rejects.toThrow("project settings");
+			expect(useToastStore.getState().toasts.some(item => item.variant === "success")).toBe(false);
+		},
+	);
+
 	it("marketplace update remains an action while install opens the confirming UI", async () => {
 		const update = wired("marketplace update");
 		if (update.kind !== "action") throw new Error("expected action");

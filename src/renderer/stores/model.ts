@@ -9,6 +9,7 @@ import type {
 	RpcSessionState,
 	ThinkingLevel,
 } from "../../shared/rpc-types";
+import { isThinkingLevel } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
 import { toast } from "./toast";
@@ -16,9 +17,7 @@ import { toast } from "./toast";
 export interface ModelStore {
 	model: ModelInfo | null;
 	thinkingLevel: ThinkingLevel | undefined;
-	/** Configured selector ("auto" or a level) — what the composer picker checks, vs the effective `thinkingLevel`. */
-	thinkingConfigured: ThinkingLevel | "auto" | undefined;
-	/** Levels the active model supports; empty = model does not reason. */
+	/** Authoritative concrete levels from get_available_thinking_levels; empty = unavailable. */
 	availableThinkingLevels: ThinkingLevel[];
 	fastModeEnabled: boolean;
 	fastModeActive: boolean;
@@ -33,6 +32,7 @@ export interface ModelStore {
 	catalogRefreshPending: boolean;
 	catalogGeneration: number;
 	setFromState: (state: RpcSessionState) => void;
+	refreshThinkingLevels: (isCurrent?: () => boolean) => Promise<void>;
 	/** Fetch the model list from the active sidecar and commit it under its
 	 * catalog generation. Force after any mutation that can change the catalog. */
 	refreshAvailableModels: (forceRefresh?: boolean) => Promise<AvailableModelsResult>;
@@ -61,7 +61,6 @@ interface CatalogSnapshot {
 const initialState = {
 	model: null as ModelInfo | null,
 	thinkingLevel: undefined as ThinkingLevel | undefined,
-	thinkingConfigured: undefined as ThinkingLevel | "auto" | undefined,
 	availableThinkingLevels: [] as ThinkingLevel[],
 	fastModeEnabled: false,
 	fastModeActive: false,
@@ -75,6 +74,8 @@ const initialState = {
 
 export const createModelStore = (command: TabCommand = activeTabCommand) =>
 	createStore<ModelStore>()((set, get) => {
+		let thinkingRequest = 0;
+		let thinkingModel: ModelInfo | null = null;
 		/** Commit one catalog read, dropping anything older than what is already applied. */
 		const applyCatalog = (snapshot: CatalogSnapshot): void => {
 			set(state =>
@@ -108,16 +109,37 @@ export const createModelStore = (command: TabCommand = activeTabCommand) =>
 		};
 		return {
 			...initialState,
-			setFromState: state =>
+			setFromState: state => {
+				const nextModel = state.model ?? null;
+				if (thinkingModel?.provider !== nextModel?.provider || thinkingModel?.id !== nextModel?.id) {
+					thinkingModel = nextModel;
+					thinkingRequest++;
+					set({ availableThinkingLevels: [] });
+				}
 				set({
 					model: state.model ?? null,
 					thinkingLevel: state.thinkingLevel,
-					thinkingConfigured: state.thinkingConfigured,
-					availableThinkingLevels: state.availableThinkingLevels ?? [],
 					fastModeEnabled: state.fastModeEnabled,
 					fastModeActive: state.fastModeActive,
 					tokensPerSecond: state.tokensPerSecond,
-				}),
+				});
+			},
+			refreshThinkingLevels: async (isCurrent = () => true) => {
+				const request = ++thinkingRequest;
+				const owner = thinkingModel;
+				try {
+					const response = await command({ type: "get_available_thinking_levels" });
+					if (request !== thinkingRequest || owner !== thinkingModel || !isCurrent()) return;
+					const data = response.success ? (response.data as { levels?: unknown } | undefined) : undefined;
+					set({
+						availableThinkingLevels: Array.isArray(data?.levels) ? data.levels.filter(isThinkingLevel) : [],
+					});
+				} catch {
+					if (request === thinkingRequest && owner === thinkingModel && isCurrent()) {
+						set({ availableThinkingLevels: [] });
+					}
+				}
+			},
 			/** Both catalog reads describe the same generation axis, so they commit
 			 * through one path: whatever a response actually carried is applied, and
 			 * anything older than the applied generation is dropped. */
@@ -159,7 +181,11 @@ export const createModelStore = (command: TabCommand = activeTabCommand) =>
 					toast({ variant: "error", title: translate("model.fastMode"), message: res.error });
 				}
 			},
-			reset: () => set(initialState),
+			reset: () => {
+				thinkingRequest++;
+				thinkingModel = null;
+				set(initialState);
+			},
 		};
 	});
 

@@ -1,9 +1,4 @@
-/**
- * QueuePanel explicit reorder buttons (a11y counterpart of the drag handle):
- * ▲/▼ on a row calls queue_move with the adjacent target index; the buttons
- * are disabled at the lane edges (first ▲, last ▼) so the clamp UX is local,
- * and the store applies the reorder optimistically.
- */
+/** Canonical text queues and optional stable-ID extension controls. */
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -77,6 +72,7 @@ async function mount(steering: RpcQueuedMessage[]): Promise<void> {
 		rpc: {
 			// The mount-time hydrate pull replaces the store, so it must serve
 			// the same rows the test seeded.
+			getState: async () => ok({}),
 			getQueue,
 			queueEdit,
 			queueMove,
@@ -105,6 +101,118 @@ afterEach(async () => {
 	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
 	useSessionStore.getState().reset();
 	vi.restoreAllMocks();
+});
+
+async function mountVanilla(steering: string[], followUp: string[] = []) {
+	await mount([]);
+	let snapshot = { steering, followUp };
+	const commands: object[] = [];
+	// The test installed this minimal preload bridge in mount().
+	const bridge = window as unknown as { omp: { rpc: Record<string, unknown> } };
+	const rpc = bridge.omp.rpc;
+	rpc.command = async (command: { type: string; message?: string; queue?: "steering" | "followUp" }) => {
+		commands.push(command);
+		if (command.type === "get_state") return ok({ queuedMessages: snapshot });
+		const lane = command.type === "promote_queued_message" ? "followUp" : command.queue;
+		if (!lane) throw new Error("Unexpected queue command");
+		const index = snapshot[lane].indexOf(command.message ?? "");
+		const changed = index >= 0;
+		if (changed) {
+			const remaining = snapshot[lane].filter((_text, position) => position !== index);
+			snapshot =
+				command.type === "promote_queued_message"
+					? { steering: [...snapshot.steering, command.message!], followUp: remaining }
+					: { ...snapshot, [lane]: remaining };
+			useQueueStore.getState().setFromFrame(snapshot);
+		}
+		return ok(command.type === "promote_queued_message" ? { promoted: changed } : { removed: changed });
+	};
+	await act(async () => useQueueStore.getState().setFromFrame(snapshot));
+	await flush();
+	return { commands, rpc };
+}
+
+describe("QueuePanel vanilla queues", () => {
+	it("displays exact text and disables unsupported ID-only controls", async () => {
+		const { commands } = await mountVanilla(["first", "second"], ["later"]);
+		expect(container.textContent).toContain("first");
+		expect(container.textContent).toContain("second");
+		expect(container.textContent).toContain("later");
+		expect(buttonsByLabel("Edit")).toHaveLength(0);
+		for (const label of ["Move up", "Move down", "Clear", "Move to Queued", "Drag to reorder"]) {
+			const buttons = buttonsByLabel(label);
+			expect(buttons.length).toBeGreaterThan(0);
+			for (const button of buttons) {
+				expect(button.disabled).toBe(true);
+				await click(button);
+			}
+		}
+		expect(commands).toEqual([]);
+	});
+
+	it("removes one duplicate by exact text rather than a client display key", async () => {
+		const { commands } = await mountVanilla([], ["same", "middle", "same"]);
+		await click(buttonsByLabel("Remove")[2]!);
+		expect(commands[0]).toEqual({ type: "remove_queued_message", message: "same", queue: "followUp" });
+		expect(useQueueStore.getState().followUp.map(entry => entry.text)).toEqual(["middle", "same"]);
+	});
+
+	it("promotes only the first matching follow-up to the end of steering", async () => {
+		const { commands } = await mountVanilla(["existing"], ["same", "middle", "same"]);
+		await click(buttonsByLabel("Move to Steering")[2]!);
+		expect(commands[0]).toEqual({ type: "promote_queued_message", message: "same" });
+		expect(useQueueStore.getState().steering.map(entry => entry.text)).toEqual(["existing", "same"]);
+		expect(useQueueStore.getState().followUp.map(entry => entry.text)).toEqual(["middle", "same"]);
+	});
+
+	it("does not remove a guessed duplicate while a text command is pending or merely acknowledged", async () => {
+		const { rpc } = await mountVanilla([], ["same", "middle", "same"]);
+		const pending = Promise.withResolvers<{
+			type: "response";
+			command: string;
+			success: true;
+			data: { removed: boolean };
+		}>();
+		rpc.command = async (command: { type: string }) => {
+			if (command.type === "get_state")
+				return ok({ queuedMessages: { steering: [], followUp: ["same", "middle", "same"] } });
+			return pending.promise;
+		};
+		await click(buttonsByLabel("Remove")[2]!);
+		expect(useQueueStore.getState().followUp.map(entry => entry.text)).toEqual(["same", "middle", "same"]);
+		await act(async () =>
+			pending.resolve({
+				type: "response",
+				command: "remove_queued_message",
+				success: true,
+				data: { removed: true },
+			}),
+		);
+		await flush();
+		expect(useQueueStore.getState().followUp.map(entry => entry.text)).toEqual(["same", "middle", "same"]);
+		await act(async () => useQueueStore.getState().setFromFrame({ steering: [], followUp: ["middle", "same"] }));
+		expect(useQueueStore.getState().followUp.map(entry => entry.text)).toEqual(["middle", "same"]);
+	});
+
+	it("does not fake a removal when upstream reports the text already delivered", async () => {
+		const { rpc } = await mountVanilla(["claimed"]);
+		rpc.command = async (command: { type: string }) =>
+			command.type === "get_state"
+				? ok({ queuedMessages: { steering: ["claimed"], followUp: [] } })
+				: ok({ removed: false });
+		await click(buttonsByLabel("Remove")[0]!);
+		expect(useQueueStore.getState().steering.map(entry => entry.text)).toEqual(["claimed"]);
+	});
+
+	it("keeps the authoritative queue when a text removal rejects", async () => {
+		const { rpc } = await mountVanilla([], ["keep"]);
+		rpc.command = async (command: { type: string }) => {
+			if (command.type === "get_state") return ok({ queuedMessages: { steering: [], followUp: ["keep"] } });
+			throw new Error("Disconnected");
+		};
+		await click(buttonsByLabel("Remove")[0]!);
+		expect(useQueueStore.getState().followUp.map(entry => entry.text)).toEqual(["keep"]);
+	});
 });
 
 describe("QueuePanel editing", () => {

@@ -12,7 +12,7 @@ import type {
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { type AgentViewStore, useAgentViewStore } from "../stores/agent-view";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
-import { useModelStore } from "../stores/model";
+import { type ModelStore, useModelStore } from "../stores/model";
 import { type QueueStore, useQueueStore } from "../stores/queue";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import {
@@ -25,11 +25,7 @@ import {
 	withSessionRuntime,
 } from "../stores/session-runtime-context";
 import { type SettingsStore, useSettingsStore } from "../stores/settings";
-import {
-	historicalSubagentsFromMessages,
-	type SubagentsStore,
-	useSubagentsStore,
-} from "../stores/subagents";
+import { historicalSubagentsFromMessages, type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { useSubagentGraphStore } from "../stores/subagent-graph";
 import { ensureTabRuntime } from "../stores/tab-runtime";
 import { isTabClosed, useTabsStore } from "../stores/tabs";
@@ -64,6 +60,7 @@ export function applySessionState(state: RpcSessionState, fallbackName?: string)
 	if (useSessionStore.getState().sessionId !== state.sessionId) useSubagentGraphStore.getState().reset();
 	useModelStore.getState().setFromState(state);
 	useSessionStore.getState().setFromState(state);
+	if (state.queuedMessages) useQueueStore.getState().setFromFrame(state.queuedMessages);
 	useTabsStore.getState().applyHydratedCwd(state.cwd, runtime?.tabId ?? useTabsStore.getState().activeTabId);
 	writeUsage(state);
 	if (!state.sessionName && fallbackName) {
@@ -132,6 +129,13 @@ export async function refreshModelState(tabId = useTabsStore.getState().activeTa
 			// follow the switch even though the token count did not change.
 			writeUsage(state);
 		});
+		await sessionRuntimeStore<ModelStore>(tabId, "model")
+			?.getState()
+			.refreshThinkingLevels(
+				() =>
+					sessionRuntime(tabId) === runtime &&
+					sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId === sessionId,
+			);
 	} catch {
 		// Transient — the next hydration retries.
 	}
@@ -254,16 +258,16 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	} catch {
 		// Best-effort: the next ready transition retries.
 	}
-	const core = Promise.allSettled([
-		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
-		createSessionRpcClient(activeTabCommand).getMessages(),
-	]);
+	const stateResponse = initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" });
+	const core = Promise.allSettled([stateResponse, createSessionRpcClient(activeTabCommand).getMessages()]);
 	const subagentsResult = Promise.allSettled([activeTabCommand({ type: "get_subagents" })]);
 	const secondary = Promise.allSettled([
 		syncGoal("", activeTabCommand, isCurrent),
 		syncLoopMode("", activeTabCommand, isCurrent),
 		syncVibeMode("", activeTabCommand, isCurrent),
-		useQueueStore.getState().refresh(),
+		useQueueStore
+			.getState()
+			.refresh(stateResponse, () => isCurrent() && useSessionStore.getState().eventVersion === beforeEventVersion),
 		useSettingsStore.getState().syncDisplaySettings(),
 		useSettingsStore.getState().syncApproval(),
 	]);
@@ -298,6 +302,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 		}
 		if (!wire.isStreaming) useMessagesStore.getState().clearStreaming();
 	}
+	const thinkingLevels = isCurrent() ? useModelStore.getState().refreshThinkingLevels(isCurrent) : undefined;
 	const mainTranscriptReady = focusUnchanged && messagesResult.status === "fulfilled" && messagesResult.value.success;
 	if (mainTranscriptReady) {
 		const fetched = (messagesResult.value.data as { messages?: AgentMessage[] } | undefined)?.messages ?? [];
@@ -307,10 +312,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 			useMessagesStore.getState().clearDeliveredLiveMessages();
 		}
 		const authoritativeStreaming = eventsUnchanged ? stateIsStreaming : useSessionStore.getState().isStreaming;
-		if (
-			!authoritativeStreaming &&
-			tools.snapshotProjection().toolEventRevision === hydrationStartToolEventRevision
-		) {
+		if (!authoritativeStreaming && tools.snapshotProjection().toolEventRevision === hydrationStartToolEventRevision) {
 			tools.hydrateMessages(useMessagesStore.getState().messages, { turnIsLive: stateIsStreaming });
 		} else {
 			tools.reconcileStreamingMessages(
@@ -349,7 +351,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 			}
 		}
 	}
-	await secondary;
+	await Promise.all([secondary, thinkingLevels]);
 }
 
 function hydrationFailureMessage(result: PromiseSettledResult<RpcResponse>, fallback: string): string {
@@ -393,10 +395,8 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 
 	const beforeSessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
 	const beforeEventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
-	const coreResult = Promise.allSettled([
-		runtime.command({ type: "get_state" }),
-		createSessionRpcClient(runtime.command).getMessages(),
-	]);
+	const stateResponse = runtime.command({ type: "get_state" });
+	const coreResult = Promise.allSettled([stateResponse, createSessionRpcClient(runtime.command).getMessages()]);
 	const subagentsResult = Promise.allSettled([runtime.command({ type: "get_subagents" })]);
 	const queue = sessionRuntimeStore<QueueStore>(tabId, "queue")?.getState();
 	const settings = sessionRuntimeStore<SettingsStore>(tabId, "settings")?.getState();
@@ -409,10 +409,14 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		// afterwards; vibe emits nothing, so the Modes window mirrors toggles.
 		syncLoopMode(tabId, runtime.command, isCurrent),
 		syncVibeMode(tabId, runtime.command, isCurrent),
-		// Queue snapshot: queue_update frames keep it fresh afterwards;
-		// get_queue is only the hydrate fallback (boot/reconnect/session
-		// switch all land here). refresh() swallows its own failures.
-		queue?.refresh(),
+		// Reuse the core state snapshot so queue and turn state describe the
+		// same read. New events or a replaced hydration retire both together.
+		queue?.refresh(
+			stateResponse,
+			() =>
+				isCurrent() &&
+				sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion === beforeEventVersion,
+		),
 		// Project-scoped agent settings can differ between tab workspaces. The
 		// settings store is per-tab (each runtime owns one bound to its own
 		// command channel), so re-read this tab's sidecar on every hydrate; both
@@ -465,6 +469,9 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 			messages?.getState().clearStreaming();
 		}
 	}
+	const thinkingLevels = isCurrent()
+		? sessionRuntimeStore<ModelStore>(tabId, "model")?.getState().refreshThinkingLevels(isCurrent)
+		: undefined;
 
 	const mainTranscriptReady = isCurrent() && messagesResult.status === "fulfilled" && messagesResult.value.success;
 	if (mainTranscriptReady) {
@@ -509,7 +516,8 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		);
 		for (const snapshot of data?.subagents ?? []) roster.set(snapshot.id, snapshot);
 		if (subagents && subagents.getState().subagents === beforeRoster) {
-			const sameSession = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId === beforeSessionId;
+			const sameSession =
+				sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId === beforeSessionId;
 			subagents.getState().setSnapshots([...roster.values()], sameSession);
 		}
 	}
@@ -529,5 +537,5 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 			selectedView.markSelectedLoadError(error);
 		}
 	}
-	await secondaryResult;
+	await Promise.all([secondaryResult, thinkingLevels]);
 }

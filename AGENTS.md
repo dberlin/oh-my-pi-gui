@@ -7,20 +7,19 @@ This file governs the **omp GUI sub-repository**. Read it before any edit here �
 - **This repo is the real product repo:** [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui). It owns all GUI code, commits, tags, and GitHub Releases.
 - **Remote layout:** `origin` = `nornzach/oh-my-pi-gui` (push here). The surrounding monorepo's remotes are NOT this repo's remotes — never `git push` from inside `packages/gui/` expecting monorepo changes to go anywhere, and never push anything to `can1357`.
 
-### The three repos — never confuse them
+### Product and agent source — never confuse them
 
 | Repo | Role | Push? | Pull/sync from? |
 |---|---|---|---|
 | [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui) | **This repo** — GUI product, releases. | ✅ all GUI work | only own commits |
-| [`nornzach/oh-my-pi`](https://github.com/nornzach/oh-my-pi) | **Monorepo fork** (`origin` of the enclosing checkout) — agent source; the only sidecar build source, and the monorepo the README's build-from-source flow clones. | ✅ (from the monorepo root, not from here) | only own commits |
-| [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi) | **Upstream** (`upstream` of the enclosing checkout) — where new omp features come from. | ❌ **NEVER** | ✅ `scripts/sync-upstream.sh` |
+| [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi) | **Vanilla agent source** — the enclosing checkout and bundled sidecar source. | ❌ **NEVER** | ✅ source revision recorded in `sidecar-source.json` |
 
 - **All GUI work commits to this repo and pushes to `origin/main`.** Never commit GUI paths into the enclosing monorepo's git — from its perspective this directory is an intentionally untracked, self-contained checkout.
-- Agent-side work (RPC commands, session logic, `packages/agent|coding-agent|ai|…`) belongs to the **monorepo**, commits at the monorepo root, and pushes to `nornzach/oh-my-pi` (fork) — it does not exist in this repo's history even though the files sit above this directory.
+- GUI compatibility work belongs in this repo. Use vanilla agent source locally and an installed vanilla `omp` over SSH; never require an agent fork or install one remotely. Unsupported RPC capabilities must return explicit errors, not simulated success.
 
 ### Upstream sync (pulling new omp features)
 
-Always the script (it re-provisions what a plain merge misses), from anywhere:
+Update the vanilla source checkout before rebuilding a release and record its exact revision in `sidecar-source.json`. `scripts/sync-upstream.sh` is available only for enclosing checkouts configured with its expected `upstream` remote:
 
 ```bash
 bash packages/gui/scripts/sync-upstream.sh   # run from the GUI repo; it cds to the monorepo root
@@ -29,8 +28,8 @@ bash packages/gui/scripts/sync-upstream.sh   # run from the GUI repo; it cds to 
 ```
 
 - Conflicts: resolve, commit the merge, re-run with `SKIP_MERGE=1`.
-- A sync touches monorepo files only until step 6; the sidecar rebuild (`build:omp`) and GUI build/tests close the loop. Push monorepo results from the monorepo root (fork), GUI results from here.
-- **Every release starts with a sync** (README → Release process step 1) so the DMG's sidecar carries current upstream.
+- A sync touches monorepo files only until step 6; the sidecar rebuild (`build:omp`) and GUI build/tests close the loop. Do not push vanilla source changes to upstream.
+- Every release verifies its vanilla source revision and rebuilds the bundled sidecar.
 
 ## Nested Checkout Layout
 
@@ -68,7 +67,7 @@ Conventions, fixed for every release:
 
 - Version `X.Y.Z` is semver; the tag is exactly `vX.Y.Z`.
 - Release commit message is `release(gui): vX.Y.Z` (older `chore(release):` entries predate this convention — do not copy them).
-- Everything GUI-side commits and tags in **this** repo (`packages/gui/.git`) and pushes to `origin` (`nornzach/oh-my-pi-gui`). Monorepo changes commit at the monorepo root and push to the fork's `origin`. `upstream` is never a push target.
+- Everything GUI-side commits and tags in **this** repo and pushes to its configured product `origin`. Vanilla agent source is not a push target.
 
 ### Phase 0 — Preconditions
 
@@ -76,7 +75,7 @@ Conventions, fixed for every release:
 2. Monorepo checkout clean — `git status` at the monorepo root shows nothing but the intentionally untracked `packages/gui/`.
 3. Version number chosen; changelog content drafted.
 
-### Phase 1 — Upstream sync (mandatory, every release)
+### Phase 1 — Vanilla source revision (mandatory, every release)
 
 ```bash
 bash packages/gui/scripts/sync-upstream.sh        # run from anywhere; it cds to the monorepo root
@@ -84,7 +83,7 @@ bash packages/gui/scripts/sync-upstream.sh        # run from anywhere; it cds to
 SKIP_MERGE=1 bash packages/gui/scripts/sync-upstream.sh
 ```
 
-Commit remaining monorepo changes at the monorepo root and push to the fork's `origin`. Never push to `upstream`.
+Use the recorded vanilla revision. The sync script requires a configured `upstream` remote; it does not make an agent fork a build prerequisite. Never push to the vanilla repository.
 
 ### Phase 2 — Release prep (inside `packages/gui/`)
 

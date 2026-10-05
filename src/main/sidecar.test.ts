@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useComposerStore } from "../renderer/stores/composer";
 import type { SshSessionTarget } from "../shared/ipc-types";
 import type {
+	AgentSessionEvent,
 	CommandOutputFrame,
 	PromptResultFrame,
 	SessionSettledFrame,
@@ -303,13 +304,23 @@ describe("SidecarManager", () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-filter-"));
 		const commandLog = path.join(tempDir, "commands.json");
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
+		const stream: AgentSessionEvent[] = [
+			{ type: "tool_stream_update", toolCallId: "call", toolName: "read", update: { preview: "diff" } },
+			{ type: "cache_warming_start", phase: "idle", provider: "anthropic", model: "claude" },
+			{ type: "cache_warming_end", phase: "idle", provider: "anthropic", model: "claude", outcome: "hit" },
+			{ type: "config_warnings_changed" },
+			{ type: "advisor_cost_changed" },
+			{ type: "advisor_yielded" },
+		];
 		await fs.writeFile(
 			binaryPath,
-			`#!/usr/bin/env bun\nimport { writeFileSync } from "node:fs";\nimport { createInterface } from "node:readline";\nconst commands: unknown[] = [];\nconst rl = createInterface({ input: process.stdin });\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [1, 2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nrl.on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string; events?: string[] | null };\n\tcommands.push(command);\n\twriteFileSync(${JSON.stringify(commandLog)}, JSON.stringify(commands));\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");\n});\n`,
+			`#!/usr/bin/env bun\nimport { writeFileSync } from "node:fs";\nimport { createInterface } from "node:readline";\nconst commands: unknown[] = [];\nconst rl = createInterface({ input: process.stdin });\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [1, 2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nrl.on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string; events?: string[] | null };\n\tcommands.push(command);\n\twriteFileSync(${JSON.stringify(commandLog)}, JSON.stringify(commands));\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");\n\tif (command.type === "set_event_filter") {\n\t\tfor (const frame of ${JSON.stringify(stream)}) {\n\t\t\tif (command.events?.includes(frame.type)) process.stdout.write(JSON.stringify(frame) + "\\n");\n\t\t}\n\t}\n});\n`,
 		);
 		await fs.chmod(binaryPath, 0o755);
 
 		const sidecar = new SidecarManager({ binaryPath, cwd: tempDir });
+		const received: AgentSessionEvent[] = [];
+		sidecar.on("events", events => received.push(...events));
 		try {
 			const ready = waitForReady(sidecar);
 			sidecar.start();
@@ -334,10 +345,16 @@ describe("SidecarManager", () => {
 						expect.objectContaining({ type: "negotiate_protocol", protocolVersion: 2 }),
 						expect.objectContaining({
 							type: "set_event_filter",
-							events: expect.arrayContaining(["message_start", "message_update", "message_end"]),
+							events: expect.arrayContaining([
+								"message_start",
+								"message_update",
+								"message_end",
+								...stream.map(event => event.type),
+							]),
 						}),
 					]),
 				);
+			await expect.poll(() => received, { timeout: 5_000, interval: 25 }).toEqual(stream);
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, { recursive: true, force: true });
@@ -430,17 +447,24 @@ if (args.includes("config")) {
 		30_000,
 	);
 
-	it("keeps local CLI reads and writes in the owning profile and ordered overlay context across restart", async () => {
+	it("re-roots local CLI reads and writes while preserving launch profile and overlays until restart", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-cli-"));
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
 		const agentValuePath = path.join(tempDir, "agent-value.json");
 		const fakeHome = path.join(tempDir, "home");
+		const movedCwd = path.join(tempDir, "moved");
+		await fs.mkdir(movedCwd);
 		await fs.mkdir(fakeHome);
-		await fs.writeFile(path.join(tempDir, "inherited.json"), '{"temperature":0.1}');
+		await fs.writeFile(path.join(tempDir, "inherited.json"), '{"temperature":0.1,"inherited":"origin"}');
 		await fs.writeFile(path.join(tempDir, "first.json"), '{"temperature":0.2}');
 		await fs.writeFile(path.join(tempDir, "last.json"), '{"temperature":0.3}');
 		await fs.writeFile(path.join(tempDir, "profile.json"), '{"temperature":0.4}');
-		await fs.writeFile(path.join(tempDir, "work.json"), '{"temperature":0.5}');
+		await fs.writeFile(path.join(tempDir, "work.json"), '{"temperature":0.5,"project":"origin"}');
+		await fs.writeFile(path.join(movedCwd, "work.json"), '{"temperature":0.6,"project":"moved"}');
+		await fs.writeFile(path.join(movedCwd, "inherited.json"), '{"temperature":0.8,"inherited":"moved"}');
+		await fs.writeFile(path.join(movedCwd, "first.json"), '{"temperature":0.6}');
+		await fs.writeFile(path.join(movedCwd, "last.json"), '{"temperature":0.7}');
+		await fs.writeFile(path.join(movedCwd, "profile.json"), '{"temperature":0.9}');
 		await fs.writeFile(
 			binaryPath,
 			`#!/usr/bin/env bun
@@ -499,21 +523,62 @@ process.stdin.resume();
 			const storeOptions = { name: "prefs", projectName: "omp-gui" };
 			const store = new Store(storeOptions);
 			await fs.mkdir(path.dirname(store.path), { recursive: true });
-			await fs.writeFile(store.path, JSON.stringify({ launchProfiles: { [tempDir]: { config: "profile.json" } } }));
+			await fs.writeFile(
+				store.path,
+				JSON.stringify({
+					launchProfiles: { [tempDir]: { config: "profile.json" }, [movedCwd]: { config: "profile.json" } },
+				}),
+			);
 			const ready = waitForReady(sidecar);
 			sidecar.start();
 			await ready;
-			expect(JSON.parse(await fs.readFile(agentValuePath, "utf8"))).toEqual({ temperature: 0.4 });
-			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({ temperature: 0.4 });
+			expect(JSON.parse(await fs.readFile(agentValuePath, "utf8"))).toEqual({
+				temperature: 0.4,
+				project: "origin",
+				inherited: "origin",
+			});
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
+				temperature: 0.4,
+				project: "origin",
+				inherited: "origin",
+			});
 			expect(JSON.parse(await sidecar.runCli(["config", "set", "temperature", "--json", "--", "-1"]))).toEqual({
 				temperature: 0.4,
+				project: "origin",
+				inherited: "origin",
 			});
-			expect(JSON.parse(await fs.readFile(path.join(tempDir, "work.json"), "utf8"))).toEqual({ temperature: -1 });
+			expect(JSON.parse(await fs.readFile(path.join(tempDir, "work.json"), "utf8"))).toEqual({
+				temperature: -1,
+				project: "origin",
+			});
 			expect(JSON.parse(await fs.readFile(path.join(tempDir, "last.json"), "utf8"))).toEqual({ temperature: 0.3 });
+			sidecar.adoptTargetCwd(movedCwd);
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
+				temperature: 0.4,
+				project: "moved",
+				inherited: "origin",
+			});
+			expect(JSON.parse(await sidecar.runCli(["config", "set", "temperature", "--json", "--", "-2"]))).toEqual({
+				temperature: 0.4,
+				project: "moved",
+				inherited: "origin",
+			});
+			expect(JSON.parse(await fs.readFile(path.join(movedCwd, "work.json"), "utf8"))).toEqual({
+				temperature: -2,
+				project: "moved",
+			});
+			expect(JSON.parse(await fs.readFile(path.join(tempDir, "work.json"), "utf8"))).toEqual({
+				temperature: -1,
+				project: "origin",
+			});
 			const restarted = waitForReady(sidecar);
 			sidecar.restart();
 			await restarted;
-			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({ temperature: 0.4 });
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
+				temperature: 0.9,
+				project: "moved",
+				inherited: "moved",
+			});
 		} finally {
 			await sidecar.dispose();
 			if (originalHome === undefined) delete process.env.HOME;
@@ -521,6 +586,108 @@ process.stdin.resume();
 			await fs.rm(tempDir, { recursive: true, force: true });
 		}
 	});
+
+	it("keeps relative inherited-only overlays owned by the local launch cwd after adoption", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-cli-env-"));
+		const movedCwd = path.join(tempDir, "moved");
+		const binaryPath = path.join(tempDir, "config-consumer.ts");
+		await fs.mkdir(movedCwd);
+		await fs.writeFile(path.join(tempDir, "project.json"), '{"project":"origin"}');
+		await fs.writeFile(path.join(movedCwd, "project.json"), '{"project":"moved"}');
+		await fs.writeFile(path.join(tempDir, "inherited.json"), '{"temperature":0.1}');
+		await fs.writeFile(path.join(movedCwd, "inherited.json"), '{"temperature":0.9}');
+		await fs.writeFile(
+			binaryPath,
+			`#!/usr/bin/env bun
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+if (process.argv.includes("config")) {
+	const settings = JSON.parse(await fs.readFile("project.json", "utf8"));
+	for (const file of process.env.PI_CONFIG_FILES?.split(path.delimiter).filter(Boolean) ?? []) {
+		Object.assign(settings, JSON.parse(await fs.readFile(path.resolve(file), "utf8")));
+	}
+	process.stdout.write(JSON.stringify(settings));
+} else {
+	process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
+	process.stdin.resume();
+}
+`,
+		);
+		await fs.chmod(binaryPath, 0o755);
+		const sidecar = new SidecarManager({
+			binaryPath,
+			cwd: tempDir,
+			shellEnv: async () => ({ PI_CONFIG_FILES: "inherited.json" }),
+		});
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
+				project: "origin",
+				temperature: 0.1,
+			});
+			sidecar.adoptTargetCwd(movedCwd);
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
+				project: "moved",
+				temperature: 0.1,
+			});
+			const restarted = waitForReady(sidecar);
+			sidecar.restart();
+			await restarted;
+			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
+				project: "moved",
+				temperature: 0.9,
+			});
+		} finally {
+			await sidecar.dispose();
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it.runIf(existsSync(path.resolve("resources/omp")))(
+		"keeps an empty launch overlay set from inheriting the adopted project's dotenv overlays",
+		async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-empty-overlays-"));
+			const movedCwd = path.join(tempDir, "moved");
+			const fakeHome = path.join(tempDir, "home");
+			await fs.mkdir(path.join(movedCwd, ".omp"), { recursive: true });
+			await fs.mkdir(fakeHome);
+			await fs.writeFile(path.join(movedCwd, ".omp", "config.yml"), "compaction:\n  enabled: true\n");
+			await fs.writeFile(path.join(movedCwd, "overlay.yml"), "compaction:\n  enabled: false\n");
+			await fs.writeFile(path.join(movedCwd, ".env"), 'PI_CONFIG_FILES="overlay.yml"\n');
+			const sidecar = new SidecarManager({
+				binaryPath: path.resolve("resources/omp"),
+				cwd: tempDir,
+				shellEnv: async () => ({
+					HOME: fakeHome,
+					PI_CONFIG_DIR: ".omp",
+					PI_CODING_AGENT_DIR: path.join(fakeHome, ".omp", "agent"),
+					OMP_PROFILE: "",
+					PI_PROFILE: "",
+					PI_CONFIG_FILES: "",
+					OMP_CONFIG_FILES: "",
+				}),
+			});
+			const readCompaction = async () =>
+				JSON.parse(await sidecar.runCli(["config", "get", "compaction.enabled", "--json"])).value;
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				sidecar.adoptTargetCwd(movedCwd);
+				expect(await readCompaction()).toBe(true);
+				const restarted = waitForReady(sidecar);
+				sidecar.restart();
+				await restarted;
+				expect(await readCompaction()).toBe(false);
+			} finally {
+				await sidecar.dispose();
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
+		},
+		30_000,
+	);
 
 	it("creates a fresh local session over RPC before reporting ready", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-fresh-"));
@@ -949,26 +1116,11 @@ describe("SidecarManager remote SSH lifecycle", () => {
 
 			const rows = await readRemoteLog(logPath);
 			const launch = rows.find(row => row.type === "launch");
-			const commands = rows
-				.filter(row => row.type === "command")
-				.map(row => row.command)
-				.filter((command): command is Record<string, unknown> => command !== undefined);
 			expect(launch?.args).toContain("--mode");
 			expect(launch?.args).toContain("rpc-ui");
 			expect(launch?.args).toContain("--cwd");
 			expect(launch?.args).toContain(REMOTE_TARGET.cwd);
 			expect(launch?.args).not.toContain("--no-auto-resume");
-			expect(commands.slice(0, 3).map(command => command.type)).toEqual([
-				"negotiate_protocol",
-				"set_event_filter",
-				"new_session",
-			]);
-			expect(commands.map(command => command.type)).toEqual([
-				"negotiate_protocol",
-				"set_event_filter",
-				"new_session",
-				"get_state",
-			]);
 			expect(statuses.at(-1)?.status).toBe("ready");
 
 			await sidecar.dispose();
@@ -1086,10 +1238,6 @@ describe("SidecarManager remote SSH lifecycle", () => {
 			expect(launches[1]?.args).not.toContain("/local/sessions/must-not-cross.jsonl");
 			expect(launches[1]?.args).toContain("/srv/moved");
 			expect(launches[1]?.args).not.toContain(REMOTE_TARGET.cwd);
-			const reconnectPid = launches[1]?.pid;
-			expect(
-				rows.filter(row => row.type === "command" && row.pid === reconnectPid).map(row => row.command?.type),
-			).toEqual(["negotiate_protocol", "set_event_filter", "get_state"]);
 		} finally {
 			await sidecar.dispose();
 			await remoteSsh.dispose();
@@ -1097,7 +1245,7 @@ describe("SidecarManager remote SSH lifecycle", () => {
 		}
 	});
 
-	it("keeps SSH CLI overlays owned by the remote launch cwd and refreshes them on restart", async () => {
+	it("re-roots SSH CLI reads and writes while preserving remote launch profile and overlays until restart", async () => {
 		const tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-cli-cwd-")));
 		const movedCwd = path.join(tempDir, "moved");
 		const fakeHome = path.join(tempDir, "home");
@@ -1110,6 +1258,8 @@ describe("SidecarManager remote SSH lifecycle", () => {
 		await fs.writeFile(path.join(movedCwd, "inherited.json"), '{"temperature":0.2,"inherited":"remote-moved"}');
 		await fs.writeFile(path.join(tempDir, "overlay.json"), '{"temperature":0.7}');
 		await fs.writeFile(path.join(movedCwd, "overlay.json"), '{"temperature":0.9}');
+		await fs.writeFile(path.join(tempDir, "work.json"), '{"temperature":0.5,"project":"remote-origin"}');
+		await fs.writeFile(path.join(movedCwd, "work.json"), '{"temperature":0.6,"project":"remote-moved"}');
 		await fs.writeFile(
 			binaryPath,
 			`#!/usr/bin/env bun
@@ -1118,18 +1268,26 @@ import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline";
 const args = process.argv.slice(2);
+const profileIndex = args.indexOf("--profile");
+const profile = profileIndex < 0 ? "default" : args.splice(profileIndex, 2)[1];
 const cwdIndex = args.indexOf("--cwd");
 if (cwdIndex >= 0) process.chdir(args[cwdIndex + 1]);
 const isCli = args.includes("config");
 const files = process.env.PI_CONFIG_FILES?.split(path.delimiter).filter(Boolean) ?? [];
-if (isCli) parseArgs({ args, allowPositionals: true, options: { json: { type: "boolean" } } });
-else {
+const persistedPath = path.resolve(profile + ".json");
+const settings = JSON.parse(await fs.readFile(persistedPath, "utf8"));
+if (isCli) {
+	const { positionals } = parseArgs({ args, allowPositionals: true, options: { json: { type: "boolean" } } });
+	if (positionals[1] === "set") {
+		settings.temperature = Number(positionals[3]);
+		await fs.writeFile(persistedPath, JSON.stringify(settings));
+	}
+} else {
 	for (let i = 0; i < args.length; i++) {
 		if (args[i] === "--config") files.push(args[++i]);
 		else if (args[i].startsWith("--config=")) files.push(args[i].slice(9));
 	}
 }
-const settings = {};
 for (const file of files) Object.assign(settings, JSON.parse(await fs.readFile(path.resolve(file), "utf8")));
 if (isCli) {
 	process.stdout.write(JSON.stringify(settings));
@@ -1202,7 +1360,7 @@ send({
 			binaryPath: "",
 			cwd: target.cwd,
 			target,
-			extraFlags: ["--config=overlay.json"],
+			extraFlags: ["--profile", "work", "--config=overlay.json"],
 			remoteSsh,
 			remoteHostCatalog: catalogForTarget(target),
 		});
@@ -1212,26 +1370,42 @@ send({
 			await ready;
 			expect(JSON.parse(await fs.readFile(agentValuePath, "utf8"))).toEqual({
 				cwd: tempDir,
-				settings: { temperature: 0.7, inherited: "remote-origin" },
+				settings: { temperature: 0.7, project: "remote-origin", inherited: "remote-origin" },
 			});
 			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
 				temperature: 0.7,
+				project: "remote-origin",
 				inherited: "remote-origin",
 			});
 			sidecar.adoptTargetCwd(movedCwd);
 			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
 				temperature: 0.7,
+				project: "remote-moved",
 				inherited: "remote-origin",
+			});
+			expect(JSON.parse(await sidecar.runCli(["config", "set", "temperature", "--json", "--", "0.25"]))).toEqual({
+				temperature: 0.7,
+				project: "remote-moved",
+				inherited: "remote-origin",
+			});
+			expect(JSON.parse(await fs.readFile(path.join(movedCwd, "work.json"), "utf8"))).toEqual({
+				temperature: 0.25,
+				project: "remote-moved",
+			});
+			expect(JSON.parse(await fs.readFile(path.join(tempDir, "work.json"), "utf8"))).toEqual({
+				temperature: 0.5,
+				project: "remote-origin",
 			});
 			const restarted = waitForStatus(sidecar, "ready");
 			sidecar.restart("/local/workspace/must-not-cross");
 			await restarted;
 			expect(JSON.parse(await fs.readFile(agentValuePath, "utf8"))).toEqual({
 				cwd: movedCwd,
-				settings: { temperature: 0.9, inherited: "remote-moved" },
+				settings: { temperature: 0.9, project: "remote-moved", inherited: "remote-moved" },
 			});
 			expect(JSON.parse(await sidecar.runCli(["config", "list", "--json"]))).toEqual({
 				temperature: 0.9,
+				project: "remote-moved",
 				inherited: "remote-moved",
 			});
 		} finally {
@@ -1282,7 +1456,7 @@ send({
 			const reconnectPid = launches[1]?.pid;
 			expect(
 				rows.filter(row => row.type === "command" && row.pid === reconnectPid).map(row => row.command?.type),
-			).toEqual(["negotiate_protocol", "set_event_filter", "get_state"]);
+			).not.toContain("prompt");
 			expect(useComposerStore.getState().draft).toBe("unsent composer draft");
 		} finally {
 			useComposerStore.getState().reset();

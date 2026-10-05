@@ -46,7 +46,7 @@ import { useForkHandoffStore } from "./fork-handoff";
 import { type MessagesStore, useMessagesStore } from "./messages";
 import { useModelStore } from "./model";
 import { usePlanApprovalStore } from "./plan-approval";
-import { useQueueStore } from "./queue";
+import { type QueueStore, useQueueStore } from "./queue";
 import { SessionStore, useSessionStore } from "./session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "./session-runtime-context";
 import { useSubagentsStore } from "./subagents";
@@ -213,7 +213,7 @@ function fillLiveStores(tag: string): void {
 	});
 	useMessagesStore.setState({ messages: [msg(`hello-${tag}`)], totalMessages: 1 });
 	useTodoStore.getState().setPhases([{ name: `phase-${tag}`, tasks: [] } as TodoPhase]);
-	useQueueStore.setState({
+	useQueueStore.getState().setFromFrame({
 		steering: [{ id: `q-${tag}`, text: `steer-${tag}`, editable: true, timestamp: 1 }],
 		followUp: [],
 	});
@@ -259,7 +259,7 @@ function resetAll(): void {
 	useSessionStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useTodoStore.getState().reset();
-	useQueueStore.setState({ steering: [], followUp: [] });
+	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
 	useSubagentsStore.getState().reset();
 	useModelStore.getState().reset();
 	useToolsStore.getState().reset();
@@ -608,6 +608,15 @@ describe("tabs store switch", () => {
 
 	it("serializes rapid switches and hydrates only the latest visible tab", async () => {
 		seedTabs();
+		omp.rpc.getState.mockResolvedValue(
+			ok(
+				serverState({
+					sessionId: "latest-t2",
+					cwd: "/gamma",
+					queuedMessages: { steering: ["latest queued work"], followUp: [] },
+				}),
+			),
+		);
 		const firstRoute = Promise.withResolvers<boolean>();
 		const secondRoute = Promise.withResolvers<boolean>();
 		omp.tabs.setActive.mockReturnValueOnce(firstRoute.promise).mockReturnValueOnce(secondRoute.promise);
@@ -635,6 +644,10 @@ describe("tabs store switch", () => {
 		expect(omp.rpc.getState).toHaveBeenCalledTimes(1);
 		expect(useTabsStore.getState().activeTabId).toBe("t2");
 		expect(acceptsActiveTabEvents()).toBe(true);
+		expect(useSessionStore.getState().sessionId).toBe("latest-t2");
+		expect(useQueueStore.getState().steering.map(entry => entry.text)).toEqual(["latest queued work"]);
+		expect(sessionRuntimeStore<SessionStore>("t1", "session")?.getState().sessionId).toBe("");
+		expect(sessionRuntimeStore<QueueStore>("t1", "queue")?.getState().steering).toEqual([]);
 	});
 
 	it("snapshots the current tab's slices and restores the target's — draft included", async () => {
@@ -1136,7 +1149,15 @@ describe("tabs store switch", () => {
 		const switchingBack = useTabsStore.getState().switchTab("t0");
 		await Promise.resolve();
 		expect(useSessionStore.getState().sessionId).not.toBe("recovered-a");
-		pendingA.resolve(ok(serverState({ sessionId: "recovered-a", cwd: "/recovered-a" })));
+		pendingA.resolve(
+			ok(
+				serverState({
+					sessionId: "recovered-a",
+					cwd: "/recovered-a",
+					queuedMessages: { steering: [], followUp: ["recovered A queue"] },
+				}),
+			),
+		);
 		await Promise.all([oldRecovery, switchingBack]);
 
 		expect(useSessionStore.getState().sessionId).toBe("recovered-a");
@@ -1144,6 +1165,9 @@ describe("tabs store switch", () => {
 		expect(useMessagesStore.getState().messages).toEqual([msg("recovered A history")]);
 		expect(backgroundSession.getState().sessionId).toBe("session-b");
 		expect(backgroundSession.getState().cwd).toBe("/beta");
+		expect(useQueueStore.getState().followUp.map(entry => entry.text)).toEqual(["recovered A queue"]);
+		expect(sessionRuntimeStore<QueueStore>("t1", "queue")?.getState().followUp).toEqual([]);
+		expect(omp.rpc.getMessages).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.getState).toHaveBeenCalledTimes(1);
 	});
 
@@ -1212,26 +1236,31 @@ describe("tabs store switch", () => {
 		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: selected.id });
 	});
 
-	it("rejects a delayed queue refresh after switching to a starting tab", async () => {
+	it("finishes a parked tab's canonical queue recovery without changing the focused queue", async () => {
 		seedTabs();
 		useTabsStore.setState(state => ({
 			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "starting" } : tab)),
 		}));
 		const delayedQueue = Promise.withResolvers<RpcResponse>();
-		omp.rpc.getQueue.mockReturnValue(delayedQueue.promise);
+		omp.rpc.getState.mockReturnValueOnce(delayedQueue.promise);
 		const oldRecovery = recoverReadySession("t0");
 
 		await useTabsStore.getState().switchTab("t1");
 		delayedQueue.resolve(
-			ok({
-				steering: [{ id: "stale-a", text: "old route", editable: true, timestamp: 1 }],
-				followUp: [],
-			}),
+			ok(
+				serverState({
+					queuedMessages: { steering: ["parked A work"], followUp: [] },
+				}),
+			),
 		);
 		await oldRecovery;
 
 		expect(useQueueStore.getState().steering).toEqual([]);
 		expect(useQueueStore.getState().followUp).toEqual([]);
+		const parked = sessionRuntimeStore<QueueStore>("t0", "queue")!.getState();
+		expect(parked.steering.map(entry => entry.text)).toEqual(["parked A work"]);
+		expect(parked.idOperations).toBe(false);
+		expect(omp.rpc.getQueue).not.toHaveBeenCalled();
 	});
 });
 

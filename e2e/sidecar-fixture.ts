@@ -151,7 +151,6 @@ if (process.argv.includes("stats")) {
 	const state: RpcSessionState = {
 		model,
 		thinkingLevel: "medium",
-		availableThinkingLevels: ["low", "medium", "high"],
 		isStreaming: false,
 		isCompacting: false,
 		steeringMode: "all",
@@ -212,6 +211,9 @@ if (process.argv.includes("stats")) {
 		switch (command.type) {
 			case "get_state":
 				ok(state);
+				break;
+			case "get_available_thinking_levels":
+				ok({ levels: ["low", "medium", "high"] });
 				break;
 			case "get_messages":
 				ok({ messages });

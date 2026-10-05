@@ -15,7 +15,6 @@ export const VALID_PATHS: Record<string, true> = {
 	"/api/stats/providers": true,
 	"/api/stats/provider-windows": true,
 	"/api/stats/recent": true,
-	"/api/stats/requests": true,
 	"/api/stats/errors": true,
 	"/api/stats/models": true,
 	"/api/stats/folders": true,

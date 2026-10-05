@@ -1,10 +1,9 @@
 name: Release Linux builds
 
 # Builds the Linux artifacts (AppImage + deb + latest-linux.yml) on Ubuntu and
-# attaches them to the release. The bundled sidecar must come from the monorepo
-# fork — upstream lacks the GUI-only flags — so this checks out BOTH repos:
-# the GUI at the release tag, the monorepo at the commit recorded in
-# sidecar-source.json (written by scripts/sync-upstream.sh).
+# attaches them to the release. This checks out vanilla can1357/oh-my-pi for
+# the bundled sidecar and the separate GUI repository at the release tag.
+# The agent commit is pinned by sidecar-source.json unless explicitly overridden.
 
 on:
   release:
@@ -43,10 +42,10 @@ jobs:
             echo "gui_ref=${{ inputs.gui_ref || inputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout monorepo fork (sidecar source)
+      - name: Checkout vanilla monorepo (sidecar source)
         uses: actions/checkout@v6
         with:
-          repository: nornzach/oh-my-pi
+          repository: can1357/oh-my-pi
           path: oh-my-pi
           fetch-depth: 0
 

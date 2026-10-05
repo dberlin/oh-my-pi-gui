@@ -1,19 +1,17 @@
 /**
- * Requests: paginated table of recent requests with a detail drawer that
- * fetches /api/request/:id on row click.
+ * Requests: the canonical stats server's bounded recent request list, with a
+ * detail drawer that fetches /api/request/:id on row click.
  */
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { RequestDetail, RequestPage, RequestRow } from "../../../shared/stats-types";
-import { useStats } from "../../hooks/use-stats";
+import type { RequestDetail, RequestRow } from "../../../shared/stats-types";
+import { useStatsList } from "../../hooks/use-stats";
 import { compact, formatMs, formatUsd } from "../../lib/chart";
 import { useT } from "../../lib/i18n";
-import { Badge, Button, Modal, Spinner } from "../common";
-import type { StatsRange } from "./StatsDashboard";
+import { Badge, Modal, Spinner } from "../common";
 import { RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
 
-const PAGE_SIZE = 25;
+const RECENT_LIMIT = 100;
 
 function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }) {
 	const t = useT();
@@ -102,19 +100,17 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 	);
 }
 
-export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function RequestsRoute({ refreshKey }: { refreshKey: number }) {
 	const t = useT();
-	const [cursors, setCursors] = useState<(string | null)[]>([null]);
-	const page = cursors.length - 1;
-	const cursor = cursors[page];
-	const params = useMemo(() => ({ range, limit: String(PAGE_SIZE), ...(cursor ? { cursor } : {}) }), [range, cursor]);
-	const { data, isLoading, error, refetch } = useStats<RequestPage>("/api/stats/requests", params);
+	// Upstream supports only limit: neither range filtering nor server pagination.
+	const { data, isLoading, error, refetch } = useStatsList<RequestRow>("/api/stats/recent", {
+		limit: String(RECENT_LIMIT),
+	});
 	const [selected, setSelected] = useState<RequestRow | null>(null);
 	useEffect(() => {
 		if (refreshKey > 0) refetch();
 	}, [refreshKey, refetch]);
-	const rows = data?.rows ?? [];
-	const pages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
+	const rows = data ?? [];
 
 	const columns: StatColumn<RequestRow>[] = useMemo(
 		() => [
@@ -178,47 +174,14 @@ export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refres
 
 	return (
 		<RouteFrame hasData={data !== null} empty={rows.length === 0} error={error} loading={isLoading} onRetry={refetch}>
-			<SectionTitle>{t("stats.requests.sectionTitle", { count: data?.total ?? 0 })}</SectionTitle>
+			<SectionTitle>{t("stats.requests.sectionTitle", { count: rows.length })}</SectionTitle>
 			<StatTable
 				columns={columns}
 				keyFor={row => `${row.id ?? row.entryId}-${row.timestamp}`}
 				onRowClick={setSelected}
 				rows={rows}
 			/>
-			<div className="mt-2 flex items-center justify-between">
-				<span className="text-omp-xs text-(--omp-dim)">{t("stats.requests.rowHint")}</span>
-				<div className="flex items-center gap-1.5">
-					<Button
-						disabled={page === 0 || isLoading}
-						icon={<ChevronLeft size={11} />}
-						onClick={() => {
-							setSelected(null);
-							setCursors(previous => previous.slice(0, -1));
-						}}
-						size="sm"
-						variant="ghost"
-					>
-						{t("stats.requests.prev")}
-					</Button>
-					<span className="text-omp-xs tabular-nums text-(--omp-muted)">
-						{page + 1} / {pages}
-					</span>
-					<Button
-						disabled={!data?.nextCursor || isLoading}
-						onClick={() => {
-							if (data?.nextCursor) {
-								setSelected(null);
-								setCursors(previous => [...previous, data.nextCursor]);
-							}
-						}}
-						size="sm"
-						trailingIcon={<ChevronRight size={11} />}
-						variant="ghost"
-					>
-						{t("stats.requests.next")}
-					</Button>
-				</div>
-			</div>
+			<p className="mt-2 text-omp-xs text-(--omp-dim)">{t("stats.requests.rowHint")}</p>
 			{selected && <DetailDrawer onClose={() => setSelected(null)} row={selected} />}
 		</RouteFrame>
 	);

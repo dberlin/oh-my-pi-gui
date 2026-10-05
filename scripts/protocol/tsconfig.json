@@ -1,4 +1,10 @@
 {
 	"extends": "../../../../tsconfig.base.json",
-	"files": ["contract.ts", "stats-contract.ts"]
+	"compilerOptions": {
+		"paths": {
+			"omp-core-rpc": ["../../../../packages/coding-agent/src/modes/rpc/rpc-types.ts"],
+			"omp-stats": ["../../../../packages/stats/src/types.ts"]
+		}
+	},
+	"files": ["contract.ts", "stats-contract.ts", "contract.test-types.ts"]
 }

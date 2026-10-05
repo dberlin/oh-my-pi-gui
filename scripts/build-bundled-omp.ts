@@ -9,9 +9,9 @@
  * sidecar. The packaged GUI NEVER falls back to a system-installed omp
  * (src/main/index.ts resolveBundledOmp).
  *
- * REQUIRES the omp monorepo: this file resolves `../../coding-agent` and
- * `../../natives` relative to packages/gui, so the GUI repo must sit at
- * `packages/gui/` inside a monorepo checkout (the nested-layout contract in
+ * REQUIRES vanilla can1357/oh-my-pi source: this file resolves the sibling
+ * `packages/coding-agent` and `packages/natives` from the monorepo root, so
+ * the GUI repo must sit at `packages/gui/` (the nested-layout contract in
  * AGENTS.md). A standalone GUI clone can package only by dropping a prebuilt
  * sidecar into resources/ — see README → Build from source. The compile-binary
  * import is dynamic precisely so this prerequisite failure prints setup
@@ -20,12 +20,12 @@
  * What it does:
  *   1. Verifies the monorepo neighbors exist (fails with setup instructions).
  *   2. Ensures the native addon (.node) for the TARGET arch is staged in
- *      packages/natives/native/ — downloads the published leaf package
- *      (@oh-my-pi/pi-natives-<tag>@<version>) on a cache miss, and replaces
- *      stale addons whose version sentinel doesn't match the package version.
+ *      packages/natives/native/ — reuses matching local or installed addons,
+ *      otherwise downloads the official published leaf package
+ *      (@oh-my-pi/pi-natives-<tag>@<version>). Accepts current and legacy stamps.
  *   3. Generates the stats dashboard archive, collab tool views, and native
  *      addon assets required by a self-contained compiled binary.
- *   4. Compiles the coding-agent entrypoint into a single executable.
+ *   4. Compiles the GUI entry (vanilla CLI plus private embedded stats selector).
  *   5. Restores temporary generated assets and addon staging, so the monorepo
  *      tree is left in its normal development state.
  *
@@ -35,12 +35,12 @@
  *   bun scripts/build-bundled-omp.ts --target bun-darwin-x64 --out custom/path
  *   bun scripts/build-bundled-omp.ts --target bun-windows-x64-baseline # → resources/omp.exe
  *
- * After upgrading the monorepo (upstream sync), run scripts/sync-upstream.sh
- * instead — it merges upstream and re-runs this end-to-end.
+ * After upgrading vanilla upstream source, re-run this script.
  */
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { createRequire } from "node:module";
+import * as os from "node:os";
 import * as path from "node:path";
 import { copyNativeCompanions } from "./native-companion";
 
@@ -90,6 +90,11 @@ await runPackageScript(guiRoot, "check:protocol");
 // Runtime-selected module: only resolvable inside the monorepo layout proven
 // above, so a static import would crash standalone clones before the guidance.
 const { compileCodingAgent } = await import(compileBinaryModulePath);
+// Like compile-binary, this sibling module is absent in standalone GUI clones;
+// load it only after the monorepo prerequisite has printed actionable guidance.
+const { containsVersionStamp, containsLegacyVersionSentinel } = await import(
+	path.join(nativesNativeDir, "version-sentinel.js")
+);
 
 // ---------------------------------------------------------------------------
 // Target arch → sidecar output + native addon provisioning
@@ -162,33 +167,38 @@ const addedByUs: string[] = [];
 /** Pre-existing files we overwrote with the matching-version addon — restored after the build. */
 const replacedByUs: Record<string, Uint8Array> = {};
 
-/**
- * The loader rejects a .node whose exported version sentinel doesn't match the
- * package version, so a stale addon from an older release must be replaced
- * rather than reused. The sentinel string (`__piNativesV<underscored>`) is
- * emitted by the napi build into the binary.
- */
+/** Match the release identity checks used by vanilla's native embed pipeline. */
 async function addonMatchesVersion(filePath: string): Promise<boolean> {
-	const sentinel = `__piNativesV${nativesPkg.version.replace(/\./g, "_")}`;
-	const buffer = Buffer.from(await Bun.file(filePath).arrayBuffer());
-	return buffer.includes(sentinel);
+	const bytes = await Bun.file(filePath).bytes();
+	return containsVersionStamp(bytes, nativesPkg.version) || containsLegacyVersionSentinel(bytes, nativesPkg.version);
 }
 
 async function stageNativeAddon(target: SidecarTarget): Promise<void> {
+	let matchingLocalCount = 0;
 	for (const filename of target.addonFilenames) {
 		const local = path.join(nativesNativeDir, filename);
-		if ((await Bun.file(local).exists()) && (await addonMatchesVersion(local))) return;
-	}
-	// Stale or missing: snapshot any pre-existing files so they can be restored,
-	// then fall through to provisioning the matching version.
-	for (const filename of target.addonFilenames) {
-		const local = path.join(nativesNativeDir, filename);
-		if (await Bun.file(local).exists()) {
-			replacedByUs[filename] = Buffer.from(await Bun.file(local).arrayBuffer());
-			console.log(`[build:omp] replacing stale addon ${filename} (version sentinel ≠ ${nativesPkg.version})`);
+		if (!(await Bun.file(local).exists())) continue;
+		if (await addonMatchesVersion(local)) {
+			matchingLocalCount++;
+		} else {
+			replacedByUs[filename] = await Bun.file(local).bytes();
+			console.log(`[build:omp] removing stale addon ${filename} (release identity ≠ ${nativesPkg.version})`);
+			// Every present variant is validated by gen:native. A valid baseline
+			// must not leave a stale modern sibling in the embedding candidates.
+			await fs.rm(local);
 		}
 	}
+	if (matchingLocalCount > 0) return;
+
 	const leafPackage = `@oh-my-pi/pi-natives-${target.platformTag}`;
+	const require = createRequire(path.join(nativesDir, "package.json"));
+	let installedDir: string | undefined;
+	try {
+		installedDir = path.dirname(require.resolve(`${leafPackage}/package.json`));
+	} catch (error) {
+		if (!(error instanceof Error && "code" in error && error.code === "MODULE_NOT_FOUND")) throw error;
+	}
+	if (installedDir && (await stageNativeFiles(installedDir, target)) > 0) return;
 	console.log(`[build:omp] staging ${leafPackage}@${nativesPkg.version} (target ${target.platformTag})`);
 	const cacheDir = path.join(process.env.TMPDIR ?? "/tmp", `omp-natives-${target.platformTag}-${nativesPkg.version}`);
 	const installDir = path.join(cacheDir, "node_modules", "@oh-my-pi", `pi-natives-${target.platformTag}`);
@@ -220,41 +230,47 @@ async function stageNativeAddon(target: SidecarTarget): Promise<void> {
 			throw new Error(
 				[
 					`Failed to download ${leafPackage}@${nativesPkg.version} (exit ${exit}).`,
-					"Either publish/avail that natives version, or build the addon from source:",
-					"  bun --cwd=packages/natives run build   # requires the Rust toolchain",
+					"Either make that official natives release available, or build the addon from vanilla source:",
+					"  bun --cwd=packages/natives run build   # requires the upstream Bazel/Rust toolchain",
 					`then re-run this script (expects ${target.addonFilenames.join(" / ")} in packages/natives/native/).`,
 				].join("\n"),
 			);
 		}
 	}
+	if ((await stageNativeFiles(installDir, target)) === 0) {
+		throw new Error(
+			`${leafPackage}@${nativesPkg.version} installed but contains no matching-release addon among: ${target.addonFilenames.join(", ")}`,
+		);
+	}
+}
+
+async function stageNativeFiles(directory: string, target: SidecarTarget): Promise<number> {
 	let stagedCount = 0;
 	for (const filename of target.addonFilenames) {
-		const src = path.join(installDir, filename);
-		if (await Bun.file(src).exists()) {
+		const src = path.join(directory, filename);
+		if ((await Bun.file(src).exists()) && (await addonMatchesVersion(src))) {
 			if (!(filename in replacedByUs)) addedByUs.push(filename);
 			await Bun.write(path.join(nativesNativeDir, filename), Bun.file(src));
 			stagedCount++;
 		}
 	}
-	if (stagedCount === 0) {
-		throw new Error(
-			`${leafPackage}@${nativesPkg.version} installed but contains none of: ${target.addonFilenames.join(", ")}`,
-		);
-	}
+	return stagedCount;
 }
 
 /** Undo the staging writes: remove files we added, restore files we overwrote. */
 async function restoreStagedAddons(): Promise<void> {
-	for (const filename of addedByUs) {
-		await fs.rm(path.join(nativesNativeDir, filename), { force: true });
-	}
-	for (const [filename, original] of Object.entries(replacedByUs)) {
-		await Bun.write(path.join(nativesNativeDir, filename), original);
-	}
+	const results = await Promise.allSettled([
+		...addedByUs.map(filename => fs.rm(path.join(nativesNativeDir, filename), { force: true })),
+		...Object.entries(replacedByUs).map(([filename, original]) =>
+			Bun.write(path.join(nativesNativeDir, filename), original),
+		),
+	]);
+	const errors = results.filter(result => result.status === "rejected").map(result => result.reason);
+	if (errors.length > 0) throw new AggregateError(errors, "Native addon staging restoration failed");
 }
 
 // ---------------------------------------------------------------------------
-// Embed → compile → restore stub
+// Embed → compile → restore originals
 // ---------------------------------------------------------------------------
 
 async function runPackageScript(cwd: string, script: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -286,40 +302,81 @@ async function signMacBinary(filePath: string): Promise<void> {
 }
 
 async function embedNativeForTarget(target: SidecarTarget): Promise<void> {
-	const env =
-		target.platformTag === `${process.platform}-${process.arch}`
-			? process.env
-			: {
-					...process.env,
-					TARGET_PLATFORM: target.platformTag.split("-")[0]!,
-					TARGET_ARCH: target.platformTag.split("-")[1]!,
-				};
+	const env = {
+		...process.env,
+		TARGET_PLATFORM: target.platformTag.split("-")[0]!,
+		TARGET_ARCH: target.platformTag.split("-")[1]!,
+	};
 	await runPackageScript(nativesDir, "gen:native", env);
 }
 
-async function restoreGeneratedAssets(): Promise<void> {
-	await Promise.all([runPackageScript(nativesDir, "gen:native:reset"), runPackageScript(statsDir, "gen:stats:reset")]);
+/**
+ * Preserve the caller's generated state, not just upstream's empty stubs.
+ * The stats build also replaces dist/client; tool-view generation has no reset.
+ */
+async function snapshotGeneratedAssets(target: SidecarTarget): Promise<() => Promise<void>> {
+	const paths = [
+		path.join(nativesNativeDir, "embedded-addon.js"),
+		path.join(nativesNativeDir, `embedded-addons.${target.platformTag}.tar.gz`),
+		path.join(statsDir, "src", "embedded-client.generated.txt"),
+		path.join(statsDir, "dist", "client"),
+		path.join(codingAgentDir, "src", "export", "html", "tool-views.generated.js"),
+	];
+	const backupDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-build-assets-"));
+	const snapshots: { original: string; backup?: string }[] = [];
+	try {
+		for (const [index, original] of paths.entries()) {
+			try {
+				await fs.lstat(original);
+			} catch (error) {
+				if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+				snapshots.push({ original });
+				continue;
+			}
+			const backup = path.join(backupDir, String(index));
+			await fs.cp(original, backup, { recursive: true });
+			snapshots.push({ original, backup });
+		}
+	} catch (error) {
+		await fs.rm(backupDir, { recursive: true, force: true });
+		throw error;
+	}
+	return async () => {
+		const results = await Promise.allSettled(
+			snapshots.map(async ({ original, backup }) => {
+				await fs.rm(original, { recursive: true, force: true });
+				if (backup) await fs.cp(backup, original, { recursive: true });
+			}),
+		);
+		const errors = results.filter(result => result.status === "rejected").map(result => result.reason);
+		if (errors.length > 0) {
+			throw new AggregateError(errors, `Generated asset restoration failed; originals remain in ${backupDir}`);
+		}
+		await fs.rm(backupDir, { recursive: true, force: true });
+	};
 }
 
 // ---------------------------------------------------------------------------
 
 const target = resolveTarget();
-const out = argValue("--out") ?? target.out;
+const out = path.resolve(argValue("--out") ?? target.out);
 const shouldAdhocSign = process.platform === "darwin" && (!target.target || target.platformTag.startsWith("darwin-"));
 
-const require = createRequire(import.meta.url);
+const require = createRequire(path.join(codingAgentDir, "package.json"));
 const transformersVersion = (require("@huggingface/transformers/package.json") as { version?: string }).version;
 if (!transformersVersion) throw new Error("@huggingface/transformers package.json has no version");
 
-await stageNativeAddon(target);
+const restoreGeneratedAssets = await snapshotGeneratedAssets(target);
 try {
 	try {
+		await stageNativeAddon(target);
+		await fs.mkdir(path.dirname(out), { recursive: true });
 		await runPackageScript(statsDir, "gen:stats");
 		await runPackageScript(collabWebDir, "gen:tool-views");
 		await embedNativeForTarget(target);
 		await compileCodingAgent({
 			repoRoot,
-			entrypoint: path.join(codingAgentDir, "src", "cli.ts"),
+			entrypoint: path.join(guiRoot, "scripts", "bundled-omp-entry.ts"),
 			outfile: out,
 			transformersVersion,
 			...(target.target ? { target: target.target } : {}),
@@ -333,9 +390,8 @@ try {
 		});
 		console.log(`[build:omp] staged native companion${companions.length === 1 ? "" : "s"}: ${companions.join(", ")}`);
 	} finally {
-		// Compiled assets are temporary source substitutions. Reset every family
-		// even when generation or compilation fails; Promise.all starts both
-		// cleanups before surfacing an individual failure.
+		// Restore every generated family, including pre-existing content, even
+		// when staging, generation, compilation, signing, or copying fails.
 		await restoreGeneratedAssets();
 	}
 } finally {

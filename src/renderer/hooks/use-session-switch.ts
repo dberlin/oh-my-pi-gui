@@ -88,14 +88,15 @@ export async function newSessionNow(): Promise<RpcResponse> {
 	const response = await (runtime ? createTabRpc(runtime.command) : window.omp.rpc).newSession();
 	if (!response.success) throw new Error(response.error);
 	if ((response.data as { cancelled?: boolean } | undefined)?.cancelled) return response;
-	selectMainForSessionReplacement();
 	if (runtime) {
 		if (sessionRuntime(runtime.tabId) !== runtime) return response;
-		withSessionRuntime(runtime.tabId, () =>
-			resetSessionSurface(useTabsStore.getState().activeTabId === runtime.tabId),
-		);
+		withSessionRuntime(runtime.tabId, () => {
+			selectMainForSessionReplacement();
+			resetSessionSurface(useTabsStore.getState().activeTabId === runtime.tabId);
+		});
 		await hydrateTabSession(runtime.tabId);
 	} else {
+		selectMainForSessionReplacement();
 		resetSessionSurface();
 		await hydrateSession();
 	}

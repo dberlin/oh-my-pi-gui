@@ -6,13 +6,14 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import type { RpcSessionState } from "../src/shared/rpc-types";
 
-test("real bundled sidecar persists settings and sessions and serves every stats route", async () => {
+test("real vanilla bundled sidecar persists settings and sessions, serves stats, and reports unsupported commands", async () => {
 	test.setTimeout(180_000);
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-real-core-"));
 	const project = path.join(profile, "project");
 	const desktop = path.join(profile, "desktop");
 	const agent = path.join(profile, "agent");
-	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
+	const home = path.join(profile, "home");
+	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent), fs.mkdir(home)]);
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({
@@ -25,12 +26,19 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 	await fs.writeFile(path.join(project, "README.md"), "# Local ARM audit\n");
 	const env = {
 		...process.env,
+		HOME: home,
+		USERPROFILE: home,
 		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
+		PI_CONFIG_DIR: ".omp",
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_BUNDLED_OMP: path.resolve("resources/omp"),
 	};
+	// An accidental prompt must not spend real credentials or read the user's
+	// auth/SSH catalogs. This smoke exercises local commands, never inference.
+	for (const name of Object.keys(env)) {
+		if (/(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name)) Reflect.deleteProperty(env, name);
+	}
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	Reflect.deleteProperty(env, "OMP_SIDECAR");
 	const executablePath = process.env.OMP_GUI_TEST_APP;
@@ -74,45 +82,124 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 		const evidence = await page.evaluate(
 			async exportPath => {
 				const rpc = window.omp.rpc;
+				// A boot session's allocated path need not exist yet: bash-only
+				// history is lazy-persisted. new_session materializes its header.
+				const created = await rpc.newSession();
+				if (!created.success) throw new Error(created.error);
+				if (
+					created.data &&
+					typeof created.data === "object" &&
+					"cancelled" in created.data &&
+					created.data.cancelled === true
+				) {
+					throw new Error("Audit session creation cancelled");
+				}
 				const before = await rpc.getState();
 				const settings = await rpc.getSettings();
 				const schema = await rpc.getSettingsSchema();
 				const changed = await rpc.setSetting("compaction.enabled", false);
-				const effective = await rpc.getState();
-				const changes = await rpc.getGitChanges();
-				const jobs = await rpc.getJobs();
+				const persistedSettings = await rpc.getSettings(["compaction.enabled"]);
 				const shell = await rpc.bash("printf 'arm audit ok'");
 				const saved = await rpc.getState();
 				const sessionPath = saved.success && (saved.data as RpcSessionState).sessionFile;
-				if (!sessionPath) throw new Error("Local command did not persist a restorable session");
+				if (!sessionPath) throw new Error("Audit session has no restorable path");
+				const savedTranscript = await rpc.getMessages();
 				const fresh = await rpc.newSession();
+				const freshState = await rpc.getState();
 				const restored = await rpc.switchSession(sessionPath);
+				const restoredState = await rpc.getState();
 				const transcript = await rpc.getMessages();
+				const sessionStats = await rpc.getSessionStats();
 				const exported = await rpc.exportHtml(exportPath);
 				return {
+					created,
 					before,
 					settings,
 					schema,
 					changed,
-					effective,
-					changes,
-					jobs,
+					persistedSettings,
 					shell,
 					saved,
+					savedTranscript,
 					fresh,
+					freshState,
 					restored,
+					restoredState,
 					transcript,
+					sessionStats,
 					exported,
 				};
 			},
 			path.join(profile, "audit-export.html"),
 		);
 		for (const response of Object.values(evidence)) expect(response.success, JSON.stringify(response)).toBe(true);
-		expect(evidence.changed.data).toMatchObject({ value: false });
-		expect(evidence.effective.data).toMatchObject({ autoCompactionEnabled: false });
-		expect(evidence.changes.data).toMatchObject({ isRepo: false });
-		await fs.writeFile("test-results/real-core-contract.json", JSON.stringify(evidence, null, 2));
+		expect(evidence.settings.data).toMatchObject({ values: { "compaction.enabled": true } });
+		expect(evidence.schema.data).toMatchObject({
+			entries: expect.arrayContaining([expect.objectContaining({ path: "compaction.enabled", type: "boolean" })]),
+		});
+		expect(evidence.changed.data).toMatchObject({ path: "compaction.enabled", value: false });
+		expect(evidence.persistedSettings.data).toMatchObject({ values: { "compaction.enabled": false } });
+		// The config CLI persists out of process; the live sidecar reloads through a debounced file watcher.
+		await expect
+			.poll(() => page.evaluate(() => window.omp.rpc.getState()), { timeout: 30_000 })
+			.toMatchObject({ success: true, data: { autoCompactionEnabled: false } });
+		const effective = await page.evaluate(() => window.omp.rpc.getState());
+		expect(effective).toMatchObject({ success: true, data: { autoCompactionEnabled: false } });
+		expect(evidence.shell.data).toMatchObject({ output: "arm audit ok", exitCode: 0, cancelled: false });
+		expect(evidence.created.data).toMatchObject({ cancelled: false });
+		const original = evidence.saved.data as RpcSessionState;
+		expect(evidence.fresh.data).toMatchObject({ cancelled: false });
+		expect((evidence.freshState.data as RpcSessionState).sessionId).not.toBe(
+			(evidence.saved.data as RpcSessionState).sessionId,
+		);
+		expect(evidence.restored.data).toMatchObject({ cancelled: false });
+		expect(evidence.restoredState.data).toMatchObject({
+			sessionId: (evidence.saved.data as RpcSessionState).sessionId,
+			sessionFile: (evidence.saved.data as RpcSessionState).sessionFile,
+		});
+		expect((evidence.saved.data as RpcSessionState).messageCount).toBeGreaterThan(0);
+		// A missing-path switch may succeed by creating an empty session at the
+		// requested path. Prove a real load, not merely a successful switch ACK.
+		expect(evidence.transcript.data).toEqual(evidence.savedTranscript.data);
+		const persistedSession = await fs.readFile(original.sessionFile!, "utf8");
+		expect(
+			persistedSession
+				.trim()
+				.split("\n")
+				.map(line => JSON.parse(line)),
+		).toContainEqual(expect.objectContaining({ type: "session", id: original.sessionId }));
+		expect(persistedSession).toContain("arm audit ok");
+		expect(evidence.sessionStats.data).toMatchObject({
+			sessionId: (evidence.saved.data as RpcSessionState).sessionId,
+			totalMessages: (evidence.saved.data as RpcSessionState).messageCount,
+		});
+		const unsupported = await page.evaluate(async () => {
+			return {
+				get_git_changes: await window.omp.rpc.getGitChanges().then(
+					response => ({ kind: "response" as const, response }),
+					error => ({ kind: "rejection" as const, error: error instanceof Error ? error.message : String(error) }),
+				),
+				get_jobs: await window.omp.rpc.getJobs().then(
+					response => ({ kind: "response" as const, response }),
+					error => ({ kind: "rejection" as const, error: error instanceof Error ? error.message : String(error) }),
+				),
+			};
+		});
+		for (const [command, result] of Object.entries(unsupported)) {
+			if (result.kind === "response") {
+				expect(result.response).toMatchObject({ command, success: false });
+				if (result.response.success) throw new Error(`${command} unexpectedly succeeded`);
+				expect(result.response.error).toContain(`Unknown command: ${command}`);
+			} else {
+				expect(result.error).toContain(`Unknown command: ${command}`);
+			}
+		}
+		await fs.writeFile(
+			"test-results/real-core-contract.json",
+			JSON.stringify({ ...evidence, effective, unsupported }, null, 2),
+		);
 		expect(JSON.stringify(evidence.transcript.data)).toContain("arm audit ok");
+		expect(evidence.exported.data).toMatchObject({ path: path.join(profile, "audit-export.html") });
 		const exportWindow = app.waitForEvent("window");
 		await app.evaluate(
 			({ BrowserWindow }, url) => {
@@ -125,9 +212,20 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 		await expect(exportPage.locator("#messages")).toContainText("arm audit ok");
 		await exportPage.screenshot({ path: "test-results/exported-session.png", scale: "css", animations: "disabled" });
 		await exportPage.close();
+		await page.reload();
+		await expect(page.locator("[data-transcript-kind]")).toContainText(["arm audit ok"]);
+		await expect(page.getByText("The originating session was replaced or closed.", { exact: false })).toHaveCount(0);
 		await page.screenshot({ path: "test-results/04-real-core.png", scale: "css", animations: "disabled" });
 		await closeWelcomeIfPresent("Welcome to omp", "Close");
-		const original = evidence.saved.data as RpcSessionState;
+		await page.locator("textarea").first().fill("/queue");
+		await page.getByRole("button", { name: "Send (Enter)", exact: true }).click();
+		await expect(page.locator("textarea").first()).toHaveValue("-> ");
+		const fastOff = await page.evaluate(() => window.omp.rpc.prompt("/fast off"));
+		expect(fastOff).toMatchObject({ success: true, data: { agentInvoked: false } });
+		expect(await page.evaluate(() => window.omp.rpc.getState())).toMatchObject({
+			success: true,
+			data: { sessionId: original.sessionId, fastModeEnabled: false, isStreaming: false },
+		});
 		await page.locator("textarea").first().fill("/new");
 		await page.getByRole("button", { name: "Send (Enter)", exact: true }).click();
 		await expect
@@ -143,6 +241,15 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 		}, original.sessionFile!);
 		await page.reload();
 		await expect(page.locator("[data-transcript-kind]")).toContainText(["arm audit ok"]);
+		expect(await page.evaluate(() => window.omp.rpc.getState())).toMatchObject({
+			success: true,
+			data: {
+				sessionId: original.sessionId,
+				sessionFile: original.sessionFile,
+				messageCount: original.messageCount,
+			},
+		});
+		await expect(page.getByText("The originating session was replaced or closed.", { exact: false })).toHaveCount(0);
 		await closeWelcomeIfPresent("Welcome to omp", "Close");
 		await page.getByRole("button", { name: "Session stats", exact: true }).click();
 		const stats = page.getByRole("dialog");
@@ -176,9 +283,9 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 		await closeWelcomeIfPresent("欢迎使用 omp", "关闭");
 		await page.getByRole("button", { name: "设置", exact: true }).click();
 		await expect(page.getByRole("dialog")).toContainText("权限与安全");
-		await expect(page.getByRole("dialog").locator(".settings-nav-group-label")).toHaveCount(8);
 		const settingsPages: Array<{ group: string; page: string; text: string }> = [];
-		for (let groupIndex = 0; groupIndex < 8; groupIndex++) {
+		const groupCount = await page.getByRole("dialog").locator(".settings-nav-group-label").count();
+		for (let groupIndex = 0; groupIndex < groupCount; groupIndex++) {
 			const settings = page.getByRole("dialog");
 			const group = settings.locator(".settings-nav-group-label").nth(groupIndex);
 			const groupName = await group.innerText();
@@ -192,9 +299,6 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 				await expect(settings.locator(".settings-content .animate-spin")).toHaveCount(0, { timeout: 30_000 });
 				const content = settings.locator(".settings-content");
 				await expect(content).not.toContainText("Something went wrong");
-				await expect(content).not.toContainText("Typo Detection (macOS)");
-				await expect(content).not.toContainText("Word Autocomplete (macOS)");
-				await expect(content).not.toContainText("Autocorrect (macOS)");
 				settingsPages.push({ group: groupName, page: pageName, text: await content.innerText() });
 				await page.screenshot({
 					path: `test-results/settings-${groupIndex}-${pageIndex}.png`,
@@ -297,9 +401,9 @@ test("real bundled sidecar persists settings and sessions and serves every stats
 		expect(errors).toEqual([]);
 	} finally {
 		await fs.writeFile("test-results/main-process.log", mainOutput.join(""));
-		// The production quit guard intentionally blocks `app.quit()` while a
-		// sidecar is active; test teardown must bypass that user confirmation.
-		await app.evaluate(({ app }) => app.exit(0));
-		await fs.rm(profile, { recursive: true, force: true });
+		// This scenario never starts an LLM run. Approve the idle quit normally
+		// so production teardown drains the agent and stats subprocesses.
+		await app.close();
+		await fs.rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 	}
 });

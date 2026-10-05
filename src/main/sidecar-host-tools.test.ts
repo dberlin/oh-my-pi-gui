@@ -130,10 +130,12 @@ describe("SidecarManager remote host-tool boundary", () => {
 
 			expect(forwarded).toEqual([]);
 			expect(harness.writes).toHaveLength(1);
-			expect(harness.writes[0]).toMatchObject({ type: "host_tool_result", id: request.id });
-			const error = harness.writes[0]?.error;
-			expect(typeof error).toBe("string");
-			expect((error as string).length).toBeLessThanOrEqual(128);
+			expect(harness.writes[0]).toMatchObject({
+				type: "host_tool_result",
+				id: request.id,
+				isError: true,
+				result: { content: [{ type: "text", text: expect.stringMatching(/^.{1,128}$/) }] },
+			});
 		} finally {
 			await disposeRemoteHarness(harness);
 		}

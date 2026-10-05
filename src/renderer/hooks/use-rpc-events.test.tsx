@@ -2118,30 +2118,16 @@ describe("useRpcEvents selected-agent forwarding and reconnect recovery", () => 
 });
 
 describe("useRpcEvents thinking selection sync", () => {
-	it("replaces a stale auto selector when an explicit level event omits configured", async () => {
+	it("updates the effective selection from a thinking level event", async () => {
 		const { emitBatch } = installMockOmp();
 		await mount(<RpcEventsProbe />);
-		useModelStore.setState({ thinkingLevel: "low", thinkingConfigured: "auto" });
+		useModelStore.setState({ thinkingLevel: "low" });
 
 		await act(async () => {
 			emitBatch([{ type: "thinking_level_changed", thinkingLevel: "high" }]);
 		});
 
 		expect(useModelStore.getState().thinkingLevel).toBe("high");
-		expect(useModelStore.getState().thinkingConfigured).toBe("high");
-	});
-
-	it("keeps auto selected while updating its effective resolved level", async () => {
-		const { emitBatch } = installMockOmp();
-		await mount(<RpcEventsProbe />);
-		useModelStore.setState({ thinkingLevel: "medium", thinkingConfigured: "medium" });
-
-		await act(async () => {
-			emitBatch([{ type: "thinking_level_changed", thinkingLevel: "xhigh", configured: "auto" }]);
-		});
-
-		expect(useModelStore.getState().thinkingLevel).toBe("xhigh");
-		expect(useModelStore.getState().thinkingConfigured).toBe("auto");
 	});
 });
 
@@ -2178,9 +2164,11 @@ describe("useRpcEvents model switch sync", () => {
 		// thinking_level_changed / tool-reconciliation notice frames.
 		const state = Promise.withResolvers<RpcResponse>();
 		const original = commandForTab.getMockImplementation()!;
-		commandForTab.mockImplementation((tabId, command) =>
-			command.type === "get_state" ? state.promise : original(tabId, command),
-		);
+		commandForTab.mockImplementation((tabId, command) => {
+			if (command.type === "get_state") return state.promise;
+			if (command.type === "get_available_thinking_levels") return Promise.resolve(success({ levels: ["high"] }));
+			return original(tabId, command);
+		});
 		await act(async () => {
 			emitTabBatch(
 				[
@@ -2199,7 +2187,6 @@ describe("useRpcEvents model switch sync", () => {
 				cwd: "/tmp",
 				model: { provider: "new", id: "m-new" },
 				thinkingLevel: "high",
-				availableThinkingLevels: ["high"],
 				isStreaming: false,
 				isCompacting: false,
 				contextUsage: { tokens: 100, contextWindow: 2000, percent: 5 },
@@ -2215,6 +2202,7 @@ describe("useRpcEvents model switch sync", () => {
 		// the whole snapshot, and the new context window comes with it.
 		expect(model.getState().model).toMatchObject({ provider: "new", id: "m-new" });
 		expect(model.getState().thinkingLevel).toBe("high");
+		expect(model.getState().availableThinkingLevels).toEqual(["high"]);
 		expect(session.getState().contextUsage).toMatchObject({ contextWindow: 2000 });
 		// A model-scoped refresh owns the model slice only: the mid-run streaming
 		// flag belongs to agent_start/agent_end, not to this snapshot.

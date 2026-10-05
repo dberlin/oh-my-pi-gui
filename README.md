@@ -195,7 +195,7 @@ Windows packages are currently unsigned. Windows SmartScreen may require **More 
 This is a **separate repository nested inside a monorepo**, not an ordinary monorepo package:
 
 ```text
-omp-monorepo/                    # nornzach/oh-my-pi: fork and sidecar build source
+omp-monorepo/                    # can1357/oh-my-pi: vanilla agent build source
 ├── .git/
 ├── packages/coding-agent/
 ├── packages/natives/
@@ -208,8 +208,7 @@ omp-monorepo/                    # nornzach/oh-my-pi: fork and sidecar build sou
 | Repository | Responsibility |
 |---|---|
 | [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui) | GUI code, commits, tags, and releases. GUI work goes to this repository's `origin/main`. |
-| [`nornzach/oh-my-pi`](https://github.com/nornzach/oh-my-pi) | Enclosing monorepo fork: agent source, upstream sync, and sidecar builds. Agent changes are committed here and pushed to its `origin`. |
-| [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi) | Upstream feature source, fetched through the monorepo's `upstream` remote. **Never push here.** |
+| [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi) | Vanilla agent source and sidecar builds, pinned by `sidecar-source.json` to `d4d49e71bef3ac1420d45febf215b951decf5ae9` (18.5.1). No agent fork checkout or changes are required. |
 
 Never stage `packages/gui/` into the monorepo: its untracked status there is intentional. Git commands inside `packages/gui/` act on the GUI repository; run monorepo Git commands at the monorepo root. Read [AGENTS.md](./AGENTS.md) before making changes.
 
@@ -218,10 +217,10 @@ Never stage `packages/gui/` into the monorepo: its untracked status there is int
 **Prerequisites:** Git and [Bun](https://bun.sh) **≥ 1.4**. macOS is required for the macOS sidecar and DMG commands; Windows x64 and Linux x64 (AppImage/deb) can be cross-built — Linux packages build natively on Ubuntu via `bun run package:linux` (or CI: `.github/workflows/release-linux.yml`); Windows x64 packages build natively via `bun run package:win` (or CI: `.github/workflows/release-windows.yml`).
 
 ```bash
-# Clone the monorepo fork, then nest the GUI repository inside it.
-git clone https://github.com/nornzach/oh-my-pi.git omp-monorepo
+# Clone vanilla omp at the sidecar source pin, then nest the GUI repository.
+git clone https://github.com/can1357/oh-my-pi.git omp-monorepo
 cd omp-monorepo
-git remote add upstream https://github.com/can1357/oh-my-pi.git
+git checkout d4d49e71bef3ac1420d45febf215b951decf5ae9
 bun install
 git clone https://github.com/nornzach/oh-my-pi-gui.git packages/gui
 cd packages/gui
@@ -251,6 +250,20 @@ The Windows configuration targets x64 and bundles `resources/omp.exe`. It produc
 
 **A standalone GUI clone cannot compile the sidecar.** It must occupy `packages/gui/` in the layout above. For artifact assembly without monorepo sources, supply trusted, compatible prebuilt sidecars at `resources/omp` and/or `resources/omp.x64` together with their matching `resources/pi_natives.*.node` companion files, then run `build` and the matching packaging command. A packaged app uses its bundled agent; installing a system `omp` is not a fallback for a missing sidecar.
 
+#### Vanilla agent compatibility (local and SSH)
+
+Packaged local sessions use the bundled vanilla agent; source development uses the pinned neighboring checkout above. SSH sessions discover an **already installed vanilla `omp`** on the selected host and use its RPC/config CLI. Install and configure upstream omp, credentials, and OpenSSH on that host using the upstream instructions; the GUI does not install a remote agent or require a fork.
+
+| Capability | Vanilla behavior and limits |
+|---|---|
+| Chat, sessions, models, and settings | Basic chat/session/model operations use upstream RPC; schema-backed settings and model roles use the installed `omp config` CLI locally or over SSH. Saved changes shadowed by project, overlay, or environment settings are reported as not applied. |
+| Local stats | The GUI starts upstream's embedded stats server on loopback without opening an external browser. |
+| GUI-native slash commands | Known GUI actions use native affordances even when builtin metadata is absent; advertised extension/template commands retain ownership. |
+| Thinking | The menu uses concrete levels reported by the agent; no synthetic `auto` thinking intent. |
+| Pending input | Upstream steering/follow-up queues contain raw text, not stable message IDs; ID-based editing, reordering, and clearing are unsupported. |
+| Fork-only controls | Jobs, rich Git RPC, security, and dashboard controls may be unsupported by vanilla omp and report errors, not simulated success. |
+| Unsupported options | Excluded-Bash execution, reverse model cycling, forced catalog refresh, and renaming a non-active session are rejected rather than silently ignored. |
+
 #### Daily development
 
 ```bash
@@ -261,7 +274,7 @@ bun run check:types                 # GUI type checks
 bun run build                      # production GUI build and main-bundle check
 ```
 
-Run Biome on touched supported files as well. Changes to agent/RPC code belong in the monorepo and require rebuilding the bundled sidecar before validating a packaged GUI.
+Use the package's configured lint/format tooling on touched supported files. GUI compatibility changes belong in this repository; rebuilding a sidecar does not require modifying vanilla agent source.
 
 #### Reproduce the screenshots
 
@@ -484,7 +497,7 @@ Windows 包当前未签名。首次启动前请确认下载来源；Windows Smar
 这是**嵌套在 monorepo 内的独立仓库**，不是普通的 monorepo 包：
 
 ```text
-omp-monorepo/                    # nornzach/oh-my-pi：fork 与 sidecar 构建源
+omp-monorepo/                    # can1357/oh-my-pi：原版 Agent 构建源
 ├── .git/
 ├── packages/coding-agent/
 ├── packages/natives/
@@ -497,8 +510,7 @@ omp-monorepo/                    # nornzach/oh-my-pi：fork 与 sidecar 构建�
 | 仓库 | 职责 |
 |---|---|
 | [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui) | GUI 代码、提交、标签与发布；GUI 工作推送到本仓库的 `origin/main`。 |
-| [`nornzach/oh-my-pi`](https://github.com/nornzach/oh-my-pi) | 外层 monorepo fork：提供 Agent 源码、同步上游与构建 sidecar；Agent 改动在这里提交并推送到它的 `origin`。 |
-| [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi) | 上游功能来源，通过 monorepo 的 `upstream` 拉取；**绝不向其推送。** |
+| [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi) | 原版 Agent 源码与 sidecar 构建；`sidecar-source.json` 固定到 `d4d49e71bef3ac1420d45febf215b951decf5ae9`（18.5.1）。无需克隆或修改 Agent fork。 |
 
 不要把 `packages/gui/` 暂存到 monorepo；它在外层显示为未跟踪是刻意的安排。在 `packages/gui/` 中运行 Git 命令操作的是 GUI 仓库；monorepo Git 命令应在 monorepo 根目录运行。修改前请阅读 [AGENTS.md](./AGENTS.md)。
 
@@ -507,10 +519,10 @@ omp-monorepo/                    # nornzach/oh-my-pi：fork 与 sidecar 构建�
 **前置条件：**Git、[Bun](https://bun.sh) **≥ 1.4**。macOS sidecar 与 DMG 命令需要 macOS；Windows x64 sidecar 可以在 macOS 或 Linux 上交叉构建，但仍需相邻的 monorepo。Windows 安装包可在 Windows 上用 `bun run package:win` 构建，或由 CI(`.github/workflows/release-windows.yml`)在发布时自动构建并附加。
 
 ```bash
-# 克隆 monorepo fork，再将 GUI 仓库嵌套其中。
-git clone https://github.com/nornzach/oh-my-pi.git omp-monorepo
+# 克隆原版 omp 并固定 sidecar 源码提交，再将 GUI 仓库嵌套其中。
+git clone https://github.com/can1357/oh-my-pi.git omp-monorepo
 cd omp-monorepo
-git remote add upstream https://github.com/can1357/oh-my-pi.git
+git checkout d4d49e71bef3ac1420d45febf215b951decf5ae9
 bun install
 git clone https://github.com/nornzach/oh-my-pi-gui.git packages/gui
 cd packages/gui
@@ -537,6 +549,20 @@ Windows 配置目标为 x64，并将 `resources/omp.exe` 放入应用包；它�
 
 **单独克隆 GUI 仓库无法编译 sidecar。**它必须位于上述结构的 `packages/gui/`。如仅组装产物、没有 monorepo 源码，可在 `resources/omp` 和/或 `resources/omp.x64` 放入可信且兼容的预编译 sidecar，以及匹配的 `resources/pi_natives.*.node` companion，再执行 `build` 与对应的打包命令。已打包应用使用内置 Agent；另装系统 `omp` 不能替代缺失的 sidecar。
 
+#### 原版 Agent 兼容性（本地与 SSH）
+
+本地打包会话使用内置原版 Agent；源码开发使用上述固定提交的相邻仓库。SSH 会话在选定主机上查找**已安装的原版 `omp`**，并使用其 RPC/config CLI。请按上游说明在远端安装配置 omp、凭据与 OpenSSH；GUI 不会安装远端 Agent，也不要求 Agent fork。
+
+| 能力 | 原版行为与限制 |
+|---|---|
+| 对话、会话、模型与设置 | 基本对话/会话/模型操作使用上游 RPC；基于 schema 的设置与模型角色通过本地或 SSH 上已安装的 `omp config` CLI 管理。保存的值若被项目、叠加配置或环境变量覆盖，会明确报告为未应用。 |
+| 本地统计 | GUI 在回环地址启动上游内置统计服务，不打开外部浏览器。 |
+| GUI 原生命令 | 即使缺少内置命令元数据，已知 GUI 操作也使用原生入口；已声明的扩展/模板命令仍保留其执行权。 |
+| 思考级别 | 菜单仅使用 Agent 报告的具体级别，不提供虚构的 `auto` 思考意图。 |
+| 待处理输入 | 上游 steering/follow-up 队列仅保存原始文本，没有稳定消息 ID；不支持基于 ID 的编辑、重排或清空。 |
+| Fork 专属控制 | 原版 omp 可能不支持任务、丰富 Git RPC、安全与仪表盘控制；此时报告错误，不伪造成功。 |
+| 不支持的选项 | 排除上下文的 Bash 执行、反向循环模型、强制刷新模型目录、重命名非活动会话会被明确拒绝，而非静默忽略。 |
+
 #### 日常开发
 
 ```bash
@@ -547,7 +573,7 @@ bun run check:types                 # GUI 类型检查
 bun run build                      # GUI 生产构建与主进程 bundle 检查
 ```
 
-同时用 Biome 检查修改过且受其支持的文件。Agent/RPC 改动归属 monorepo；验证打包 GUI 前，需要重新构建内置 sidecar。
+使用本包配置的 lint/format 工具处理修改过且受支持的文件。GUI 兼容性改动归属本仓库；重建 sidecar 无需修改原版 Agent 源码。
 
 #### 复现截图
 

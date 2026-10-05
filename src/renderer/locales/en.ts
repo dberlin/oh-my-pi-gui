@@ -1,4 +1,5 @@
 export const en: Record<string, string> = {
+	"settings.notApplied": "Saved globally, but not applied",
 	"settings.savedUnverified":
 		"Saved globally; the effective value could not be confirmed. Refresh before editing again.",
 	"settings.source.label": "Configured layers",
@@ -208,7 +209,7 @@ export const en: Record<string, string> = {
 	"input.model": "Change model",
 	"input.thinking": "Thinking: {level} — click to change",
 	"input.thinking.failed": "Thinking level",
-	"input.thinking.unsupported": "The current model does not support reasoning.",
+	"input.thinking.unsupported": "Reasoning levels are unavailable for this model.",
 	"input.thinking.name.off": "Off",
 	"input.thinking.name.auto": "Auto",
 	"input.thinking.name.minimal": "Minimal",
@@ -773,6 +774,7 @@ export const en: Record<string, string> = {
 	"unavailable.chatSession": "Needs an agent session — chat sessions run without tools",
 	"unavailable.tuiOnly": "TUI-only — not yet available via RPC",
 	"unavailable.tuiOnlyShort": "TUI-only",
+	"unavailable.commandArguments": "This GUI command does not support arguments. Use its native controls instead.",
 
 	// First-run onboarding
 	"onboarding.title": "Welcome to omp",
@@ -2285,9 +2287,8 @@ export const en: Record<string, string> = {
 
 	// Stats requests route
 	"stats.requests.sectionTitle": "Recent requests ({count})",
+	"stats.requests.scope": "Most recent 100 requests across all time.",
 	"stats.requests.rowHint": "Click a row for details",
-	"stats.requests.prev": "Prev",
-	"stats.requests.next": "Next",
 	"stats.requests.closeDetails": "Close details",
 	"stats.requests.payload": "Payload",
 	"stats.requests.loadingDetail": "Loading request details…",
@@ -2991,6 +2992,8 @@ export const en: Record<string, string> = {
 	"queuePanel.laneEmpty": "Nothing queued.",
 	"queuePanel.empty": "No queued messages.",
 	"queuePanel.emptyHint": "Messages sent while the agent is working queue up here.",
+	"queuePanel.idOperationsUnavailable":
+		"This agent supports removing queued messages and promoting follow-ups, but not editing, reordering, clearing, or moving steering messages to follow-up.",
 	"queuePanel.clearLane": "Clear",
 	"queuePanel.remove": "Remove",
 	"queuePanel.edit": "Edit",
@@ -3288,7 +3291,7 @@ export const en: Record<string, string> = {
 	"settings.editors.errInvalidJson": "Invalid JSON: {error}",
 	"settings.fontSizeRange": "Font size must be between 10 and 20px",
 	"settings.runtime.planMode": "Plan mode",
-	"settings.saveFailed": "Setting not saved",
+	"settings.saveFailed": "Setting change not applied",
 	"settings.schemaLoadFailed": "Failed to load settings",
 	"settings.schemaLoading": "Loading settings schema…",
 	"settings.schemaUnavailable": "The agent process may not be responding. Runtime and GUI tabs remain available.",

@@ -1,40 +1,23 @@
 /**
- * Composer thinking-level control (Codex/Claude Code-style effort picker):
- * an explicit menu of every selector the ACTIVE MODEL supports — off, auto,
- * and the model's own effort ladder from get_state — with the current
- * selector checked. Replaces the blind click-to-cycle chip, which jumped to
- * an unspecified next value and offered no way to pick `auto` or go back.
- *
- * Data comes from the model store (`thinkingConfigured`, `availableThinkingLevels`,
- * hydrated from get_state and thinking_level_changed events); selection goes
- * through `set_thinking_level`, which the agent resolves/clamps per model.
- * The dropdown renders in a portal so the composer's overflow-hidden never
- * clips it (same pattern as ApprovalControl).
+ * Composer effort picker. Levels come from get_available_thinking_levels;
+ * get_state supplies the effective selection after the sidecar clamps it.
+ * The portal follows the existing ApprovalControl pattern.
  */
 
 import { Brain, Check, ChevronDown } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { type RpcThinkingLevelState, THINKING_LEVEL_VALUES, type ThinkingLevel } from "../../../shared/rpc-types";
+import { THINKING_LEVEL_VALUES, type RpcSessionState, type ThinkingLevel } from "../../../shared/rpc-types";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { type ModelStore, useModelStore } from "../../stores/model";
-import { useSessionStore } from "../../stores/session";
-import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
+import { type SessionStore, useSessionStore } from "../../stores/session";
+import { sessionRuntime, sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
-
-type ThinkingSelector = ThinkingLevel | "auto";
-
-/** Menu order: off, auto, then the model's ladder (already ascending). */
-function menuOptions(available: ThinkingLevel[]): ThinkingSelector[] {
-	// Defensive: keep only known levels, never offer a value the model rejected.
-	const ladder = THINKING_LEVEL_VALUES.filter(level => level !== "off" && available.includes(level));
-	return ["off", "auto", ...ladder];
-}
 
 export function ThinkingControl() {
 	const t = useT();
@@ -42,7 +25,6 @@ export function ThinkingControl() {
 	const tabId = useRuntimeTabId();
 	const modelStore = sessionRuntimeStore<ModelStore>(tabId, "model");
 	const thinkingLevel = useModelStore(s => s.thinkingLevel);
-	const configured = useModelStore(s => s.thinkingConfigured);
 	const available = useModelStore(s => s.availableThinkingLevels);
 	const [open, setOpen] = useState(false);
 	const { mounted, closing } = useOverlayPresence(open);
@@ -50,7 +32,7 @@ export function ThinkingControl() {
 	const menuRef = useRef<HTMLDivElement>(null);
 	const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null);
 
-	const current: ThinkingSelector = configured ?? thinkingLevel ?? "off";
+	const current = thinkingLevel ?? "off";
 	const supportsThinking = available.length > 0;
 
 	// Position the portal menu above the trigger whenever it opens.
@@ -108,36 +90,42 @@ export function ThinkingControl() {
 		items[next]?.focus();
 	};
 
-	const select = (level: ThinkingSelector) => {
+	const select = (level: ThinkingLevel) => {
 		setOpen(false);
+		const originRuntime = sessionRuntime(tabId);
+		const generation = originRuntime?.commandGeneration;
+		const sessionStore = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
+		const sessionId = sessionStore.getState().sessionId;
 		const fallbackTabId = useTabsStore.getState().activeTabId;
-		const fallbackSessionId = useSessionStore.getState().sessionId;
-		void rpc
-			.setThinkingLevel(level)
-			.then(res => {
-				if (!res.success) {
-					toast({ variant: "error", title: t("input.thinking.failed"), message: res.error });
-					return;
-				}
-				// The receipt is authoritative after model support / session-ceiling
-				// clamps. Apply it directly so a missed/batched event cannot leave the
-				// selector visually stuck on its previous value.
-				const state = res.data as RpcThinkingLevelState | undefined;
-				if (!state) return;
-				if (
-					!modelStore &&
-					(useTabsStore.getState().activeTabId !== fallbackTabId ||
-						useSessionStore.getState().sessionId !== fallbackSessionId)
-				)
-					return;
-				(modelStore ?? useModelStore).setState({
-					thinkingLevel: state.thinkingLevel,
-					thinkingConfigured: state.thinkingConfigured,
-				});
-			})
-			.catch(error => {
+		const isCurrent = () =>
+			sessionStore.getState().sessionId === sessionId &&
+			(originRuntime
+				? sessionRuntime(tabId) === originRuntime && originRuntime.commandGeneration === generation
+				: useTabsStore.getState().activeTabId === fallbackTabId);
+		void (async () => {
+			const receipt = await rpc.setThinkingLevel(level);
+			if (!isCurrent()) return;
+			if (!receipt.success) {
+				toast({ variant: "error", title: t("input.thinking.failed"), message: receipt.error });
+				return;
+			}
+			// Vanilla acknowledges without data. Read back the effective/clamped
+			// level through the same tab channel; never infer it from the request.
+			const response = await rpc.getState();
+			if (!isCurrent()) return;
+			if (!response.success) {
+				toast({ variant: "error", title: t("input.thinking.failed"), message: response.error });
+				return;
+			}
+			if (response.data == null) return;
+			const state = response.data as RpcSessionState;
+			if (state.sessionId && sessionId && state.sessionId !== sessionId) return;
+			(modelStore ?? useModelStore).setState({ thinkingLevel: state.thinkingLevel });
+		})().catch(error => {
+			if (isCurrent()) {
 				toast({ variant: "error", title: t("input.thinking.failed"), message: String(error) });
-			});
+			}
+		});
 	};
 
 	return (
@@ -172,7 +160,7 @@ export function ThinkingControl() {
 							)}
 						>
 							{supportsThinking ? (
-								menuOptions(available).map(option => {
+								THINKING_LEVEL_VALUES.filter(level => available.includes(level)).map(option => {
 									const active = option === current;
 									return (
 										<button
@@ -192,9 +180,7 @@ export function ThinkingControl() {
 														"block font-mono text-omp-md font-medium",
 														!active && "text-[var(--omp-muted)]",
 													)}
-													style={
-														option === "auto" ? undefined : { color: `var(--omp-thinking-${option})` }
-													}
+													style={{ color: `var(--omp-thinking-${option})` }}
 												>
 													{t(`input.thinking.name.${option}`)}
 												</span>

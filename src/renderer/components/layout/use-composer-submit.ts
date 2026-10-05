@@ -19,7 +19,7 @@ import { type ComposerImage, type ComposerStore, useComposerStore } from "../../
 import { useInputHistoryStore } from "../../stores/input-history";
 import { type MessagesStore, useMessagesStore } from "../../stores/messages";
 import { type SessionStore, useSessionStore } from "../../stores/session";
-import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
+import { sessionRuntimeStore, useRuntimeTabId, withSessionRuntime } from "../../stores/session-runtime-context";
 import { restoreTabComposer, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 
@@ -262,7 +262,7 @@ export function useComposerSubmit({
 							const item = dispatchItems[index] ?? "";
 							const itemImages = index === 0 ? payload : undefined;
 							const isExtensionCommand =
-								item.startsWith("/") && extensionCommandNames.has(/^\/([a-z0-9-]+)/i.exec(item)?.[1] ?? "");
+								item.startsWith("/") && extensionCommandNames.has(/^\/(\S+)/.exec(item)?.[1] ?? "");
 							deliveryPending = true;
 							const response =
 								startImmediately && index === 0
@@ -314,25 +314,27 @@ export function useComposerSubmit({
 				return;
 			}
 
-			// Routing/guarding/hydration policy lives in lib/composer-submit:
-			// slash commands always go through prompt (server parses them even
-			// while streaming), session-replacing commands are blocked while
-			// busy, and local-only resolutions rehydrate the transcript.
+			// Text-mode commands stay with the sidecar; GUI-owned affordances run
+			// locally. Clear first so a native composer prefill survives submission.
 			const payload = images.map(image => image.content);
-			const submit = planComposerSubmit({
-				message: expandedMessage,
-				images: payload,
-				isStreaming,
-				mode: forceMode ?? mode,
-				commands,
-				rpc,
-			});
+			const submit = withSessionRuntime(originTabId, () =>
+				planComposerSubmit({
+					message: expandedMessage,
+					images: payload,
+					isStreaming,
+					mode: forceMode ?? mode,
+					commands,
+					rpc,
+					beforeGuiCommand: () => {
+						setText("");
+						setImages([]);
+						setMenu(null);
+					},
+				}),
+			);
 			if (submit.kind === "blocked") return;
 			if (submit.kind === "handled") {
 				useInputHistoryStore.getState().record(message, originCwd);
-				setText("");
-				setImages([]);
-				setMenu(null);
 				dropReferencedPastes(message);
 				return;
 			}

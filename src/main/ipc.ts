@@ -639,6 +639,7 @@ const persistedAgentMessageSchema = z
 			"user",
 			"assistant",
 			"system",
+			"developer",
 			"toolResult",
 			"bashExecution",
 			"pythonExecution",
@@ -934,11 +935,26 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const result = executeGuiHostTool(request.toolName, request.arguments);
 		if (result !== undefined) {
 			if (typeof result === "string") {
-				sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result });
+				sidecar.sendSideChannel({
+					type: "host_tool_result",
+					id: request.id,
+					result: { content: [{ type: "text", text: result }] },
+				});
 			} else {
 				void result.then(
-					value => sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result: value }),
-					error => sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, error: String(error) }),
+					value =>
+						sidecar.sendSideChannel({
+							type: "host_tool_result",
+							id: request.id,
+							result: { content: [{ type: "text", text: value }] },
+						}),
+					error =>
+						sidecar.sendSideChannel({
+							type: "host_tool_result",
+							id: request.id,
+							result: { content: [{ type: "text", text: String(error) }] },
+							isError: true,
+						}),
 				);
 			}
 			return true;
@@ -1131,11 +1147,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					error: "Sidecar target unavailable",
 				};
 			}
-			return executeConfigRpcCommand(
-				incomingCommand,
-				args => sidecar.runCli(args),
-				target.type === "local" ? command => client.command(command, payload.timeoutMs) : undefined,
-			);
+			return executeConfigRpcCommand(incomingCommand, args => sidecar.runCli(args));
 		}
 		// F-OWN refuse-or-focus backstop: a switch_session onto a file a
 		// DIFFERENT tab owns would double-attach it (the owner itself re-attaches

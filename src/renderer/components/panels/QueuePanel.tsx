@@ -1,12 +1,8 @@
 import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 /**
- * Queue panel: the agent's pending message queue as two sortable lanes —
- * 引导 (steering, delivered mid-run) and 排队 (follow-up, delivered after the
- * run). Drag reorder rides queue_move (same-lane, server-clamped), the
- * lane-switch rides queue_move with toLane (appended to the target lane's
- * end), per-item delete rides queue_remove, per-lane clear rides
- * queue_clear. Mutations apply optimistically, then resync from get_queue
- * on settle so the server stays the single source of truth.
+ * Two authoritative pending-message lanes. Vanilla snapshots support exact-text
+ * removal and follow-up promotion; editing/reordering/clearing require genuine
+ * stable-ID extension snapshots. Client display keys never become server IDs.
  */
 
 import {
@@ -29,7 +25,7 @@ import { ArrowLeftRight, Check, ChevronDown, ChevronUp, GripVertical, ListX, Pen
 import { memo, useCallback, useEffect, useState } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
-import type { RpcQueuedMessage } from "../../../shared/rpc-types";
+import type { RpcQueuedMessage, RpcResponse } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { onEscape } from "../../lib/keymap";
@@ -61,6 +57,23 @@ async function applyLaneMutation(
 	});
 }
 
+/** Text operations can affect the first duplicate or no entry (e.g. a live
+ * steering claim). Never guess optimistically; apply only server snapshots. */
+async function applyTextMutation(
+	queueStore: StoreApi<QueueStore>,
+	persist: () => Promise<RpcResponse>,
+	failureKey: string,
+	t: (key: string) => string,
+): Promise<void> {
+	try {
+		const response = await persist();
+		if (!response.success) toast({ variant: "error", title: t(failureKey), message: response.error });
+	} catch (error) {
+		toast({ variant: "error", title: t(failureKey), message: String(error) });
+	}
+	await queueStore.getState().refresh();
+}
+
 interface SortableQueuedRowProps {
 	item: RpcQueuedMessage;
 	lane: QueueLane;
@@ -72,6 +85,7 @@ interface SortableQueuedRowProps {
 	onRemove: (lane: QueueLane, id: string) => void;
 	removeLabel: string;
 	ready: boolean;
+	idOperations: boolean;
 }
 
 /** Optimistically move an entry to the END of the other lane (queue_move with
@@ -112,12 +126,13 @@ const SortableQueuedRow = memo(function SortableQueuedRow({
 	onRemove,
 	removeLabel,
 	ready,
+	idOperations,
 }: SortableQueuedRowProps) {
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState(item.text);
 	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
 		id: item.id,
-		disabled: !ready || editing,
+		disabled: !ready || !idOperations || editing,
 	});
 	const t = useT();
 	const targetLane: QueueLane = lane === "steering" ? "followUp" : "steering";
@@ -146,8 +161,10 @@ const SortableQueuedRow = memo(function SortableQueuedRow({
 				aria-label={t("queuePanel.drag")}
 				className="omp-pressable mt-0.5 flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text) active:cursor-grabbing"
 				type="button"
-				disabled={!ready}
-				title={!ready ? t("common.notConnected") : undefined}
+				disabled={!ready || !idOperations}
+				title={
+					!ready ? t("common.notConnected") : !idOperations ? t("queuePanel.idOperationsUnavailable") : undefined
+				}
 			>
 				<GripVertical size={14} />
 			</button>
@@ -205,8 +222,14 @@ const SortableQueuedRow = memo(function SortableQueuedRow({
 					<button
 						aria-label={t("queuePanel.moveUp")}
 						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text) disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-(--omp-dim)"
-						disabled={!ready || index === 0}
-						title={!ready ? t("common.notConnected") : undefined}
+						disabled={!ready || !idOperations || index === 0}
+						title={
+							!ready
+								? t("common.notConnected")
+								: !idOperations
+									? t("queuePanel.idOperationsUnavailable")
+									: undefined
+						}
 						onClick={() => onMove(lane, item.id, index - 1)}
 						type="button"
 					>
@@ -215,14 +238,20 @@ const SortableQueuedRow = memo(function SortableQueuedRow({
 					<button
 						aria-label={t("queuePanel.moveDown")}
 						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text) disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-(--omp-dim)"
-						disabled={!ready || index === count - 1}
-						title={!ready ? t("common.notConnected") : undefined}
+						disabled={!ready || !idOperations || index === count - 1}
+						title={
+							!ready
+								? t("common.notConnected")
+								: !idOperations
+									? t("queuePanel.idOperationsUnavailable")
+									: undefined
+						}
 						onClick={() => onMove(lane, item.id, index + 1)}
 						type="button"
 					>
 						<ChevronDown size={14} />
 					</button>
-					{item.editable && (
+					{idOperations && item.editable && (
 						<button
 							aria-label={t("queuePanel.edit")}
 							className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
@@ -237,12 +266,14 @@ const SortableQueuedRow = memo(function SortableQueuedRow({
 					<button
 						aria-label={t("queuePanel.moveToLane", { lane: t(`queuePanel.lane.${targetLane}`) })}
 						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
-						disabled={!ready}
+						disabled={!ready || (!idOperations && lane === "steering")}
 						onClick={() => onMoveToLane(lane, item.id)}
 						title={
 							!ready
 								? t("common.notConnected")
-								: t("queuePanel.moveToLane", { lane: t(`queuePanel.lane.${targetLane}`) })
+								: !idOperations && lane === "steering"
+									? t("queuePanel.idOperationsUnavailable")
+									: t("queuePanel.moveToLane", { lane: t(`queuePanel.lane.${targetLane}`) })
 						}
 						type="button"
 					>
@@ -273,6 +304,7 @@ function LaneSection({
 	onMove,
 	onMoveToLane,
 	ready,
+	idOperations,
 }: {
 	lane: QueueLane;
 	items: RpcQueuedMessage[];
@@ -282,6 +314,7 @@ function LaneSection({
 	onMove: (lane: QueueLane, id: string, toIndex: number) => void;
 	onMoveToLane: (lane: QueueLane, id: string) => void;
 	ready: boolean;
+	idOperations: boolean;
 }) {
 	const t = useT();
 	const sensors = useSensors(
@@ -292,13 +325,13 @@ function LaneSection({
 	const onDragEnd = useCallback(
 		(event: DragEndEvent) => {
 			const { active, over } = event;
-			if (!ready || !over || active.id === over.id) return;
+			if (!ready || !idOperations || !over || active.id === over.id) return;
 			const from = items.findIndex(item => item.id === active.id);
 			const to = items.findIndex(item => item.id === over.id);
 			if (from < 0 || to < 0) return;
 			onMove(lane, String(active.id), to);
 		},
-		[items, lane, onMove, ready],
+		[items, lane, onMove, ready, idOperations],
 	);
 
 	return (
@@ -312,9 +345,15 @@ function LaneSection({
 					<button
 						aria-label={t("queuePanel.clearLane")}
 						className="omp-pressable flex items-center gap-1 rounded-md px-2 py-1 text-omp-xs text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-error) disabled:opacity-40"
-						disabled={!ready}
+						disabled={!ready || !idOperations}
 						onClick={() => onClear(lane)}
-						title={!ready ? t("common.notConnected") : undefined}
+						title={
+							!ready
+								? t("common.notConnected")
+								: !idOperations
+									? t("queuePanel.idOperationsUnavailable")
+									: undefined
+						}
 						type="button"
 					>
 						<ListX size={12} />
@@ -338,6 +377,7 @@ function LaneSection({
 								onRemove={onRemove}
 								removeLabel={t("queuePanel.remove")}
 								ready={ready}
+								idOperations={idOperations}
 							/>
 						))}
 						{items.length === 0 && (
@@ -358,11 +398,24 @@ export function QueuePanel() {
 	const sessionStore = sessionRuntimeStore<SessionStore>(tabId, "session");
 	const sidecarReady = useStore(sessionStore ?? useSessionStore, state => state.status) === "ready";
 	const { steering, followUp } = useQueuedMessages();
+	const idOperations = useStore(queueStore, state => state.idOperations);
 	const total = steering.length + followUp.length;
 
 	const removeItem = useCallback(
 		(lane: QueueLane, id: string) => {
 			if (!sidecarReady) return;
+			const state = queueStore.getState();
+			const item = state[lane].find(entry => entry.id === id);
+			if (!item) return;
+			if (!state.idOperations) {
+				void applyTextMutation(
+					queueStore,
+					() => tabRpc.command({ type: "remove_queued_message", message: item.text, queue: lane }),
+					"queuePanel.removeFailed",
+					t,
+				);
+				return;
+			}
 			void applyLaneMutation(
 				queueStore,
 				lane,
@@ -372,12 +425,12 @@ export function QueuePanel() {
 				t,
 			);
 		},
-		[sidecarReady, t, tabRpc.queueRemove, queueStore],
+		[sidecarReady, t, tabRpc, queueStore],
 	);
 
 	const editItem = useCallback(
 		(lane: QueueLane, id: string, text: string) => {
-			if (!sidecarReady) return;
+			if (!sidecarReady || !queueStore.getState().idOperations) return;
 			void applyLaneMutation(
 				queueStore,
 				lane,
@@ -397,7 +450,7 @@ export function QueuePanel() {
 
 	const moveItem = useCallback(
 		(lane: QueueLane, id: string, toIndex: number) => {
-			if (!sidecarReady) return;
+			if (!sidecarReady || !queueStore.getState().idOperations) return;
 			void applyLaneMutation(
 				queueStore,
 				lane,
@@ -421,6 +474,19 @@ export function QueuePanel() {
 	const moveToLane = useCallback(
 		(lane: QueueLane, id: string) => {
 			if (!sidecarReady) return;
+			const state = queueStore.getState();
+			if (!state.idOperations) {
+				if (lane !== "followUp") return;
+				const item = state.followUp.find(entry => entry.id === id);
+				if (!item) return;
+				void applyTextMutation(
+					queueStore,
+					() => tabRpc.command({ type: "promote_queued_message", message: item.text }),
+					"queuePanel.moveFailed",
+					t,
+				);
+				return;
+			}
 			void applyCrossLaneMove(queueStore, tabRpc, lane, id, t);
 		},
 		[sidecarReady, t, tabRpc, queueStore],
@@ -428,7 +494,7 @@ export function QueuePanel() {
 
 	const clearLane = useCallback(
 		(lane: QueueLane) => {
-			if (!sidecarReady) return;
+			if (!sidecarReady || !queueStore.getState().idOperations) return;
 			void applyLaneMutation(
 				queueStore,
 				lane,
@@ -456,6 +522,11 @@ export function QueuePanel() {
 					{t("common.notConnected")}
 				</div>
 			)}
+			{!idOperations && (
+				<div className="mx-2 mt-2 px-2.5 py-2 text-omp-xs text-(--omp-muted)" role="status">
+					{t("queuePanel.idOperationsUnavailable")}
+				</div>
+			)}
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
 				{total === 0 ? (
 					<div className="px-3 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
@@ -474,6 +545,7 @@ export function QueuePanel() {
 							onMoveToLane={moveToLane}
 							onRemove={removeItem}
 							ready={sidecarReady}
+							idOperations={idOperations}
 						/>
 						<LaneSection
 							items={followUp}
@@ -484,6 +556,7 @@ export function QueuePanel() {
 							onMoveToLane={moveToLane}
 							onRemove={removeItem}
 							ready={sidecarReady}
+							idOperations={idOperations}
 						/>
 					</>
 				)}

@@ -65,6 +65,7 @@ let steer: Mock;
 let followUp: Mock;
 let abort: Mock;
 let getAvailableCommands: Mock;
+let getQueue: Mock;
 let writeLocalPaste: Mock;
 let prefsGet: Mock;
 let includeMainQueue = false;
@@ -113,6 +114,9 @@ async function mountSubagentComposer(startAtMain = false): Promise<void> {
 	getAvailableCommands = vi.fn(async () => ok({ commands: [] }));
 	writeLocalPaste = vi.fn(async () => ok({ url: "local://paste-1.txt" }));
 	prefsGet = vi.fn(async () => []);
+	getQueue = vi.fn(async () => {
+		throw new Error("Vanilla Main queue must not use get_queue");
+	});
 	(window as unknown as Record<string, unknown>).omp = {
 		fs: { list: vi.fn(async () => ({ entries: [] })), readPlan: vi.fn(async () => ({ ok: true })) },
 		events: { onCommandsUpdate: vi.fn(() => () => {}) },
@@ -120,14 +124,15 @@ async function mountSubagentComposer(startAtMain = false): Promise<void> {
 		rpc: {
 			getAvailableCommands,
 			getPlanMode: vi.fn(async () => ok({ enabled: false, planFilePath: null })),
-			getQueue: vi.fn(async () =>
+			getState: vi.fn(async () =>
 				ok({
-					steering: [],
-					followUp: includeMainQueue
-						? [{ id: "queued-1", text: "Main queued work", editable: true, timestamp: 1 }]
-						: [],
+					queuedMessages: {
+						steering: [],
+						followUp: includeMainQueue ? ["Main queued work"] : [],
+					},
 				}),
 			),
+			getQueue,
 			followUp,
 			steer,
 			prompt,
@@ -238,6 +243,10 @@ describe("InputArea selected-subagent mode", () => {
 		if (!queueButton) throw new Error("Main queue button not found");
 		await click(queueButton);
 		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+		expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Main queued work");
+		expect(useQueueStore.getState().idOperations).toBe(false);
+		expect(document.querySelector('[role="dialog"] button[aria-label="Edit"]')).toBeNull();
+		expect(getQueue).not.toHaveBeenCalled();
 
 		await act(async () => {
 			useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: selectedAgent.id });
@@ -251,6 +260,8 @@ describe("InputArea selected-subagent mode", () => {
 		await act(async () => useAgentViewStore.getState().selectMain());
 		expect(container.querySelector("textarea")).not.toBeNull();
 		expect(container.querySelector('button[aria-label="Manage queued messages: 1"]')).not.toBeNull();
+		expect(useQueueStore.getState().followUp.map(entry => entry.text)).toEqual(["Main queued work"]);
+		expect(getQueue).not.toHaveBeenCalled();
 	});
 
 	it("preserves Main draft and attachments through a subagent view, then submits normally on return", async () => {

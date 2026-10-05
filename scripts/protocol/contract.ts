@@ -1,98 +1,85 @@
-/** Compile-time, directional wire contracts; never imported by the application. */
-import type * as Core from "../../../coding-agent/src/modes/rpc/rpc-types";
-import type { SessionStats } from "../../../coding-agent/src/session/agent-session";
+/** Compile-time directional contracts for the adjacent vanilla producer. */
+import type * as Core from "omp-core-rpc";
 import type * as Gui from "../../src/shared/rpc-types";
 
-// Numeric/string enum members cross JSON as their primitive values, not nominal TS enum types.
-type Wire<T> = T extends string ? `${T}` : T extends object ? { [K in keyof T]: Wire<T[K]> } : T;
-type Accepts<Consumer, Producer extends Consumer> = Producer;
-export type Commands = Accepts<Wire<Core.RpcCommand>, Gui.RpcCommand>;
-export type State = Accepts<Gui.RpcSessionState, Wire<Core.RpcSessionState>>;
-export type Stats = Accepts<Gui.SessionStats, Wire<SessionStats>>;
-export type Queue = Accepts<Gui.RpcGetQueueResult, Wire<Core.RpcGetQueueResult>>;
-export type GitChanges = Accepts<Gui.RpcGitChanges, Wire<Core.RpcGitChanges>>;
-export type GitDiff = Accepts<Gui.RpcGitDiff, Wire<Core.RpcGitDiff>>;
-export type Jobs = Accepts<Gui.RpcJobsResult, Wire<Core.RpcJobsResult>>;
-export type SharePreview = Accepts<Gui.RpcShareSessionPreview, Wire<Core.RpcShareSessionPreview>>;
-export type Share = Accepts<Gui.RpcShareSessionResult, Wire<Core.RpcShareSessionResult>>;
-export type Goal = Accepts<Gui.RpcGoalState, Wire<Core.RpcGoalState>>;
-export type Loop = Accepts<Gui.RpcLoopModeState, Wire<Core.RpcLoopModeState>>;
-export type Vibe = Accepts<Gui.RpcVibeModeState, Wire<Core.RpcVibeModeState>>;
-export type RpcActiveTool = Accepts<Gui.RpcActiveTool, Wire<Core.RpcActiveTool>>;
-export type RpcActiveToolsResult = Accepts<Gui.RpcActiveToolsResult, Wire<Core.RpcActiveToolsResult>>;
-export type RpcAgentDefinitionInfo = Accepts<Gui.RpcAgentDefinitionInfo, Wire<Core.RpcAgentDefinitionInfo>>;
-export type RpcAgentDefinitionsResult = Accepts<Gui.RpcAgentDefinitionsResult, Wire<Core.RpcAgentDefinitionsResult>>;
-export type RpcChunkFrame = Accepts<Gui.RpcChunkFrame, Wire<Core.RpcChunkFrame>>;
-export type RpcCollabParticipant = Accepts<Gui.RpcCollabParticipant, Wire<Core.RpcCollabParticipant>>;
-export type RpcCollabState = Accepts<Gui.RpcCollabState, Wire<Core.RpcCollabState>>;
-export type RpcContextReportResult = Accepts<Gui.RpcContextReportResult, Wire<Core.RpcContextReportResult>>;
-export type RpcForceToolState = Accepts<Gui.RpcForceToolState, Wire<Core.RpcForceToolState>>;
-export type RpcForeignSessionInfo = Accepts<Gui.RpcForeignSessionInfo, Wire<Core.RpcForeignSessionInfo>>;
-export type RpcGitStatus = Accepts<Gui.RpcGitStatus, Wire<Core.RpcGitStatus>>;
-export type RpcGuiThemeInfo = Accepts<Gui.RpcGuiThemeInfo, Wire<Core.RpcGuiThemeInfo>>;
-export type RpcGuiThemesResult = Accepts<Gui.RpcGuiThemesResult, Wire<Core.RpcGuiThemesResult>>;
-export type RpcHookInfo = Accepts<Gui.RpcHookInfo, Wire<Core.RpcHookInfo>>;
-export type RpcHooksResult = Accepts<Gui.RpcHooksResult, Wire<Core.RpcHooksResult>>;
-export type RpcLiveState = Accepts<Gui.RpcLiveState, Wire<Core.RpcLiveState>>;
-export type RpcLiveUpdateFrame = Accepts<Gui.RpcLiveUpdateFrame, Wire<Core.RpcLiveUpdateFrame>>;
-export type RpcManageSkillResult = Accepts<Gui.RpcManageSkillResult, Wire<Core.RpcManageSkillResult>>;
-export type RpcMarketplaceInfo = Accepts<Gui.RpcMarketplaceInfo, Wire<Core.RpcMarketplaceInfo>>;
-export type RpcMarketplacePluginInfo = Accepts<Gui.RpcMarketplacePluginInfo, Wire<Core.RpcMarketplacePluginInfo>>;
-export type RpcMarketplacesResult = Accepts<Gui.RpcMarketplacesResult, Wire<Core.RpcMarketplacesResult>>;
-export type RpcMcpServerInfo = Accepts<Gui.RpcMcpServerInfo, Wire<Core.RpcMcpServerInfo>>;
-export type RpcMcpServerInput = Accepts<Gui.RpcMcpServerInput, Wire<Core.RpcMcpServerInput>>;
-export type RpcMcpServersResult = Accepts<Gui.RpcMcpServersResult, Wire<Core.RpcMcpServersResult>>;
-export type RpcMemoryReport = Accepts<Gui.RpcMemoryReport, Wire<Core.RpcMemoryReport>>;
-export type RpcMemoryStatus = Accepts<Gui.RpcMemoryStatus, Wire<Core.RpcMemoryStatus>>;
-export type RpcOmpUpdateResult = Accepts<Gui.RpcOmpUpdateResult, Wire<Core.RpcOmpUpdateResult>>;
-export type RpcPluginDetail = Accepts<Gui.RpcPluginDetail, Wire<Core.RpcPluginDetail>>;
-export type RpcPluginInfo = Accepts<Gui.RpcPluginInfo, Wire<Core.RpcPluginInfo>>;
-export type RpcPluginsResult = Accepts<Gui.RpcPluginsResult, Wire<Core.RpcPluginsResult>>;
-export type RpcPrCreateResult = Accepts<Gui.RpcPrCreateResult, Wire<Core.RpcPrCreateResult>>;
-export type RpcPrDetail = Accepts<Gui.RpcPrDetail, Wire<Core.RpcPrDetail>>;
-export type RpcPrDraftResult = Accepts<Gui.RpcPrDraftResult, Wire<Core.RpcPrDraftResult>>;
-export type RpcPrListItem = Accepts<Gui.RpcPrListItem, Wire<Core.RpcPrListItem>>;
-export type RpcPrRepo = Accepts<Gui.RpcPrRepo, Wire<Core.RpcPrRepo>>;
-export type RpcPrewalkState = Accepts<Gui.RpcPrewalkState, Wire<Core.RpcPrewalkState>>;
-export type RpcPromptTemplateInfo = Accepts<Gui.RpcPromptTemplateInfo, Wire<Core.RpcPromptTemplateInfo>>;
-export type RpcPromptTemplatesResult = Accepts<Gui.RpcPromptTemplatesResult, Wire<Core.RpcPromptTemplatesResult>>;
-export type RpcQueueClearResult = Accepts<Gui.RpcQueueClearResult, Wire<Core.RpcQueueClearResult>>;
-export type RpcQueueEditResult = Accepts<Gui.RpcQueueEditResult, Wire<Core.RpcQueueEditResult>>;
-export type RpcQueueMoveResult = Accepts<Gui.RpcQueueMoveResult, Wire<Core.RpcQueueMoveResult>>;
-export type RpcQueueRemoveResult = Accepts<Gui.RpcQueueRemoveResult, Wire<Core.RpcQueueRemoveResult>>;
-export type RpcQueuedMessage = Accepts<Gui.RpcQueuedMessage, Wire<Core.RpcQueuedMessage>>;
-export type RpcReadyFrame = Accepts<Gui.RpcReadyFrame, Wire<Core.RpcReadyFrame>>;
-export type RpcReloadPluginsResult = Accepts<Gui.RpcReloadPluginsResult, Wire<Core.RpcReloadPluginsResult>>;
-export type RpcSecurityDashboardResult = Accepts<Gui.RpcSecurityDashboardResult, Wire<Core.RpcSecurityDashboardResult>>;
-export type RpcSecurityDispositionStatus = Accepts<
-	Gui.RpcSecurityDispositionStatus,
-	Wire<Core.RpcSecurityDispositionStatus>
+// Enum members cross JSON as primitives, not nominal TypeScript enum types.
+export type Wire<T> = T extends string ? `${T}` : T extends object ? { [K in keyof T]: Wire<T[K]> } : T;
+export type Assert<T extends true> = T;
+/** Check the entire producer; absent or untyped data is not a valid proof. */
+export type Compatible<Consumer, Producer> = [Consumer] extends [never]
+	? false
+	: [Producer] extends [never]
+		? false
+		: unknown extends Producer
+			? false
+			: [Producer] extends [Consumer]
+				? true
+				: false;
+
+type Success = Extract<Core.RpcResponse, { success: true }>;
+type DataSuccess = Extract<Success, { data: unknown }>;
+export type SuccessData<Command extends DataSuccess["command"]> = Wire<
+	Extract<DataSuccess, { command: Command }>["data"]
 >;
-export type RpcSecurityFindingInfo = Accepts<Gui.RpcSecurityFindingInfo, Wire<Core.RpcSecurityFindingInfo>>;
-export type RpcSecurityOperationInfo = Accepts<Gui.RpcSecurityOperationInfo, Wire<Core.RpcSecurityOperationInfo>>;
-export type RpcSecurityScanInfo = Accepts<Gui.RpcSecurityScanInfo, Wire<Core.RpcSecurityScanInfo>>;
-export type RpcSecurityScanResult = Accepts<Gui.RpcSecurityScanResult, Wire<Core.RpcSecurityScanResult>>;
-export type RpcSecuritySeverityLevel = Accepts<Gui.RpcSecuritySeverityLevel, Wire<Core.RpcSecuritySeverityLevel>>;
-export type RpcSecurityTargetInput = Accepts<Gui.RpcSecurityTargetInput, Wire<Core.RpcSecurityTargetInput>>;
-export type RpcSessionTreeNode = Accepts<Gui.RpcSessionTreeNode, Wire<Core.RpcSessionTreeNode>>;
-export type RpcSessionTreeResult = Accepts<Gui.RpcSessionTreeResult, Wire<Core.RpcSessionTreeResult>>;
-export type RpcShakeContextResult = Accepts<Gui.RpcShakeContextResult, Wire<Core.RpcShakeContextResult>>;
-export type RpcSkillDetail = Accepts<Gui.RpcSkillDetail, Wire<Core.RpcSkillDetail>>;
-export type RpcSkillInfo = Accepts<Gui.RpcSkillInfo, Wire<Core.RpcSkillInfo>>;
-export type RpcSkillsResult = Accepts<Gui.RpcSkillsResult, Wire<Core.RpcSkillsResult>>;
-export type RpcSshHostInfo = Accepts<Gui.RpcSshHostInfo, Wire<Core.RpcSshHostInfo>>;
-export type RpcSshHostInput = Accepts<Gui.RpcSshHostInput, Wire<Core.RpcSshHostInput>>;
-export type RpcSshHostsResult = Accepts<Gui.RpcSshHostsResult, Wire<Core.RpcSshHostsResult>>;
-export type RpcSshTestResult = Accepts<Gui.RpcSshTestResult, Wire<Core.RpcSshTestResult>>;
-export type RpcSwitchLeafResult = Accepts<Gui.RpcSwitchLeafResult, Wire<Core.RpcSwitchLeafResult>>;
-export type RpcThemeColorsResult = Accepts<Gui.RpcThemeColorsResult, Wire<Core.RpcThemeColorsResult>>;
-export type RpcThemeInfo = Accepts<Gui.RpcThemeInfo, Wire<Core.RpcThemeInfo>>;
-export type RpcThemesResult = Accepts<Gui.RpcThemesResult, Wire<Core.RpcThemesResult>>;
-export type RpcThinkingLevelState = Accepts<Gui.RpcThinkingLevelState, Wire<Core.RpcThinkingLevelState>>;
-export type RpcToolSource = Accepts<Gui.RpcToolSource, Wire<Core.RpcToolSource>>;
-export type RpcWorkspaceDirectoriesResult = Accepts<
-	Gui.RpcWorkspaceDirectoriesResult,
-	Wire<Core.RpcWorkspaceDirectoriesResult>
+
+type CommonCommand = Extract<Gui.RpcCommand, { type: Core.RpcCommand["type"] }>;
+// Extension commands are deliberately not claimed as upstream-supported. Their
+// runtime adapters must either implement them honestly or return explicit errors.
+export type Commands = Assert<Compatible<Wire<Core.RpcCommand>, CommonCommand>>;
+// A disappeared upstream command cannot make the overlap check vacuously pass.
+type RequiredCommands =
+	| "negotiate_protocol"
+	| "prompt"
+	| "get_state"
+	| "set_model"
+	| "set_thinking_level"
+	| "get_messages_page"
+	| "get_session_stats"
+	| "bash"
+	| "switch_session"
+	| "set_host_tools";
+export type CommandCoverage = Assert<Compatible<Core.RpcCommand["type"], RequiredCommands>>;
+export type ResponseEnvelope = Assert<Compatible<Gui.RpcResponse, Wire<Core.RpcResponse>>>;
+export type State = Assert<Compatible<Gui.RpcSessionState, SuccessData<"get_state">>>;
+export type Stats = Assert<Compatible<Gui.SessionStats, SuccessData<"get_session_stats">>>;
+export type Messages = Assert<Compatible<{ messages: Gui.AgentMessage[] }, SuccessData<"get_messages">>>;
+export type Pagination = Assert<Compatible<Gui.MessagesPage, SuccessData<"get_messages_page">>>;
+export type Model = Assert<Compatible<Gui.ModelInfo, SuccessData<"set_model">>>;
+export type Models = Assert<Compatible<{ models: Gui.ModelInfo[] }, SuccessData<"get_available_models">>>;
+export type AvailableCommands = Assert<
+	Compatible<{ commands: Gui.AvailableCommand[] }, SuccessData<"get_available_commands">>
 >;
-export type RpcWorkspaceDirectory = Accepts<Gui.RpcWorkspaceDirectory, Wire<Core.RpcWorkspaceDirectory>>;
-export type RpcWorktreeCreateResult = Accepts<Gui.RpcWorktreeCreateResult, Wire<Core.RpcWorktreeCreateResult>>;
+export type LoginProviders = Assert<Compatible<{ providers: Gui.LoginProvider[] }, SuccessData<"get_login_providers">>>;
+export type Subagents = Assert<Compatible<{ subagents: Gui.SubagentSnapshot[] }, SuccessData<"get_subagents">>>;
+export type ThinkingLevels = Assert<
+	Compatible<{ levels: Gui.ThinkingLevel[] }, SuccessData<"get_available_thinking_levels">>
+>;
+export type Ready = Assert<Compatible<Gui.RpcReadyFrame, Wire<Core.RpcReadyFrame>>>;
+export type Chunk = Assert<Compatible<Gui.RpcChunkFrame, Wire<Core.RpcChunkFrame>>>;
+export type PromptResult = Assert<Compatible<Gui.PromptResultFrame, Wire<Core.RpcPromptResultFrame>>>;
+export type SessionSettled = Assert<Compatible<Gui.SessionSettledFrame, Wire<Core.RpcSessionSettledFrame>>>;
+export type HostToolCall = Assert<Compatible<Gui.HostToolCallRequest, Wire<Core.RpcHostToolCallRequest>>>;
+export type HostToolCancel = Assert<Compatible<Gui.HostToolCancelRequest, Wire<Core.RpcHostToolCancelRequest>>>;
+export type HostToolResult = Assert<Compatible<Wire<Core.RpcHostToolResult>, Gui.HostToolResult>>;
+export type HostToolUpdate = Assert<Compatible<Wire<Core.RpcHostToolUpdate>, Gui.HostToolUpdate>>;
+export type HostUriRequest = Assert<Compatible<Gui.HostUriRequest, Wire<Core.RpcHostUriRequest>>>;
+export type HostUriCancel = Assert<Compatible<Gui.HostUriCancelRequest, Wire<Core.RpcHostUriCancelRequest>>>;
+export type HostUriResult = Assert<Compatible<Wire<Core.RpcHostUriResult>, Gui.HostUriResult>>;
+export type ExtensionRequests = Assert<Compatible<Gui.ExtensionUIRequest, Wire<Core.RpcExtensionUIRequest>>>;
+export type ExtensionResponses = Assert<
+	Compatible<
+		Wire<Core.RpcExtensionUIResponse>,
+		Extract<
+			Gui.ExtensionUIResponse,
+			{ value: string } | { confirmed: boolean } | { answers: unknown } | { cancelled: true }
+		>
+	>
+>;
+// Check the full producer stream, including vanilla text queues. Display-only
+// metadata may be unconsumed, but it must remain representable and forwarded.
+export type Stream = Assert<Compatible<Gui.AgentSessionEvent, Wire<Core.RpcAgentSessionEventFrame>>>;
+export type MessageStream = Assert<Compatible<Gui.AgentSessionEvent, Wire<Core.RpcMessageEventFrame>>>;
+export type SubagentStream = Assert<Compatible<Gui.SubagentFrame, Wire<Core.RpcSubagentFrame>>>;
+export type CommandUpdates = Assert<
+	Compatible<Gui.AvailableCommandsUpdateFrame, Wire<Core.RpcAvailableCommandsUpdateFrame>>
+>;
