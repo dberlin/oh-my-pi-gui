@@ -1,9 +1,6 @@
 /**
- * Contract tests for the composer thinking-level picker (Codex-style):
- * the menu must offer exactly the selectors the active model supports — off,
- * auto, and the model's own ladder — with the current selector checked, and
- * a click must send that explicit value (never an unspecified "next" one).
- * Unsupported models get an honest note instead of a dead cycler.
+ * The thinking picker offers only concrete levels reported by the sidecar.
+ * Empty mutation receipts are reconciled from get_state, never guessed.
  * Rendered with react-dom/client into a linkedom document.
  */
 
@@ -11,10 +8,17 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { RpcResponse } from "../../../shared/rpc-types";
+import type { RpcResponse, RpcSessionState, ThinkingLevel } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
-import { useModelStore } from "../../stores/model";
-import { useSessionStore } from "../../stores/session";
+import { type ModelStore, useModelStore } from "../../stores/model";
+import { type SessionStore, useSessionStore } from "../../stores/session";
+import {
+	deleteSessionRuntime,
+	SessionRuntimeProvider,
+	sessionRuntimeStore,
+	setFocusedSessionRuntime,
+} from "../../stores/session-runtime-context";
+import { createTabRuntime } from "../../stores/tab-runtime";
 import { useTabsStore } from "../../stores/tabs";
 import { ThinkingControl } from "./ThinkingControl";
 
@@ -51,20 +55,29 @@ interface TestElement {
 	dispatchEvent: (event: object) => boolean;
 }
 
-let setThinkingLevelMock: Mock<(level: string) => Promise<RpcResponse>>;
+let setThinkingLevelMock: Mock<(level: ThinkingLevel) => Promise<RpcResponse>>;
+let getStateMock: Mock<() => Promise<RpcResponse>>;
+
+function stateReply(thinkingLevel: ThinkingLevel): RpcResponse {
+	return {
+		type: "response",
+		command: "get_state",
+		success: true,
+		data: { thinkingLevel } as RpcSessionState,
+	};
+}
 
 function installMockOmp(): void {
-	setThinkingLevelMock = vi.fn(
-		async level =>
-			({
-				type: "response",
-				command: "set_thinking_level",
-				success: true,
-				data: { thinkingLevel: level === "auto" ? "medium" : level, thinkingConfigured: level },
-			}) as RpcResponse,
-	);
-	const ompWindow = window as unknown as { omp: { rpc: { setThinkingLevel: typeof setThinkingLevelMock } } };
-	ompWindow.omp = { rpc: { setThinkingLevel: setThinkingLevelMock } };
+	setThinkingLevelMock = vi.fn(async (_level: ThinkingLevel): Promise<RpcResponse> => ({
+		type: "response",
+		command: "set_thinking_level",
+		success: true,
+	}));
+	getStateMock = vi.fn(async () => stateReply("high"));
+	const ompWindow = window as unknown as {
+		omp: { rpc: { setThinkingLevel: typeof setThinkingLevelMock; getState: typeof getStateMock } };
+	};
+	ompWindow.omp = { rpc: { setThinkingLevel: setThinkingLevelMock, getState: getStateMock } };
 }
 
 let container: TestElement;
@@ -111,17 +124,19 @@ afterEach(async () => {
 	container?.remove();
 	// The menu portals to document.body — sweep any leftovers between tests.
 	document.body.innerHTML = "";
+	setFocusedSessionRuntime(null);
+	deleteSessionRuntime("thinking-one");
+	deleteSessionRuntime("thinking-two");
 	useModelStore.getState().reset();
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
 });
 
 describe("ThinkingControl", () => {
-	it("lists off, auto, and exactly the model-supported ladder with the current selector checked", async () => {
+	it("lists exactly the reported concrete levels with the effective level checked", async () => {
 		installMockOmp();
 		useModelStore.setState({
 			thinkingLevel: "medium",
-			thinkingConfigured: "medium",
 			availableThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
 		});
 		await mount(<ThinkingControl />);
@@ -134,18 +149,19 @@ describe("ThinkingControl", () => {
 		});
 
 		const body = document.body.textContent ?? "";
-		for (const option of ["off", "auto", "low", "medium", "high", "xhigh", "max"]) {
+		for (const option of ["low", "medium", "high", "xhigh", "max"]) {
 			expect(body).toContain(labelFor(option));
 		}
 		// Unsupported levels must not be offered.
-		expect(body).not.toContain("minimal");
+		expect(body).not.toContain(labelFor("minimal"));
+		expect(body).not.toContain(labelFor("auto"));
+		expect(body).not.toContain(labelFor("off"));
 	});
 
-	it("sends the explicitly picked value and applies the authoritative receipt", async () => {
+	it("reconciles an empty successful receipt from authoritative state", async () => {
 		installMockOmp();
 		useModelStore.setState({
 			thinkingLevel: "medium",
-			thinkingConfigured: "medium",
 			availableThinkingLevels: ["low", "medium", "high"],
 		});
 		await mount(<ThinkingControl />);
@@ -164,21 +180,15 @@ describe("ThinkingControl", () => {
 		await flush();
 
 		expect(setThinkingLevelMock).toHaveBeenCalledWith("high");
-		expect(useModelStore.getState().thinkingConfigured).toBe("high");
+		expect(getStateMock).toHaveBeenCalledOnce();
 		expect(useModelStore.getState().thinkingLevel).toBe("high");
 	});
 
 	it("shows the effective clamped level returned by the sidecar", async () => {
 		installMockOmp();
-		setThinkingLevelMock.mockResolvedValue({
-			type: "response",
-			command: "set_thinking_level",
-			success: true,
-			data: { thinkingLevel: "high", thinkingConfigured: "high" },
-		});
+		getStateMock.mockResolvedValue(stateReply("high"));
 		useModelStore.setState({
 			thinkingLevel: "medium",
-			thinkingConfigured: "medium",
 			availableThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
 		});
 		await mount(<ThinkingControl />);
@@ -192,7 +202,6 @@ describe("ThinkingControl", () => {
 		await flush();
 
 		expect(setThinkingLevelMock).toHaveBeenCalledWith("max");
-		expect(useModelStore.getState().thinkingConfigured).toBe("high");
 		expect(useModelStore.getState().thinkingLevel).toBe("high");
 	});
 
@@ -225,7 +234,6 @@ describe("ThinkingControl", () => {
 		useSessionStore.setState({ sessionId: "session-one" });
 		useModelStore.setState({
 			thinkingLevel: "medium",
-			thinkingConfigured: "medium",
 			availableThinkingLevels: ["medium", "high"],
 		});
 		await mount(<ThinkingControl />);
@@ -240,50 +248,103 @@ describe("ThinkingControl", () => {
 		await act(async () => {
 			useTabsStore.setState({ activeTabId: "t1" });
 			useSessionStore.setState({ sessionId: "session-two" });
-			useModelStore.setState({ thinkingLevel: "low", thinkingConfigured: "low" });
+			useModelStore.setState({ thinkingLevel: "low" });
 			receipt.resolve({
 				type: "response",
 				command: "set_thinking_level",
 				success: true,
-				data: { thinkingLevel: "high", thinkingConfigured: "high" },
 			});
 		});
 		await flush();
 
-		expect(useModelStore.getState().thinkingConfigured).toBe("low");
+		expect(getStateMock).not.toHaveBeenCalled();
 		expect(useModelStore.getState().thinkingLevel).toBe("low");
 	});
 
-	it("offers auto as a first-class selector", async () => {
-		installMockOmp();
-		useModelStore.setState({
-			thinkingLevel: "high",
-			thinkingConfigured: "high",
-			availableThinkingLevels: ["low", "medium", "high"],
+	it("reconciles into the owning pane after focus moves to another runtime", async () => {
+		const receipt = Promise.withResolvers<RpcResponse>();
+		const commandForTab = vi.fn(async (tabId: string, command: { type: string }): Promise<RpcResponse> => {
+			if (tabId !== "thinking-one") throw new Error("wrong command owner");
+			if (command.type === "set_thinking_level") return receipt.promise;
+			if (command.type === "get_state") return stateReply("high");
+			throw new Error(`unexpected ${command.type}`);
 		});
-		await mount(<ThinkingControl />);
-
-		const trigger = buttonWithMono(labelFor("high"));
+		(window as unknown as Record<string, unknown>).omp = { rpc: { commandForTab } };
+		const owner = createTabRuntime("thinking-one");
+		createTabRuntime("thinking-two");
+		const model = sessionRuntimeStore<ModelStore>("thinking-one", "model")!;
+		const other = sessionRuntimeStore<ModelStore>("thinking-two", "model")!;
+		sessionRuntimeStore<SessionStore>("thinking-one", "session")!.setState({ sessionId: "one" });
+		sessionRuntimeStore<SessionStore>("thinking-two", "session")!.setState({ sessionId: "two" });
+		model.setState({ thinkingLevel: "medium", availableThinkingLevels: ["medium", "high"] });
+		other.setState({ thinkingLevel: "low" });
+		setFocusedSessionRuntime("thinking-one");
+		await mount(
+			<SessionRuntimeProvider runtime={owner}>
+				<ThinkingControl />
+			</SessionRuntimeProvider>,
+		);
+		const trigger = buttonWithMono(labelFor("medium"));
 		if (!trigger) throw new Error("trigger missing");
+		await act(async () => click(trigger));
+		const high = buttonWithMono(labelFor("high"));
+		if (!high) throw new Error("high option missing");
+		await act(async () => click(high));
 		await act(async () => {
-			click(trigger);
-		});
-		const auto = buttonWithMono(labelFor("auto"));
-		expect(auto).toBeDefined();
-		if (!auto) return;
-		await act(async () => {
-			click(auto);
+			setFocusedSessionRuntime("thinking-two");
+			receipt.resolve({ type: "response", command: "set_thinking_level", success: true });
 		});
 		await flush();
+		expect(model.getState().thinkingLevel).toBe("high");
+		expect(other.getState().thinkingLevel).toBe("low");
+		expect(commandForTab.mock.calls.map(([tabId]) => tabId)).toEqual(["thinking-one", "thinking-one"]);
+	});
 
-		expect(setThinkingLevelMock).toHaveBeenCalledWith("auto");
-		expect(useModelStore.getState().thinkingConfigured).toBe("auto");
+	it("does not apply state readback after the owning session changes", async () => {
+		installMockOmp();
+		const state = Promise.withResolvers<RpcResponse>();
+		getStateMock.mockReturnValue(state.promise);
+		useSessionStore.setState({ sessionId: "session-one" });
+		useModelStore.setState({ thinkingLevel: "medium", availableThinkingLevels: ["medium", "high"] });
+		await mount(<ThinkingControl />);
+		const trigger = buttonWithMono(labelFor("medium"));
+		if (!trigger) throw new Error("trigger missing");
+		await act(async () => click(trigger));
+		const high = buttonWithMono(labelFor("high"));
+		if (!high) throw new Error("high option missing");
+		await act(async () => click(high));
+		await act(async () => {
+			useSessionStore.setState({ sessionId: "session-two" });
+			useModelStore.setState({ thinkingLevel: "low" });
+			state.resolve(stateReply("high"));
+		});
+		await flush();
+		expect(useModelStore.getState().thinkingLevel).toBe("low");
+	});
+
+	it("leaves the effective level unchanged when state reconciliation fails", async () => {
+		installMockOmp();
+		getStateMock.mockResolvedValue({
+			type: "response",
+			command: "get_state",
+			success: false,
+			error: "unavailable",
+		});
+		useModelStore.setState({ thinkingLevel: "medium", availableThinkingLevels: ["medium", "high"] });
+		await mount(<ThinkingControl />);
+		const trigger = buttonWithMono(labelFor("medium"));
+		if (!trigger) throw new Error("trigger missing");
+		await act(async () => click(trigger));
+		const high = buttonWithMono(labelFor("high"));
+		if (!high) throw new Error("high option missing");
+		await act(async () => click(high));
+		await flush();
 		expect(useModelStore.getState().thinkingLevel).toBe("medium");
 	});
 
-	it("shows an honest note when the model does not reason", async () => {
+	it("shows an honest unavailable note when no levels were reported", async () => {
 		installMockOmp();
-		useModelStore.setState({ thinkingLevel: undefined, thinkingConfigured: undefined, availableThinkingLevels: [] });
+		useModelStore.setState({ thinkingLevel: undefined, availableThinkingLevels: [] });
 		await mount(<ThinkingControl />);
 
 		const trigger = buttonWithMono(labelFor("off"));
@@ -291,6 +352,6 @@ describe("ThinkingControl", () => {
 		await act(async () => {
 			click(trigger);
 		});
-		expect(document.body.textContent).toContain("does not support reasoning");
+		expect(document.body.textContent).toContain(translate("input.thinking.unsupported"));
 	});
 });

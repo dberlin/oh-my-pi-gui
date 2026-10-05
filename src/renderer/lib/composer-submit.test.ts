@@ -2,9 +2,9 @@
  * Contract tests for composer submission policy (lib/composer-submit):
  * ordinary text always routes through prompt with its intended queue lane so
  * the sidecar decides atomically whether to start or queue at a turn boundary;
- * typed slash commands always route through prompt without becoming literal
- * steers/follow-ups; session-replacing commands are blocked while a turn runs;
- * and local-only mutations rehydrate without erasing live-only command output.
+ * text-mode slash commands route through prompt without becoming literal
+ * steers/follow-ups; GUI-owned commands stay local even without discovery;
+ * session replacement is blocked while busy and local mutations rehydrate.
  */
 
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
@@ -23,12 +23,13 @@ interface MockOmp {
 		prompt: Mock<
 			(message: string, images?: unknown[], streamingBehavior?: "steer" | "followUp") => Promise<RpcResponse>
 		>;
-		compact: Mock<() => Promise<RpcResponse>>;
+		compact: Mock<(instructions?: string) => Promise<RpcResponse>>;
 		steer: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
 		followUp: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
 		dropSession: Mock<() => Promise<RpcResponse>>;
 		guidedGoal: Mock<(initial?: string) => Promise<RpcResponse>>;
 		setAgentsPaused: Mock<(enabled: boolean) => Promise<RpcResponse>>;
+		setFastMode: Mock<(enabled: boolean) => Promise<RpcResponse>>;
 		tan: Mock<(work: string) => Promise<RpcResponse>>;
 		omfg: Mock<(complaint: string) => Promise<RpcResponse>>;
 		collabStart: Mock<(relay?: string, view?: boolean) => Promise<RpcResponse>>;
@@ -51,6 +52,7 @@ function installMockOmp(): MockOmp {
 			dropSession: vi.fn(async () => success({ cancelled: false })),
 			guidedGoal: vi.fn(async () => success({ started: true })),
 			setAgentsPaused: vi.fn(async enabled => success({ paused: enabled, pausedAt: enabled ? 123 : undefined })),
+			setFastMode: vi.fn(async enabled => success({ enabled, active: false })),
 			tan: vi.fn(async () => success({ jobId: "job-1" })),
 			omfg: vi.fn(async () => success({ state: "saved", savedPath: "/tmp/rule.md" })),
 			collabStart: vi.fn(async () => success({ role: "host", readOnly: false, participants: [] })),
@@ -102,6 +104,97 @@ const guiOnly = (name: string): AvailableCommand => ({
 	textModeExecutable: false,
 });
 describe("planComposerSubmit", () => {
+	it("keeps GUI-owned commands out of model context when vanilla omits builtin metadata", () => {
+		const omp = installMockOmp();
+		useUiStore.setState({ settingsOpen: false });
+		const submit = planComposerSubmit({
+			message: "/settings",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: [],
+		});
+		expect(submit.kind).toBe("handled");
+		expect(useUiStore.getState().settingsOpen).toBe(true);
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("preserves an extension override of a GUI-owned command", async () => {
+		const omp = installMockOmp();
+		useUiStore.setState({ settingsOpen: false });
+		const submit = planComposerSubmit({
+			message: "/settings",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: [{ name: "settings", source: "extension" }],
+		});
+		if (submit.kind !== "send") throw new Error("Extension must own its command");
+		await submit.request();
+		expect(useUiStore.getState().settingsOpen).toBe(false);
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("/settings", []);
+	});
+
+	it("does not mistake an extension's full token for a session-replacing prefix while busy", async () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/new_notes keep this session",
+			images: [],
+			isStreaming: true,
+			mode: "prompt",
+			commands: [{ name: "new_notes", source: "extension" }],
+		});
+		if (submit.kind !== "send") throw new Error("The extension must not replace or block this session");
+		await submit.request();
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("/new_notes keep this session", []);
+		expect(useToastStore.getState().toasts).toEqual([]);
+	});
+
+	it("does not open settings for a file command that merely starts with its name", async () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/settings_extra",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: [{ name: "settings_extra", source: "file" }],
+		});
+		if (submit.kind !== "send") throw new Error("The file command must retain ownership");
+		await submit.request();
+		expect(useUiStore.getState().settingsOpen).toBe(false);
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("/settings_extra", []);
+	});
+
+	it("preserves vanilla's argument-aware fast handler rather than enabling a requested off mode", async () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/fast off",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: [{ name: "fast", source: "builtin" }],
+		});
+		if (submit.kind !== "send") throw new Error("Vanilla must interpret the explicit off argument");
+		await submit.request();
+		expect(omp.rpc.setFastMode).not.toHaveBeenCalled();
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("/fast off", []);
+	});
+
+	it("refuses an unadvertised argument form instead of blindly toggling premium mode or prompting a model", () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/fast off",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: [],
+		});
+		expect(submit.kind).toBe("blocked");
+		expect(omp.rpc.setFastMode).not.toHaveBeenCalled();
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+		expect(useToastStore.getState().toasts.some(toast => toast.variant === "warning")).toBe(true);
+	});
+
 	it("typed share still requires a desktop preview when Core can upload directly or discovery is pending", () => {
 		const omp = installMockOmp();
 		for (const commands of [[{ ...guiOnly("share"), textModeExecutable: true }], []]) {
@@ -157,10 +250,56 @@ describe("planComposerSubmit", () => {
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 	});
 
-	it("routes typed /usage through the sidecar text report with its actual advertised shape", async () => {
+	it("retains multiline compaction focus through the long-running RPC even before command discovery", async () => {
+		const omp = installMockOmp();
+		const instructions = "Preserve API details\nand the migration decisions";
+		const submit = planComposerSubmit({
+			message: `/compact ${instructions}`,
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: [],
+		});
+		if (submit.kind !== "send") throw new Error("Compaction must preserve its instructions");
+		await submit.request();
+		expect(omp.rpc.compact).toHaveBeenCalledWith(instructions);
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("does not consume a file-owned compact command as the native compaction RPC", async () => {
 		const omp = installMockOmp();
 		const submit = planComposerSubmit({
-			message: "/usage",
+			message: "/compact",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: [{ name: "compact", source: "file" }],
+		});
+		if (submit.kind !== "send") throw new Error("The file command must execute");
+		await submit.request();
+		expect(omp.rpc.compact).not.toHaveBeenCalled();
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("/compact", []);
+	});
+
+	it("does not block an extension-owned new command behind the builtin session-replacement guard", async () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/new",
+			images: [],
+			isStreaming: true,
+			mode: "prompt",
+			commands: [{ name: "new", source: "extension" }],
+		});
+		if (submit.kind !== "send") throw new Error("The extension command must not be blocked as a builtin");
+		await submit.request();
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("/new", []);
+		expect(useToastStore.getState().toasts).toEqual([]);
+	});
+
+	it("retains vanilla's parameterized usage handler instead of replacing it with a plain GUI report", async () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/usage reset all",
 			images: [],
 			isStreaming: false,
 			mode: "prompt",
@@ -170,7 +309,7 @@ describe("planComposerSubmit", () => {
 
 		await submit.request();
 
-		expect(omp.rpc.prompt).toHaveBeenCalledWith("/usage", []);
+		expect(omp.rpc.prompt).toHaveBeenCalledWith("/usage reset all", []);
 	});
 
 	it("routes /compact through its dedicated RPC even while streaming — never steer/followUp", async () => {
@@ -231,21 +370,6 @@ describe("planComposerSubmit", () => {
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 	});
 
-	it("still routes /clear with args through prompt (no native interception)", async () => {
-		const omp = installMockOmp();
-		const submit = planComposerSubmit({
-			message: "/clear extra",
-			images: [],
-			isStreaming: false,
-			mode: "prompt",
-			commands: [],
-		});
-		expect(submit.kind).toBe("send");
-		if (submit.kind !== "send") return;
-		await submit.request();
-		expect(omp.rpc.prompt).toHaveBeenCalledWith("/clear extra", []);
-	});
-
 	it.each(["/new", "/clear", "/new extra args"])(
 		"blocks %s while a turn is running instead of silently killing it",
 		async message => {
@@ -257,19 +381,6 @@ describe("planComposerSubmit", () => {
 			expect(useToastStore.getState().toasts.some(toast => toast.variant === "warning")).toBe(true);
 		},
 	);
-
-	it("allows /new when idle", () => {
-		installMockOmp();
-		const submit = planComposerSubmit({
-			message: "/new",
-			images: [],
-			isStreaming: false,
-			mode: "prompt",
-			commands: [],
-		});
-		expect(submit.kind).toBe("send");
-		expect(useToastStore.getState().toasts).toHaveLength(0);
-	});
 });
 
 describe("planComposerSubmit GUI-only routing", () => {

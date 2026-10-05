@@ -9,16 +9,23 @@ import { I18nProvider } from "../../lib/i18n";
 import { createSessionStore } from "../../stores/session";
 import { addRuntimeStore, SessionRuntimeProvider, type SessionRuntime } from "../../stores/session-runtime-context";
 import { type SessionTab, useTabsStore } from "../../stores/tabs";
+import { useToastStore } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { ModelRolesWindow } from "./ModelRolesWindow";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
-	document, window, Event, HTMLElement, Element, Node,
+	document,
+	window,
+	Event,
+	HTMLElement,
+	Element,
+	Node,
 	IS_REACT_ACT_ENVIRONMENT: true,
 	requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
 });
-window.matchMedia = () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
+window.matchMedia = () =>
+	({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
 
 let root: Root | undefined;
 const models: ModelInfo[] = [
@@ -28,11 +35,18 @@ const models: ModelInfo[] = [
 	{ provider: "openai", id: "dalle", name: "DALL·E", kind: "image" },
 ];
 
-function configBackend(assignments: Record<string, string> = { default: "anthropic/claude", image: "retired/image", secret: "private/model" }) {
+function configBackend(
+	assignments: Record<string, string> = {
+		default: "anthropic/claude",
+		image: "retired/image",
+		secret: "private/model",
+	},
+) {
 	const state = {
 		error: null as string | null,
 		readGate: null as Promise<void> | null,
 		saveGate: null as Promise<void> | null,
+		projectRoles: null as Record<string, string> | null,
 		settings: {
 			modelRoles: assignments,
 			modelTags: { image: { name: "Image generation" }, secret: { name: "Hidden role", hidden: true } },
@@ -42,19 +56,32 @@ function configBackend(assignments: Record<string, string> = { default: "anthrop
 	const runCli = vi.fn(async (args: string[]): Promise<string> => {
 		if (state.error) throw new Error(state.error);
 		const entry = (key: string) => ({
-			value: state.settings[key], type: key === "cycleOrder" ? "array" : "record", description: key,
+			value:
+				key === "modelRoles" && state.projectRoles
+					? { ...(state.settings.modelRoles as Record<string, string>), ...state.projectRoles }
+					: state.settings[key],
+			type: key === "cycleOrder" ? "array" : "record",
+			description: key,
 		});
 		if (args[1] === "list") {
 			await state.readGate;
 			return JSON.stringify(Object.fromEntries(Object.keys(state.settings).map(key => [key, entry(key)])));
 		}
-		const { positionals } = parseArgs({ args: args.slice(2), options: { json: { type: "boolean" } }, allowPositionals: true });
+		const { positionals } = parseArgs({
+			args: args.slice(2),
+			options: { json: { type: "boolean" } },
+			allowPositionals: true,
+		});
 		const key = positionals[0]!;
 		if (args[1] === "get") return JSON.stringify({ key, ...entry(key) });
 		if (args[1] === "set") {
 			await state.saveGate;
 			state.settings[key] = JSON.parse(positionals[1]!);
-			return JSON.stringify({ key, value: state.settings[key] });
+			return JSON.stringify({
+				key,
+				value: state.settings[key],
+				...(key === "modelRoles" && state.projectRoles ? { overriddenBy: "project" } : {}),
+			});
 		}
 		throw new Error(`Unexpected config invocation: ${args.join(" ")}`);
 	});
@@ -81,18 +108,29 @@ function runtime(tabId: string, handler: (request: RpcCommand) => Promise<RpcRes
 	session.setState({ status: "ready", cwd: `/srv/${tabId}` });
 	addRuntimeStore(owner, "session", session);
 	const tab: SessionTab = {
-		id: tabId, cwd: `/srv/${tabId}`, status: "ready", kind: "agent", unreadDone: false,
-		target: remote ? {
-			type: "ssh", hostAlias: "build", host: { host: "build.example", sourceId: "ssh-json", sourceLevel: "user" },
-			originCwd: "/srv", cwd: `/srv/${tabId}`,
-		} : { type: "local" },
+		id: tabId,
+		cwd: `/srv/${tabId}`,
+		status: "ready",
+		kind: "agent",
+		unreadDone: false,
+		target: remote
+			? {
+					type: "ssh",
+					hostAlias: "build",
+					host: { host: "build.example", sourceId: "ssh-json", sourceLevel: "user" },
+					originCwd: "/srv",
+					cwd: `/srv/${tabId}`,
+				}
+			: { type: "local" },
 	};
 	useTabsStore.setState(state => ({ tabs: [...state.tabs, tab] }));
 	return { owner, session, command };
 }
 
 async function flush(): Promise<void> {
-	await act(async () => { await new Promise<void>(resolve => setTimeout(resolve, 0)); });
+	await act(async () => {
+		await new Promise<void>(resolve => setTimeout(resolve, 0));
+	});
 }
 
 async function render(owner: SessionRuntime): Promise<void> {
@@ -103,7 +141,13 @@ async function render(owner: SessionRuntime): Promise<void> {
 		useUiStore.setState({ modelRolesOpen: true });
 	}
 	await act(async () => {
-		root?.render(<I18nProvider><SessionRuntimeProvider runtime={owner}><ModelRolesWindow /></SessionRuntimeProvider></I18nProvider>);
+		root?.render(
+			<I18nProvider>
+				<SessionRuntimeProvider runtime={owner}>
+					<ModelRolesWindow />
+				</SessionRuntimeProvider>
+			</I18nProvider>,
+		);
 	});
 	await flush();
 }
@@ -121,7 +165,9 @@ function button(label: string): HTMLButtonElement {
 }
 
 async function click(node: HTMLButtonElement): Promise<void> {
-	await act(async () => { node.dispatchEvent(new Event("click", { bubbles: true })); });
+	await act(async () => {
+		node.dispatchEvent(new Event("click", { bubbles: true }));
+	});
 	await flush();
 }
 
@@ -141,16 +187,23 @@ async function search(value: string): Promise<void> {
 	else input.value = value;
 	const record = input as unknown as Record<string, unknown>;
 	const propsKey = Object.keys(record).find(key => key.startsWith("__reactProps$"));
-	const props = propsKey ? record[propsKey] as { onChange: (event: { target: HTMLInputElement }) => void } : undefined;
-	await act(async () => { props?.onChange({ target: input }); });
+	const props = propsKey
+		? (record[propsKey] as { onChange: (event: { target: HTMLInputElement }) => void })
+		: undefined;
+	await act(async () => {
+		props?.onChange({ target: input });
+	});
 }
 
 afterEach(async () => {
-	await act(async () => { root?.unmount(); });
+	await act(async () => {
+		root?.unmount();
+	});
 	root = undefined;
 	document.body.innerHTML = "";
 	useUiStore.setState({ modelRolesOpen: false });
 	useTabsStore.setState({ tabs: [], activeTabId: null });
+	useToastStore.setState({ toasts: [] });
 	vi.restoreAllMocks();
 });
 
@@ -175,8 +228,12 @@ describe("ModelRolesWindow config eligibility and recovery", () => {
 		expect(imageOptions).not.toContain("openai/gpt");
 		await click(trigger("Image generation"));
 		await click(trigger("Tiny"));
-		const tinyOption = [...document.body.querySelectorAll('[role="option"]')].find(node => node.textContent?.includes("local/tiny"));
-		const chatOption = [...document.body.querySelectorAll('[role="option"]')].find(node => node.textContent?.includes("openai/gpt"));
+		const tinyOption = [...document.body.querySelectorAll('[role="option"]')].find(node =>
+			node.textContent?.includes("local/tiny"),
+		);
+		const chatOption = [...document.body.querySelectorAll('[role="option"]')].find(node =>
+			node.textContent?.includes("openai/gpt"),
+		);
 		expect(tinyOption).toBeDefined();
 		expect(chatOption).toBeDefined();
 		expect(tinyOption?.parentElement).not.toBe(chatOption?.parentElement);
@@ -193,6 +250,19 @@ describe("ModelRolesWindow config eligibility and recovery", () => {
 		await choose("Architect", null);
 		expect(backend.state.settings.modelRoles).toEqual({ task: "openai/gpt" });
 		expect(trigger("Subtask").textContent).toContain("openai/gpt");
+	});
+
+	it("reports a shadowed role save as failure and refreshes effective project assignments", async () => {
+		const backend = configBackend({ plan: "anthropic/claude", task: "old/task" });
+		const local = runtime("shadowed-local", backend.handler);
+		await render(local.owner);
+		backend.state.projectRoles = { plan: "anthropic/claude", task: "project/task" };
+		await choose("Architect", "openai/gpt");
+		expect(backend.state.settings.modelRoles).toEqual({ plan: "openai/gpt", task: "project/task" });
+		expect(trigger("Architect").textContent).toContain("anthropic/claude");
+		expect(trigger("Subtask").textContent).toContain("project/task");
+		expect(useToastStore.getState().toasts.at(-1)?.variant).toBe("error");
+		expect(useToastStore.getState().toasts.some(item => item.variant === "success")).toBe(false);
 	});
 
 	it("preserves a sibling role completed by another window after this window loaded", async () => {
@@ -235,10 +305,14 @@ describe("ModelRolesWindow config eligibility and recovery", () => {
 		expect(button("Refresh").disabled).toBe(true);
 		expect(document.body.querySelector('[aria-haspopup="listbox"]')).toBeNull();
 		expect(local.command).not.toHaveBeenCalled();
-		await act(async () => { local.session.setState({ status: "ready" }); });
+		await act(async () => {
+			local.session.setState({ status: "ready" });
+		});
 		await flush();
 		await click(trigger("Default"));
-		await act(async () => { local.session.setState({ status: "exited" }); });
+		await act(async () => {
+			local.session.setState({ status: "exited" });
+		});
 		expect(trigger("Default").disabled).toBe(true);
 		expect(document.body.querySelector('[role="listbox"]')).toBeNull();
 		expect(document.body.querySelector('[role="alert"]')).not.toBeNull();

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -5,7 +6,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, test, vi } from "vitest";
 import { StatsClient } from "./stats-client";
-import { StatsServerManager, statsServerArgs, statsServerPort } from "./stats-server";
+import { StatsServerManager, statsServerPort } from "./stats-server";
+
+const bundledBinary = path.resolve("resources", process.platform === "win32" ? "omp.exe" : "omp");
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -104,11 +107,144 @@ test("fetch sends POST for /api/sync, which 405s a plain GET", async () => {
 	}
 });
 
-describe("statsServerArgs", () => {
-	it("binds the bundled dashboard to loopback without opening an external browser", () => {
-		expect(statsServerArgs(3847)).toEqual(["stats", "--host", "127.0.0.1", "--port", "3847", "--no-open"]);
-	});
-});
+test.skipIf(!existsSync(bundledBinary))(
+	"the built GUI entry owns a private stats listener, syncs sessions, and exposes its judge without opening a browser (requires build:omp)",
+	async () => {
+		const directory = await fs.mkdtemp(path.join(os.tmpdir(), "omp-embedded-stats-"));
+		const binary = path.join(directory, "omp");
+		const browserLog = path.join(directory, "browser-launches");
+		const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+		const sessions = path.join(directory, "agent", "sessions", "fixture");
+		await fs.mkdir(sessions, { recursive: true });
+		const timestamp = new Date().toISOString();
+		await fs.writeFile(
+			path.join(sessions, "fixture.jsonl"),
+			[
+				{ type: "session", version: 3, id: "gui-stats-fixture", timestamp, cwd: directory },
+				{
+					type: "message",
+					id: "user-1",
+					timestamp,
+					message: {
+						role: "user",
+						content: [{ type: "text", text: "Explain this fixture." }],
+						timestamp: Date.now(),
+					},
+				},
+				{
+					type: "message",
+					id: "assistant-1",
+					parentId: "user-1",
+					timestamp,
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "This is the embedded stats fixture." }],
+						provider: "openai",
+						model: "gpt-4o",
+						api: "openai-responses",
+						usage: {
+							input: 12,
+							output: 8,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 20,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						},
+						stopReason: "stop",
+						timestamp: Date.now(),
+					},
+				},
+			]
+				.map(row => JSON.stringify(row))
+				.join("\n") + "\n",
+		);
+		for (const opener of ["open", "xdg-open", "wslview"]) {
+			const openerPath = path.join(directory, opener);
+			await fs.writeFile(openerPath, `#!/bin/sh\nprintf launched >> ${quote(browserLog)}\n`);
+			await fs.chmod(openerPath, 0o755);
+		}
+		await fs.writeFile(
+			binary,
+			`#!/bin/sh
+unset PI_PROFILE PI_COMPILED
+export HOME=${quote(directory)}
+export PI_CODING_AGENT_DIR=${quote(path.join(directory, "agent"))}
+export OMP_PROFILE=''
+export PATH=${quote(directory)}:"$PATH"
+exec ${quote(bundledBinary)} "$@"
+`,
+		);
+		await fs.chmod(binary, 0o755);
+		const first = new StatsServerManager(binary);
+		const second = new StatsServerManager(binary);
+		try {
+			first.start();
+			second.start();
+			await expect.poll(() => first.port, { timeout: 15_000 }).toBeGreaterThan(0);
+			await expect.poll(() => second.port, { timeout: 15_000 }).toBeGreaterThan(0);
+			expect(first.port).not.toBe(second.port);
+			const origin = `http://127.0.0.1:${first.port}`;
+			const dashboard = await fetch(origin);
+			expect(dashboard.headers.get("X-Omp-Stats-Hostname")).toBe("127.0.0.1");
+			expect(await dashboard.text()).toContain('<div id="root"></div>');
+			const sync = await fetch(`${origin}/api/sync`, { method: "POST" });
+			expect(sync.status).toBe(202);
+			await expect
+				.poll(
+					async () => {
+						const response = await fetch(`${origin}/api/stats/models`);
+						const models = (await response.json()) as { model: string; totalRequests: number }[];
+						return models.find(model => model.model === "gpt-4o")?.totalRequests;
+					},
+					{ timeout: 15_000 },
+				)
+				.toBe(1);
+			const frustration = await fetch(`${origin}/api/stats/frustration`);
+			expect(await frustration.json()).toMatchObject({ judgeAvailable: true });
+			// Cancellation exercises the upstream action route without a paid provider call.
+			const cancel = await fetch(`${origin}/api/frustration/cancel`, {
+				method: "POST",
+				headers: { "X-Omp-Stats-Action": "1" },
+			});
+			expect(cancel.status).toBe(200);
+			first.kill();
+			await expect
+				.poll(
+					async () =>
+						fetch(origin).then(
+							() => false,
+							() => true,
+						),
+					{ timeout: 5000 },
+				)
+				.toBe(true);
+			expect((await fetch(`http://127.0.0.1:${second.port}/api/status`)).ok).toBe(true);
+			await expect(fs.access(browserLog)).rejects.toMatchObject({ code: "ENOENT" });
+		} finally {
+			first.kill();
+			second.kill();
+			try {
+				await Promise.all(
+					[first.port, second.port].map(port =>
+						expect
+							.poll(
+								async () =>
+									fetch(`http://127.0.0.1:${port}`).then(
+										() => false,
+										() => true,
+									),
+								{ timeout: 5000 },
+							)
+							.toBe(true),
+					),
+				);
+			} finally {
+				await fs.rm(directory, { recursive: true, force: true });
+			}
+		}
+	},
+	45_000,
+);
 
 describe("statsServerPort", () => {
 	it.each([

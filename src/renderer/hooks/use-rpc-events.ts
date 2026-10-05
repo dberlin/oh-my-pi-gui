@@ -19,7 +19,6 @@ import {
 	type CommandOutputFrame,
 	type ConfigUpdateFrame,
 	type ExtensionErrorFrame,
-	isThinkingLevel,
 	type ModelCatalogUpdateFrame,
 	type PromptResultFrame,
 	type RpcSessionState,
@@ -49,12 +48,7 @@ import {
 import { useSettingsStore } from "../stores/settings";
 import { useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
-import {
-	consumePendingSession,
-	invalidatePendingSessionGeneration,
-	isTabClosed,
-	useTabsStore,
-} from "../stores/tabs";
+import { consumePendingSession, invalidatePendingSessionGeneration, isTabClosed, useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
@@ -557,17 +551,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							break;
 						}
 						case "thinking_level_changed": {
-							const configured =
-								typeof event.configured === "string" &&
-								(event.configured === "auto" || isThinkingLevel(event.configured))
-									? event.configured
-									: event.thinkingLevel;
-							// Explicit changes omit `configured` because it equals the effective
-							// level. Treat that omission as data, not as "keep the old selector";
-							// otherwise cycle/hotkey changes leave a stale checked menu item.
 							useModelStore.setState({
 								thinkingLevel: event.thinkingLevel,
-								thinkingConfigured: configured,
 							});
 							break;
 						}
@@ -611,10 +596,9 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							break;
 						}
 						case "queue_update": {
-							// Authoritative queue snapshot — fires on every queue mutation
-							// (enqueue, drain/consume, remove, move, clear), so the strip,
-							// panel, and pending bubbles never poll mid-run.
-							useQueueStore.getState().setFromFrame({ steering: event.steering, followUp: event.followUp });
+							// Authoritative text (vanilla) or stable-id (extension) snapshot.
+							// Preserve the whole event so the two wire shapes stay correlated.
+							useQueueStore.getState().setFromFrame(event);
 							break;
 						}
 						case "irc_message": {
@@ -744,7 +728,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									pendingOwnerTabId = reconciledTabId;
 									ownerGeneration = recoveryGeneration(reconciledTabId);
 									ownerRuntime = sessionRuntime(reconciledTabId);
-									ownerSessionId = sessionRuntimeStore<SessionStore>(reconciledTabId, "session")?.getState().sessionId;
+									ownerSessionId = sessionRuntimeStore<SessionStore>(reconciledTabId, "session")?.getState()
+										.sessionId;
 									pendingOwnerReady?.resolve(reconciledTabId);
 									promoteFullReadyPrelude(reconciledTabId);
 								})
@@ -774,7 +759,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 										if (bootPendingRead === pendingRead) bootPendingRead = null;
 										throw error;
 									}
-									if (statusGeneration !== recoveryGeneration(statusTabId) && pendingOwnerTabId === null) return;
+									if (statusGeneration !== recoveryGeneration(statusTabId) && pendingOwnerTabId === null)
+										return;
 									pendingClaim = pendingRead.claim.value;
 									pendingRead.claim.value = null;
 									if (bootPendingRead === pendingRead) bootPendingRead = null;
@@ -808,7 +794,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									statusGeneration === recoveryGeneration(statusTabId) &&
 									ownerGeneration === recoveryGeneration(pendingTabId) &&
 									sessionRuntime(pendingTabId) === ownerRuntime &&
-									sessionRuntimeStore<SessionStore>(pendingTabId, "session")?.getState().sessionId === ownerSessionId
+									sessionRuntimeStore<SessionStore>(pendingTabId, "session")?.getState().sessionId ===
+										ownerSessionId
 								) {
 									await consumePendingSession(pendingTabId);
 								}
@@ -829,7 +816,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									(owner?.status === "ready" || owner?.status === "running") &&
 									acceptsActiveTabEvents()
 								) {
-									if (!(await consumePendingSession(pendingOwnerTabId))) await recoverReadySession(pendingOwnerTabId);
+									if (!(await consumePendingSession(pendingOwnerTabId)))
+										await recoverReadySession(pendingOwnerTabId);
 								}
 							}
 							return;

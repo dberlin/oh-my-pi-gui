@@ -16,6 +16,28 @@ describe("formatTranscriptMarkdown", () => {
 		expect(markdown).toContain("On it — reading the file first.");
 	});
 
+	it("preserves the developer role and omits opaque provider metadata from copied text", () => {
+		const markdown = formatTranscriptMarkdown([
+			{ role: "developer", content: "Follow the project conventions" },
+			{
+				role: "assistant",
+				content: [
+					{ type: "redactedThinking", data: "opaque-reasoning" },
+					{ type: "fallback", from: { model: "first" }, to: { model: "second" } },
+					{
+						type: "anthropicServerTool",
+						block: { type: "web_search_tool_result", tool_use_id: "search", content: "opaque-result" },
+					},
+					{ type: "text", text: "Visible answer" },
+				],
+			},
+		]);
+		expect(markdown).toContain("## Developer\n\nFollow the project conventions");
+		expect(markdown).toContain("Visible answer");
+		expect(markdown).not.toContain("opaque-reasoning");
+		expect(markdown).not.toContain("opaque-result");
+	});
+
 	it("summarizes tool calls on one line with JSON args", () => {
 		const messages: AgentMessage[] = [
 			{

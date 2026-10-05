@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 
@@ -10,9 +11,13 @@ const ConfigEntrySchema = z.object({
 });
 const ConfigListSchema = z.record(z.string(), ConfigEntrySchema);
 const ConfigGetSchema = ConfigEntrySchema.extend({ key: z.string() });
-const ConfigSetSchema = z.object({ key: z.string(), value: z.unknown() });
+const ConfigSetSchema = z.object({
+	key: z.string(),
+	value: z.unknown(),
+	overriddenBy: z.string().optional(),
+	fallbackEnv: z.string().optional(),
+});
 const ModelRoleAssignmentsSchema = z.record(z.string(), z.string());
-const NativeRoleSettingsSchema = z.object({ values: z.object({ modelRoles: ModelRoleAssignmentsSchema }) });
 const ConfigRpcCommandSchema = z.discriminatedUnion("type", [
 	z.object({ id: z.string().optional(), type: z.literal("get_settings"), paths: z.array(z.string()).optional() }),
 	z.object({ id: z.string().optional(), type: z.literal("get_settings_schema") }),
@@ -62,34 +67,8 @@ function serializeRoleWrite(write: () => Promise<RpcResponse>): Promise<RpcRespo
 export async function executeConfigRpcCommand(
 	command: ConfigRpcCommand,
 	runCli: ConfigCliRunner,
-	runNative?: (command: RpcCommand) => Promise<RpcResponse>,
 ): Promise<RpcResponse> {
 	try {
-		// Local settings keep native schema, provenance, validation and live-session effects.
-		// SSH uses the CLI adapter because remote runtimes need not expose these GUI APIs.
-		if (runNative) {
-			if (command.type === "set_model_role") {
-				return await serializeRoleWrite(async () => {
-					const saved = await runNative(command);
-					if (!saved.success) return { ...saved, id: command.id, command: command.type };
-					// The native per-role setter updates explicit runtime overrides and
-					// adopts fresh persisted siblings during flush; a CLI pre-read cannot.
-					const settings = await runNative({ type: "get_settings", paths: ["modelRoles"] });
-					if (!settings.success) return { ...settings, id: command.id, command: command.type };
-					const { values } = NativeRoleSettingsSchema.parse(settings.data);
-					return {
-						id: command.id,
-						type: "response",
-						command: command.type,
-						success: true,
-						data: { assignments: values.modelRoles },
-					};
-				});
-			}
-			return await (command.type === "set_setting" && command.path === "modelRoles"
-				? serializeRoleWrite(() => runNative(command))
-				: runNative(command));
-		}
 		if (command.type === "get_settings" || command.type === "get_settings_schema") {
 			const config = ConfigListSchema.parse(parseJson(await runCli(["config", "list", "--json"])));
 			if (command.type === "get_settings") {
@@ -117,7 +96,6 @@ export async function executeConfigRpcCommand(
 						path,
 						type: entry.type,
 						value: entry.value,
-						default: entry.value,
 						description: entry.description,
 						secret: entry.redacted === true,
 						advanced: true,
@@ -142,6 +120,41 @@ export async function executeConfigRpcCommand(
 			const persisted = ConfigSetSchema.parse(
 				parseJson(await runCli(["config", "set", path, "--json", "--", cliValue(value, current.type)])),
 			);
+			const savedData = {
+				path: persisted.key,
+				saved: true,
+				savedValue: persisted.value,
+				...(persisted.overriddenBy ? { overriddenBy: persisted.overriddenBy } : {}),
+				...(persisted.fallbackEnv ? { fallbackEnv: persisted.fallbackEnv } : {}),
+			};
+			let effective: z.infer<typeof ConfigGetSchema>;
+			try {
+				effective = ConfigGetSchema.parse(parseJson(await runCli(["config", "get", persisted.key, "--json"])));
+			} catch (cause) {
+				return {
+					id: command.id,
+					type: "response",
+					command: command.type,
+					success: false,
+					code: "setting_effect_unverified",
+					error: `Saved ${persisted.key} globally, but its effective value could not be confirmed: ${cause instanceof Error ? cause.message : String(cause)}`,
+					data: savedData,
+				};
+			}
+			if (persisted.overriddenBy || persisted.fallbackEnv || !isDeepStrictEqual(persisted.value, effective.value)) {
+				const source = persisted.overriddenBy ?? persisted.fallbackEnv;
+				return {
+					id: command.id,
+					type: "response",
+					command: command.type,
+					success: false,
+					code: "setting_not_applied",
+					error: source
+						? `Saved ${persisted.key} globally, but ${source} still supplies the effective value. The saved value is not applied.`
+						: `Saved ${persisted.key} globally, but the effective value differs. The saved value is not applied.`,
+					data: { ...savedData, effectiveValue: effective.value },
+				};
+			}
 			return {
 				id: command.id,
 				type: "response",
@@ -149,8 +162,8 @@ export async function executeConfigRpcCommand(
 				success: true,
 				data:
 					command.type === "set_model_role"
-						? { assignments: ModelRoleAssignmentsSchema.parse(persisted.value) }
-						: { path: persisted.key, value: persisted.value },
+						? { assignments: ModelRoleAssignmentsSchema.parse(effective.value) }
+						: { path: effective.key, value: effective.value },
 			};
 		};
 		return await (command.type === "set_model_role" || command.path === "modelRoles"

@@ -93,7 +93,8 @@ class FakeSidecar extends EventEmitter {
 			this.sendSideChannel({
 				type: "host_tool_result",
 				id: request.id,
-				error: "Host tools are unavailable for remote SSH sessions",
+				result: { content: [{ type: "text", text: "Host tools are unavailable for remote SSH sessions" }] },
+				isError: true,
 			});
 		}
 		return true;
@@ -1319,10 +1320,14 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		expect(fw.sentTo(IPC_EVENTS.HOST_TOOL_CALL)).toHaveLength(0); // fake executor sends nothing
 		pool.setActiveTab(fw.win, "tab-b");
 
-		const update = { type: "host_tool_update", id: "tool-1", update: "working…" };
+		const update = {
+			type: "host_tool_update",
+			id: "tool-1",
+			partialResult: { content: [{ type: "text", text: "working…" }] },
+		};
 		expect(pool.routeSideChannel(fw.win, "tool-1", update, false)).toBe("routed");
 		// Still registered: the result follows the update stream.
-		const result = { type: "host_tool_result", id: "tool-1", result: "done" };
+		const result = { type: "host_tool_result", id: "tool-1", result: { content: [{ type: "text", text: "done" }] } };
 		expect(pool.routeSideChannel(fw.win, "tool-1", result, true)).toBe("routed");
 		expect(a?.sentFrames).toEqual([update, result]);
 		expect(b?.sentFrames).toEqual([]);
@@ -1337,12 +1342,18 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		// GUI-registered tool: the executor answers on the spot, nothing is
 		// forwarded to the renderer, so no response will ever arrive to route.
 		pool.hostToolExecutor = (sidecar, request) => {
-			sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result: "inline" });
+			sidecar.sendSideChannel({
+				type: "host_tool_result",
+				id: request.id,
+				result: { content: [{ type: "text", text: "inline" }] },
+			});
 			return true;
 		};
 
 		a?.emitHostToolCall("tool-inline");
-		expect(a?.sentFrames).toEqual([{ type: "host_tool_result", id: "tool-inline", result: "inline" }]);
+		expect(a?.sentFrames).toEqual([
+			{ type: "host_tool_result", id: "tool-inline", result: { content: [{ type: "text", text: "inline" }] } },
+		]);
 		expect(pool.routeSideChannel(fw.win, "tool-inline", { type: "host_tool_result", id: "tool-inline" }, true)).toBe(
 			"unknown",
 		);
@@ -1374,7 +1385,7 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		{
 			name: "host tool",
 			emit: (sidecar: FakeSidecar, id: string) => sidecar.emitHostToolCall(id),
-			frame: { type: "host_tool_result", id: "shared-id", result: "done" },
+			frame: { type: "host_tool_result", id: "shared-id", result: { content: [{ type: "text", text: "done" }] } },
 		},
 		{
 			name: "host URI",
@@ -1499,10 +1510,9 @@ describe("SidecarPool remote host-tool boundary", () => {
 		expect(remote?.sentFrames[0]).toMatchObject({
 			type: "host_tool_result",
 			id: `remote-${toolName}`,
+			isError: true,
+			result: { content: [{ type: "text", text: expect.stringMatching(/^.{1,128}$/) }] },
 		});
-		const error = (remote?.sentFrames[0] as { error?: unknown } | undefined)?.error;
-		expect(typeof error).toBe("string");
-		expect((error as string).length).toBeLessThanOrEqual(128);
 	});
 
 	it.each(hostToolNames)("preserves local %s executor dispatch", toolName => {
@@ -1557,7 +1567,11 @@ describe("SidecarPool remote host-tool boundary", () => {
 
 		remote?.emit("hostToolCall", request);
 		local?.emit("hostToolCall", request);
-		const result = { type: "host_tool_result", id: request.id, result: "local" };
+		const result = {
+			type: "host_tool_result",
+			id: request.id,
+			result: { content: [{ type: "text", text: "local" }] },
+		};
 
 		expect(executorCalls).toBe(1);
 		expect(pool.routeSideChannel(localWindow.win, request.id, result, true)).toBe("routed");

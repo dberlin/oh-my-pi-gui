@@ -3,7 +3,6 @@ import os, { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { IPC_COMMANDS, type SessionTarget } from "../shared/ipc-types";
-import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import {
 	type IpcDeps,
 	parsePersistedSubagentMessages,
@@ -165,6 +164,7 @@ interface LocalSshHandlerFixture {
 	activeCommand: Mock;
 	executeLocal: Mock;
 	runCli: Mock;
+	localRunCli: Mock;
 }
 
 function registerLocalSshHandlerFixture(
@@ -201,13 +201,30 @@ function registerLocalSshHandlerFixture(
 			modelRoles: { value: { plan: "openai/gpt-5" }, type: "record", description: "" },
 		}),
 	);
+	const localRunCli = vi.fn(async () =>
+		JSON.stringify({ modelRoles: { value: { plan: "local/plan" }, type: "record", description: "" } }),
+	);
+	const remoteRunCli = vi.fn(async () =>
+		JSON.stringify({ modelRoles: { value: { plan: "openai/gpt-5" }, type: "record", description: "" } }),
+	);
 	const activeSidecar = { cwd: active.cwd, status: "ready", rpcClient: { command: activeCommand }, runCli };
 	const sidecarPool = {
 		activeTabForWindow: vi.fn(() => "active-tab"),
 		entryForWindow: vi.fn(() => ({ sidecar: activeSidecar, target: active.target })),
 		foreignSessionOwner: vi.fn(() => null),
 		sidecarForWindow: vi.fn(() => activeSidecar),
-		sidecarForTab: vi.fn(() => activeSidecar),
+		sidecarForTab: vi.fn((_win: object, tabId: string) =>
+			tabId === "local-tab"
+				? {
+						cwd: "/Users/test/project",
+						status: "ready",
+						rpcClient: { command: activeCommand },
+						runCli: localRunCli,
+					}
+				: tabId === "remote-tab"
+					? { cwd: "/srv/app", status: "ready", rpcClient: { command: activeCommand }, runCli: remoteRunCli }
+					: activeSidecar,
+		),
 		tabsForWindow: vi.fn(() => [
 			{ kind: "agent", tabId: "active-tab", cwd: active.cwd, target: active.target, status: "ready" },
 			{ kind: "agent", tabId: "local-tab", cwd: "/Users/test/project", target: { type: "local" }, status: "ready" },
@@ -231,7 +248,7 @@ function registerLocalSshHandlerFixture(
 	} as unknown as IpcDeps;
 	ipcTestState.fromWebContents.mockReturnValue(win);
 	registerIpcHandlers(deps);
-	return { event: { sender }, activeCommand, executeLocal, runCli };
+	return { event: { sender }, activeCommand, executeLocal, runCli, localRunCli };
 }
 
 beforeEach(() => {
@@ -420,87 +437,6 @@ describe("local SSH settings handlers", () => {
 		expect(fixture.activeCommand).not.toHaveBeenCalled();
 	});
 
-	it("preserves local setting provenance and applies writes to the running session", async () => {
-		const fixture = registerLocalSshHandlerFixture({ target: { type: "local" }, cwd: "/Users/test/project" });
-		const live = { "compaction.enabled": true };
-		const provenance = { source: "project", sourcePath: "/Users/test/project/.omp/config.yml", shadowed: false };
-		const schema = {
-			entries: [
-				{
-					path: "compaction.enabled",
-					type: "boolean",
-					value: true,
-					default: true,
-					description: "Automatic context compaction",
-					advanced: false,
-					tab: "session",
-					provenance,
-				},
-			],
-			tabs: [{ id: "session", label: "Session" }],
-		};
-		const updates: unknown[] = [];
-		fixture.activeCommand.mockImplementation(async (command: RpcCommand): Promise<RpcResponse> => {
-			if (command.type === "get_settings_schema") {
-				return { type: "response", command: command.type, success: true, data: schema };
-			}
-			if (command.type === "get_settings") {
-				return {
-					type: "response",
-					command: command.type,
-					success: true,
-					data: {
-						values: { ...live },
-						provenance: { "compaction.enabled": provenance },
-						advisorEnabled: false,
-						advisorActive: false,
-					},
-				};
-			}
-			if (
-				command.type === "set_setting" &&
-				command.path === "compaction.enabled" &&
-				typeof command.value === "boolean"
-			) {
-				live["compaction.enabled"] = command.value;
-				updates.push({ type: "config_update", compactionEnabled: live["compaction.enabled"] });
-				return {
-					type: "response",
-					command: command.type,
-					success: true,
-					data: { path: command.path, value: live["compaction.enabled"], savedValue: command.value, provenance },
-				};
-			}
-			throw new Error(`Unexpected native command: ${command.type}`);
-		});
-		const settingsSchema = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, fixture.event, {
-			command: { type: "get_settings_schema" },
-		});
-		expect(settingsSchema).toMatchObject({ success: true, data: schema });
-		const saved = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, fixture.event, {
-			command: { type: "set_setting", path: "compaction.enabled", value: false },
-		});
-		expect(saved).toMatchObject({
-			success: true,
-			data: { path: "compaction.enabled", value: false, savedValue: false, provenance },
-		});
-		const settings = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, fixture.event, {
-			tabId: "active-tab",
-			command: { type: "get_settings", paths: ["compaction.enabled"] },
-		});
-		expect(settings).toMatchObject({
-			success: true,
-			data: {
-				values: { "compaction.enabled": false },
-				provenance: { "compaction.enabled": provenance },
-				advisorEnabled: false,
-				advisorActive: false,
-			},
-		});
-		expect(updates).toEqual([{ type: "config_update", compactionEnabled: false }]);
-		expect(fixture.runCli).not.toHaveBeenCalled();
-	});
-
 	it("selects SSH config transport from the addressed tab rather than the focused local tab", async () => {
 		const fixture = registerLocalSshHandlerFixture({ target: { type: "local" }, cwd: "/Users/test/project" });
 		const settings = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, fixture.event, {
@@ -511,55 +447,35 @@ describe("local SSH settings handlers", () => {
 		expect(fixture.activeCommand).not.toHaveBeenCalled();
 	});
 
-	it("updates the addressed local session when saving a role while an SSH tab is focused", async () => {
+	it("persists a role in the addressed local profile without writing the focused SSH profile", async () => {
 		const fixture = registerLocalSshHandlerFixture();
-		const persisted = { modelRoles: { task: "other/task" } as Record<string, string> };
-		const runtime = { modelRoles: { smol: "runtime/A" } as Record<string, string> };
-		const live = { modelRoles: { ...persisted.modelRoles, ...runtime.modelRoles } };
-		const updates: unknown[] = [];
+		let assignments: Record<string, string> = { task: "other/task" };
 		fixture.runCli.mockImplementation(async () => {
-			throw new Error("Unexpected local CLI access");
+			throw new Error("Must not access the focused SSH profile");
 		});
-		fixture.activeCommand.mockImplementation(async (command: RpcCommand): Promise<RpcResponse> => {
-			if (command.type === "get_settings") {
-				return {
-					type: "response",
-					command: command.type,
-					success: true,
-					data: { values: { modelRoles: live.modelRoles } },
-				};
+		fixture.localRunCli.mockImplementation(async (args: string[]) => {
+			if (args[1] === "get") {
+				return JSON.stringify({ key: "modelRoles", value: assignments, type: "record", description: "" });
 			}
-			if (command.type !== "set_model_role") throw new Error("Unexpected native command");
-			if (command.modelId === null) {
-				delete persisted.modelRoles[command.role];
-				delete runtime.modelRoles[command.role];
-			} else {
-				persisted.modelRoles[command.role] = command.modelId;
-				if (Object.hasOwn(runtime.modelRoles, command.role)) runtime.modelRoles[command.role] = command.modelId;
+			if (args[1] === "set") {
+				assignments = JSON.parse(args.at(-1)!) as Record<string, string>;
+				return JSON.stringify({ key: "modelRoles", value: assignments });
 			}
-			live.modelRoles = { ...persisted.modelRoles, ...runtime.modelRoles };
-			updates.push({ type: "config_update", assignments: { ...live.modelRoles } });
-			return {
-				type: "response",
-				command: command.type,
-				success: true,
-				data: { role: command.role, modelId: command.modelId },
-			};
+			throw new Error("Unexpected config operation");
 		});
 		const saved = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, fixture.event, {
 			tabId: "local-tab",
 			command: { id: "local-role", type: "set_model_role", role: "smol", modelId: "selected/B" },
 		});
-		const assignments = { task: "other/task", smol: "selected/B" };
 		expect(saved).toMatchObject({
 			id: "local-role",
 			command: "set_model_role",
 			success: true,
-			data: { assignments },
+			data: { assignments: { task: "other/task", smol: "selected/B" } },
 		});
-		expect(live.modelRoles).toEqual(assignments);
-		expect(persisted.modelRoles).toEqual(assignments);
-		expect(updates).toEqual([{ type: "config_update", assignments }]);
+		expect(assignments).toEqual({ task: "other/task", smol: "selected/B" });
+		expect(fixture.runCli).not.toHaveBeenCalled();
+		expect(fixture.activeCommand).not.toHaveBeenCalled();
 	});
 });
 
@@ -612,16 +528,28 @@ const SIDE_CHANNEL_RESPONSES = [
 	{
 		name: "host tool result",
 		command: IPC_COMMANDS.HOST_TOOL_RESULT,
-		payload: { result: { type: "host_tool_result", id: "request-id", result: "done" } },
-		frame: { type: "host_tool_result", id: "request-id", result: "done" },
+		payload: {
+			result: { type: "host_tool_result", id: "request-id", result: { content: [{ type: "text", text: "done" }] } },
+		},
+		frame: { type: "host_tool_result", id: "request-id", result: { content: [{ type: "text", text: "done" }] } },
 		final: true,
 		malformedPayload: { result: { type: "extension_ui_response", id: "request-id", confirmed: true } },
 	},
 	{
 		name: "host tool update",
 		command: IPC_COMMANDS.HOST_TOOL_UPDATE,
-		payload: { update: { type: "host_tool_update", id: "request-id", update: "working" } },
-		frame: { type: "host_tool_update", id: "request-id", update: "working" },
+		payload: {
+			update: {
+				type: "host_tool_update",
+				id: "request-id",
+				partialResult: { content: [{ type: "text", text: "working" }] },
+			},
+		},
+		frame: {
+			type: "host_tool_update",
+			id: "request-id",
+			partialResult: { content: [{ type: "text", text: "working" }] },
+		},
 		final: false,
 		malformedPayload: { update: { type: "host_tool_result", id: "request-id", result: "not an update" } },
 	},
@@ -703,6 +631,27 @@ describe("persisted subagent transcripts", () => {
 		].join("\n");
 
 		expect(parsePersistedSubagentMessages(content)).toEqual([root, active]);
+	});
+
+	it("retains vanilla developer messages on the active persisted branch", () => {
+		const message = { role: "developer", content: [{ type: "text", text: "Project policy" }], timestamp: 1 };
+		const content = [
+			JSON.stringify({
+				type: "session",
+				version: 3,
+				id: "child-session",
+				timestamp: "2026-08-14T00:00:00.000Z",
+				cwd: "/repo",
+			}),
+			JSON.stringify({
+				type: "message",
+				id: "policy",
+				parentId: null,
+				timestamp: "2026-08-14T00:00:01.000Z",
+				message,
+			}),
+		].join("\n");
+		expect(parsePersistedSubagentMessages(content)).toEqual([message]);
 	});
 
 	it("reconstructs supported custom-message transcript entries", () => {

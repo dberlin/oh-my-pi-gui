@@ -1126,7 +1126,8 @@ export interface OmpApi {
 		collabLeave(): Promise<RpcResponse>;
 		getCollabState(): Promise<RpcResponse>;
 		getAvailableModels(forceRefresh?: boolean): Promise<RpcResponse>;
-		setThinkingLevel(level: ThinkingLevel | "auto"): Promise<RpcResponse>;
+		getAvailableThinkingLevels(): Promise<RpcResponse>;
+		setThinkingLevel(level: ThinkingLevel): Promise<RpcResponse>;
 		cycleThinkingLevel(): Promise<RpcResponse>;
 		setFastMode(enabled: boolean): Promise<RpcResponse>;
 		setSteeringMode(mode: "all" | "one-at-a-time"): Promise<RpcResponse>;

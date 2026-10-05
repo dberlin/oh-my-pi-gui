@@ -32,8 +32,9 @@ export type RpcCommand =
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
 	| { id?: string; type: "cycle_model"; direction?: "forward" | "backward" }
 	| { id?: string; type: "get_available_models"; forceRefresh?: boolean }
-	| { id?: string; type: "set_thinking_level"; level: ThinkingLevel | "auto" }
+	| { id?: string; type: "set_thinking_level"; level: ThinkingLevel }
 	| { id?: string; type: "cycle_thinking_level" }
+	| { id?: string; type: "get_available_thinking_levels" }
 	| { id?: string; type: "set_steering_mode"; mode: "all" | "one-at-a-time" }
 	| { id?: string; type: "set_follow_up_mode"; mode: "all" | "one-at-a-time" }
 	| { id?: string; type: "set_interrupt_mode"; mode: "immediate" | "wait" }
@@ -46,6 +47,9 @@ export type RpcCommand =
 	| { id?: string; type: "eval"; language?: "python" | "js" | "ruby" | "julia"; code: string; excluded?: boolean }
 	| { id?: string; type: "abort_eval" }
 	| { id?: string; type: "dequeue" }
+	/** Canonical vanilla queue operations address visible text, not extension ids. */
+	| { id?: string; type: "remove_queued_message"; message: string; queue: "steering" | "followUp" }
+	| { id?: string; type: "promote_queued_message"; message: string }
 	// Queue management: stable per-entry ids (never array indices). queueId is
 	// the entry id surfaced by get_queue; queue_edit changes plain user text
 	// while preserving attachments; queue_move addresses visible-user order
@@ -281,6 +285,9 @@ export interface RpcResponseError {
 	 * Optional structured details for machine-handled failures. Defined codes:
 	 * `session_owned_elsewhere` (F-OWN switch_session refusal) carries
 	 * `{ ownerTabId: string; ownerWinId: number }`.
+	 * `setting_not_applied` / `setting_effect_unverified` report global config
+	 * persistence with `{ path, saved: true, savedValue, effectiveValue?,
+	 * overriddenBy?, fallbackEnv? }`; only the former has confirmed readback.
 	 */
 	data?: unknown;
 }
@@ -1029,10 +1036,6 @@ export interface RpcSessionState {
 	collab?: RpcCollabState;
 	model?: ModelInfo | null;
 	thinkingLevel: ThinkingLevel | undefined;
-	/** Configured selector: "auto" while auto mode is active, else the effective level. */
-	thinkingConfigured?: ThinkingLevel | "auto";
-	/** Levels the active model supports (empty = no reasoning); the picker must not offer unsupported values. */
-	availableThinkingLevels?: ThinkingLevel[];
 	isStreaming: boolean;
 	isCompacting: boolean;
 	steeringMode: "all" | "one-at-a-time";
@@ -1046,9 +1049,12 @@ export interface RpcSessionState {
 	fastModeActive: boolean;
 	tokensPerSecond: number | null;
 	autoCompactionEnabled: boolean;
-	autoRetryEnabled: boolean;
+	/** Extension-only state; vanilla reports retry changes by command acknowledgement. */
+	autoRetryEnabled?: boolean;
 	messageCount: number;
 	queuedMessageCount: number;
+	/** Vanilla queue snapshot; entries have no server-issued ids or attachment metadata. */
+	queuedMessages?: { steering: string[]; followUp: string[] };
 	/** Background jobs or deliveries can still inject a follow-up and wake the session. */
 	hasPendingAsyncWork?: boolean;
 	/** True only when the session is idle with no queued or pending async work. */
@@ -1057,19 +1063,15 @@ export interface RpcSessionState {
 	systemPrompt?: string[];
 	dumpTools?: ToolDump[];
 	contextUsage?: ContextUsage | null;
-	planModeEnabled: boolean;
+	/** Absent when the sidecar does not expose the plan-mode extension. */
+	planModeEnabled?: boolean;
 	/** Whether a prewalk model switch is armed and waiting for the first edit/write. */
 	prewalkArmed?: boolean;
-	agentsPaused: boolean;
+	/** Absent when the sidecar does not expose the agent-pause extension. */
+	agentsPaused?: boolean;
 	agentsPausedAt?: number;
 	/** Session kind. Absent = agent; chat sessions are tool-free. */
 	kind?: "chat";
-}
-
-/** Authoritative selector/effective pair returned after set_thinking_level. */
-export interface RpcThinkingLevelState {
-	thinkingLevel: ThinkingLevel | undefined;
-	thinkingConfigured: ThinkingLevel | "auto" | undefined;
 }
 
 export interface ToolDump {
@@ -1247,15 +1249,15 @@ export interface HostToolCancelRequest {
 export interface HostToolResult {
 	type: "host_tool_result";
 	id: string;
-	result?: string;
-	error?: string;
+	result: { content: (TextContent | ImageContent)[]; details?: unknown; isError?: boolean };
+	isError?: boolean;
 }
 
 /** Sent by the host to stream a partial tool update. */
 export interface HostToolUpdate {
 	type: "host_tool_update";
 	id: string;
-	update: string;
+	partialResult: { content: (TextContent | ImageContent)[]; details?: unknown; isError?: boolean };
 }
 
 export interface HostUriSchemeDefinition {
@@ -1454,7 +1456,7 @@ export const THINKING_LEVEL_VALUES: readonly ThinkingLevel[] = [
 	"max",
 ];
 
-/** Runtime narrowing for wire values (thinking_level_changed.configured, get_state). */
+/** Runtime narrowing for concrete thinking levels (get_state, get_available_thinking_levels). */
 export function isThinkingLevel(value: unknown): value is ThinkingLevel {
 	return typeof value === "string" && (THINKING_LEVEL_VALUES as readonly string[]).includes(value);
 }
@@ -1494,6 +1496,7 @@ export interface AgentMessage {
 		| "user"
 		| "assistant"
 		| "system"
+		| "developer"
 		| "toolResult"
 		| "bashExecution"
 		| "pythonExecution"
@@ -1539,7 +1542,31 @@ export interface AgentMessage {
 	[key: string]: unknown;
 }
 
-export type MessageContent = TextContent | ImageContent | ThinkingContent | ToolCallContent;
+/** Vanilla provider metadata blocks are retained, not interpreted as display text. */
+export type MessageContent =
+	| TextContent
+	| ImageContent
+	| ThinkingContent
+	| ToolCallContent
+	| { type: "redactedThinking"; data: string }
+	| { type: "fallback"; from: { model: string }; to: { model: string } }
+	| {
+			type: "anthropicServerTool";
+			block:
+				| {
+						type: "server_tool_use";
+						id: string;
+						name: "web_search" | "tool_search_tool_regex" | "tool_search_tool_bm25";
+						input?: Record<string, unknown> | null;
+						[key: string]: unknown;
+				  }
+				| {
+						type: "web_search_tool_result" | "tool_search_tool_result";
+						tool_use_id: string;
+						content: unknown;
+						[key: string]: unknown;
+				  };
+	  };
 
 export interface TextContent {
 	type: "text";
@@ -1577,7 +1604,7 @@ export interface MessagesPage {
 
 export interface AvailableCommand {
 	name: string;
-	description: string;
+	description?: string;
 	aliases?: string[];
 	/** Input hint (ghost text) for commands that take a simple argument. */
 	input?: { hint?: string };
@@ -1619,7 +1646,8 @@ export interface SettingEntry {
 	path: string;
 	type: "boolean" | "string" | "number" | "enum" | "array" | "record";
 	value: unknown;
-	default: unknown;
+	/** Omitted when the backend does not expose the factory default. */
+	default?: unknown;
 	label?: string;
 	description?: string;
 	tab?: string;
@@ -1888,7 +1916,7 @@ export interface ExtensionErrorFrame {
 }
 
 // ============================================================================
-// AgentSessionEvent (24 types)
+// AgentSessionEvent (vanilla stream plus GUI extension events)
 // ============================================================================
 
 export type AgentSessionEvent =
@@ -1915,6 +1943,7 @@ export type AgentSessionEvent =
 			partialResult: unknown;
 	  }
 	| { type: "tool_execution_end"; toolCallId: string; toolName: string; result: unknown; isError?: boolean }
+	| { type: "tool_stream_update"; toolCallId: string; toolName: string; update: unknown }
 	| { type: "auto_compaction_start"; reason: "threshold" | "overflow" | "idle" | "incomplete"; action: string }
 	| {
 			type: "auto_compaction_end";
@@ -1933,10 +1962,37 @@ export type AgentSessionEvent =
 			errorMessage: string;
 			errorId?: number;
 	  }
-	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string; recoveredErrors?: unknown[] }
+	| {
+			type: "auto_retry_end";
+			success: boolean;
+			attempt: number;
+			finalError?: string;
+			retryErrors?: unknown[];
+			recoveredErrors?: unknown[];
+	  }
+	| { type: "cache_warming_start"; phase: "streaming" | "idle"; provider: string; model: string }
+	| {
+			type: "cache_warming_end";
+			phase: "streaming" | "idle";
+			provider: string;
+			model: string;
+			outcome: "hit" | "miss" | "error" | "aborted";
+			usage?: {
+				input: number;
+				output: number;
+				cacheRead: number;
+				cacheWrite: number;
+				totalTokens: number;
+				cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+			};
+			warmingStopReason?: string;
+	  }
 	| { type: "retry_fallback_applied"; from: string; to: string; role: string }
 	| { type: "retry_fallback_succeeded"; model: string; role: string }
 	| { type: "model_changed" }
+	| { type: "config_warnings_changed" }
+	| { type: "advisor_cost_changed" }
+	| { type: "advisor_yielded" }
 	| { type: "ttsr_triggered"; rules: unknown[] }
 	| { type: "todo_reminder"; todos: TodoTask[]; attempt: number; maxAttempts: number }
 	| { type: "todo_auto_clear" }
@@ -1958,15 +2014,25 @@ export type AgentSessionEvent =
 			options: string[];
 	  }
 	| { type: "loop_mode_update"; state: RpcLoopModeState }
-	// Authoritative queue snapshot after every queue mutation (enqueue,
-	// drain/consume, remove, move, clear, dequeue restore). The queue store
-	// treats this as the update channel; get_queue is only a hydrate fallback.
+	// Vanilla emits text lanes; extension sidecars may emit stable per-entry ids.
+	| { type: "queue_update"; steering: string[]; followUp: string[] }
 	| { type: "queue_update"; steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] };
 
+/** Full vanilla assistant stream; only delta members contribute to text buffers. */
 export type AssistantMessageEvent =
+	| { type: "start"; partial: AgentMessage }
+	| { type: "text_start"; contentIndex: number; partial: AgentMessage }
+	| { type: "thinking_start"; contentIndex: number; partial: AgentMessage }
+	| { type: "toolcall_start"; contentIndex: number; partial: AgentMessage }
 	| { type: "text_delta"; contentIndex: number; delta: string; partial: AgentMessage }
 	| { type: "thinking_delta"; contentIndex: number; delta: string; partial: AgentMessage }
-	| { type: "toolcall_delta"; contentIndex: number; delta: string; partial: AgentMessage };
+	| { type: "toolcall_delta"; contentIndex: number; delta: string; partial: AgentMessage }
+	| { type: "text_end"; contentIndex: number; content: string; partial: AgentMessage }
+	| { type: "thinking_end"; contentIndex: number; content: string; partial: AgentMessage }
+	| { type: "image_end"; contentIndex: number; content: ImageContent; partial: AgentMessage }
+	| { type: "toolcall_end"; contentIndex: number; toolCall: ToolCallContent; partial: AgentMessage }
+	| { type: "done"; reason: "stop" | "length" | "toolUse"; message: AgentMessage }
+	| { type: "error"; reason: "aborted" | "error"; error: AgentMessage };
 
 // ============================================================================
 // Sidecar Status

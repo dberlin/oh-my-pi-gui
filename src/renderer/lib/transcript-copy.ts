@@ -49,6 +49,7 @@ const ROLE_HEADINGS: Partial<Record<AgentMessage["role"], string>> = {
 	user: "User",
 	assistant: "Assistant",
 	system: "System",
+	developer: "Developer",
 	bashExecution: "Bash",
 	pythonExecution: "Python",
 	branchSummary: "Branch Summary",

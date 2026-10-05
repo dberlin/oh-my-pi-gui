@@ -1,6 +1,6 @@
 /**
  * The GUI's built-in stats dashboard server, spawned from the SAME bundled
- * omp binary as the agent sidecar (`omp stats --port <port>`).
+ * omp binary as the agent sidecar (via a GUI-only hidden entry selector).
  *
  * Internal to the GUI's closed loop: spawned on app start, killed on quit,
  * localhost-only. No external `omp stats` process is required and none is
@@ -10,13 +10,11 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { stripVTControlCharacters } from "node:util";
+import { GUI_STATS_SELECTOR } from "../shared/bundled-runtime";
 import { MAX_RESTART_ATTEMPTS, RestartBudget, type Revive } from "./stats-restart-policy";
 
 // Bind a private ephemeral port; separate GUI instances must not share an index or listener.
 const DEFAULT_PORT = 0;
-export function statsServerArgs(port: number): string[] {
-	return ["stats", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
-}
 
 export function statsServerPort(output: string): number | null {
 	const match = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):([0-9]+)(?=[\s/])/.exec(output);
@@ -59,7 +57,7 @@ export class StatsServerManager extends EventEmitter {
 	}
 
 	#spawn(): void {
-		const args = statsServerArgs(DEFAULT_PORT);
+		const args = [GUI_STATS_SELECTOR];
 		console.log(`[stats-server] spawning: ${this.#binaryPath} ${args.join(" ")}`);
 		let child: ChildProcess;
 		try {

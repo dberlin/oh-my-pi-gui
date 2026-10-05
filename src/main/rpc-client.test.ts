@@ -21,6 +21,33 @@ afterEach(() => {
 });
 
 describe("RpcClient", () => {
+	it.each([
+		{ type: "cycle_model", direction: "backward" },
+		{ type: "get_available_models", forceRefresh: true },
+		{ type: "bash", command: "echo private", excluded: true },
+		{ type: "set_session_name", name: "Other session", sessionPath: "/other/session.jsonl" },
+	] satisfies RpcCommand[])("refuses $type options that vanilla would silently ignore", async command => {
+		vi.useFakeTimers();
+		const sent: object[] = [];
+		const client = new RpcClient(frame => sent.push(frame), 10);
+		const response = client.command(command).catch(error => error);
+		await vi.advanceTimersByTimeAsync(10);
+		expect(await response).toMatchObject({
+			success: false,
+			command: command.type,
+			code: "unsupported_command_options",
+		});
+		expect(sent).toEqual([]);
+		expect(client.pendingCount).toBe(0);
+	});
+
+	it("does not dispatch private bash fire-and-forget when exclusion is unsupported", () => {
+		const sent: object[] = [];
+		const client = new RpcClient(frame => sent.push(frame));
+		expect(() => client.fire({ type: "bash", command: "echo private", excluded: true })).toThrow("excluded");
+		expect(sent).toEqual([]);
+	});
+
 	it("rejects an id-less unknown-command response immediately", async () => {
 		vi.useFakeTimers();
 		const client = new RpcClient(() => {}, 8_000);

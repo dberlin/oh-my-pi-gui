@@ -1,50 +1,73 @@
 /**
- * Queue store: the GUI's snapshot of the agent's pending steer/follow-up
- * queues. The `queue_update` session event is the authoritative update
- * channel — it fires on every queue mutation (enqueue, drain/consume,
- * remove, move, clear, dequeue restore) and lands here via setFromFrame from
- * the onBatch handler. get_queue survives only as the hydrate fallback
- * (mount, sidecar reconnect) since no snapshot predates the subscription.
- * Shared by the QueueDockChip manager modal and the pending bubbles at the
- * message-stream tail.
+ * Per-tab authoritative pending queues, hydrated from get_state.queuedMessages
+ * and replaced by queue_update events. Stable-ID extension snapshots remain
+ * supported, but vanilla text snapshots never acquire server IDs.
  */
 import { useEffect } from "react";
 import { createStore } from "zustand/vanilla";
-import type { RpcGetQueueResult, RpcQueuedMessage } from "../../shared/rpc-types";
+import type { RpcGetQueueResult, RpcQueuedMessage, RpcResponse, RpcSessionState } from "../../shared/rpc-types";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
 
 export type QueueLane = "steering" | "followUp";
+type QueueSnapshot = NonNullable<RpcSessionState["queuedMessages"]> | RpcGetQueueResult;
 
 export interface QueueStore {
 	steering: RpcQueuedMessage[];
 	followUp: RpcQueuedMessage[];
-	/** Hydrate fallback pull via get_queue; only the latest response may apply. */
-	refresh: () => Promise<void>;
-	/** Apply an authoritative queue_update frame. */
-	setFromFrame: (snapshot: RpcGetQueueResult) => void;
+	/** True only after observing actual stable server IDs in an extension snapshot. */
+	idOperations: boolean;
+	/** Hydration can share its get_state read; the guard retires replaced owners. */
+	refresh: (stateResponse?: Promise<RpcResponse>, isCurrent?: () => boolean) => Promise<void>;
+	setFromFrame: (snapshot: QueueSnapshot) => void;
+}
+
+function displayLane(items: string[] | RpcQueuedMessage[], lane: QueueLane): RpcQueuedMessage[] {
+	return items.map((item, index) => {
+		if (typeof item !== "string") return item;
+		// `id` here is a React/display key only, including duplicate occurrences.
+		// Never send it as a queueId: vanilla mutations address the exact text.
+		return { id: `display:${lane}:${index}`, text: item, editable: false, timestamp: 0 };
+	});
+}
+
+function displaySnapshot(snapshot: QueueSnapshot) {
+	const first = snapshot.steering[0] ?? snapshot.followUp[0];
+	return {
+		steering: displayLane(snapshot.steering, "steering"),
+		followUp: displayLane(snapshot.followUp, "followUp"),
+		idOperations: first !== undefined && typeof first !== "string",
+	};
 }
 
 export const createQueueStore = (command: TabCommand = activeTabCommand) => {
-	/** Invalidates stale get_queue responses inside this tab runtime. */
 	let refreshVersion = 0;
-	return createStore<QueueStore>()(set => ({
+	return createStore<QueueStore>()((set, get) => ({
 		steering: [],
 		followUp: [],
-		refresh: async () => {
+		idOperations: false,
+		refresh: async (stateResponse, isCurrent = () => true) => {
 			const version = ++refreshVersion;
 			try {
-				const response = await command({ type: "get_queue" });
-				if (version !== refreshVersion || !response.success) return;
-				const data = response.data as RpcGetQueueResult;
-				set({ steering: data.steering, followUp: data.followUp });
+				const response = await (stateResponse ?? command({ type: "get_state" }));
+				if (version !== refreshVersion || !isCurrent() || !response.success) return;
+				const state = response.data as RpcSessionState | undefined;
+				if (state?.queuedMessages) {
+					set(displaySnapshot(state.queuedMessages));
+					return;
+				}
+				// Only observed stable-ID snapshots prove the extension API exists.
+				// Absent optional vanilla metadata must not trigger fork-only RPC.
+				if (!get().idOperations) return;
+				const legacy = await command({ type: "get_queue" });
+				if (version !== refreshVersion || !isCurrent() || !legacy.success || !legacy.data) return;
+				set(displaySnapshot(legacy.data as RpcGetQueueResult));
 			} catch {
-				// Sidecar mid-restart or a stale session: keep the last snapshot;
-				// the next hydrate/queue_update refetches.
+				// Keep the last authoritative snapshot during a transport restart.
 			}
 		},
 		setFromFrame: snapshot => {
 			refreshVersion += 1;
-			set({ steering: snapshot.steering, followUp: snapshot.followUp });
+			set(displaySnapshot(snapshot));
 		},
 	}));
 };
@@ -52,11 +75,7 @@ export const createQueueStore = (command: TabCommand = activeTabCommand) => {
 const defaultQueueStore = createQueueStore();
 export const useQueueStore = createScopedStoreHook("queue", defaultQueueStore);
 
-/**
- * Queue data plus the hydrate-fallback wiring: pull get_queue on mount (the
- * frame stream only carries mutations after subscription). Steady-state
- * updates arrive as queue_update frames via use-rpc-events.
- */
+/** Pull the initial queue once; subsequent mutations arrive as snapshots. */
 export function useQueuedMessages(): { steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] } {
 	const steering = useQueueStore(s => s.steering);
 	const followUp = useQueueStore(s => s.followUp);

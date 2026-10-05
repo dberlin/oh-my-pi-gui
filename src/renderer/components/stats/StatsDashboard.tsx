@@ -131,27 +131,29 @@ export function StatsDashboard({ open, onClose }: { open: boolean; onClose: () =
 						))}
 					</nav>
 					<div className="ml-auto flex items-center gap-2">
-						<div
-							aria-label={t("stats.rangeAria")}
-							className="flex items-center gap-0.5 rounded-md border border-(--omp-border-muted) p-0.5"
-							role="group"
-						>
-							{STATS_RANGES.map(value => (
-								<button
-									aria-pressed={range === value}
-									className={`rounded px-2 py-0.5 text-omp-xs font-medium tabular-nums transition-colors ${
-										range === value
-											? "bg-(--omp-btn-primary-bg) text-(--omp-btn-primary-text)"
-											: "text-(--omp-muted) hover:text-(--omp-text)"
-									}`}
-									key={value}
-									onClick={() => setRange(value)}
-									type="button"
-								>
-									{value}
-								</button>
-							))}
-						</div>
+						{route !== "requests" && (
+							<div
+								aria-label={t("stats.rangeAria")}
+								className="flex items-center gap-0.5 rounded-md border border-(--omp-border-muted) p-0.5"
+								role="group"
+							>
+								{STATS_RANGES.map(value => (
+									<button
+										aria-pressed={range === value}
+										className={`rounded px-2 py-0.5 text-omp-xs font-medium tabular-nums transition-colors ${
+											range === value
+												? "bg-(--omp-btn-primary-bg) text-(--omp-btn-primary-text)"
+												: "text-(--omp-muted) hover:text-(--omp-text)"
+										}`}
+										key={value}
+										onClick={() => setRange(value)}
+										type="button"
+									>
+										{value}
+									</button>
+								))}
+							</div>
+						)}
 						<Button
 							icon={<RefreshCw className={syncing ? "animate-spin" : undefined} size={11} />}
 							onClick={() => void sync()}
@@ -163,7 +165,9 @@ export function StatsDashboard({ open, onClose }: { open: boolean; onClose: () =
 					</div>
 				</div>
 				<div key={`${route}:${refreshKey}`} className="min-h-0 flex-1 overflow-y-auto p-4">
-					<p className="mb-3 text-omp-xs text-(--omp-dim)">{t("stats.scope", { range })}</p>
+					<p className="mb-3 text-omp-xs text-(--omp-dim)">
+						{route === "requests" ? t("stats.requests.scope") : t("stats.scope", { range })}
+					</p>
 					{route === "overview" && <OverviewRoute range={range} refreshKey={refreshKey} />}
 					{route === "models" && <ModelsRoute range={range} refreshKey={refreshKey} />}
 					{route === "providers" && <ProvidersRoute range={range} refreshKey={refreshKey} />}
@@ -173,7 +177,7 @@ export function StatsDashboard({ open, onClose }: { open: boolean; onClose: () =
 					{route === "frustration" && <FrustrationRoute range={range} refreshKey={refreshKey} />}
 					{route === "gain" && <GainRoute range={range} refreshKey={refreshKey} />}
 					{route === "projects" && <ProjectsRoute range={range} refreshKey={refreshKey} />}
-					{route === "requests" && <RequestsRoute range={range} refreshKey={refreshKey} />}
+					{route === "requests" && <RequestsRoute refreshKey={refreshKey} />}
 				</div>
 			</div>
 		</Modal>

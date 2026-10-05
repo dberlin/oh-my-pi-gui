@@ -122,7 +122,7 @@ export function ComposerModes() {
 			if (session.getState().sessionId !== originSession) return;
 			const state = current.data as RpcSessionState;
 			settings.getState().setFromState(state);
-			session.setState({ planModeEnabled: state.planModeEnabled });
+			if (state.planModeEnabled !== undefined) session.setState({ planModeEnabled: state.planModeEnabled });
 		} catch (cause) {
 			toast({ variant: "error", title: t("modesPanel.actionFailed"), message: String(cause) });
 		} finally {

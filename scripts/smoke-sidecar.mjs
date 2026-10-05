@@ -99,7 +99,7 @@ child.on("exit", code => {
 
 	await send("negotiate_protocol", { protocolVersion: 2 });
 
-	await send("get_state");
+	const boot = await send("get_state");
 	console.log(`get_state[boot]         ${results.at(-1).ok ? "ok " : "ERR"} ${results.at(-1).ms}ms`);
 
 	await send("get_available_models");
@@ -114,31 +114,33 @@ child.on("exit", code => {
 	const mutate = results.at(-1);
 	console.log(`set_thinking_level      ${mutate.ok ? "ok " : "ERR"} ${mutate.ms}ms`);
 
-	const settingsBefore = await send("get_settings", { paths: ["colorBlindMode"] });
-	const originalColorBlindMode = settingsBefore.data?.values?.colorBlindMode;
-	const settingsReadable = settingsBefore.success && typeof originalColorBlindMode === "boolean";
-	console.log(`get_settings            ${settingsReadable ? "ok " : "ERR"} ${results.at(-1).ms}ms`);
-
-	let settingsPersisted = false;
-	if (settingsReadable) {
-		const toggledColorBlindMode = !originalColorBlindMode;
-		const toggle = await send("set_setting", { path: "colorBlindMode", value: toggledColorBlindMode });
-		const settingsAfter = await send("get_settings", { paths: ["colorBlindMode"] });
-		settingsPersisted = toggle.success && settingsAfter.data?.values?.colorBlindMode === toggledColorBlindMode;
-		console.log(`set_setting round-trip  ${settingsPersisted ? "ok " : "ERR"} ${results.at(-2).ms + results.at(-1).ms}ms`);
-		await send("set_setting", { path: "colorBlindMode", value: originalColorBlindMode });
+	const originalAutoCompaction = boot.data?.autoCompactionEnabled;
+	const stateReadable = boot.success && typeof originalAutoCompaction === "boolean";
+	let compactionRoundTrip = false;
+	if (stateReadable) {
+		const toggle = await send("set_auto_compaction", { enabled: !originalAutoCompaction });
+		const after = await send("get_state");
+		compactionRoundTrip = toggle.success && after.data?.autoCompactionEnabled === !originalAutoCompaction;
+		const restored = await send("set_auto_compaction", { enabled: originalAutoCompaction });
+		const readback = await send("get_state");
+		compactionRoundTrip &&= restored.success && readback.data?.autoCompactionEnabled === originalAutoCompaction;
+		console.log(`auto-compaction round-trip ${compactionRoundTrip ? "ok " : "ERR"}`);
+	}
+	if (boot.data?.thinkingLevel && boot.data.thinkingLevel !== "off") {
+		await send("set_thinking_level", { level: boot.data.thinkingLevel });
 	}
 
 	const postDiscovery = [follow, mutate];
 	const wedged = postDiscovery.some(r => r.ms > WEDGE_MS);
 	const modelsReturned = models.ms <= WEDGE_MS;
-	const pass = !wedged && modelsReturned && settingsReadable && settingsPersisted;
+	const pass = !wedged && modelsReturned && stateReadable && compactionRoundTrip && results.every(result => result.ok);
 	console.log(
 		`\nVERDICT ${pass ? "PASS" : "FAIL"}  postDiscoveryMax=${Math.max(...postDiscovery.map(r => r.ms))}ms  models=${models.ms}ms  commands=${results.length}`,
 	);
 	if (!modelsReturned) console.log("FAIL get_available_models hung past the bound — discovery await not bounded");
 	if (wedged) console.log("FAIL a post-discovery command wedged — serial queue still bricked");
 
+	process.exitCode = pass ? 0 : 1;
 	finished = true;
 	clearTimeout(hardKill);
 	child.kill("SIGTERM");

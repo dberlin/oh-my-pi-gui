@@ -162,6 +162,8 @@ function SchemaSettingRow({
 	const commit = useCallback(
 		async (next: unknown) => {
 			const requestGeneration = ++generation.current;
+			setSaved(false);
+			window.clearTimeout(savedTimer.current);
 			setSaving(true);
 			try {
 				const res = await tabRpc.setSetting(entry.path, next);
@@ -188,8 +190,20 @@ function SchemaSettingRow({
 						savedTimer.current = window.setTimeout(() => setSaved(false), 2000);
 					}
 				} else {
+					// A vanilla config write can persist globally without changing the effective value.
+					const data = res.data;
+					const savedGlobally =
+						data !== null && typeof data === "object" && "saved" in data && data.saved === true;
+					if (savedGlobally && "effectiveValue" in data) {
+						onCommitted(entry.path, data.effectiveValue);
+						setDraft(null);
+					}
 					setError(res.error);
-					toast({ variant: "error", title: t("settings.saveFailed"), message: res.error });
+					toast({
+						variant: "error",
+						title: t(savedGlobally ? "settings.notApplied" : "settings.saveFailed"),
+						message: res.error,
+					});
 				}
 			} catch (err) {
 				if (generation.current !== requestGeneration) return;
@@ -570,7 +584,7 @@ function SchemaSettingRow({
 	return (
 		<div>
 			{renderControl()}
-			{entry.default === undefined && value !== undefined && (
+			{Object.hasOwn(entry, "default") && entry.default === undefined && value !== undefined && (
 				<div className="px-2 pb-2">
 					<Button disabled={saving} onClick={() => void commit(undefined)} size="sm" variant="ghost">
 						{t("settings.restoreUnset")}

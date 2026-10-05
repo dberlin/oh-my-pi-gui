@@ -95,7 +95,7 @@ function isValidRemoteHostToolRequest(value: Record<string, unknown>): boolean {
 }
 /** Event types routed to the EventBatcher. Hoisted: one lookup table for the
  * process, not one allocation per frame. */
-const AGENT_EVENT_TYPES: Record<string, true> = {
+const AGENT_EVENT_TYPES: Record<AgentSessionEvent["type"], true> = {
 	agent_start: true,
 	agent_end: true,
 	turn_start: true,
@@ -106,13 +106,19 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	tool_execution_start: true,
 	tool_execution_update: true,
 	tool_execution_end: true,
+	tool_stream_update: true,
 	auto_compaction_start: true,
 	auto_compaction_end: true,
 	auto_retry_start: true,
 	auto_retry_end: true,
+	cache_warming_start: true,
+	cache_warming_end: true,
 	retry_fallback_applied: true,
 	retry_fallback_succeeded: true,
 	model_changed: true,
+	config_warnings_changed: true,
+	advisor_cost_changed: true,
+	advisor_yielded: true,
 	ttsr_triggered: true,
 	todo_reminder: true,
 	todo_auto_clear: true,
@@ -232,13 +238,13 @@ export function missingSidecarMessage(packaged: boolean, resourcesPath?: string)
 	return `omp is missing from this installation (${target}). Reinstall omp GUI, then relaunch.`;
 }
 
-/** Snapshot the agent's bootstrap settings context, not its other launch options. */
+/** Keep launch profile and overlay ownership separate from the live session cwd. */
 function configCliContext(
 	flags: readonly string[],
 	cwd: string,
 	paths: typeof path.posix,
 	home: string,
-): { profileFlags: string[]; configFiles: string[]; cwd: string } {
+): { profileFlags: string[]; configFiles: string[]; launchCwd: string } {
 	let profile: string | undefined;
 	const configFiles: string[] = [];
 	for (let index = 0; index < flags.length; index++) {
@@ -252,7 +258,7 @@ function configCliContext(
 		if (equals < 0 && VALUED_FLAGS[name] === true) index++;
 	}
 	return {
-		cwd,
+		launchCwd: cwd,
 		profileFlags: profile ? ["--profile", profile] : [],
 		configFiles: configFiles.map(file =>
 			paths.resolve(cwd, file === "~" ? home : file.startsWith("~/") ? paths.join(home, file.slice(2)) : file),
@@ -413,10 +419,10 @@ export class SidecarManager extends EventEmitter {
 	#latestRemoteSessionId: string | null;
 	#remoteTarget: SshSessionTarget | null = null;
 	#remoteRuntime: RemoteRuntimeInfo | null = null;
-	#configContext: { profileFlags: string[]; configFiles: string[]; cwd: string } = {
+	#configContext: { profileFlags: string[]; configFiles: string[]; launchCwd: string } = {
 		profileFlags: [],
 		configFiles: [],
-		cwd: "",
+		launchCwd: "",
 	};
 	#configEnv: NodeJS.ProcessEnv = {};
 	#disposePromise: Promise<void> | null = null;
@@ -455,25 +461,28 @@ export class SidecarManager extends EventEmitter {
 				this.#remoteRuntime,
 				cliArgs,
 				this.#configContext.configFiles,
-				this.#configContext.cwd,
+				this.#configContext.launchCwd,
 			);
 			if (!result.ok) throw new Error(result.error);
 			return result.stdout;
 		}
 
 		const { binaryPath, sourceCli } = this.#options;
+		// Session switches re-root project settings, not launch-owned overlays/env.
+		const cwd = this.#options.cwd;
 		const env = { ...this.#configEnv };
-		if (this.#configContext.configFiles.length) {
-			env.PI_CONFIG_FILES = (
-				await resolveConfigCliFiles(
-					this.#configContext.configFiles,
-					this.#configContext.cwd,
-					process.platform === "win32" ? env.USERPROFILE || homedir() : env.HOME || homedir(),
-					path,
-					env,
-					this.#configContext.profileFlags[1],
-				)
-			).join(path.delimiter);
+		if (this.#configContext.configFiles.length || this.#configContext.launchCwd !== cwd) {
+			env.PI_CONFIG_FILES =
+				(
+					await resolveConfigCliFiles(
+						this.#configContext.configFiles,
+						this.#configContext.launchCwd,
+						process.platform === "win32" ? env.USERPROFILE || homedir() : env.HOME || homedir(),
+						path,
+						env,
+						this.#configContext.profileFlags[1],
+					)
+				).join(path.delimiter) || path.delimiter;
 		}
 		const command = sourceCli ? resolveBunExe() : binaryPath;
 		const commandArgs = sourceCli ? [sourceCli, ...cliArgs] : cliArgs;
@@ -482,7 +491,7 @@ export class SidecarManager extends EventEmitter {
 			command,
 			commandArgs,
 			{
-				cwd: this.#configContext.cwd,
+				cwd,
 				encoding: "utf8",
 				env,
 				maxBuffer: 1_048_576,
@@ -858,7 +867,7 @@ export class SidecarManager extends EventEmitter {
 		}
 
 		// Agent session events → batcher
-		if (AGENT_EVENT_TYPES[obj.type as string] === true) {
+		if (Object.hasOwn(AGENT_EVENT_TYPES, obj.type as string)) {
 			this.#batcher?.push(obj as AgentSessionEvent);
 			this.emit("frame", obj);
 			return;
@@ -1060,7 +1069,12 @@ export class SidecarManager extends EventEmitter {
 			this.#failRemote(INVALID_REMOTE_HOST_TOOL_REQUEST);
 			return true;
 		}
-		this.sendSideChannel({ type: "host_tool_result", id: frame.id, error: REMOTE_HOST_TOOL_DENIAL });
+		this.sendSideChannel({
+			type: "host_tool_result",
+			id: frame.id,
+			result: { content: [{ type: "text", text: REMOTE_HOST_TOOL_DENIAL }] },
+			isError: true,
+		});
 		return true;
 	}
 
@@ -1080,6 +1094,8 @@ export class SidecarManager extends EventEmitter {
 	 * Atomically adopt a new logical cwd and replace the session target snapshot.
 	 * Remote reconnects must follow the live cwd without changing the immutable
 	 * host, origin cwd, or executable override captured when the tab opened.
+	 * Config CLI execution follows this cwd; launch profiles, resolved overlays,
+	 * and inherited overlay env keep their launch ownership until the next spawn.
 	 * The returned target is a new frozen snapshot for SidecarPool to publish.
 	 */
 	adoptTargetCwd(cwd: string): SessionTarget | null {

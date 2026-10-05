@@ -1,4 +1,5 @@
 export const zh: Record<string, string> = {
+	"settings.notApplied": "已保存到全局，但未生效",
 	"settings.savedUnverified": "全局配置已保存，但未能确认当前生效值。请刷新后再编辑。",
 	"settings.source.label": "配置来源",
 	"settings.source.global": "全局",
@@ -201,7 +202,7 @@ export const zh: Record<string, string> = {
 	"input.model": "切换模型",
 	"input.thinking": "思考级别：{level} — 点击更改",
 	"input.thinking.failed": "思考等级",
-	"input.thinking.unsupported": "当前模型不支持推理。",
+	"input.thinking.unsupported": "当前模型的推理等级不可用。",
 	"input.thinking.name.off": "关闭",
 	"input.thinking.name.auto": "自动",
 	"input.thinking.name.minimal": "极简",
@@ -760,6 +761,7 @@ export const zh: Record<string, string> = {
 	"unavailable.chatSession": "需要 agent 会话——聊天会话没有工具",
 	"unavailable.tuiOnly": "仅限 TUI — 尚未通过 RPC 提供",
 	"unavailable.tuiOnlyShort": "仅限 TUI",
+	"unavailable.commandArguments": "此 GUI 命令不支持参数，请使用其原生控件。",
 
 	// First-run onboarding
 	"onboarding.title": "欢迎使用 omp",
@@ -2234,9 +2236,8 @@ export const zh: Record<string, string> = {
 
 	// Stats requests route
 	"stats.requests.sectionTitle": "最近的请求（{count}）",
+	"stats.requests.scope": "显示全部时间范围内最近的 100 个请求。",
 	"stats.requests.rowHint": "点击行查看详情",
-	"stats.requests.prev": "上一页",
-	"stats.requests.next": "下一页",
 	"stats.requests.closeDetails": "关闭详情",
 	"stats.requests.payload": "请求负载",
 	"stats.requests.loadingDetail": "正在加载请求详情…",
@@ -2936,6 +2937,8 @@ export const zh: Record<string, string> = {
 	"queuePanel.laneEmpty": "暂无消息。",
 	"queuePanel.empty": "没有排队的消息。",
 	"queuePanel.emptyHint": "在 agent 工作时发送的消息会在这里排队。",
+	"queuePanel.idOperationsUnavailable":
+		"此 agent 支持移除排队消息及将后续消息提升为引导消息，但不支持编辑、排序、清空队列，或将引导消息移至后续队列。",
 	"queuePanel.clearLane": "清空",
 	"queuePanel.remove": "移除",
 	"queuePanel.edit": "编辑",
@@ -3231,7 +3234,7 @@ export const zh: Record<string, string> = {
 	"settings.editors.errInvalidJson": "JSON 无效：{error}",
 	"settings.fontSizeRange": "字体大小必须介于 10 到 20px 之间",
 	"settings.runtime.planMode": "计划模式",
-	"settings.saveFailed": "设置未保存",
+	"settings.saveFailed": "设置更改未生效",
 	"settings.schemaLoadFailed": "设置加载失败",
 	"settings.schemaLoading": "正在加载设置架构…",
 	"settings.schemaUnavailable": "代理进程可能没有响应。运行时和 GUI 标签页仍然可用。",

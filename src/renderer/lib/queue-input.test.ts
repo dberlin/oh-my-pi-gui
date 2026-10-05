@@ -1,6 +1,5 @@
 /**
- * Contract tests for the queue shorthand parser, ported from the TUI
- * (`packages/coding-agent/src/modes/queue-input.ts`). These pin the
+ * Contract tests for GUI follow-up shorthand. These pin the
  * regression-prone parsing boundary: prefix extraction, enumerated-list
  * validation (indent/punctuation/sequence), and split output shape.
  */
@@ -31,6 +30,10 @@ describe("isQueuedMessageList / splitQueuedMessages", () => {
 		const text = "1. first\n2. second\n3. third";
 		expect(isQueuedMessageList(text)).toBe(true);
 		expect(splitQueuedMessages(text)).toEqual(["first", "second", "third"]);
+	});
+
+	it("preserves duplicate message text as separate follow-up submissions", () => {
+		expect(splitQueuedMessages("1. same\n2. same\n3. later")).toEqual(["same", "same", "later"]);
 	});
 
 	it("accepts ) punctuation uniformly", () => {

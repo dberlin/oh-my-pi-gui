@@ -44,6 +44,11 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
 if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
+// linkedom omits the selection API used when a native action prefills text.
+elementPrototype.setSelectionRange = function (this: HTMLTextAreaElement, start: number, end: number) {
+	this.selectionStart = start;
+	this.selectionEnd = end;
+};
 elementPrototype.getBoundingClientRect = () => ({
 	bottom: 0,
 	height: 0,
@@ -164,7 +169,7 @@ async function mount(
 	queueMove = vi.fn(async () => ok({ lane: "followUp", index: 0 }));
 	queueRemove = vi.fn(async () => ok({ removed: true }));
 	queueClear = vi.fn(async () => ok({ removed: 0 }));
-	setThinkingLevel = vi.fn(async (level: string) => ok({ thinkingLevel: level, thinkingConfigured: level }));
+	setThinkingLevel = vi.fn(async (_level: string) => ok());
 	setSetting = vi.fn(async (_path: string, value: unknown) => ok({ value, provenance: { layers: ["global"] } }));
 	setPlanMode = vi.fn(async (enabled: boolean) => ok({ enabled }));
 	(window as unknown as Record<string, unknown>).omp = {
@@ -183,6 +188,7 @@ async function mount(
 			prompt,
 			abort: vi.fn(async () => ok()),
 			setThinkingLevel,
+			getState: vi.fn(async () => ok({ thinkingLevel: "high" })),
 			setSetting,
 			setPlanMode,
 		},
@@ -190,7 +196,6 @@ async function mount(
 	useAgentViewStore.getState().selectMain();
 	useModelStore.setState({
 		thinkingLevel: "high",
-		thinkingConfigured: "high",
 		availableThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
 	});
 	useSessionStore.setState({
@@ -319,6 +324,90 @@ describe("InputArea queue manager", () => {
 	});
 });
 describe("InputArea queue shorthand submit", () => {
+	it("keeps the native /queue prefill after clearing the submitted command", async () => {
+		await mount();
+		await typeInto(findTextarea(), "/queue");
+		await pressEnter(findTextarea());
+		await flush();
+		expect(useComposerStore.getState().draft).toBe("-> ");
+		const textarea = findTextarea();
+		expect("value" in textarea && textarea.value).toBe("-> ");
+		expect(prompt).not.toHaveBeenCalled();
+	});
+
+	it("replaces only the submitting session when keyboard focus differs from the active pane", async () => {
+		await mount(true);
+		const sessionIds = new Map([
+			["t0", "origin-session"],
+			["t1", "other-session"],
+		]);
+		window.omp.rpc.commandForTab = vi.fn(async (tabId, command) => {
+			switch (command.type) {
+				case "new_session":
+					sessionIds.set(tabId, `replacement-${tabId}`);
+					return ok({ cancelled: false });
+				case "get_state":
+					return ok({
+						sessionId: sessionIds.get(tabId),
+						sessionName: null,
+						sessionFile: null,
+						cwd: tabId === "t0" ? "/tmp" : "/other",
+						isStreaming: false,
+						isCompacting: false,
+						contextUsage: null,
+						messageCount: 0,
+						queuedMessageCount: 0,
+						queuedMessages: { steering: [], followUp: [] },
+					});
+				case "get_messages":
+					return ok({ messages: [] });
+				case "get_subagents":
+					return ok({ subagents: [] });
+				case "get_available_thinking_levels":
+					return ok({ levels: [] });
+				default:
+					return ok({});
+			}
+		});
+		await act(async () => {
+			createTabRuntime("t1");
+			withSessionRuntime("t0", () =>
+				useSessionStore.setState({ sessionId: "origin-session", isStreaming: false, status: "ready" }),
+			);
+			withSessionRuntime("t1", () => {
+				useSessionStore.setState({ sessionId: "other-session", isStreaming: false, status: "ready" });
+				useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: "other-agent" });
+			});
+			setFocusedSessionRuntime("t1");
+			useTabsStore.setState({ activeTabId: "t1" });
+		});
+		await typeInto(findTextarea(), "/new");
+		await pressEnter(findTextarea());
+		await flush();
+		expect(withSessionRuntime("t0", () => useSessionStore.getState().sessionId)).toBe("replacement-t0");
+		expect(withSessionRuntime("t1", () => useSessionStore.getState().sessionId)).toBe("other-session");
+		expect(withSessionRuntime("t1", () => useAgentViewStore.getState().target)).toEqual({
+			kind: "subagent",
+			id: "other-agent",
+		});
+		expect(prompt).not.toHaveBeenCalled();
+	});
+
+	it("prefills the submitting composer rather than the other active pane", async () => {
+		await mount(true);
+		await act(async () => {
+			createTabRuntime("t1");
+			withSessionRuntime("t1", () => useComposerStore.getState().setDraft("other draft"));
+			setFocusedSessionRuntime("t1");
+			useTabsStore.setState({ activeTabId: "t1" });
+		});
+		await typeInto(findTextarea(), "/queue");
+		await pressEnter(findTextarea());
+		await flush();
+		expect(withSessionRuntime("t0", () => useComposerStore.getState().draft)).toBe("-> ");
+		expect(withSessionRuntime("t1", () => useComposerStore.getState().draft)).toBe("other draft");
+	});
+
 	it("restores an unacknowledged send after process recovery and blocks duplicate submission", async () => {
 		await mount(true);
 		const pending = Promise.withResolvers<RpcResponse>();
@@ -719,7 +808,7 @@ describe("InputArea run settings", () => {
 		await flush();
 
 		expect(setThinkingLevel).toHaveBeenCalledWith("max");
-		expect(useModelStore.getState().thinkingConfigured).toBe("max");
+		expect(useModelStore.getState().thinkingLevel).toBe("high");
 	});
 
 	it("lets the nested approval portal persist its selected mode", async () => {

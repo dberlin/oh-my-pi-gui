@@ -1,10 +1,6 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
-import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
+import { describe, expect, it, vi } from "vitest";
+import type { RpcCommand } from "../shared/rpc-types";
 import { executeConfigRpcCommand, isConfigRpcCommand } from "./config-rpc";
 
 const configList = {
@@ -14,83 +10,40 @@ const configList = {
 	theme: { value: "dark", type: "enum", description: "Active theme" },
 };
 
-function configBackend(initial: Record<string, unknown>) {
+function configBackend(
+	initial: Record<string, unknown>,
+	shadow?: { key: string; value: unknown; overriddenBy?: string; fallbackEnv?: string },
+) {
 	const values = { ...initial };
 	const runCli = async (args: string[]): Promise<string> => {
-		const { positionals } = parseArgs({ args: args.slice(2), options: { json: { type: "boolean" } }, allowPositionals: true });
+		const { positionals } = parseArgs({
+			args: args.slice(2),
+			options: { json: { type: "boolean" } },
+			allowPositionals: true,
+		});
 		const [key, input] = positionals;
 		if (!key) throw new Error("Missing config key");
 		const current = values[key];
-		const type = typeof current === "number" ? "number" : typeof current === "string" ? "string" : "record";
-		if (args[1] === "get") return JSON.stringify({ key, value: current, type, description: "" });
+		const type =
+			typeof current === "number"
+				? "number"
+				: typeof current === "string"
+					? "string"
+					: typeof current === "boolean"
+						? "boolean"
+						: "record";
+		if (args[1] === "get") {
+			return JSON.stringify({ key, value: shadow?.key === key ? shadow.value : current, type, description: "" });
+		}
 		if (args[1] !== "set" || input === undefined) throw new Error("Invalid config invocation");
 		values[key] = type === "string" ? input : JSON.parse(input);
-		return JSON.stringify({ key, value: values[key] });
+		return JSON.stringify({
+			key,
+			value: values[key],
+			...(shadow?.key === key ? { overriddenBy: shadow.overriddenBy, fallbackEnv: shadow.fallbackEnv } : {}),
+		});
 	};
 	return { values, runCli };
-}
-
-const nativeBackendDirs: string[] = [];
-afterEach(() => {
-	for (const directory of nativeBackendDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
-});
-
-// Model the native settings layers independently: whole-map writes leave runtime
-// overrides intact, while per-role saves merge fresh persisted siblings and adopt them.
-function nativeRoleBackend(initial: Record<string, string>) {
-	const directory = mkdtempSync(join(tmpdir(), "gui-native-roles-"));
-	nativeBackendDirs.push(directory);
-	const file = join(directory, "model-roles.json");
-	const disk = {
-		get assignments(): Record<string, string> {
-			return z.record(z.string(), z.string()).parse(JSON.parse(readFileSync(file, "utf8")));
-		},
-		set assignments(value: Record<string, string>) {
-			writeFileSync(file, JSON.stringify(value));
-		},
-	};
-	disk.assignments = initial;
-	const session = (overrides: Record<string, string> = {}, beforeSave = async () => {}) => {
-		let global = { ...disk.assignments };
-		const runtime = { ...overrides };
-		const effective = () => ({ ...global, ...runtime });
-		const runNative = async (command: RpcCommand): Promise<RpcResponse> => {
-			if (command.type === "get_settings") {
-				return {
-					type: "response", command: command.type, success: true,
-					data: { values: { modelRoles: effective() } },
-				};
-			}
-			if (command.type === "set_model_role") {
-				if (Object.hasOwn(runtime, command.role)) {
-					if (command.modelId === null) delete runtime[command.role];
-					else runtime[command.role] = command.modelId;
-				}
-				await beforeSave();
-				const fresh = { ...disk.assignments };
-				if (command.modelId === null) delete fresh[command.role];
-				else fresh[command.role] = command.modelId;
-				disk.assignments = fresh;
-				global = { ...fresh };
-				return {
-					type: "response", command: command.type, success: true,
-					data: { role: command.role, modelId: command.modelId },
-				};
-			}
-			if (command.type === "set_setting" && command.path === "modelRoles") {
-				await beforeSave();
-				disk.assignments = { ...(command.value as Record<string, string>) };
-				global = { ...disk.assignments };
-				return {
-					type: "response", command: command.type, success: true,
-					data: { path: command.path, value: effective() },
-				};
-			}
-			throw new Error(`Unexpected native command: ${command.type}`);
-		};
-		return { runNative, effective };
-	};
-	return { disk, session };
 }
 
 describe("config RPC compatibility", () => {
@@ -127,16 +80,187 @@ describe("config RPC compatibility", () => {
 		});
 	});
 
-	it("serializes record settings and returns the persisted CLI value", async () => {
+	it("serializes record settings and returns the effective CLI value after saving", async () => {
 		const backend = configBackend({ modelRoles: { plan: "anthropic/claude" } });
-		const response = await executeConfigRpcCommand({
-			id: "settings-2", type: "set_setting", path: "modelRoles", value: { plan: "openai/gpt-5" },
-		}, backend.runCli);
+		const response = await executeConfigRpcCommand(
+			{
+				id: "settings-2",
+				type: "set_setting",
+				path: "modelRoles",
+				value: { plan: "openai/gpt-5" },
+			},
+			backend.runCli,
+		);
 
 		expect(backend.values.modelRoles).toEqual({ plan: "openai/gpt-5" });
 		expect(response).toMatchObject({
-			id: "settings-2", command: "set_setting", success: true,
+			id: "settings-2",
+			command: "set_setting",
+			success: true,
 			data: { path: "modelRoles", value: { plan: "openai/gpt-5" } },
+		});
+	});
+
+	it.each([
+		{
+			path: "auth.broker.url",
+			savedValue: "http://saved.test",
+			effectiveValue: "http://env.test",
+			overriddenBy: "OMP_AUTH_BROKER_URL",
+		},
+		{ path: "theme", savedValue: "dark", effectiveValue: "light", overriddenBy: "project" },
+		{ path: "compaction.enabled", savedValue: true, effectiveValue: false, overriddenBy: "overlay" },
+		{ path: "theme", savedValue: "dark", effectiveValue: "light", overriddenBy: "runtime" },
+	])(
+		"reports a persisted $path shadowed by $overriddenBy without active success",
+		async ({ path, savedValue, effectiveValue, overriddenBy }) => {
+			const backend = configBackend({ [path]: savedValue }, { key: path, value: effectiveValue, overriddenBy });
+			const response = await executeConfigRpcCommand(
+				{
+					type: "set_setting",
+					path,
+					value: savedValue,
+				},
+				backend.runCli,
+			);
+			expect(backend.values[path]).toEqual(savedValue);
+			expect(response).toMatchObject({
+				success: false,
+				code: "setting_not_applied",
+				data: { path, saved: true, savedValue, effectiveValue, overriddenBy },
+			});
+		},
+	);
+
+	it("preserves fallback environment metadata when clearing exposes the fallback value", async () => {
+		const backend = configBackend(
+			{ "searxng.token": "old" },
+			{
+				key: "searxng.token",
+				value: "environment-key",
+				fallbackEnv: "SEARXNG_TOKEN",
+			},
+		);
+		const response = await executeConfigRpcCommand(
+			{
+				type: "set_setting",
+				path: "searxng.token",
+				value: "",
+			},
+			backend.runCli,
+		);
+		expect(backend.values["searxng.token"]).toBe("");
+		expect(response).toMatchObject({
+			success: false,
+			code: "setting_not_applied",
+			data: { saved: true, savedValue: "", effectiveValue: "environment-key", fallbackEnv: "SEARXNG_TOKEN" },
+		});
+	});
+
+	it("does not report an override as active success even when the effective value equals the saved value", async () => {
+		const backend = configBackend({ theme: "dark" }, { key: "theme", value: "light", overriddenBy: "project" });
+		expect(
+			await executeConfigRpcCommand(
+				{
+					type: "set_setting",
+					path: "theme",
+					value: "light",
+				},
+				backend.runCli,
+			),
+		).toMatchObject({ success: false, code: "setting_not_applied" });
+	});
+
+	it("uses effective readback even when the set response has no precedence metadata", async () => {
+		const backend = configBackend({ theme: "dark" }, { key: "theme", value: "light" });
+		expect(
+			await executeConfigRpcCommand(
+				{
+					type: "set_setting",
+					path: "theme",
+					value: "dark",
+				},
+				backend.runCli,
+			),
+		).toMatchObject({
+			success: false,
+			code: "setting_not_applied",
+			data: { savedValue: "dark", effectiveValue: "light" },
+		});
+	});
+
+	it("keeps saved metadata when effective readback fails rather than claiming active success", async () => {
+		const backend = configBackend({ theme: "dark" });
+		let saved = false;
+		const response = await executeConfigRpcCommand(
+			{ type: "set_setting", path: "theme", value: "light" },
+			async args => {
+				if (saved && args[1] === "get") throw new Error("connection lost");
+				const output = await backend.runCli(args);
+				if (args[1] === "set") saved = true;
+				return output;
+			},
+		);
+		expect(backend.values.theme).toBe("light");
+		expect(response).toMatchObject({
+			success: false,
+			code: "setting_effect_unverified",
+			data: { path: "theme", saved: true, savedValue: "light" },
+		});
+		expect(response.success ? "" : response.error).toContain("connection lost");
+	});
+
+	it.each([
+		{ role: "plan", modelId: "global/new-plan", savedValue: { plan: "global/new-plan", task: "project/task" } },
+		{ role: "plan", modelId: null, savedValue: { task: "project/task" } },
+	])(
+		"does not apply a saved role-map delta shadowed by project settings ($modelId)",
+		async ({ role, modelId, savedValue }) => {
+			const backend = configBackend(
+				{ modelRoles: { plan: "global/old-plan" } },
+				{
+					key: "modelRoles",
+					value: { plan: "project/plan", task: "project/task" },
+					overriddenBy: "project",
+				},
+			);
+			const response = await executeConfigRpcCommand({ type: "set_model_role", role, modelId }, backend.runCli);
+			expect(backend.values.modelRoles).toEqual(savedValue);
+			expect(response).toMatchObject({
+				success: false,
+				code: "setting_not_applied",
+				data: {
+					path: "modelRoles",
+					saved: true,
+					savedValue,
+					overriddenBy: "project",
+					effectiveValue: { plan: "project/plan", task: "project/task" },
+				},
+			});
+			expect(response.data).not.toHaveProperty("assignments");
+		},
+	);
+
+	it("compares role maps without treating key order as a changed effective value", async () => {
+		const backend = configBackend(
+			{ modelRoles: { task: "other/task" } },
+			{
+				key: "modelRoles",
+				value: { plan: "global/plan", task: "other/task" },
+			},
+		);
+		expect(
+			await executeConfigRpcCommand(
+				{
+					type: "set_model_role",
+					role: "plan",
+					modelId: "global/plan",
+				},
+				backend.runCli,
+			),
+		).toMatchObject({
+			success: true,
+			data: { assignments: { plan: "global/plan", task: "other/task" } },
 		});
 	});
 
@@ -152,20 +276,42 @@ describe("config RPC compatibility", () => {
 
 	it("preserves another window's completed role save and siblings when clearing", async () => {
 		const backend = configBackend({ modelRoles: { task: "other/task" } });
-		const first = await executeConfigRpcCommand({
-			type: "set_model_role", role: "plan", modelId: "anthropic/claude",
-		}, backend.runCli);
-		const second = await executeConfigRpcCommand({
-			type: "set_model_role", role: "default", modelId: "openai/gpt",
-		}, args => backend.runCli(args));
-		const cleared = await executeConfigRpcCommand({
-			type: "set_model_role", role: "plan", modelId: null,
-		}, backend.runCli);
-		expect(first).toMatchObject({ success: true, data: { assignments: { task: "other/task", plan: "anthropic/claude" } } });
-		expect(second).toMatchObject({
-			success: true, data: { assignments: { task: "other/task", plan: "anthropic/claude", default: "openai/gpt" } },
+		const first = await executeConfigRpcCommand(
+			{
+				type: "set_model_role",
+				role: "plan",
+				modelId: "anthropic/claude",
+			},
+			backend.runCli,
+		);
+		const second = await executeConfigRpcCommand(
+			{
+				type: "set_model_role",
+				role: "default",
+				modelId: "openai/gpt",
+			},
+			args => backend.runCli(args),
+		);
+		const cleared = await executeConfigRpcCommand(
+			{
+				type: "set_model_role",
+				role: "plan",
+				modelId: null,
+			},
+			backend.runCli,
+		);
+		expect(first).toMatchObject({
+			success: true,
+			data: { assignments: { task: "other/task", plan: "anthropic/claude" } },
 		});
-		expect(cleared).toMatchObject({ success: true, data: { assignments: { task: "other/task", default: "openai/gpt" } } });
+		expect(second).toMatchObject({
+			success: true,
+			data: { assignments: { task: "other/task", plan: "anthropic/claude", default: "openai/gpt" } },
+		});
+		expect(cleared).toMatchObject({
+			success: true,
+			data: { assignments: { task: "other/task", default: "openai/gpt" } },
+		});
 		expect(backend.values.modelRoles).toEqual({ task: "other/task", default: "openai/gpt" });
 	});
 
@@ -173,59 +319,106 @@ describe("config RPC compatibility", () => {
 		const backend = configBackend({ modelRoles: { task: "other/task" } });
 		const entered = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
-		const first = executeConfigRpcCommand({ type: "set_model_role", role: "plan", modelId: "anthropic/claude" }, async args => {
-			if (args[1] === "set") { entered.resolve(); await release.promise; }
-			return backend.runCli(args);
-		});
+		const first = executeConfigRpcCommand(
+			{ type: "set_model_role", role: "plan", modelId: "anthropic/claude" },
+			async args => {
+				if (args[1] === "set") {
+					entered.resolve();
+					await release.promise;
+				}
+				return backend.runCli(args);
+			},
+		);
 		await entered.promise;
-		const second = executeConfigRpcCommand({
-			type: "set_model_role", role: "default", modelId: "openai/gpt",
-		}, args => backend.runCli(args));
+		const second = executeConfigRpcCommand(
+			{
+				type: "set_model_role",
+				role: "default",
+				modelId: "openai/gpt",
+			},
+			args => backend.runCli(args),
+		);
 		release.resolve();
 		const responses = await Promise.all([first, second]);
 		expect(responses[1]).toMatchObject({
-			success: true, data: { assignments: { task: "other/task", plan: "anthropic/claude", default: "openai/gpt" } },
+			success: true,
+			data: { assignments: { task: "other/task", plan: "anthropic/claude", default: "openai/gpt" } },
 		});
-		expect(backend.values.modelRoles).toEqual({ task: "other/task", plan: "anthropic/claude", default: "openai/gpt" });
+		expect(backend.values.modelRoles).toEqual({
+			task: "other/task",
+			plan: "anthropic/claude",
+			default: "openai/gpt",
+		});
 	});
 
 	it("serializes intentional whole-map replacement against role deltas", async () => {
 		const backend = configBackend({ modelRoles: { task: "old/task" } });
 		const entered = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
-		const replacement = executeConfigRpcCommand({
-			type: "set_setting", path: "modelRoles", value: { slow: "replacement/model" },
-		}, async args => {
-			if (args[1] === "set") { entered.resolve(); await release.promise; }
-			return backend.runCli(args);
-		});
+		const replacement = executeConfigRpcCommand(
+			{
+				type: "set_setting",
+				path: "modelRoles",
+				value: { slow: "replacement/model" },
+			},
+			async args => {
+				if (args[1] === "set") {
+					entered.resolve();
+					await release.promise;
+				}
+				return backend.runCli(args);
+			},
+		);
 		await entered.promise;
-		const delta = executeConfigRpcCommand({
-			type: "set_model_role", role: "plan", modelId: "anthropic/claude",
-		}, backend.runCli);
+		const delta = executeConfigRpcCommand(
+			{
+				type: "set_model_role",
+				role: "plan",
+				modelId: "anthropic/claude",
+			},
+			backend.runCli,
+		);
 		release.resolve();
 		await Promise.all([replacement, delta]);
 		expect(backend.values.modelRoles).toEqual({ slow: "replacement/model", plan: "anthropic/claude" });
 
-		await executeConfigRpcCommand({
-			type: "set_setting", path: "modelRoles", value: { default: "explicit/replacement" },
-		}, backend.runCli);
+		await executeConfigRpcCommand(
+			{
+				type: "set_setting",
+				path: "modelRoles",
+				value: { default: "explicit/replacement" },
+			},
+			backend.runCli,
+		);
 		expect(backend.values.modelRoles).toEqual({ default: "explicit/replacement" });
 	});
 
 	it("does not poison queued saves after a rejected role write", async () => {
 		const backend = configBackend({ modelRoles: { task: "other/task" } });
-		const failed = executeConfigRpcCommand({
-			type: "set_model_role", role: "plan", modelId: "anthropic/claude",
-		}, async args => {
-			if (args[1] === "set") throw new Error("permission denied");
-			return backend.runCli(args);
-		});
-		const saved = executeConfigRpcCommand({
-			type: "set_model_role", role: "default", modelId: "openai/gpt",
-		}, backend.runCli);
+		const failed = executeConfigRpcCommand(
+			{
+				type: "set_model_role",
+				role: "plan",
+				modelId: "anthropic/claude",
+			},
+			async args => {
+				if (args[1] === "set") throw new Error("permission denied");
+				return backend.runCli(args);
+			},
+		);
+		const saved = executeConfigRpcCommand(
+			{
+				type: "set_model_role",
+				role: "default",
+				modelId: "openai/gpt",
+			},
+			backend.runCli,
+		);
 		expect(await failed).toMatchObject({ success: false, error: "permission denied" });
-		expect(await saved).toMatchObject({ success: true, data: { assignments: { task: "other/task", default: "openai/gpt" } } });
+		expect(await saved).toMatchObject({
+			success: true,
+			data: { assignments: { task: "other/task", default: "openai/gpt" } },
+		});
 		expect(backend.values.modelRoles).toEqual({ task: "other/task", default: "openai/gpt" });
 	});
 
@@ -246,106 +439,10 @@ describe("config RPC compatibility", () => {
 				]),
 			},
 		});
-	});
-
-	it("replaces a pinned runtime role and preserves fresh persisted siblings when assigning and clearing", async () => {
-		const backend = nativeRoleBackend({ task: "old/task", smol: "persisted/smol" });
-		const entered = Promise.withResolvers<void>();
-		const release = Promise.withResolvers<void>();
-		const firstSession = backend.session({ smol: "runtime/A", slow: "runtime/slow" }, async () => {
-			entered.resolve();
-			await release.promise;
-		});
-		const staleSession = backend.session({ smol: "stale/A" });
-		const runCli = async () => { throw new Error("Local roles must not use a differently configured CLI"); };
-		const first = executeConfigRpcCommand({
-			type: "set_model_role", role: "smol", modelId: "selected/B",
-		}, runCli, firstSession.runNative);
-		await entered.promise;
-		backend.disk.assignments = { ...backend.disk.assignments, task: "external/task", plan: "external/plan" };
-		release.resolve();
-		const assignments = {
-			task: "external/task", smol: "selected/B", plan: "external/plan", slow: "runtime/slow",
-		};
-		expect(await first).toMatchObject({ success: true, data: { assignments } });
-		expect(firstSession.effective()).toEqual(assignments);
-		expect(backend.disk.assignments).toEqual({
-			task: "external/task", smol: "selected/B", plan: "external/plan",
-		});
-		const cleared = await executeConfigRpcCommand({
-			type: "set_model_role", role: "smol", modelId: null,
-		}, runCli, staleSession.runNative);
-		expect(cleared).toMatchObject({
-			success: true, data: { assignments: { task: "external/task", plan: "external/plan" } },
-		});
-		expect(staleSession.effective()).toEqual({ task: "external/task", plan: "external/plan" });
-		expect(backend.disk.assignments).toEqual(staleSession.effective());
-	});
-
-	it("serializes local whole-map replacements with deltas", async () => {
-		const backend = nativeRoleBackend({ task: "old/task" });
-		const entered = Promise.withResolvers<void>();
-		const release = Promise.withResolvers<void>();
-		const replacementSession = backend.session({}, async () => { entered.resolve(); await release.promise; });
-		const staleSession = backend.session();
-		const runCli = async () => { throw new Error("Local roles must not use the CLI"); };
-		const replacement = executeConfigRpcCommand({
-			id: "replace", type: "set_setting", path: "modelRoles", value: { slow: "replacement/model" },
-		}, runCli, replacementSession.runNative);
-		await entered.promise;
-		const delta = executeConfigRpcCommand({
-			type: "set_model_role", role: "plan", modelId: "anthropic/claude",
-		}, runCli, staleSession.runNative);
-		release.resolve();
-		const responses = await Promise.all([replacement, delta]);
-		expect(responses[1]).toMatchObject({
-			success: true, data: { assignments: { slow: "replacement/model", plan: "anthropic/claude" } },
-		});
-		expect(backend.disk.assignments).toEqual({ slow: "replacement/model", plan: "anthropic/claude" });
-	});
-
-	it("reports native role rejection without falling back to a disk-only write", async () => {
-		const backend = configBackend({ modelRoles: { task: "other/task" } });
-		const response = await executeConfigRpcCommand({
-			id: "role-failed", type: "set_model_role", role: "plan", modelId: "anthropic/claude",
-		}, backend.runCli, async () => ({
-			type: "response", command: "set_model_role", success: false, error: "permission denied", code: "write_denied",
-		}));
-		expect(response).toEqual({
-			id: "role-failed", type: "response", command: "set_model_role",
-			success: false, error: "permission denied", code: "write_denied",
-		});
-		expect(backend.values.modelRoles).toEqual({ task: "other/task" });
-		const saved = await executeConfigRpcCommand({
-			type: "set_model_role", role: "default", modelId: "openai/gpt",
-		}, backend.runCli);
-		expect(saved).toMatchObject({ success: true, data: { assignments: { task: "other/task", default: "openai/gpt" } } });
-	});
-
-	it("preserves native readback failures instead of reporting an unverified role save", async () => {
-		const response = await executeConfigRpcCommand({
-			id: "read-failed", type: "set_model_role", role: "smol", modelId: "selected/B",
-		}, async () => { throw new Error("Unexpected CLI access"); }, async command => ({
-			type: "response", command: command.type,
-			...(command.type === "set_model_role"
-				? { success: true as const, data: { role: "smol", modelId: "selected/B" } }
-				: { success: false as const, error: "settings unavailable", code: "read_denied" }),
-		}));
-		expect(response).toEqual({
-			id: "read-failed", type: "response", command: "set_model_role",
-			success: false, error: "settings unavailable", code: "read_denied",
-		});
-	});
-
-	it("rejects malformed native assignments instead of exposing them to role helpers", async () => {
-		const response = await executeConfigRpcCommand({
-			type: "set_model_role", role: "smol", modelId: "selected/B",
-		}, async () => { throw new Error("Unexpected CLI access"); }, async command => ({
-			type: "response", command: command.type, success: true,
-			data: command.type === "set_model_role"
-				? { role: "smol", modelId: "selected/B" }
-				: { values: { modelRoles: { smol: 42 } } },
-		}));
-		expect(response).toMatchObject({ command: "set_model_role", success: false, error: expect.any(String) });
+		const data = response.data;
+		if (!data || typeof data !== "object" || !("entries" in data) || !Array.isArray(data.entries)) {
+			throw new Error("Missing settings schema entries");
+		}
+		expect(data.entries.every(entry => !Object.hasOwn(entry, "default"))).toBe(true);
 	});
 });

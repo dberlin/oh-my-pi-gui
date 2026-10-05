@@ -291,8 +291,8 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	};
 
 	/**
-	 * Persist a settings mutation via the same set_setting RPC the SettingsWindow
-	 * toggles use (the agent live-applies runtime keys) and toast the result.
+	 * Persist through the settings facade. Only effective, unshadowed writes
+	 * acknowledge success; persisted-but-overridden failures remain visible.
 	 */
 	const writeSetting = async (path: string, value: unknown, message: string): Promise<void> => {
 		const res = await boundRpc.setSetting(path, value);
@@ -302,7 +302,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 
 	const restartSidecar = restartSidecarFromGui;
 
-	/** /advisor on|off — set_setting live-applies advisor.enabled and reports activation state. */
+	/** /advisor on|off — refuse shadowed writes before reporting activation state. */
 	const setAdvisor = async (enabled: boolean): Promise<void> => {
 		const res = await boundRpc.setSetting("advisor.enabled", enabled);
 		if (!res.success) throw new Error(res.error);
@@ -1477,7 +1477,9 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 /** Hand text to the composer and focus it (the omp:fill-composer channel also
  *  serves starter cards, dequeue restore, and session-tree restore). */
 export function prefillComposer(text: string): void {
-	window.dispatchEvent(new CustomEvent("omp:fill-composer", { detail: { text } }));
+	window.dispatchEvent(
+		new CustomEvent("omp:fill-composer", { detail: { text, tabId: focusedSessionRuntime()?.tabId } }),
+	);
 }
 
 /** /queue prefill: focus the composer with the yield-queue shorthand ("-> "). */
@@ -1762,7 +1764,9 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 		openImportDialog: ui.openImportDialog,
 		openProviderConfig: ui.openProviderConfig,
 		focusActivitySection: id =>
-			useActivitySidebarStore.getState().revealSection(id, useTabsStore.getState().activeTabId ?? "no-tab"),
+			useActivitySidebarStore
+				.getState()
+				.revealSection(id, runtime?.tabId ?? useTabsStore.getState().activeTabId ?? "no-tab"),
 		retryTurn: retryFailedTurn,
 		retryLastTurn: () =>
 			retryLastTurnShared(() =>

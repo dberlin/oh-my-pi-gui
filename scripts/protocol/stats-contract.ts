@@ -1,26 +1,23 @@
-/** Compile-time contracts: each stats HTTP reply must satisfy the GUI type that reads it. */
-import type * as Server from "../../../stats/src/types";
+/** Each real stats HTTP producer must satisfy the GUI type that reads it. */
+import type * as Server from "omp-stats";
 import type * as Gui from "../../src/shared/stats-types";
+import type { Assert, Compatible, Wire } from "./contract";
 
-type Wire<T> = T extends string ? `${T}` : T extends object ? { [K in keyof T]: Wire<T[K]> } : T;
-type Accepts<Consumer, Producer extends Consumer> = Producer;
-
-export type Overview = Accepts<
-	Gui.OverviewData,
-	Wire<Pick<Server.DashboardStats, "overall" | "byAgentType" | "timeSeries">>
+export type Overview = Assert<
+	Compatible<Gui.OverviewData, Wire<Pick<Server.DashboardStats, "overall" | "byAgentType" | "timeSeries">>>
 >;
-export type Models = Accepts<
-	Gui.ModelsData,
-	Wire<Pick<Server.DashboardStats, "byModel" | "modelSeries" | "modelPerformanceSeries">>
+export type Models = Assert<
+	Compatible<Gui.ModelsData, Wire<Pick<Server.DashboardStats, "byModel" | "modelSeries" | "modelPerformanceSeries">>>
 >;
-export type Costs = Accepts<Gui.CostsData, Wire<Pick<Server.DashboardStats, "costSeries">>>;
-export type Tools = Accepts<Gui.ToolsData, Wire<Server.ToolDashboardStats>>;
-export type Providers = Accepts<Gui.ProvidersData, Wire<Server.ProviderDashboardStats>>;
-export type ProviderWindows = Accepts<Gui.ProviderWindowsData, Wire<Server.ProviderWindowStats>>;
-export type Errors = Accepts<Gui.ErrorRow, Wire<Server.MessageStats>>;
-export type Folders = Accepts<Gui.FolderRow, Wire<Server.FolderStats>>;
-export type Gain = Accepts<Gui.GainData, Wire<Server.GainDashboardStats>>;
-export type Requests = Accepts<Gui.RequestPage, Wire<Server.RequestPage>>;
-export type RequestDetail = Accepts<Gui.RequestDetail, Wire<Server.RequestDetails>>;
-export type Frustration = Accepts<Gui.FrustrationData, Wire<Server.FrustrationDashboardStats>>;
-export type Status = Accepts<Gui.LiveStatus, Wire<Server.LiveStatus>>;
+export type Costs = Assert<Compatible<Gui.CostsData, Wire<Pick<Server.DashboardStats, "costSeries">>>>;
+export type Tools = Assert<Compatible<Gui.ToolsData, Wire<Server.ToolDashboardStats>>>;
+export type Providers = Assert<Compatible<Gui.ProvidersData, Wire<Server.ProviderDashboardStats>>>;
+export type ProviderWindows = Assert<Compatible<Gui.ProviderWindowsData, Wire<Server.ProviderWindowStats>>>;
+export type Errors = Assert<Compatible<Gui.ErrorRow, Wire<Server.MessageStats>>>;
+export type Folders = Assert<Compatible<Gui.FolderRow, Wire<Server.FolderStats>>>;
+export type Gain = Assert<Compatible<Gui.GainData, Wire<Server.GainDashboardStats>>>;
+// /api/stats/recent returns a bounded list, not a server pagination envelope.
+export type Requests = Assert<Compatible<Gui.RequestRow[], Wire<Server.MessageStats[]>>>;
+export type RequestDetail = Assert<Compatible<Gui.RequestDetail, Wire<Server.RequestDetails>>>;
+export type Frustration = Assert<Compatible<Gui.FrustrationData, Wire<Server.FrustrationDashboardStats>>>;
+export type Status = Assert<Compatible<Gui.LiveStatus, Wire<Server.LiveStatus>>>;

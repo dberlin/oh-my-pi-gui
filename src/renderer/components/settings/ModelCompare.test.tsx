@@ -16,11 +16,17 @@ import { buildModelRows, formatCost, ModelCompare } from "./ModelCompare";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
-	document, window, Event, HTMLElement, Element, Node,
+	document,
+	window,
+	Event,
+	HTMLElement,
+	Element,
+	Node,
 	IS_REACT_ACT_ENVIRONMENT: true,
 	requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
 });
-window.matchMedia = () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
+window.matchMedia = () =>
+	({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
 
 let root: Root | undefined;
 
@@ -33,22 +39,37 @@ function settings(assignments: Record<string, string> = {}) {
 }
 
 function configBackend(assignments: Record<string, string>) {
-	const state = { assignments, saveGate: null as Promise<void> | null };
+	const state = {
+		assignments,
+		projectRoles: null as Record<string, string> | null,
+		saveGate: null as Promise<void> | null,
+	};
 	const handler = async (request: RpcCommand): Promise<RpcResponse> => {
 		if (!isConfigRpcCommand(request)) throw new Error(`Unexpected native command: ${request.type}`);
 		return executeConfigRpcCommand(request, async args => {
-			const values = settings(state.assignments).values;
-			const entries = Object.fromEntries(Object.entries(values).map(([key, value]) => [
-				key, { value, type: key === "cycleOrder" ? "array" : "record", description: "" },
-			]));
+			const values = settings({ ...state.assignments, ...state.projectRoles }).values;
+			const entries = Object.fromEntries(
+				Object.entries(values).map(([key, value]) => [
+					key,
+					{ value, type: key === "cycleOrder" ? "array" : "record", description: "" },
+				]),
+			);
 			if (args[1] === "list") return JSON.stringify(entries);
-			const { positionals } = parseArgs({ args: args.slice(2), options: { json: { type: "boolean" } }, allowPositionals: true });
+			const { positionals } = parseArgs({
+				args: args.slice(2),
+				options: { json: { type: "boolean" } },
+				allowPositionals: true,
+			});
 			const key = positionals[0]!;
 			if (args[1] === "get") return JSON.stringify({ key, ...entries[key] });
 			if (args[1] !== "set" || key !== "modelRoles") throw new Error("Unexpected config invocation");
 			await state.saveGate;
 			state.assignments = JSON.parse(positionals[1]!);
-			return JSON.stringify({ key, value: state.assignments });
+			return JSON.stringify({
+				key,
+				value: state.assignments,
+				...(state.projectRoles ? { overriddenBy: "project" } : {}),
+			});
 		});
 	};
 	return { state, handler };
@@ -59,18 +80,33 @@ function provider(id: string, overrides: Partial<ProviderInfo> = {}): ProviderIn
 }
 
 function role(id: string, model?: string): ModelRoleEntry {
-	return { id, name: id, tag: id.toUpperCase(), color: "default", source: "settings", section: "chat", candidates: [], model };
+	return {
+		id,
+		name: id,
+		tag: id.toUpperCase(),
+		color: "default",
+		source: "settings",
+		section: "chat",
+		candidates: [],
+		model,
+	};
 }
 
 function catalog(ids: string[] = ["model-a", "model-b"], generation = 1) {
 	return {
 		providers: [provider("provider")],
 		models: ids.map(id => ({ provider: "provider", id })),
-		discoveryStates: [], refreshPending: false, generation,
+		discoveryStates: [],
+		refreshPending: false,
+		generation,
 	};
 }
 
-function readyRuntime(tabId: string, handler: (request: RpcCommand) => Promise<RpcResponse>, target: SessionTarget = { type: "local" }) {
+function readyRuntime(
+	tabId: string,
+	handler: (request: RpcCommand) => Promise<RpcResponse>,
+	target: SessionTarget = { type: "local" },
+) {
 	const runtime: SessionRuntime = { tabId, command: handler, stores: new Map() };
 	const session = createSessionStore();
 	const models = createModelStore(handler);
@@ -78,7 +114,10 @@ function readyRuntime(tabId: string, handler: (request: RpcCommand) => Promise<R
 	addRuntimeStore(runtime, "session", session);
 	addRuntimeStore(runtime, "model", models);
 	useTabsStore.setState(state => ({
-		tabs: [...state.tabs, { id: tabId, cwd: `/srv/${tabId}`, target, status: "ready", kind: "agent", unreadDone: false }],
+		tabs: [
+			...state.tabs,
+			{ id: tabId, cwd: `/srv/${tabId}`, target, status: "ready", kind: "agent", unreadDone: false },
+		],
 	}));
 	return { runtime, session, models };
 }
@@ -86,12 +125,20 @@ function readyRuntime(tabId: string, handler: (request: RpcCommand) => Promise<R
 async function renderCompare(runtime: SessionRuntime): Promise<void> {
 	root ??= createRoot(document.body as unknown as Element);
 	await act(async () => {
-		root?.render(<I18nProvider><SessionRuntimeProvider runtime={runtime}><ModelCompare onClose={() => {}} open /></SessionRuntimeProvider></I18nProvider>);
+		root?.render(
+			<I18nProvider>
+				<SessionRuntimeProvider runtime={runtime}>
+					<ModelCompare onClose={() => {}} open />
+				</SessionRuntimeProvider>
+			</I18nProvider>,
+		);
 	});
 }
 
 async function flush(): Promise<void> {
-	await act(async () => { await new Promise<void>(resolve => setTimeout(resolve, 0)); });
+	await act(async () => {
+		await new Promise<void>(resolve => setTimeout(resolve, 0));
+	});
 }
 
 function rowFor(modelId: string): HTMLElement {
@@ -142,8 +189,12 @@ describe("formatCost", () => {
 describe("model role selectors", () => {
 	it("does not assign a same-named model from another provider or a bare selector", () => {
 		const rows = buildModelRows({
-			models: [{ provider: "anthropic", id: "claude" }, { provider: "openai", id: "claude" }],
-			providers: [], roles: [role("default", "anthropic/claude"), role("smol", "claude")],
+			models: [
+				{ provider: "anthropic", id: "claude" },
+				{ provider: "openai", id: "claude" },
+			],
+			providers: [],
+			roles: [role("default", "anthropic/claude"), role("smol", "claude")],
 		});
 		expect(rows[0].roles.map(item => item.id)).toEqual(["default"]);
 		expect(rows[1].roles).toEqual([]);
@@ -163,6 +214,22 @@ describe("ModelCompare tab-scoped catalog and role assignments", () => {
 		expect(backend.state.assignments).toEqual({ default: "provider/model-b", task: "other/task-model" });
 		expect(selectedRole("model-a")).toBe("");
 		expect(selectedRole("model-b")).toBe("default");
+	});
+
+	it("does not pin a shadowed saved role and reloads effective project roles on failure", async () => {
+		const backend = configBackend({ default: "provider/model-a", task: "old/task" });
+		const tab = readyRuntime("shadowed-comparison", async request => {
+			if (request.type === "get_providers") return ok(request.type, catalog());
+			return backend.handler(request);
+		});
+		await renderCompare(tab.runtime);
+		backend.state.projectRoles = { default: "provider/model-a", task: "provider/model-b" };
+		await act(async () => changeRole(selectFor("model-b"), "default"));
+		expect(backend.state.assignments).toEqual({ default: "provider/model-b", task: "provider/model-b" });
+		expect(selectedRole("model-a")).toBe("default");
+		expect(selectedRole("model-b")).toBe("task");
+		expect(useToastStore.getState().toasts.at(-1)?.variant).toBe("error");
+		expect(useToastStore.getState().toasts.some(item => item.variant === "success")).toBe(false);
 	});
 
 	it("preserves sibling edits made by another window after comparison loaded", async () => {
@@ -189,13 +256,20 @@ describe("ModelCompare tab-scoped catalog and role assignments", () => {
 			throw new Error(`Wrong pane received ${request.type}`);
 		});
 		useTabsStore.setState({ activeTabId: other.runtime.tabId });
-		const remote = readyRuntime("remote", async request => {
-			if (request.type === "get_providers") return ok(request.type, catalog());
-			return backend.handler(request);
-		}, {
-			type: "ssh", hostAlias: "server", host: { host: "server", sourceId: "test", sourceLevel: "user" },
-			originCwd: "/srv/remote", cwd: "/srv/remote",
-		});
+		const remote = readyRuntime(
+			"remote",
+			async request => {
+				if (request.type === "get_providers") return ok(request.type, catalog());
+				return backend.handler(request);
+			},
+			{
+				type: "ssh",
+				hostAlias: "server",
+				host: { host: "server", sourceId: "test", sourceLevel: "user" },
+				originCwd: "/srv/remote",
+				cwd: "/srv/remote",
+			},
+		);
 		await renderCompare(remote.runtime);
 		const first = selectFor("model-b");
 		const second = selectFor("model-a");
@@ -235,10 +309,14 @@ describe("ModelCompare tab-scoped catalog and role assignments", () => {
 
 	it("ignores an old pane's role load after switching comparison to another runtime", async () => {
 		const pending = Promise.withResolvers<RpcResponse>();
-		const old = readyRuntime("old", async request => request.type === "get_settings" ? pending.promise : ok(request.type, catalog(["old-model"])));
-		const current = readyRuntime("current", async request => request.type === "get_settings"
-			? ok(request.type, settings({ plan: "provider/current-model" }))
-			: ok(request.type, catalog(["current-model"])));
+		const old = readyRuntime("old", async request =>
+			request.type === "get_settings" ? pending.promise : ok(request.type, catalog(["old-model"])),
+		);
+		const current = readyRuntime("current", async request =>
+			request.type === "get_settings"
+				? ok(request.type, settings({ plan: "provider/current-model" }))
+				: ok(request.type, catalog(["current-model"])),
+		);
 		await renderCompare(old.runtime);
 		await renderCompare(current.runtime);
 		expect(selectedRole("current-model")).toBe("plan");
@@ -251,13 +329,21 @@ describe("ModelCompare tab-scoped catalog and role assignments", () => {
 	it("blocks row clicks for disabled and signed-out providers without blocking unknown auth", async () => {
 		const changes: string[] = [];
 		const tab = readyRuntime("availability", async request => {
-			if (request.type === "get_providers") return ok(request.type, {
-				...catalog(),
-				providers: [provider("off", { disabled: true }), provider("noauth", { authenticated: false }), provider("serving")],
-				models: ["off", "noauth", "unlisted", "serving"].map(id => ({ provider: id, id: `${id}-model` })),
-			});
+			if (request.type === "get_providers")
+				return ok(request.type, {
+					...catalog(),
+					providers: [
+						provider("off", { disabled: true }),
+						provider("noauth", { authenticated: false }),
+						provider("serving"),
+					],
+					models: ["off", "noauth", "unlisted", "serving"].map(id => ({ provider: id, id: `${id}-model` })),
+				});
 			if (request.type === "get_settings") return ok(request.type, settings());
-			if (request.type === "set_model") { changes.push(`${request.provider}/${request.modelId}`); return ok(request.type); }
+			if (request.type === "set_model") {
+				changes.push(`${request.provider}/${request.modelId}`);
+				return ok(request.type);
+			}
 			throw new Error(`Unexpected command: ${request.type}`);
 		});
 		await renderCompare(tab.runtime);
@@ -277,14 +363,21 @@ describe("ModelCompare tab-scoped catalog and role assignments", () => {
 		const changes: string[] = [];
 		const tab = readyRuntime("role-error", async request => {
 			if (request.type === "get_providers") return ok(request.type, catalog());
-			if (request.type === "get_settings") return { type: "response", command: request.type, success: false, error: "Roles unavailable" };
-			if (request.type === "set_model") { changes.push(request.modelId); return ok(request.type); }
+			if (request.type === "get_settings")
+				return { type: "response", command: request.type, success: false, error: "Roles unavailable" };
+			if (request.type === "set_model") {
+				changes.push(request.modelId);
+				return ok(request.type);
+			}
 			throw new Error(`Unexpected command: ${request.type}`);
 		});
 		await renderCompare(tab.runtime);
 		expect(selectFor("model-a").hasAttribute("disabled")).toBe(true);
 		expect(selectFor("model-b").hasAttribute("disabled")).toBe(true);
-		await act(async () => { changeRole(selectFor("model-a"), "default"); rowFor("model-a").click(); });
+		await act(async () => {
+			changeRole(selectFor("model-a"), "default");
+			rowFor("model-a").click();
+		});
 		expect(changes).toEqual(["model-a"]);
 	});
 
@@ -327,7 +420,10 @@ describe("ModelCompare tab-scoped catalog and role assignments", () => {
 		const row = rowFor("model-b");
 		const select = selectFor("model-b");
 		await act(async () => tab.session.setState({ status: "starting" }));
-		await act(async () => { row.click(); changeRole(select, "default"); });
+		await act(async () => {
+			row.click();
+			changeRole(select, "default");
+		});
 		expect(changes).toEqual([]);
 	});
 });

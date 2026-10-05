@@ -853,7 +853,7 @@ function CommandsTab({
 	const { groups, visibleCount } = useMemo(() => {
 		const visible = filterList(rpc.data, query, command => [
 			command.name,
-			command.description,
+			command.description ?? "",
 			command.source ?? "",
 			...(command.aliases ?? []),
 		]);

@@ -26,6 +26,16 @@ export class RpcClient {
 
 	/** Send a command and await its correlated response. Optional per-call timeout. */
 	async command(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
+		const unsupported = this.#unsupportedOptions(cmd);
+		if (unsupported) {
+			return {
+				type: "response",
+				command: cmd.type,
+				success: false,
+				code: "unsupported_command_options",
+				error: unsupported,
+			};
+		}
 		const id = `gui-${++this.#nextId}`;
 		const { promise, resolve, reject } = Promise.withResolvers<RpcResponse>();
 		const timeout = timeoutMs ?? this.#timeout;
@@ -42,9 +52,29 @@ export class RpcClient {
 
 	/** Fire a command without waiting for response (for bash background dispatch). */
 	fire(cmd: RpcCommand): string {
+		const unsupported = this.#unsupportedOptions(cmd);
+		if (unsupported) throw new Error(unsupported);
 		const id = `gui-${++this.#nextId}`;
 		this.#send({ ...cmd, id });
 		return id;
+	}
+
+	#unsupportedOptions(cmd: RpcCommand): string | undefined {
+		switch (cmd.type) {
+			case "cycle_model":
+				if (cmd.direction === "backward") return "Vanilla omp does not support reverse model cycling.";
+				break;
+			case "get_available_models":
+				if (cmd.forceRefresh) return "Vanilla omp does not support forceRefresh model discovery.";
+				break;
+			case "bash":
+				if (cmd.excluded) return "Vanilla omp does not support excluded bash commands.";
+				break;
+			case "set_session_name":
+				if (cmd.sessionPath !== undefined) return "Vanilla omp cannot rename a non-active session by sessionPath.";
+				break;
+		}
+		return undefined;
 	}
 
 	/** Route an inbound response frame to its waiting promise. */
