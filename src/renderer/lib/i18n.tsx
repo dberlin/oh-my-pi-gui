@@ -37,7 +37,7 @@ function translateForLang(lang: Lang, key: string, params?: Record<string, strin
 	let str = locale[key] ?? en[key] ?? key;
 	if (params) {
 		for (const [k, v] of Object.entries(params)) {
-			str = str.replace(`{${k}}`, String(v));
+			str = str.replaceAll(`{${k}}`, () => String(v));
 		}
 	}
 	return str;

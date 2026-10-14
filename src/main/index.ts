@@ -11,6 +11,7 @@ import { nativeAccelerator } from "../shared/hotkeys";
 import type { SessionKind, SessionTarget } from "../shared/ipc-types";
 import { installQuitGuard, isQuitting, requestQuit } from "./app-quit";
 import { bundledOmpFilename, resolveOmpCandidate } from "./bundled-omp-path";
+import { type ConversationIndex, openConversationIndex } from "./conversation-index";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
@@ -220,6 +221,7 @@ let statsServer: StatsServerManager | null = null;
 let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
+let conversationIndex: ConversationIndex | null = null;
 let remoteServices: { ssh: RemoteSshService; catalog: RemoteHostCatalog; acp: RemoteAcpClient } | null = null;
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -374,6 +376,7 @@ app.whenReady().then(() => {
 			fresh: options.fresh,
 			target: options.target,
 			resumeSessionId: options.resumeSessionId,
+			model: options.model,
 			proxyEnv: resolveProxyEnvForSpawn,
 			shellEnv: shellSpawnEnv,
 			// Finder-launched omp has no terminal, and a sidecar that dies before
@@ -427,6 +430,11 @@ app.whenReady().then(() => {
 		statsServer.start();
 	}
 	logWatcher = new LogWatcher();
+	conversationIndex = openConversationIndex(
+		join(app.getPath("userData"), "conversation-index.db"),
+		sessionIndex.sessionsDir,
+		error => writeRuntimeLog({ source: "conversation-index", ...errorMessage(error) }),
+	);
 
 	// Register all handlers and sidecar listeners before loading the renderer.
 	registerIpcHandlers({
@@ -435,6 +443,7 @@ app.whenReady().then(() => {
 		statsClient,
 		statsRestart: () => statsServer?.ensureRunning() ?? "exhausted",
 		logWatcher,
+		conversationIndex,
 		windowManager,
 		benchmarkBinaryPath: bundledOmp,
 		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
@@ -468,6 +477,10 @@ app.whenReady().then(() => {
 	});
 	sessionIndex.start();
 	logWatcher.start();
+	// A background first pass stays local; later searches top up recent writes.
+	conversationIndex
+		?.refresh()
+		.catch(error => writeRuntimeLog({ source: "conversation-index", ...errorMessage(error) }));
 	// Read before the first window restores: every tab change rewrites the store,
 	// so a later read would only see the just-restored primary window.
 	const savedLayouts = readSavedTabLayouts();
@@ -510,6 +523,7 @@ const drainBeforeQuit = createQuitSequence({
 		sessionIndex?.stop();
 		logWatcher?.stop();
 		destroyTray();
+		await conversationIndex?.close();
 		const sidecars = sidecarPool?.disposeAll() ?? Promise.resolve();
 		const ssh = remoteServices?.ssh;
 		remoteServices = null;

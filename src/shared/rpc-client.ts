@@ -1,6 +1,7 @@
 import type { OmpApi } from "./ipc-types";
 import type {
 	ImageContent,
+	LogoutAccounts,
 	MessagesPage,
 	RpcCommand,
 	RpcDebugParams,
@@ -26,6 +27,8 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	bash: 660_000,
 	eval: 660_000,
 	compact: 660_000,
+	new_session: 660_000,
+	switch_session: 660_000,
 	set_model: 30_000,
 	cycle_model: 30_000,
 	export_html: 120_000,
@@ -87,6 +90,19 @@ async function fetchMessages(transport: RpcTransport): Promise<RpcResponse> {
 	}
 }
 
+/** Preserve the confirmed provider-wide clear action over vanilla's per-account RPC. */
+async function logoutProvider(transport: RpcTransport, providerId: string): Promise<RpcResponse> {
+	const listed = await transport({ type: "get_logout_accounts", providerId });
+	if (!listed.success) return { ...listed, command: "logout" };
+	const { accounts } = listed.data as LogoutAccounts;
+	let result: RpcResponse = { type: "response", command: "logout", success: true };
+	for (const { credentialId } of accounts) {
+		result = await transport({ type: "logout", providerId, credentialId });
+		if (!result.success) return result;
+	}
+	return result;
+}
+
 /** One wire adapter shared by preload and task-bound renderer clients. */
 export function createSessionRpcClient(transport: RpcTransport): SessionRpcClient {
 	const rpcCommand: RpcTransport = (command, timeoutMs) => transport(command, timeoutMs ?? timeoutForCommand(command));
@@ -101,7 +117,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		abortAndPrompt: (message: string) => rpcCommand({ type: "abort_and_prompt", message }),
 		newSession: (parentSession?: string) => rpcCommand({ type: "new_session", parentSession }),
 		dropSession: () => rpcCommand({ type: "drop_session" }),
-		switchSession: (sessionPath: string) => rpcCommand({ type: "switch_session", sessionPath }),
+		switchSession: (sessionPath: string, model?: { provider: string; modelId: string }, expectedSessionId?: string) =>
+			rpcCommand({ type: "switch_session", sessionPath, ...model, expectedSessionId }),
 		branch: (entryId: string) => rpcCommand({ type: "branch", entryId }),
 		fork: () => rpcCommand({ type: "fork" }),
 		eval: (code: string, language?: "python" | "js" | "ruby" | "julia", excluded?: boolean) =>
@@ -116,7 +133,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		queueClear: (lane?: "steering" | "followUp") => rpcCommand({ type: "queue_clear", lane }),
 		setModel: (provider: string, modelId: string) => rpcCommand({ type: "set_model", provider, modelId }),
 		cycleModel: (direction?: "forward" | "backward") => rpcCommand({ type: "cycle_model", direction }),
-		retry: () => rpcCommand({ type: "retry" }),
 		clearContext: () => rpcCommand({ type: "clear_context" }),
 		abortSubagent: (agentId: string) => rpcCommand({ type: "abort_subagent", agentId }),
 		reviveSubagent: (agentId: string) => rpcCommand({ type: "revive_subagent", agentId }),
@@ -217,7 +233,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getMessagesPage: (cursor?: string, limit?: number) => rpcCommand({ type: "get_messages_page", cursor, limit }),
 		getLoginProviders: () => rpcCommand({ type: "get_login_providers" }),
 		login: (providerId: string) => rpcCommand({ type: "login", providerId }),
-		logout: (providerId: string) => rpcCommand({ type: "logout", providerId }),
+		logout: (providerId: string) => logoutProvider(rpcCommand, providerId),
 		getSettingsSchema: () => rpcCommand({ type: "get_settings_schema" }),
 		getSettings: (paths?: string[]) => rpcCommand({ type: "get_settings", paths }),
 		setSetting: (path: string, value: unknown) => rpcCommand({ type: "set_setting", path, value }),
@@ -280,7 +296,9 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setAgentsPaused: (enabled: boolean) => rpcCommand({ type: "set_agents_paused", enabled }),
 		setGoal: (args: { objective?: string; tokenBudget?: number | null; action?: "pause" | "resume" | "drop" }) =>
 			rpcCommand({ type: "set_goal", ...args }),
-		btw: (question: string) => rpcCommand({ type: "btw", question }),
+		btw: (question: string, recordId?: string) => rpcCommand({ type: "btw", question, recordId }),
+		cancelBtw: (recordId?: string) => rpcCommand({ type: "btw_cancel", recordId }),
+		getBtwHistory: () => rpcCommand({ type: "get_btw_history" }),
 		btwBranch: () => rpcCommand({ type: "btw_branch" }),
 		tan: (work: string) => rpcCommand({ type: "tan", work }),
 		omfg: (complaint: string) => rpcCommand({ type: "omfg", complaint }),

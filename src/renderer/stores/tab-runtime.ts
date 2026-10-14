@@ -1,4 +1,5 @@
 import type { RpcCommand, RpcResponse, RpcResponseError } from "../../shared/rpc-types";
+import { SESSION_CHANGING_COMMANDS } from "../../shared/session-changing-commands";
 import { createAgentViewStore } from "./agent-view";
 import { type ComposerStore, createComposerStore } from "./composer";
 import { createExtensionUiStore } from "./extension-ui";
@@ -22,22 +23,6 @@ import { createSubagentsStore } from "./subagents";
 import { createTodoStore } from "./todo";
 import { createToolsStore } from "./tools";
 
-const SESSION_CHANGING_COMMANDS = new Set<RpcCommand["type"]>([
-	"new_session",
-	"switch_session",
-	"branch",
-	"fork",
-	"handoff",
-	"btw_branch",
-	"fresh",
-	"tan",
-	"drop_session",
-	"switch_leaf",
-	"clear_context",
-	"collab_join",
-	"collab_leave",
-]);
-
 function replacedSessionResponse(command: RpcCommand): RpcResponseError {
 	return {
 		type: "response",
@@ -51,8 +36,10 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 	let generation = 0;
 	const command = async (rpcCommand: RpcCommand, timeoutMs?: number): Promise<RpcResponse> => {
 		// An old dialog/continuation must not send a mutation to this tab's new owner.
-		if (sessionRuntime(tabId) !== runtime) return replacedSessionResponse(rpcCommand);
-		const changesSession = SESSION_CHANGING_COMMANDS.has(rpcCommand.type);
+		if (sessionRuntime(tabId) !== runtime) {
+			return { ...replacedSessionResponse(rpcCommand), code: "rpc_not_dispatched" };
+		}
+		const changesSession = SESSION_CHANGING_COMMANDS[rpcCommand.type] === true;
 		if (changesSession) generation++;
 		const requestGeneration = generation;
 		const origin = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;

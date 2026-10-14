@@ -248,7 +248,7 @@ function RoleRow({
 						)}
 						{filteredGroups.map(([kind, models]) => (
 							<div key={kind}>
-								<div className="px-2 pt-2 pb-0.5 text-omp-xxs font-semibold text-[var(--omp-dim)]">
+								<div className="px-2 pt-2 pb-0.5 text-omp-xxs font-semibold uppercase tracking-wider text-[var(--omp-dim)]">
 									{t(`modelRoles.kind.${kind}`)}
 								</div>
 								{models.map(model => {
@@ -385,7 +385,9 @@ export function ModelRolesWindow() {
 		<Modal open={open} onClose={close} title={t("modelRoles.title")} size="lg">
 			<div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto">
 				<div className="flex items-center justify-between">
-					<span className="text-omp-sm font-semibold text-[var(--omp-muted)]">{t("modelRoles.header")}</span>
+					<span className="text-omp-sm font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
+						{t("modelRoles.header")}
+					</span>
 					<Button
 						size="sm"
 						variant="ghost"
@@ -412,7 +414,7 @@ export function ModelRolesWindow() {
 				>
 					{sections.map(section => (
 						<div key={section.key} className="mb-4 flex flex-col gap-2">
-							<span className="text-omp-xs font-semibold text-[var(--omp-dim)]">
+							<span className="text-omp-xs font-semibold uppercase tracking-wider text-[var(--omp-dim)]">
 								{t(`modelRoles.section.${section.key}`)}
 							</span>
 							{section.roles.map(role => (

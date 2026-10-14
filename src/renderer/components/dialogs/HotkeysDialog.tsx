@@ -283,7 +283,9 @@ export function HotkeysDialog({ open }: { open: boolean }) {
 			)}
 			{groups.map(group => (
 				<div key={group.titleKey} className="mb-4 last:mb-0">
-					<div className="mb-1.5 text-omp-sm font-semibold text-[var(--omp-dim)]">{t(group.titleKey)}</div>
+					<div className="mb-1.5 text-omp-sm font-semibold uppercase tracking-wide text-[var(--omp-dim)]">
+						{t(group.titleKey)}
+					</div>
 					<div className="overflow-hidden rounded-lg border border-[var(--omp-border-muted)]">
 						{group.rows.map(row => {
 							const actionId = row.actionId;

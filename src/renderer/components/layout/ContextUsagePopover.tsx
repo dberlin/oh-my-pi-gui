@@ -190,7 +190,7 @@ export function ContextUsagePopover() {
 				aria-controls="omp-context-usage-popover"
 				aria-expanded={open}
 				aria-label={triggerLabel}
-				className={`omp-context-usage-trigger omp-pressable flex h-6 min-w-0 items-center gap-1.5 rounded-md px-1.5 ${
+				className={`omp-context-usage-trigger omp-pressable flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-1.5 ${
 					open
 						? "text-[var(--omp-link)] ring-1 ring-[var(--omp-link)]"
 						: "text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-muted)]"
@@ -213,22 +213,8 @@ export function ContextUsagePopover() {
 				}
 				type="button"
 			>
-				{capacityKnown ? (
-					<>
-						<UsageRing percent={percent} />
-						<span className="text-omp-xs tabular-nums">
-							{t("contextUsage.ofWindow", {
-								percent: Math.round(percent),
-								window: formatTokens(contextWindow ?? 0),
-							})}
-						</span>
-					</>
-				) : (
-					<>
-						<CircleGauge aria-hidden="true" size={14} strokeWidth={2} />
-						<span className="font-mono text-omp-xs tabular-nums">{formatContextUsage(view)}</span>
-					</>
-				)}
+				<CircleGauge aria-hidden="true" size={14} strokeWidth={2} />
+				<span className="font-mono text-omp-xs tabular-nums">{formatContextUsage(view)}</span>
 			</button>
 
 			{mounted &&
@@ -370,29 +356,5 @@ export function ContextUsagePopover() {
 					document.body,
 				)}
 		</div>
-	);
-}
-
-/** A small ring that fills as the context window does; warns past 80%. */
-function UsageRing({ percent }: { percent: number }) {
-	const radius = 6;
-	const circumference = 2 * Math.PI * radius;
-	const filled = Math.min(Math.max(percent, 0), 100) / 100;
-	return (
-		<svg aria-hidden="true" className="shrink-0 -rotate-90" height={16} viewBox="0 0 16 16" width={16}>
-			<circle cx={8} cy={8} fill="none" r={radius} stroke="var(--omp-border-strong)" strokeWidth={2} />
-			<circle
-				className="omp-progress-ring"
-				cx={8}
-				cy={8}
-				fill="none"
-				r={radius}
-				stroke={percent >= 80 ? "var(--omp-warning)" : "currentColor"}
-				strokeDasharray={circumference}
-				strokeDashoffset={circumference * (1 - filled)}
-				strokeLinecap="round"
-				strokeWidth={2}
-			/>
-		</svg>
 	);
 }

@@ -158,17 +158,17 @@ export function TreeView({
 					<div
 						aria-expanded={row.hasChildren ? row.isExpanded : undefined}
 						aria-selected={selected}
-						className={`omp-color-fade group flex h-7 cursor-default items-center gap-1.5 rounded-md pr-2 text-omp-sm outline-none focus-visible:bg-(--omp-selected-bg) ${
+						className={`group flex cursor-default items-center gap-1 rounded-sm pr-2 text-xs transition-colors duration-75 ${
 							selected
 								? "bg-(--omp-selected-bg) text-(--omp-text)"
-								: "text-(--omp-text-secondary) hover:bg-(--omp-sidebar-item-hover) hover:text-(--omp-text)"
+								: "text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
 						} ${row.node.className ?? ""}`.trim()}
 						data-tree-id={row.node.id}
 						key={row.node.id}
 						onClick={() => row.node.onClick?.()}
 						onKeyDown={event => onKeyDown(event, row, index)}
 						role="treeitem"
-						style={{ paddingLeft: 6 + row.depth * 12 }}
+						style={{ paddingLeft: 6 + row.depth * 14 }}
 						tabIndex={selectedId == null ? (index === 0 ? 0 : -1) : selected ? 0 : -1}
 					>
 						{row.hasChildren ? (
@@ -189,9 +189,7 @@ export function TreeView({
 							<span className="size-4 shrink-0" />
 						)}
 						{row.node.icon && (
-							<span className="flex shrink-0 text-(--omp-dim) group-hover:text-(--omp-muted)">
-								{row.node.icon}
-							</span>
+							<span className="shrink-0 text-(--omp-dim) group-hover:text-(--omp-muted)">{row.node.icon}</span>
 						)}
 						<span className="min-w-0 flex-1 truncate">{row.node.label}</span>
 					</div>

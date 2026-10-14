@@ -6,8 +6,8 @@
 **让对话、代码与并行 Agent 工作尽在眼前。**
 
 <a href="https://github.com/nornzach/oh-my-pi-gui/releases"><img src="https://img.shields.io/github/v/release/nornzach/oh-my-pi-gui?style=flat&colorA=222222&colorB=3FB950" alt="Release"></a>
-<a href="https://github.com/nornzach/oh-my-pi-gui/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fnornzach.github.io%2Foh-my-pi-gui%2Fdownloads.json&style=flat&cacheSeconds=3600" alt="Downloads"></a>
-<a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-BE185D?style=flat" alt="License: MIT"></a>
+<a href="https://github.com/nornzach/oh-my-pi-gui/releases"><img src="https://img.shields.io/github/downloads/nornzach/oh-my-pi-gui/total?style=flat&colorA=222222&colorB=58A6FF" alt="Downloads"></a>
+<a href="./LICENSE"><img src="https://img.shields.io/github/license/nornzach/oh-my-pi-gui?style=flat&colorA=222222&colorB=BE185D" alt="License"></a>
 <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-222222?style=flat" alt="Platform: macOS | Windows | Linux">
 <img src="https://img.shields.io/badge/Electron-35-47848F?style=flat&logo=electron&logoColor=white" alt="Electron">
 <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=white" alt="React">
@@ -24,8 +24,8 @@ Keep the conversation, code changes, and agent activity in one place. Review a d
 
 Built on [omp](https://github.com/can1357/oh-my-pi), this Electron desktop app bundles its own agent: **users of the DMG, NSIS, and portable packages do not need to install omp, Bun, or Node separately.** It complements the TUI and shares the usual `~/.omp` configuration and sessions.
 
-[Features](#en-features) · [What's new in 0.9.22](#en-recent) · [Gallery](#en-gallery) · [Install](#en-install) · [Shortcuts](#en-shortcuts) · [Development](#en-development) · [Help](#en-help) · [Releasing](#en-release)
-> **v0.9.22 release.** The improvements below are included in v0.9.22, with the bundled agent rebuilt from upstream through v18.11.3 (monorepo `8c0ef7e5`). The gallery screenshots may show earlier GUI surfaces; [GitHub Releases](https://github.com/nornzach/oh-my-pi-gui/releases) is authoritative for available downloads and release contents.
+[Features](#en-features) · [What's new in 0.9.15](#en-recent) · [Gallery](#en-gallery) · [Install](#en-install) · [Shortcuts](#en-shortcuts) · [Development](#en-development) · [Help](#en-help) · [Releasing](#en-release)
+> **v0.9.15 release.** The improvements below are included in v0.9.15, with the bundled agent rebuilt from upstream `main` (monorepo merge `a859518c`). The gallery screenshots may show earlier GUI surfaces; [GitHub Releases](https://github.com/nornzach/oh-my-pi-gui/releases) is authoritative for available downloads and release contents.
 
 <img src="docs/screenshots/en/01-conversation.png" alt="English omp GUI conversation in the synthetic aurora-web project" width="100%">
 
@@ -38,11 +38,10 @@ The distinctive part is not just a chat window: it is being able to **separate p
 
 | Area | What you can do | Scope and useful limits |
 |---|---|---|
-| **Independent sessions** | Run as many tabs as you like, each with its own sidecar, session, and message queue (restored tabs start only when you open them); keep background work running and create fresh Git worktree tabs. | Separate session runtimes are not an OS security boundary. Git must be available for worktrees. |
+| **Independent sessions** | Run up to **10 tabs**, each with its own sidecar, session, and message queue; keep background work running and create fresh Git worktree tabs. | Separate session runtimes are not an OS security boundary. Git must be available for worktrees. |
 | **Split views & windows** | Place two sessions side by side or stacked, resize the divider, and use multiple windows. Restore the open/active tab layout across restarts. | A split contains **two panes**, not an unlimited pane grid. |
 | **Chat vs. Agent** | Use global, tool-free **Chat** for conversation and workspace **Agent** sessions for coding tasks. | Chat history stays separate from project groups and workspace operations. |
 | **Readable execution** | Inspect diffs and Bash, read, grep, and task calls in dedicated renderers; follow streaming Markdown, highlighted code, collapsible thinking, math, Mermaid, and images. | Tool output remains inspectable alongside the conversation rather than being flattened into plain chat text. |
-| **Terminal & browser** | The side panel's **Terminal** view opens shells in the project folder; agent commands that wait for input (`pty: true`) run there so you can answer them, the agent can read what your terminals show, and dev servers it starts get their own terminal you can watch or close. The **Browser** view is a full browser — address bar, several pages, DevTools — where the agent's `browser` tool opens and drives its pages (or works on the page you have open) so you can watch or take over; links in replies open there too (⌘-click for your default browser). | Terminals and pages belong to their tab and close with it. Browser sign-ins persist and are shared by all tabs, so the agent's pages act as you. The agent still uses another browser when a call names one (`app.path`, `app.cdp_url`, the Chrome relay) or `browser.cdpUrl` is set. |
 | **Background coordination** | Follow `wait` jobs, inspect `proc://` task and service state, and review `agent://` messages and process controls in compact structured cards. | Coordination details stay bounded and expandable; legacy `hub` transcripts remain readable. |
 | **Plans, Todos & queues** | Review plans and approvals, queue follow-up messages, and monitor bounded Todos/Agents dock cards. Expand a card for a focused full list. | Compact summaries keep large task lists from taking over the conversation. |
 | **Agent Hub** | Manage agent definitions, enable/disable agents, set model and prewalk overrides, inspect progress/logs, abort work, and wake parked agents. | Available actions follow the agent's current state; role assignments and per-agent overrides serve different purposes. |
@@ -55,24 +54,22 @@ The distinctive part is not just a chat window: it is being able to **separate p
 | **Skills & plugins** | Enable skills, edit managed skills, and manage plugins and marketplaces. | Managed-skill editing does not imply every discovered resource is editable. |
 | **Hooks & resources** | Configure hooks and inspect templates, memory, and other discovered resources from settings. | Some hook changes take effect next session; templates and memory are mostly inspection surfaces. |
 | **SSH hosts** | Configure hosts through the native SSH settings page. | `/ssh list`, `/ssh add`, and `/ssh remove` management commands remain disabled; OpenSSH and host access must be configured separately. |
-| **Commands & voice** | Use a searchable palette for supported dialogs, menus, toggles, and argument prompts; dictate into the composer from the mic button, with words appearing as you speak (local or cloud speech models, chosen in the agent's dictation settings). | Some slash commands pass through to the agent or are unsupported. Dictation needs microphone permission and `stt.enabled`; local models download on first use, and cloud models need their provider's key. |
+| **Commands & voice** | Use a searchable palette for supported dialogs, menus, toggles, and argument prompts; access the voice command. | Some slash commands pass through to the agent or are unsupported. Voice depends on runtime, permissions, and service support—not a promise of offline or all-OS availability. |
 | **Relay collaboration** | Host or join a shared session with edit or read-only access. | Requires a configured relay service; it is not a purely local collaboration mode. |
 | **Settings & control** | Configure GUI/runtime/tool behavior, switch English/Chinese, choose themes, and access approvals and security scans/settings. | Approvals and scans are **not an OS sandbox**; command coverage is not total CLI parity. |
 
 Model requests still go to the providers you configure. The bundled agent removes the separate runtime install, not the need to configure credentials, project dependencies, external Git/OpenSSH/MCP tools, or optional services. Only connect tools and services you trust.
 
 <a id="en-recent"></a>
-### What's new in 0.9.22
+### What's new in 0.9.15
 
-v0.9.22 refreshes the bundled agent to upstream v18.11.3 and brings its new features into the GUI:
+v0.9.15 fixes the Windows blank screen at the root and syncs the bundled agent:
 
 | In daily use | What has improved |
 |---|---|
-| **Approve for this session** | When a tool call can be approved for the rest of the session, the approval dialog adds a button for it, so matching calls stop asking until you start a new session. |
-| **Subagent jobs in the Jobs window** | Jobs that subagents start nest under the task that runs them, like `/jobs` in the terminal, with a running count. |
-| **`/seance`** | `/seance <session id\|path>` consults a saved session without resuming it, using the session's saved model unless you add `--model`. |
-| **New agent settings** | **Auto Prewalk** (let a judge model decide when to hand a task to a faster model), its target, and an LSP **Request Timeout** for slow language servers — with Chinese labels. |
-| **Bundled agent** | Rebuilt from upstream through v18.11.3 (monorepo `8c0ef7e5`). |
+| **Windows blank screen** | Root cause fixed: previous builds shipped **zero** Chromium locale files, so the renderer aborted on startup. Packages now ship the full stock set — the window renders instead of going black (thanks [@mwyborski](https://github.com/mwyborski)). The v0.9.14 crash-recovery dialogs stay as the safety net. |
+| **AppImage on Linux** | Rebuilt with gzip compression so FUSE mounting works everywhere (the xz payload stalled some environments and AppImageHub). |
+| **Bundled agent** | Rebuilt from upstream `main` (monorepo merge `a859518c`): ordered input pipeline, `goal` command/state, `fork` with entry-id snapshots, and session-change quiescing for pending goal continuations. |
 <a id="en-gallery"></a>
 ### Explore the interface
 
@@ -145,22 +142,22 @@ Search with `⌘K`. Supported commands lead to native controls; pass-through and
 <a id="en-install"></a>
 ### Install & start
 
-**Documented install baseline: [v0.9.22](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.9.22).** Check [Releases](https://github.com/nornzach/oh-my-pi-gui/releases) for authoritative current downloads and release notes.
+**Documented install baseline: [v0.9.15](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.9.15).** Check [Releases](https://github.com/nornzach/oh-my-pi-gui/releases) for authoritative current downloads and release notes.
 
-| Mac | v0.9.22 download |
+| Mac | v0.9.15 download |
 |---|---|
-| Apple Silicon | [omp-0.9.22-arm64.dmg](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22-arm64.dmg) |
-| Intel | [omp-0.9.22.dmg](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22.dmg) |
+| Apple Silicon | [omp-0.9.15-arm64.dmg](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15-arm64.dmg) |
+| Intel | [omp-0.9.15.dmg](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15.dmg) |
 
-| Windows x64 | v0.9.22 download |
+| Windows x64 | v0.9.15 download |
 |---|---|
-| Installer | [omp-0.9.22-setup.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22-setup.exe) |
-| Portable | [omp-0.9.22-portable.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22-portable.exe) |
+| Installer | [omp-0.9.15-setup.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15-setup.exe) |
+| Portable | [omp-0.9.15-portable.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15-portable.exe) |
 
-| Linux x64 | v0.9.22 download |
+| Linux x64 | v0.9.15 download |
 |---|---|
-| AppImage | [omp-0.9.22.AppImage](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22.AppImage) |
-| Debian/Ubuntu | [omp_0.9.22_amd64.deb](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp_0.9.22_amd64.deb) |
+| AppImage | [omp-0.9.15.AppImage](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15.AppImage) |
+| Debian/Ubuntu | [omp_0.9.15_amd64.deb](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp_0.9.15_amd64.deb) |
 
 Open the DMG and drag **omp** into **Applications**. The app and bundled macOS sidecar are ad-hoc signed but not notarized. If macOS blocks the first launch, use **right-click → Open**, or **System Settings → Privacy & Security → Open Anyway**, after confirming the download's source.
 
@@ -170,7 +167,7 @@ Windows packages are currently unsigned. Windows SmartScreen may require **More 
 2. **Choose your work:** open a project Agent tab with `⌘T`, or a tool-free Chat with `⇧⌘T`; select an available model.
 3. **Start a conversation:** enter a request. Use `⌘N` when you want a new session, and inspect tool calls and approvals as work proceeds.
 4. **Go parallel:** `⌥T` creates a fresh worktree tab. Use the tab context menu or drag a tab into the workspace for a two-pane split.
-5. **Find and revisit:** `⌘K` opens commands; `⌘P` searches session history.
+5. **Find and revisit:** `⌘K` opens commands; `⌘P` searches session history; `⇧⌘F` searches saved local conversation text and opens a matching message. Choose this project or all local projects; SSH conversations are not indexed.
 
 <a id="en-shortcuts"></a>
 ### Keyboard shortcuts
@@ -183,6 +180,7 @@ Windows packages are currently unsigned. Windows SmartScreen may require **More 
 | `⌘N` | New session |
 | `⌘K` | Command palette |
 | `⌘P` | Session history search |
+| `⇧⌘F` / `⇧⌃F` | Search saved local conversation text |
 | `⌘,` | Settings |
 | `⌘B` / `⌘J` | Toggle sidebars |
 | `Esc` | Context-dependent close or abort; not an unconditional abort shortcut |
@@ -299,7 +297,7 @@ The capture script renders the actual Electron GUI using a fresh temporary HOME,
 |---|---|
 | macOS blocks the first launch | Confirm the download came from the release page, then right-click → Open or use Privacy & Security → Open Anyway. The app and bundled sidecar are ad-hoc signed, not notarized. |
 | Windows SmartScreen blocks the first launch | Confirm the download came from the release page, then choose More info → Run anyway. The Windows package is currently unsigned. |
-| A screenshot shows something absent from the installed app | The showcase accompanies v0.9.22, but screenshots may show earlier GUI surfaces. Check the installed version and its release notes; earlier releases may not include these improvements. |
+| A screenshot shows something absent from the installed app | The showcase accompanies v0.9.15, but screenshots may show earlier GUI surfaces. Check the installed version and its release notes; earlier releases may not include these improvements. |
 | `Built-in omp not found` | In a source checkout, build the sidecar or supply a compatible prebuilt one. In an installed app, reinstall the correct official DMG; a separate system `omp` will not fix a missing bundle resource. |
 | `build:omp` cannot find the monorepo | Put the GUI checkout at the monorepo's `packages/gui/`, alongside `packages/coding-agent/` and `packages/natives/`. |
 | `replacing stale addon … version sentinel ≠ …` | Informational: the builder detected and replaced a mismatched native addon. |
@@ -327,9 +325,9 @@ Releases belong only to [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh
 
 这是基于 [omp](https://github.com/can1357/oh-my-pi) 的 Electron 桌面应用，内置 Agent 二进制：**通过 DMG、NSIS 或便携版安装的用户无需另装 omp、Bun 或 Node。** GUI 与 TUI 互补，共享常规的 `~/.omp` 配置与会话。
 
-[功能全览](#zh-features) · [0.9.22 更新内容](#zh-recent) · [界面导览](#zh-gallery) · [安装](#zh-install) · [快捷键](#zh-shortcuts) · [开发](#zh-development) · [常见问题](#zh-help) · [发布](#zh-release)
+[功能全览](#zh-features) · [0.9.15 更新内容](#zh-recent) · [界面导览](#zh-gallery) · [安装](#zh-install) · [快捷键](#zh-shortcuts) · [开发](#zh-development) · [常见问题](#zh-help) · [发布](#zh-release)
 
-> **v0.9.22 功能展示。** 下文改进均纳入 v0.9.22，内置 Agent 基于上游重建至 v18.11.3（monorepo `8c0ef7e5`）。截图可能展示较早的 GUI 界面；可用下载及实际发布内容以 [GitHub Releases](https://github.com/nornzach/oh-my-pi-gui/releases) 为准。
+> **v0.9.15 功能展示。** 下文改进均纳入 v0.9.15，内置 Agent 基于上游 `main` 重建（monorepo 合并提交 `a859518c`）。截图可能展示较早的 GUI 界面；可用下载及实际发布内容以 [GitHub Releases](https://github.com/nornzach/oh-my-pi-gui/releases) 为准。
 
 <img src="docs/screenshots/zh/01-conversation.png" alt="中文 omp GUI 中的合成 aurora-web 项目对话" width="100%">
 
@@ -342,11 +340,10 @@ Releases belong only to [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh
 
 | 领域 | 可以怎样使用 | 范围与边界 |
 |---|---|---|
-| **独立会话** | 标签页数量不限，各自拥有 sidecar、会话和消息队列（恢复的标签页在打开时才启动）；后台任务可继续运行，也可新建 Git worktree 标签页。 | 独立会话运行时不是操作系统安全边界；worktree 需要可用的 Git。 |
+| **独立会话** | 最多运行 **10 个标签页**，各自拥有 sidecar、会话和消息队列；后台任务可继续运行，也可新建 Git worktree 标签页。 | 独立会话运行时不是操作系统安全边界；worktree 需要可用的 Git。 |
 | **分屏与多窗口** | 两段会话可左右或上下排列，分隔条可调整，也可使用多个窗口；重启后恢复已打开及选中的标签布局。 | 每个分屏为**双面板**，不是无限面板网格。 |
 | **Chat 与 Agent** | 全局、无工具的 **Chat** 用于交流；项目工作区中的 **Agent** 会话用于编码任务。 | Chat 历史与项目分组、工作区操作保持分离。 |
 | **可读的执行过程** | 专用视图呈现 diff、Bash、read、grep、task；支持流式 Markdown、代码高亮、可折叠思考块、公式、Mermaid 与图片。 | 工具输出可在对话旁直接检查，而不是全部压成普通聊天文本。 |
-| **终端与浏览器** | 侧边面板的 **终端** 视图在项目目录中打开 shell；需要输入的 Agent 命令（`pty: true`）也在这里运行，由你直接作答；Agent 能读取你终端里显示的内容，它启动的开发服务器会有独立的终端，你可以旁观或关闭。**浏览器** 视图是完整的浏览器——地址栏、多个页面、DevTools——Agent 的 `browser` 工具在这里打开并操作页面（也可以直接使用你已打开的页面），你可以旁观或随时接手；回复中的链接也在这里打开（⌘ 点击则用默认浏览器打开）。 | 终端与页面属于各自的标签页，随标签页关闭。浏览器登录状态会保留并由所有标签页共享，因此 Agent 的页面以你的身份操作。调用明确指定其他浏览器（`app.path`、`app.cdp_url`、Chrome relay）或设置了 `browser.cdpUrl` 时，Agent 仍使用对应的浏览器。 |
 | **后台协作状态** | `wait` 任务、`proc://` 进程与服务状态、`agent://` 消息及进程控制操作均以紧凑结构化卡片呈现。 | 详情保持有边界并可展开；历史 `hub` 记录仍可正常阅读。 |
 | **计划、待办与队列** | 审查计划与审批、排队发送后续消息，通过有高度约束的 Todos/Agents Dock 卡片查看状态；展开单张卡片查看完整列表。 | 大量任务以紧凑摘要呈现，不占满对话区域。 |
 | **Agent Hub** | 管理 Agent 定义、启用/停用、覆盖模型与 prewalk 设置，查看进度和日志、中止任务、唤醒已停驻的 Agent。 | 可用操作取决于 Agent 当前状态；角色模型分配与单个 Agent 覆盖是不同层次的控制。 |
@@ -359,24 +356,23 @@ Releases belong only to [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh
 | **Skills 与插件** | 启用技能、编辑受管理的技能，管理插件与市场。 | 支持编辑受管理技能，不代表所有发现的资源都能编辑。 |
 | **Hooks 与资源** | 在设置中配置 hooks，查看模板、记忆及其他已发现资源。 | 部分 hook 改动到下一段会话才生效；模板与记忆主要提供检查视图。 |
 | **SSH 主机** | 通过原生 SSH 设置页面配置主机。 | `/ssh list`、`/ssh add`、`/ssh remove` 管理命令仍停用；OpenSSH 与主机访问需另行配置。 |
-| **命令与语音** | 可搜索命令面板提供受支持的对话框、菜单、开关与参数输入；点击输入框旁的麦克风即可语音输入，边说边出字（本地或云端语音模型，在 Agent 的听写设置中选择）。 | 部分 slash 命令转交 Agent 或尚不支持；语音输入需要麦克风权限并开启 `stt.enabled`；本地模型首次使用时下载，云端模型需要对应服务的密钥。 |
+| **命令与语音** | 可搜索命令面板提供受支持的对话框、菜单、开关与参数输入，也提供语音命令入口。 | 部分 slash 命令转交 Agent 或尚不支持；语音取决于运行环境、权限和服务，不承诺离线或所有系统可用。 |
 | **Relay 协作** | 主持或加入共享会话，使用可编辑或只读权限。 | 需要已配置的 relay 服务，并非纯本地协作模式。 |
 | **设置与控制** | 配置 GUI、运行时和工具行为，切换中英文与主题，使用审批及安全扫描/设置入口。 | 审批与扫描**不是操作系统沙箱**；GUI 命令覆盖不等于完整 CLI 功能对齐。 |
 
 模型请求仍会发送到你配置的 Provider。内置 Agent 省去了单独安装运行时的步骤，但不替你配置凭据、项目依赖、外部 Git/OpenSSH/MCP 工具或可选服务。请只连接你信任的工具与服务。
 
 <a id="zh-recent"></a>
-### 0.9.22 更新内容
+### 0.9.15 更新内容
 
-v0.9.22 将内置 Agent 升级到上游 v18.11.3，并把它的新功能接入 GUI：
+v0.9.15 根治了 Windows 白屏问题并同步了内置 Agent：
 
 | 日常场景 | 改进内容 |
 |---|---|
-| **本会话内批准** | 工具调用可在本会话内批准时，审批对话框会多出一个按钮；选择后，同类调用在开始新会话前不再询问。 |
-| **任务窗口显示子 Agent 任务** | 子 Agent 启动的任务嵌套显示在运行它的 task 下面，与终端里的 `/jobs` 一致，并显示运行中数量。 |
-| **`/seance`** | `/seance <会话 id\|路径>` 可查阅已保存的会话而不恢复它；默认使用该会话保存的模型，也可加 `--model` 指定。 |
-| **新的 Agent 设置** | **自动 Prewalk**（由判定模型决定何时把任务交给更快的模型）及其目标模型，以及针对慢速语言服务器的 LSP **请求超时**——均已提供中文标签。 |
-| **内置 Agent** | 基于上游重建至 v18.11.3（monorepo `8c0ef7e5`）。 |
+| **Windows 白屏** | 根因修复：此前的安装包意外删除了**全部** Chromium 语言包，渲染进程启动即中止。现随包携带完整语言包，窗口正常渲染（感谢 [@mwyborski](https://github.com/mwyborski)）。v0.9.14 的崩溃恢复对话框继续作为兜底。 |
+| **Linux AppImage** | 改用 gzip 压缩,FUSE 挂载全环境可用(原 xz 载荷在部分环境下会卡住,且不被 AppImageHub 收录工具识别)。 |
+| **内置 Agent** | 基于上游 `main` 重建(monorepo 合并提交 `a859518c`):有序输入管线、`goal` 命令/状态、`fork` 支持 entry-id 快照、会话切换前会先收敛挂起的 goal 续行。 |
+
 <a id="zh-gallery"></a>
 ### 界面导览
 
@@ -449,22 +445,22 @@ v0.9.22 将内置 Agent 升级到上游 v18.11.3，并把它的新功能接入 G
 <a id="zh-install"></a>
 ### 安装与开始使用
 
-**本文安装基线：[v0.9.22](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.9.22)。** 最新可下载版本与发布说明以 [Releases](https://github.com/nornzach/oh-my-pi-gui/releases) 为准。
+**本文安装基线：[v0.9.15](https://github.com/nornzach/oh-my-pi-gui/releases/tag/v0.9.15)。** 最新可下载版本与发布说明以 [Releases](https://github.com/nornzach/oh-my-pi-gui/releases) 为准。
 
-| Mac | v0.9.22 下载 |
+| Mac | v0.9.15 下载 |
 |---|---|
-| Apple Silicon | [omp-0.9.22-arm64.dmg](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22-arm64.dmg) |
-| Intel | [omp-0.9.22.dmg](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22.dmg) |
+| Apple Silicon | [omp-0.9.15-arm64.dmg](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15-arm64.dmg) |
+| Intel | [omp-0.9.15.dmg](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15.dmg) |
 
-| Windows x64 | v0.9.22 下载 |
+| Windows x64 | v0.9.15 下载 |
 |---|---|
-| 安装程序 | [omp-0.9.22-setup.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22-setup.exe) |
-| 便携版 | [omp-0.9.22-portable.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22-portable.exe) |
+| 安装程序 | [omp-0.9.15-setup.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15-setup.exe) |
+| 便携版 | [omp-0.9.15-portable.exe](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15-portable.exe) |
 
-| Linux x64 | v0.9.22 下载 |
+| Linux x64 | v0.9.15 下载 |
 |---|---|
-| AppImage | [omp-0.9.22.AppImage](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp-0.9.22.AppImage) |
-| Debian/Ubuntu | [omp_0.9.22_amd64.deb](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.22/omp_0.9.22_amd64.deb) |
+| AppImage | [omp-0.9.15.AppImage](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp-0.9.15.AppImage) |
+| Debian/Ubuntu | [omp_0.9.15_amd64.deb](https://github.com/nornzach/oh-my-pi-gui/releases/download/v0.9.15/omp_0.9.15_amd64.deb) |
 
 打开 DMG，把 **omp** 拖入**应用程序**。应用与内置 macOS sidecar 均采用 ad-hoc 签名，未经公证。如果 macOS 拦截首次启动，请先确认下载来源，再使用**右键 → 打开**，或**系统设置 → 隐私与安全性 → 仍要打开**。
 
@@ -474,7 +470,7 @@ Windows 包当前未签名。首次启动前请确认下载来源；Windows Smar
 2. **选择工作方式：**`⌘T` 新建项目 Agent 标签页，或 `⇧⌘T` 打开无工具 Chat；选择可用模型。
 3. **开始对话：**输入请求。需要新会话时使用 `⌘N`，执行过程中检查工具调用并处理审批。
 4. **并行推进：**`⌥T` 新建 worktree 标签页；使用标签右键菜单，或把标签拖入工作区，打开双面板分屏。
-5. **查找与回顾：**`⌘K` 浏览命令，`⌘P` 搜索会话历史。
+5. **查找与回顾：**`⌘K` 浏览命令，`⌘P` 搜索会话历史，`⇧⌘F` 搜索本地已保存的对话正文并定位到匹配消息。可选择当前项目或所有本地项目；不索引 SSH 对话。
 
 <a id="zh-shortcuts"></a>
 ### 快捷键
@@ -487,6 +483,7 @@ Windows 包当前未签名。首次启动前请确认下载来源；Windows Smar
 | `⌘N` | 新建会话 |
 | `⌘K` | 命令面板 |
 | `⌘P` | 会话历史搜索 |
+| `⇧⌘F` / `⇧⌃F` | 搜索本地已保存的对话正文 |
 | `⌘,` | 设置 |
 | `⌘B` / `⌘J` | 切换侧栏 |
 | `Esc` | 按当前上下文关闭界面或中止执行，不是无条件中止快捷键 |
@@ -600,7 +597,7 @@ bun scripts/capture-showcase.ts
 |---|---|
 | macOS 拦截首次启动 | 确认来自发布页后，右键 → 打开，或通过隐私与安全性 → 仍要打开。应用与内置 sidecar 均为 ad-hoc 签名，未经公证。 |
 | Windows SmartScreen 拦截首次启动 | 确认来自发布页后，点击更多信息 → 仍要运行。Windows 包当前未签名。 |
-| 截图中的功能在已安装应用中不存在 | 本展示对应 v0.9.22，但截图可能展示较早的 GUI 界面；请检查已安装版本及其发布说明，较早版本可能不包含这些改进。 |
+| 截图中的功能在已安装应用中不存在 | 本展示对应 v0.9.15，但截图可能展示较早的 GUI 界面；请检查已安装版本及其发布说明，较早版本可能不包含这些改进。 |
 | `Built-in omp not found` | 源码检出中需构建或放入兼容 sidecar；已安装应用请重新安装正确的官方 DMG。另装系统 `omp` 无法补齐包内资源。 |
 | `build:omp` 找不到 monorepo | 将 GUI 放在 monorepo 的 `packages/gui/`，与 `packages/coding-agent/`、`packages/natives/` 同级。 |
 | `replacing stale addon … version sentinel ≠ …` | 提示信息：构建器发现并替换了版本不匹配的原生插件。 |

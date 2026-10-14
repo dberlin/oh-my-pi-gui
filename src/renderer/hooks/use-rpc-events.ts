@@ -48,7 +48,13 @@ import {
 import { useSettingsStore } from "../stores/settings";
 import { useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
-import { consumePendingSession, invalidatePendingSessionGeneration, isTabClosed, useTabsStore } from "../stores/tabs";
+import {
+	consumePendingSession,
+	invalidatePendingSessionGeneration,
+	isTabClosed,
+	useTabsStore,
+	visibleTabIds,
+} from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
@@ -141,17 +147,21 @@ export function resetRetryPending(tabId?: string): void {
  * Desktop-notification gate, mirroring the TUI's notify policy: the GUI master
  * pref (Settings → GUI, default on), then the agent's `<kind>.notify` setting
  * (read live via get_settings so edits from either the TUI or the GUI's
- * Interaction tab apply immediately), and finally window focus — never notify
- * while the user is watching.
+ * Interaction tab apply immediately), and finally visible-pane focus — never
+ * notify while the user is watching the originating tab.
  */
 async function maybeNotify(
 	kind: NotifyKind,
 	title: string,
 	body: string,
-	command: TabCommand = (rpcCommand, timeoutMs) => window.omp.rpc.command(rpcCommand, timeoutMs),
+	command: TabCommand,
+	tabId: string,
 ): Promise<void> {
 	try {
-		if (document.hasFocus()) return;
+		const runtime = sessionRuntime(tabId);
+		const sessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
+		if (!runtime || isTabClosed(tabId)) return;
+		if (document.hasFocus() && visibleTabIds(useTabsStore.getState()).includes(tabId)) return;
 		if (!useUiStore.getState().notifications) return;
 		const key = `${kind}.notify`;
 		const res = await command({ type: "get_settings", paths: [key] });
@@ -159,43 +169,19 @@ async function maybeNotify(
 		const setting = values?.[key];
 		const effective = typeof setting === "string" ? setting : NOTIFY_DEFAULTS[kind];
 		if (effective === "off") return;
-		window.omp.system.notify(title, body);
+		// Preference reads can outlive focus changes, close, or session replacement.
+		if (!useUiStore.getState().notifications) return;
+		if (document.hasFocus() && visibleTabIds(useTabsStore.getState()).includes(tabId)) return;
+		if (
+			isTabClosed(tabId) ||
+			sessionRuntime(tabId) !== runtime ||
+			sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId !== sessionId
+		)
+			return;
+		window.omp.system.notify(title, body, tabId);
 	} catch {
 		// Best-effort: a failed notification must never break event dispatch.
 	}
-}
-
-/**
- * Notify on a settled turn, reading the outcome from the event's own messages
- * (the mutable stores can already have raced ahead — the TUI reads
- * `agent_end.messages` for the same reason). Completion and error are mutually
- * exclusive for one settled turn.
- */
-function notifyOnAgentEnd(tabId: string, event: Extract<AgentSessionEvent, { type: "agent_end" }>): void {
-	// `isTerminal === false` marks a deferred mid-run settle, not the final one.
-	if (event.isTerminal === false) return;
-	if (retryPendingTabs.has(tabId)) return;
-	const last = event.messages?.findLast(message => message.role === "assistant");
-	if (last?.stopReason === "aborted") return;
-	// A settle arriving after the tab closed has no runtime to query settings
-	// with — skip rather than resurrect a ghost runtime and notify a dead tab.
-	const runtime = sessionRuntime(tabId);
-	if (!runtime) return;
-	const sessionName =
-		sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionName ||
-		useSessionStore.getState().sessionName ||
-		"Oh My Pi";
-	if (last?.stopReason === "error") {
-		const message =
-			typeof last.errorMessage === "string" && last.errorMessage
-				? translate("events.notificationErrorDetail", {
-						error: last.errorMessage.replace(/\s+/g, " ").slice(0, 120),
-					})
-				: translate("events.notificationError");
-		void maybeNotify("error", sessionName, message, runtime.command);
-		return;
-	}
-	void maybeNotify("completion", sessionName, translate("events.notificationComplete"), runtime.command);
 }
 
 /**
@@ -203,9 +189,8 @@ function notifyOnAgentEnd(tabId: string, event: Extract<AgentSessionEvent, { typ
  * (error notifications default off). The chat bubble carries the message, but
  * a failure with no visible output — e.g. the provider rejects the first
  * request right after a model switch — otherwise looks like a silent no-op.
- * Same guards as notifyOnAgentEnd: deferred mid-run settles and live
- * auto-retries stay quiet (the retry row and its final-failure toast cover
- * those), and aborted turns are user-initiated.
+ * Deferred mid-run settles and live auto-retries stay quiet (the retry row
+ * and its final-failure toast cover those), and aborted turns are user-initiated.
  */
 function toastOnAgentError(tabId: string, event: Extract<AgentSessionEvent, { type: "agent_end" }>): void {
 	if (event.isTerminal === false) return;
@@ -378,6 +363,30 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		const focusedTabId = () => useTabsStore.getState().activeTabId ?? "";
 		let disposed = false;
 		let statusVersion = 0;
+		const unsubTabOutcomes = useTabsStore.subscribe((state, previous) => {
+			for (const tab of state.tabs) {
+				if (tab.status !== "ready" || (tab.runState !== "completed" && tab.runState !== "failed")) continue;
+				const before = previous.tabs.find(entry => entry.id === tab.id);
+				if (
+					!before ||
+					before.runState === tab.runState ||
+					before.status !== "running" ||
+					(before.sessionId !== undefined && tab.sessionId !== before.sessionId) ||
+					(before.sessionPath !== undefined && tab.sessionPath !== before.sessionPath)
+				)
+					continue;
+				const runtime = sessionRuntime(tab.id);
+				if (!runtime || isTabClosed(tab.id)) continue;
+				const kind = tab.runState === "failed" ? "error" : "completion";
+				void maybeNotify(
+					kind,
+					tab.title || sessionRuntimeStore<SessionStore>(tab.id, "session")?.getState().sessionName || "Oh My Pi",
+					translate(kind === "error" ? "events.notificationError" : "events.notificationComplete"),
+					runtime.command,
+					tab.id,
+				);
+			}
+		});
 		const unsubscribe =
 			typeof window.omp.events.onTabBatch === "function"
 				? window.omp.events.onTabBatch(reduceEvents)
@@ -443,7 +452,6 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						}
 						case "agent_end": {
 							useSessionStore.setState({ isStreaming: false, awaitingModelSince: null });
-							notifyOnAgentEnd(tabId, event);
 							toastOnAgentError(tabId, event);
 							// Re-fetch state so agent-side todo updates mid-turn reach the panel.
 							void refreshSessionState(tabId);
@@ -984,13 +992,14 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				"title" in request && typeof request.title === "string" && request.title
 					? request.title
 					: "Waiting for input";
-			void maybeNotify("ask", sessionName, body, sessionRuntime(tabId)?.command ?? activeTabCommand);
+			void maybeNotify("ask", sessionName, body, sessionRuntime(tabId)?.command ?? activeTabCommand, tabId);
 		});
 
 		return () => {
 			disposed = true;
 			stopHeartbeat();
 			unsubscribe();
+			unsubTabOutcomes();
 			unsubStatus();
 			unsubSubagent();
 			unsubModelCatalog();

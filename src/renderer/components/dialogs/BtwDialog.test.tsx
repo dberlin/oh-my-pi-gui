@@ -1,172 +1,236 @@
-/**
- * /btw dialog against the upstream streaming protocol: the `btw` response
- * carries the running record, `btw_delta` frames stream the answer, and
- * `btw_record` frames settle it. Same linkedom harness as the other dialogs.
- */
-
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BtwHistoryRecord, RpcBtwFrame, RpcCommand, RpcResponse } from "../../../shared/rpc-types";
-import { I18nProvider, translate } from "../../lib/i18n";
+import type { BtwHistoryRecord } from "../../../../../coding-agent/src/modes/rpc/wire/rpc-wire.generated";
+import type { RpcCommand, RpcResponse } from "../../../shared/rpc-types";
+import { I18nProvider } from "../../lib/i18n";
+import { createTabRuntime } from "../../stores/tab-runtime";
+import {
+	deleteSessionRuntime,
+	SessionRuntimeProvider,
+	type SessionRuntime,
+} from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
 import { BtwDialog } from "./BtwDialog";
 
-const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
-
-const globals = globalThis as Record<string, unknown>;
-globals.document = document;
-globals.window = window;
-globals.Event = Event;
-globals.HTMLElement = HTMLElement;
-globals.Node = Node;
-globals.IS_REACT_ACT_ENVIRONMENT = true;
-globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
-
-const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
-if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
-if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
-
-function record(overrides: Partial<BtwHistoryRecord> = {}): BtwHistoryRecord {
+const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
+type Frame = { type: "btw_delta"; recordId: string; delta: string } | { type: "btw_record"; record: BtwHistoryRecord };
+const listeners = new Set<(frame: Frame, tabId: string) => void>();
+const commands: RpcCommand[] = [];
+const response = vi.fn<(command: RpcCommand) => Promise<RpcResponse>>();
+let root: Root;
+let container: HTMLElement;
+let runtime: SessionRuntime;
+function record(patch: Partial<BtwHistoryRecord> = {}): BtwHistoryRecord {
 	return {
-		id: "topic-1",
-		leafId: "leaf-1",
-		question: "why?",
+		id: "topic-a",
+		leafId: "leaf-a",
+		question: "Explain",
 		answer: "",
 		status: "running",
 		createdAt: 1,
 		updatedAt: 1,
-		...overrides,
+		...patch,
 	};
 }
-
-let emitFrame: (frame: RpcBtwFrame) => void = () => {};
-const command = vi.fn(async (cmd: RpcCommand): Promise<RpcResponse> => {
-	if (cmd.type === "btw") return { type: "response", command: "btw", success: true, data: { record: record() } };
-	return { type: "response", command: cmd.type, success: true };
-});
-
-Object.assign(window as unknown as Record<string, unknown>, {
-	omp: {
-		rpc: { command },
-		events: {
-			onBtwFrame: (callback: (frame: RpcBtwFrame) => void) => {
-				emitFrame = callback;
-				return () => {
-					emitFrame = () => {};
-				};
-			},
-		},
-	},
-});
-
-let container: InstanceType<typeof HTMLElement> | null = null;
-let root: Root | null = null;
-
-async function mount(): Promise<void> {
-	container = document.createElement("div");
-	document.body.appendChild(container);
-	root = createRoot(container);
+function success(data: unknown): RpcResponse {
+	return { type: "response", command: "btw", success: true, data };
+}
+function button(text: string): HTMLButtonElement {
+	const found = Array.from(document.querySelectorAll("button")).find(node => node.textContent?.includes(text));
+	expect(found).toBeDefined();
+	return found as unknown as HTMLButtonElement;
+}
+async function click(text: string): Promise<void> {
 	await act(async () => {
-		root?.render(
-			<I18nProvider>
-				<BtwDialog />
-			</I18nProvider>,
+		button(text).dispatchEvent(new Event("click", { bubbles: true }));
+	});
+}
+async function emit(frame: Frame, tabId = "btw-origin"): Promise<void> {
+	await act(async () => {
+		for (const listener of listeners) listener(frame, tabId);
+	});
+}
+async function mount(): Promise<void> {
+	container = document.createElement("div") as unknown as HTMLElement;
+	document.body.appendChild(container as never);
+	root = createRoot(container as unknown as Element);
+	await act(async () => {
+		root.render(
+			<SessionRuntimeProvider runtime={runtime}>
+				<I18nProvider>
+					<BtwDialog />
+				</I18nProvider>
+			</SessionRuntimeProvider>,
 		);
 	});
 }
-
-function button(label: string): HTMLButtonElement | undefined {
-	return [...document.querySelectorAll("button")].find(node => node.textContent?.includes(label)) as
-		| HTMLButtonElement
-		| undefined;
-}
-
-async function frame(next: RpcBtwFrame): Promise<void> {
-	await act(async () => {
-		emitFrame(next);
-	});
-}
-
 beforeEach(() => {
-	command.mockClear();
-});
-
-afterEach(async () => {
-	await act(async () => {
-		root?.unmount();
+	commands.length = 0;
+	listeners.clear();
+	response
+		.mockReset()
+		.mockImplementation(async command =>
+			command.type === "btw_cancel" ? success({ cancelled: true }) : success({ record: record() }),
+		);
+	Object.assign(window, {
+		omp: {
+			rpc: {
+				commandForTab: async (_tab: string, command: RpcCommand) => {
+					commands.push(command);
+					return response(command);
+				},
+			},
+			events: {
+				onTabBtwFrame: (listener: (frame: Frame, tabId: string) => void) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+			},
+		},
 	});
+	runtime = createTabRuntime("btw-origin");
+	useUiStore.setState({ btwRequest: "Explain" });
+});
+afterEach(async () => {
+	await act(async () => root?.unmount());
 	container?.remove();
-	container = null;
-	root = null;
+	deleteSessionRuntime("btw-origin");
 	useUiStore.getState().closeBtw();
 });
-
-describe("BtwDialog", () => {
-	it("streams the answer, offers stop while running, and branches only once complete", async () => {
-		useUiStore.getState().openBtw("why?");
-		await mount();
-		await act(async () => {
-			button(translate("btw.ask"))?.click();
+describe("BtwDialog genuine vanilla frames", () => {
+	it("continues the genuine follow-up after unsupported branching without retiring its origin", async () => {
+		response.mockResolvedValueOnce(success({ record: record({ answer: "finished answer", status: "complete" }) }));
+		response.mockResolvedValueOnce({
+			type: "response",
+			command: "btw_branch",
+			success: false,
+			code: "unsupported_capability",
+			error: "Vanilla cannot promote a BTW answer",
 		});
-		expect(command).toHaveBeenCalledWith({ type: "btw", question: "why?" }, 120_000);
-
-		await frame({ type: "btw_delta", recordId: "topic-1", delta: "Because " });
-		await frame({ type: "btw_delta", recordId: "topic-1", delta: "reasons." });
-		expect(document.body.textContent).toContain("Because reasons.");
-		// One question at a time: the ask button is replaced by stop while streaming.
-		expect(button(translate("btw.ask"))).toBeUndefined();
-		expect(button(translate("btw.branch"))?.disabled).toBe(true);
-
-		await frame({ type: "btw_record", record: record({ status: "complete", answer: "Because reasons." }) });
-		expect(button(translate("btw.cancel"))).toBeUndefined();
-		expect(button(translate("btw.branch"))?.disabled).toBe(false);
+		response.mockResolvedValueOnce(
+			success({
+				record: record({
+					answer: "finished answer",
+					status: "complete",
+					followUps: [{ question: "Explain", answer: "", status: "running", createdAt: 3, updatedAt: 3 }],
+				}),
+			}),
+		);
+		await mount();
+		await click("Ask");
+		await click("Branch");
+		await click("Ask");
+		expect(commands.filter(command => command.type === "btw")).toEqual([
+			{ type: "btw", question: "Explain" },
+			{ type: "btw", question: "Explain", recordId: "topic-a" },
+		]);
+		await emit({ type: "btw_delta", recordId: "topic-a", delta: "genuine follow-up answer" });
+		expect(document.body.textContent).toContain("genuine follow-up answer");
+		expect(document.body.textContent).not.toContain("finished answer");
 	});
-
-	it("ignores frames for other topics", async () => {
-		useUiStore.getState().openBtw("why?");
+	it("renders sanitized formatted partial text, enables partial copy, and keeps branch disabled", async () => {
 		await mount();
-		await act(async () => {
-			button(translate("btw.ask"))?.click();
-		});
-		await frame({ type: "btw_delta", recordId: "someone-else", delta: "leak" });
-		expect(document.body.textContent).not.toContain("leak");
+		await click("Ask");
+		await emit({ type: "btw_delta", recordId: "topic-a", delta: "**partial answer**<script>danger()</script>" });
+		expect(document.querySelector("strong")?.textContent).toBe("partial answer");
+		expect(document.querySelector("script")).toBeNull();
+		expect(button("Copy").disabled).toBe(false);
+		expect(button("Branch").disabled).toBe(true);
 	});
-
-	it("cancels a still-streaming answer when the dialog closes", async () => {
-		useUiStore.getState().openBtw("why?");
+	it("keeps a cancelled partial answer visible and rejects later deltas and completed snapshots", async () => {
 		await mount();
-		await act(async () => {
-			button(translate("btw.ask"))?.click();
+		await click("Ask");
+		await emit({ type: "btw_delta", recordId: "topic-a", delta: "kept partial" });
+		await click("Stop");
+		expect(commands).toContainEqual({ type: "btw_cancel", recordId: "topic-a" });
+		await emit({ type: "btw_record", record: record({ status: "cancelled", answer: "kept partial", updatedAt: 2 }) });
+		await emit({ type: "btw_delta", recordId: "topic-a", delta: " leaked" });
+		await emit({
+			type: "btw_record",
+			record: record({ status: "complete", answer: "late completion", updatedAt: 3 }),
 		});
-		await act(async () => {
-			useUiStore.getState().closeBtw();
-		});
-		expect(command.mock.calls.map(([cmd]) => cmd)).toContainEqual({ type: "btw_cancel", recordId: "topic-1" });
+		expect(document.body.textContent).toContain("kept partial");
+		expect(document.body.textContent).not.toContain("leaked");
+		expect(document.body.textContent).not.toContain("late completion");
+		expect(button("Branch").disabled).toBe(true);
 	});
-
-	it("does not cancel after the answer settled", async () => {
-		useUiStore.getState().openBtw("why?");
+	it("shows only the latest follow-up and passes the topic id to its next question", async () => {
+		response.mockResolvedValue(
+			success({
+				record: record({
+					answer: "old answer",
+					status: "complete",
+					followUps: [
+						{
+							question: "latest question",
+							answer: "latest answer",
+							status: "complete",
+							createdAt: 2,
+							updatedAt: 3,
+						},
+					],
+				}),
+			}),
+		);
 		await mount();
-		await act(async () => {
-			button(translate("btw.ask"))?.click();
-		});
-		await frame({ type: "btw_record", record: record({ status: "complete", answer: "done" }) });
-		await act(async () => {
-			useUiStore.getState().closeBtw();
-		});
-		expect(command).not.toHaveBeenCalledWith(expect.objectContaining({ type: "btw_cancel" }));
+		await click("Ask");
+		expect(document.body.textContent).toContain("latest answer");
+		expect(document.body.textContent).not.toContain("old answer");
+		expect(button("Branch").disabled).toBe(false);
+		await click("Ask");
+		expect(commands.at(-1)).toEqual({ type: "btw", question: "Explain", recordId: "topic-a" });
 	});
-
-	it("shows the failure instead of a thinking spinner when a turn ends with no text", async () => {
-		useUiStore.getState().openBtw("why?");
+	it("ignores another tab and another topic even when their questions match", async () => {
 		await mount();
+		await click("Ask");
+		await emit({ type: "btw_delta", recordId: "topic-a", delta: "foreign tab" }, "another-tab");
+		await emit({ type: "btw_record", record: record({ id: "other-topic", answer: "foreign topic" }) });
+		expect(document.body.textContent).not.toContain("foreign");
+	});
+	it("replays genuine frames that arrive before the start acknowledgement", async () => {
+		const pending = Promise.withResolvers<RpcResponse>();
+		response.mockReturnValueOnce(pending.promise);
+		await mount();
+		await click("Ask");
+		await emit({ type: "btw_record", record: record() });
+		await emit({ type: "btw_delta", recordId: "topic-a", delta: "early partial" });
+		await act(async () => pending.resolve(success({ record: record() })));
+		expect(document.body.textContent).toContain("early partial");
+	});
+	it("cancels a starting request when closing before its id is acknowledged", async () => {
+		const pending = Promise.withResolvers<RpcResponse>();
+		response.mockReturnValueOnce(pending.promise);
+		await mount();
+		await click("Ask");
+		await act(async () => useUiStore.getState().closeBtw());
+		expect(commands).toContainEqual({ type: "btw_cancel" });
+		await act(async () => pending.resolve(success({ record: record() })));
+		await emit({ type: "btw_delta", recordId: "topic-a", delta: "closed leak" });
+		expect(document.body.textContent).not.toContain("closed leak");
+	});
+	it("ignores frames after the origin runtime generation changes", async () => {
+		await mount();
+		await click("Ask");
+		response.mockResolvedValueOnce(success({}));
 		await act(async () => {
-			button(translate("btw.ask"))?.click();
+			await runtime.command({ type: "new_session" });
 		});
-		await frame({ type: "btw_record", record: record({ status: "error", error: "provider down" }) });
-		expect(document.body.textContent).toContain("provider down");
-		expect(document.body.textContent).not.toContain(translate("btw.thinking"));
+		await emit({ type: "btw_delta", recordId: "topic-a", delta: "replaced session leak" });
+		expect(document.body.textContent).not.toContain("replaced session leak");
+	});
+	it("retains partial output beside a failed terminal turn", async () => {
+		await mount();
+		await click("Ask");
+		await emit({
+			type: "btw_record",
+			record: record({ status: "error", answer: "useful partial", error: "provider unavailable", updatedAt: 2 }),
+		});
+		expect(document.body.textContent).toContain("useful partial");
+		expect(document.body.textContent).toContain("provider unavailable");
+		expect(button("Copy").disabled).toBe(false);
+		expect(button("Branch").disabled).toBe(true);
 	});
 });

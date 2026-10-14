@@ -18,6 +18,7 @@
 import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
 import type {
+	IpcExtensionUiContext,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
 	IpcTabStatusPayload,
@@ -47,6 +48,13 @@ import {
 } from "../lib/tab-routing";
 import { useAgentViewStore } from "./agent-view";
 import { type ComposerImage, type ComposerStore, useComposerStore } from "./composer";
+import { type ModelStore, useModelStore } from "./model";
+import {
+	beginRestoreInteraction,
+	routeRestoreInteraction,
+	type ModelRestorePrompt,
+	useModelRestoreStore,
+} from "./model-restore";
 import type { ExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
 import {
@@ -59,6 +67,8 @@ import { type SessionStore, useSessionStore } from "./session";
 import {
 	deleteSessionRuntime,
 	focusedRuntimeTabId,
+	focusedSessionRuntime,
+	onFocusedSessionRuntimeChange,
 	sessionRuntime,
 	sessionRuntimeStore,
 	setFocusedSessionRuntime,
@@ -66,6 +76,7 @@ import {
 } from "./session-runtime-context";
 import type { SubagentsStore } from "./subagents";
 import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
+import { TRANSCRIPT_FOCUS_TTL_MS, useTranscriptFocusStore } from "./transcript-focus";
 import { toast } from "./toast";
 import { useUiStore } from "./ui";
 
@@ -74,6 +85,9 @@ export interface SessionTab {
 	cwd: string;
 	target: SessionTarget;
 	status: TabStatus;
+	restoringSession?: boolean;
+	/** Last agent outcome; does not replace sidecar connection status. */
+	runState?: IpcTabStatusPayload["runState"];
 	/** Automatic transcript compaction is in flight in this tab's sidecar. */
 	compacting?: boolean;
 	/** Immutable session kind, fixed when this tab's sidecar was spawned. */
@@ -93,9 +107,9 @@ export interface SessionTab {
 	sessionId?: string;
 	/** A run completed while this tab was in the background. */
 	unreadDone: boolean;
-	/** Session to open once this tab's sidecar first reports ready (the
-	 * open-session-in-new-tab flow — the sidecar starts on a fresh session and
-	 * must be switched over before its transcript hydrates). */
+	/** Saved target verified during first hydration. Main restores it in a hidden
+	 * background sidecar before focus; older pending-ready flows still consume
+	 * the same path without clearing the outgoing transcript early. */
 	pendingSessionPath?: string;
 }
 
@@ -295,6 +309,9 @@ export interface TabsStore {
 		worktree?: IpcTabWorktree;
 		target?: SessionTarget;
 		resumeSessionId?: string;
+		model?: IpcSpawnTabPayload["model"];
+		modelOrigin?: IpcSpawnTabPayload["modelOrigin"];
+		existingTabId?: string;
 	}) => Promise<string | null>;
 	/** Focus this tab. In split mode, a non-visible tab replaces the focused pane. */
 	switchTab: (id: string) => Promise<void>;
@@ -342,11 +359,14 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					replaceTabRuntime(info.tabId);
 				}
 				ensureTabRuntime(info.tabId);
+				const session = sessionRuntimeStore<SessionStore>(info.tabId, "session");
+				if (session && info.retryInfo !== undefined) session.setState({ retryInfo: info.retryInfo });
 				return {
 					id: info.tabId,
 					cwd: info.cwd || existing?.cwd || "",
 					target: reconcileSessionTarget(info.target, existing?.target),
 					status: info.status,
+					runState: info.runState,
 					compacting: info.compacting ?? existing?.compacting ?? false,
 					kind: info.kind ?? existing?.kind ?? "agent",
 					placeholder: info.placeholder ?? existing?.placeholder,
@@ -407,6 +427,53 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	},
 
 	openTab: async args => {
+		const saved = Boolean(args?.sessionPath || args?.resumeSessionId);
+		const pendingFocus = useTranscriptFocusStore.getState().target;
+		const conversationFocus =
+			!isSshSessionTarget(args?.target) &&
+			pendingFocus &&
+			pendingFocus.sessionPath === args?.sessionPath &&
+			Date.now() - pendingFocus.requestedAt < TRANSCRIPT_FOCUS_TTL_MS
+				? pendingFocus
+				: null;
+		const originRuntime = focusedSessionRuntime();
+		const originTabId = originRuntime?.tabId ?? get().activeTabId;
+		const originSession = originRuntime
+			? sessionRuntimeStore<SessionStore>(originRuntime.tabId, "session")!
+			: useSessionStore;
+		const originModels = originRuntime
+			? sessionRuntimeStore<ModelStore>(originRuntime.tabId, "model")!
+			: useModelStore;
+		const originSessionId = originSession.getState().sessionId;
+		const originGeneration = originRuntime?.commandGeneration;
+		const capturedModel = originModels.getState().model;
+		const originTab = get().tabs.find(tab => tab.id === originTabId);
+		const originConnected = originTab?.status === "ready" || originTab?.status === "running";
+		const currentModel = originConnected ? capturedModel : null;
+		const isOriginCurrent = () => {
+			const liveModel = originModels.getState().model;
+			return (
+				originSession.getState().sessionId === originSessionId &&
+				(originRuntime
+					? sessionRuntime(originRuntime.tabId) === originRuntime &&
+						focusedSessionRuntime() === originRuntime &&
+						originRuntime.commandGeneration === originGeneration
+					: get().activeTabId === originTabId && focusedSessionRuntime() === null) &&
+				(liveModel?.provider ?? null) === (capturedModel?.provider ?? null) &&
+				(liveModel?.id ?? null) === (capturedModel?.id ?? null)
+			);
+		};
+		const subscribeOrigin: ModelRestorePrompt["subscribeOrigin"] = changed => {
+			const stops = [
+				originSession.subscribe(changed),
+				originModels.subscribe(changed),
+				useTabsStore.subscribe(changed),
+				onFocusedSessionRuntimeChange(changed),
+			];
+			return () => {
+				for (const stop of stops) stop();
+			};
+		};
 		const runtimeCwd = sessionRuntimeStore<SessionStore>(get().activeTabId, "session")?.getState().cwd;
 		const cwd =
 			args?.cwd ??
@@ -425,14 +492,88 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		};
 		if (args?.target) payload.target = args.target;
 		if (args?.resumeSessionId) payload.resumeSessionId = args.resumeSessionId;
+		if (args?.model) payload.model = args.model;
+		if (args?.modelOrigin) payload.modelOrigin = args.modelOrigin;
+		if (args?.existingTabId) payload.existingTabId = args.existingTabId;
+		let finishInteraction: (() => void) | undefined;
+		if (saved) {
+			payload.restoreRequestId = globalThis.crypto.randomUUID();
+			if (!payload.modelOrigin && originConnected && originTabId && originSessionId) {
+				payload.modelOrigin = { tabId: originTabId, sessionId: originSessionId };
+			}
+			finishInteraction = beginRestoreInteraction(
+				payload.restoreRequestId,
+				originTabId,
+				isOriginCurrent,
+				subscribeOrigin,
+			);
+		}
 		try {
 			result = await window.omp.tabs.spawn(payload);
 		} catch (error) {
 			toast({ variant: "error", title: translate("tabs.newFailed"), message: String(error) });
 			return null;
+		} finally {
+			finishInteraction?.();
 		}
 		if (!result) {
 			toast({ variant: "warning", message: translate("tabs.parallelCap") });
+			return null;
+		}
+		if (result.failedTabId) {
+			closedTabIds.add(result.failedTabId);
+			deleteSessionRuntime(result.failedTabId);
+			set(state => ({ tabs: state.tabs.filter(tab => tab.id !== result.failedTabId) }));
+		}
+		if (saved && !isOriginCurrent()) {
+			if (result.tabId && !args?.existingTabId && !result.restoredSession) {
+				closedTabIds.add(result.tabId);
+				deleteSessionRuntime(result.tabId);
+				set(state => ({ tabs: state.tabs.filter(tab => tab.id !== result.tabId) }));
+				await window.omp.tabs.close(result.tabId);
+			}
+			return null;
+		}
+		if (result.tabId === null && result.refusal === "model-restore" && result.missingModel && !args?.model) {
+			const binding =
+				currentModel && originTabId && originSessionId
+					? { provider: currentModel.provider, modelId: currentModel.id }
+					: null;
+			const prompt: ModelRestorePrompt = {
+				session: {
+					path: args?.sessionPath,
+					id: args?.resumeSessionId,
+					cwd,
+					kind: kind === "chat" ? "chat" : undefined,
+				},
+				missingModel: result.missingModel,
+				currentModel: binding,
+				currentLabel: binding ? `${binding.provider}/${binding.modelId}` : null,
+				isCurrent: isOriginCurrent,
+				subscribeOrigin,
+				restore: async () => {
+					if (!binding || !originTabId || !isOriginCurrent()) return false;
+					return (
+						(await get().openTab({
+							...args,
+							cwd,
+							model: binding,
+							modelOrigin: { tabId: originTabId, sessionId: originSessionId },
+						})) !== null
+					);
+				},
+			};
+			useUiStore.getState().closeSessionSwitch();
+			useUiStore.getState().closeSessionPicker();
+			useModelRestoreStore.getState().request(prompt);
+			return null;
+		}
+		if (result.tabId === null && result.refusal === "restore-failed") {
+			toast({
+				variant: "error",
+				title: translate("sidebar.openFailed"),
+				message: result.error ?? translate("tabs.newFailed"),
+			});
 			return null;
 		}
 		// Cross-kind refusal: the target session file carries a different kind —
@@ -452,21 +593,46 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				return ownerTabId;
 			}
 			if (args?.sessionPath) {
+				const focus = useTranscriptFocusStore.getState();
+				const forwardedFocus = conversationFocus?.nonce === focus.target?.nonce ? conversationFocus : null;
 				try {
-					await window.omp.sessions.openInNewWindow({ sessionPath: args.sessionPath });
+					const opened = await window.omp.sessions.openInNewWindow({
+						sessionPath: args.sessionPath,
+						...(forwardedFocus ? { entryId: forwardedFocus.entryId } : {}),
+					});
+					if (forwardedFocus && !opened) return null;
 				} catch {
 					// Best-effort focus — the owner window may be mid-teardown.
+					if (forwardedFocus) return null;
+				} finally {
+					if (forwardedFocus) focus.settle(forwardedFocus.nonce);
 				}
 			}
 			return ownerTabId;
 		}
 		const { tabId } = result;
-		ensureTabRuntime(tabId);
+		const restoredRuntime = ensureTabRuntime(tabId);
+		if (result.restoredSession) restoredRuntime.recovering = true;
 		const resolvedCwd = result.cwd ?? cwd;
 		// Upsert eagerly — the fresh sidecar's first TAB_STATUS can beat the reply.
 		set(state => {
 			const existing = state.tabs.find(tab => tab.id === tabId);
 			if (existing) {
+				if (result.restoredSession) {
+					return {
+						tabs: state.tabs.map(tab =>
+							tab.id === tabId
+								? {
+										...tab,
+										status: "ready",
+										restoringSession: false,
+										sessionPath: args?.sessionPath ?? tab.sessionPath,
+										pendingSessionPath: undefined,
+									}
+								: tab,
+						),
+					};
+				}
 				if (!args?.sessionPath || existing.pendingSessionPath === args.sessionPath) return state;
 				return {
 					tabs: state.tabs.map(tab =>
@@ -480,7 +646,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				id: tabId,
 				cwd: resolvedCwd,
 				target: reconcileSessionTarget(args?.target),
-				status: "starting",
+				status: result.restoredSession ? "ready" : "starting",
 				kind,
 				placeholder: false,
 				worktree: args?.worktree,
@@ -490,15 +656,47 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			};
 			return { tabs: [...state.tabs, tab] };
 		});
-		await get().switchTab(tabId);
+		if (result.restoredSession && get().activeTabId === tabId) {
+			// A layout-selected cold owner already has focus, but its full
+			// stream was detached during restore. Normal switchTab's same-id
+			// shortcut cannot stand in for native history hydration.
+			const state = get();
+			try {
+				if (!(await routeTabView(tabId, visibleTabIds(state), state.split))) {
+					throw new Error("The restored session tab is no longer available");
+				}
+				sessionRuntimeStore<SessionStore>(tabId, "session")?.setState({ status: "ready" });
+				invalidateReadyRecovery(true, tabId);
+				await recoverReadySession(tabId);
+			} catch (error) {
+				toast({ variant: "error", title: translate("tabs.switchFailed"), message: String(error) });
+				return null;
+			}
+		} else await get().switchTab(tabId);
 		return tabId;
 	},
 
 	switchTab: async id => {
 		const state = get();
-		if (id === state.activeTabId) return;
 		const target = state.tabs.find(tab => tab.id === id);
-		if (!target) return;
+		if (!target || target.restoringSession) return;
+		if (
+			["asleep", "error", "exited"].includes(target.status) &&
+			(target.sessionPath || (isSshSessionTarget(target.target) && target.sessionId))
+		) {
+			ensureTabRuntime(id).recovering = true;
+			await get().openTab({
+				existingTabId: id,
+				cwd: target.cwd,
+				kind: target.kind,
+				target: target.target,
+				...(isSshSessionTarget(target.target)
+					? { resumeSessionId: target.sessionId }
+					: { sessionPath: target.sessionPath }),
+			});
+			return;
+		}
+		if (id === state.activeTabId) return;
 		const version = ++switchVersion;
 		// Focus changes do not retire the outgoing tab's runtime or its ready recovery.
 		sessionRuntimeStore<SubagentsStore>(id, "subagents")?.getState().invalidateRefresh();
@@ -554,7 +752,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// normal full ready event after the route is attached.
 		const routedTab = get().tabs.find(tab => tab.id === id);
 		if (routedTab?.status === "ready" || routedTab?.status === "running") {
-			sessionRuntimeStore<SessionStore>(id, "session")?.getState().setStatus("ready", routedTab.cwd);
+			// Routing readiness is a cached hint, not newer native cwd metadata.
+			sessionRuntimeStore<SessionStore>(id, "session")?.setState({ status: "ready" });
 			const fullReady = joinFullReadyPrelude(id);
 			if (fullReady) await fullReady;
 			else if (!(await consumePendingSession(id))) await recoverReadySession(id);
@@ -710,16 +909,19 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 		set(current => {
 			const index = current.tabs.findIndex(tab => tab.id === payload.tabId);
-			// A background tab's run settled → done badge until the user visits.
+			// Only a successful logical turn earns an unread completion badge.
 			const completedInBackground =
 				!visibleTabIds(current).includes(payload.tabId) &&
 				previous?.status === "running" &&
-				payload.status === "ready";
+				payload.status === "ready" &&
+				(payload.runState === undefined || payload.runState === "completed");
 			const next: SessionTab = {
 				id: payload.tabId,
 				cwd: payload.cwd || previous?.cwd || "",
 				target: reconcileSessionTarget(payload.target, previous?.target),
 				status: payload.status,
+				runState: payload.runState,
+				restoringSession: payload.restoringSession,
 				compacting: payload.compacting ?? previous?.compacting ?? false,
 				kind: payload.kind ?? previous?.kind ?? "agent",
 				placeholder: payload.placeholder ?? previous?.placeholder,
@@ -732,7 +934,15 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 						: (payload.title ?? undefined),
 				sessionPath: payload.sessionPath === undefined ? previous?.sessionPath : (payload.sessionPath ?? undefined),
 				sessionId: payload.sessionId ?? previous?.sessionId,
-				unreadDone: sessionChanged ? false : completedInBackground ? true : (previous?.unreadDone ?? false),
+				unreadDone:
+					sessionChanged ||
+					payload.status === "running" ||
+					payload.runState === "failed" ||
+					payload.runState === "idle"
+						? false
+						: completedInBackground
+							? true
+							: (previous?.unreadDone ?? false),
 				pendingSessionPath: previous?.pendingSessionPath,
 			};
 			if (index === -1) return { tabs: [...current.tabs, next] };
@@ -754,6 +964,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			session.setState({
 				isStreaming: payload.status === "running",
 				isCompacting: payload.compacting ?? session.getState().isCompacting,
+				...(payload.retryInfo !== undefined ? { retryInfo: payload.retryInfo } : {}),
 			});
 		} else if (active) {
 			useSessionStore.getState().setStatus(payload.status === "running" ? "ready" : payload.status, payload.cwd);
@@ -901,7 +1112,7 @@ export function consumePendingSession(tabId: string): Promise<boolean> {
 					return true;
 				}
 				replaceTabRuntime(tabId);
-				sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().setStatus("ready", tab.cwd);
+				sessionRuntimeStore<SessionStore>(tabId, "session")?.setState({ status: "ready" });
 				setFocusedSessionRuntime(tabId);
 			}
 			invalidateReadyRecovery(true, tabId);
@@ -931,7 +1142,20 @@ export function consumePendingSession(tabId: string): Promise<boolean> {
 /** Route an extension UI frame into the tab that raised it. Blocking dialogs,
  * status text, and widgets disappear while that tab is parked and return with
  * it; a late IPC delivery can never leak into the newly selected tab. */
-export function pushTabExtensionUiRequest(tabId: string, request: ExtensionUIRequest): void {
+export function pushTabExtensionUiRequest(
+	tabId: string,
+	request: ExtensionUIRequest,
+	context?: IpcExtensionUiContext,
+): void {
+	if (context?.restoringSession) {
+		if (!isTabClosed(tabId) && routeRestoreInteraction(tabId, request, context)) return;
+		if (context.restoreRequestId) {
+			void window.omp.tabs
+				.cancelRestore({ restoreRequestId: context.restoreRequestId })
+				.catch(error => toast({ variant: "error", message: String(error) }));
+		}
+		return;
+	}
 	// A request arriving after the tab closed must not resurrect a ghost runtime.
 	if (isTabClosed(tabId)) return;
 	ensureTabRuntime(tabId);
@@ -1038,7 +1262,7 @@ export function useSessionTabs(): void {
 						const tab = state.tabs.find(entry => entry.id === tabId);
 						const session = sessionRuntimeStore<SessionStore>(tabId, "session");
 						if (!tab || !session || (tab.status !== "ready" && tab.status !== "running")) continue;
-						session.getState().setStatus("ready", tab.cwd);
+						session.setState({ status: "ready" });
 						void (async () => {
 							const fullReady = joinFullReadyPrelude(tabId);
 							if (fullReady) {

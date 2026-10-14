@@ -5,21 +5,9 @@
  * "omp:insert-mention" window event.
  */
 
-import {
-	ArrowLeft,
-	AtSign,
-	Check,
-	Copy,
-	ExternalLink as ExternalLinkIcon,
-	File,
-	Folder,
-	FolderOpen,
-	FolderX,
-	RefreshCw,
-} from "lucide-react";
+import { ArrowLeft, AtSign, ExternalLink as ExternalLinkIcon, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FsTreeEntry } from "../../../shared/ipc-types";
-import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
@@ -27,7 +15,6 @@ import { useUiStore } from "../../stores/ui";
 import { Button, Spinner } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/PathLink";
-import { FileLabel, PanelEmpty, PanelSearch, PanelToolbar, ToolbarIconButton } from "./workspace-ui";
 
 const MAX_FILES = 2000;
 const MAX_DEPTH = 8;
@@ -187,66 +174,55 @@ export function FilesPanel() {
 			return {
 				id,
 				label: entry.name,
-				icon: isDir ? expanded.has(id) ? <FolderOpen size={14} /> : <Folder size={14} /> : <File size={14} />,
+				icon: isDir ? expanded.has(id) ? <FolderOpen size={12} /> : <Folder size={12} /> : <File size={12} />,
 				onClick: () => onNodeClick(id),
 				children: entry.children && entry.children.length > 0 ? entry.children.map(toNode) : undefined,
 			};
 		};
 		return query.trim()
-			? searchFiles(tree, query).map(entry => ({ ...toNode(entry), label: <FileLabel path={entry.path} /> }))
+			? searchFiles(tree, query).map(entry => ({ ...toNode(entry), label: entry.path }))
 			: tree.map(toNode);
 	}, [tree, query, expanded, onNodeClick]);
 
 	const fileCount = useMemo(() => countFiles(tree), [tree]);
 	const activePreview = preview?.path === filePreviewPath ? preview : null;
 	const previewIsMarkdown = filePreviewPath ? /\.mdx?$/i.test(filePreviewPath) : false;
-	const previewLines = useMemo(() => {
-		const content = activePreview?.content;
-		if (!content || previewIsMarkdown) return 0;
-		// A trailing newline ends the last line; it does not start another.
-		return content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
-	}, [activePreview?.content, previewIsMarkdown]);
-	const [copied, setCopied] = useState(false);
 
 	if (filePreviewPath) {
 		return (
-			<div className="flex h-full flex-col">
-				<PanelToolbar className="gap-1 border-b border-(--omp-border-muted) pl-1.5">
-					<ToolbarIconButton label={t("filesPanel.back")} onClick={closeFilePreview}>
-						<ArrowLeft size={15} />
-					</ToolbarIconButton>
-					<span className="min-w-0 flex-1 px-1 text-omp-sm font-medium">
-						<FileLabel path={filePreviewPath} />
-					</span>
-					<ToolbarIconButton
-						label={t(copied ? "filesPanel.copied" : "filesPanel.copyPath")}
-						onClick={() =>
-							void copyText(filePreviewPath).then(ok => {
-								if (!ok) return;
-								setCopied(true);
-								window.setTimeout(() => setCopied(false), 1400);
-							})
-						}
+			<div className="omp-slide-in-right flex h-full flex-col">
+				<div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-(--omp-border-muted) px-3 py-2">
+					<button
+						type="button"
+						onClick={closeFilePreview}
+						aria-label={t("filesPanel.back")}
+						className="omp-pressable flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
 					>
-						{copied ? <Check size={14} className="text-(--omp-success)" /> : <Copy size={14} />}
-					</ToolbarIconButton>
-					<ToolbarIconButton
-						label={t("filesPanel.insertMention")}
+						<ArrowLeft size={14} />
+					</button>
+					<File className="shrink-0 text-(--omp-dim)" size={12} />
+					<span className="min-w-0 flex-1 truncate font-mono text-omp-xs" title={filePreviewPath}>
+						{filePreviewPath}
+					</span>
+					<PathLink
+						path={filePreviewPath}
+						className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 text-omp-xs text-(--omp-muted)"
+					>
+						<ExternalLinkIcon size={12} />
+						<span>{t("filesPanel.openExternal")}</span>
+					</PathLink>
+					<button
+						type="button"
 						onClick={() => {
 							insertMention(filePreviewPath);
 							closeFilePreview();
 						}}
+						className="omp-pressable inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-omp-xs text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
 					>
-						<AtSign size={14} />
-					</ToolbarIconButton>
-					<PathLink
-						path={filePreviewPath}
-						label={t("filesPanel.openExternal")}
-						className="omp-pressable flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text) hover:no-underline"
-					>
-						<ExternalLinkIcon size={14} />
-					</PathLink>
-				</PanelToolbar>
+						<AtSign size={12} />
+						<span>{t("filesPanel.insertMention")}</span>
+					</button>
+				</div>
 				<div className="min-h-0 flex-1 overflow-auto bg-(--omp-code-bg)">
 					{!activePreview || activePreview.loading ? (
 						<div className="flex items-center gap-2 p-4">
@@ -254,7 +230,7 @@ export function FilesPanel() {
 							<span className="text-omp-sm text-(--omp-dim)">{t("filesPanel.reading")}</span>
 						</div>
 					) : previewIsMarkdown ? (
-						<div className="mx-auto max-w-3xl px-5 py-4 text-omp-md text-(--omp-text)">
+						<div className="p-4 text-omp-md text-(--omp-text)">
 							<MarkdownRenderer content={activePreview.content ?? ""} />
 							{activePreview.truncated && (
 								<div className="mt-3 text-omp-xs text-(--omp-dim)">
@@ -263,25 +239,15 @@ export function FilesPanel() {
 							)}
 						</div>
 					) : (
-						<div className="flex min-w-max py-2 font-mono text-xs leading-[1.6]">
-							<div
-								aria-hidden="true"
-								className="sticky left-0 shrink-0 select-none bg-(--omp-code-bg) pr-3 pl-3 text-right text-(--omp-dim) opacity-70"
-							>
-								{Array.from({ length: previewLines }, (_, index) => (
-									<div key={index}>{index + 1}</div>
-								))}
-							</div>
-							<pre className="m-0 pr-4 whitespace-pre text-(--omp-text) [tab-size:4]">
-								{activePreview.content}
-								{activePreview.truncated && (
-									<span className="text-(--omp-dim)">
-										{"\n"}
-										{t("filesPanel.truncated", { kb: PREVIEW_MAX_BYTES / 1000 })}
-									</span>
-								)}
-							</pre>
-						</div>
+						<pre className="p-3 font-mono text-omp-sm leading-[1.5] break-words whitespace-pre-wrap text-(--omp-text)">
+							{activePreview.content}
+							{activePreview.truncated && (
+								<span className="text-(--omp-dim)">
+									{"\n"}
+									{t("filesPanel.truncated", { kb: PREVIEW_MAX_BYTES / 1000 })}
+								</span>
+							)}
+						</pre>
 					)}
 				</div>
 			</div>
@@ -290,47 +256,57 @@ export function FilesPanel() {
 
 	return (
 		<div className="flex h-full flex-col">
-			<span className="sr-only">{t("filesPanel.title")}</span>
-			<PanelToolbar>
-				<PanelSearch
-					label={t("filesPanel.search")}
-					placeholder={
-						fileCount > 0
-							? t("filesPanel.searchPlaceholder", { count: `${fileCount}${truncated ? "+" : ""}` })
-							: t("filesPanel.search")
-					}
+			<div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
+				<span className="text-omp-xs font-medium tracking-widest text-(--omp-dim) uppercase">
+					{t("filesPanel.title")}
+				</span>
+				<div className="flex items-center gap-1.5">
+					<span className="text-omp-xs tabular-nums text-(--omp-dim)">
+						{fileCount}
+						{truncated ? "+" : ""}
+					</span>
+					<button
+						aria-label={t("filesPanel.refresh")}
+						className="rounded p-0.5 text-(--omp-dim) transition-colors hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+						disabled={loading}
+						onClick={() => void load()}
+						type="button"
+					>
+						<RefreshCw className={loading ? "animate-spin" : undefined} size={11} />
+					</button>
+				</div>
+			</div>
+			<div className="px-3 pb-2">
+				<input
+					aria-label={t("filesPanel.search")}
+					placeholder={t("filesPanel.search")}
+					className="w-full rounded border border-(--omp-input-border) bg-(--omp-input-bg) px-2 py-1.5 text-omp-sm"
 					value={query}
-					onChange={setQuery}
+					onChange={event => setQuery(event.target.value)}
 				/>
-				<ToolbarIconButton label={t("filesPanel.refresh")} disabled={loading} onClick={() => void load()}>
-					<RefreshCw className={loading ? "animate-spin" : undefined} size={14} />
-				</ToolbarIconButton>
-			</PanelToolbar>
-			{truncated && (
-				<p className="px-3 pb-1.5 text-omp-xs text-(--omp-dim)">
-					{t("filesPanel.searchLimit", { files: MAX_FILES, depth: MAX_DEPTH })}
-				</p>
-			)}
-			<div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 pb-2">
+				{truncated && (
+					<p className="mt-1 text-omp-xs text-(--omp-muted)">
+						{t("filesPanel.searchLimit", { files: MAX_FILES, depth: MAX_DEPTH })}
+					</p>
+				)}
+			</div>
+			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
 				{loading && tree.length === 0 ? (
-					<div className="flex items-center justify-center gap-2 py-10">
+					<div className="flex items-center justify-center gap-2 py-8">
 						<Spinner size="sm" />
 						<span className="text-omp-sm text-(--omp-dim)">{t("filesPanel.scanning")}</span>
 					</div>
 				) : error !== null ? (
-					<PanelEmpty
-						icon={FolderX}
-						tone="error"
-						title={t("filesPanel.unavailable")}
-						hint={error}
-						action={
-							<Button onClick={() => void load()} size="sm" variant="secondary">
+					<div className="px-4 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
+						{t("filesPanel.unavailable")}
+						<br />
+						<span className="break-words">{error}</span>
+						<div className="mt-2">
+							<Button onClick={() => void load()} size="sm" variant="ghost">
 								{t("filesPanel.retry")}
 							</Button>
-						}
-					/>
-				) : query.trim() && nodes.length === 0 ? (
-					<p className="px-3 py-6 text-center text-omp-sm text-(--omp-dim)">{t("filesPanel.noMatch")}</p>
+						</div>
+					</div>
 				) : (
 					<TreeView
 						emptyMessage={t("filesPanel.empty")}

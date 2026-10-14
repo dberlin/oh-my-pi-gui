@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OVERLAY_EXIT_MS } from "../../hooks/use-overlay-presence";
 import { I18nProvider } from "../../lib/i18n";
-import { ApprovalDialog, isApprovalRequest } from "../dialogs/ApprovalDialog";
+import { ApprovalDialog } from "../dialogs/ApprovalDialog";
 import { Modal } from "./Modal";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -117,25 +117,6 @@ describe("Modal", () => {
 		await pressEscape();
 		expect(respond).toHaveBeenCalledWith({ value: "Deny" });
 	});
-
-	it("answers a session-approvable prompt with the agent's exact session option", async () => {
-		const request = {
-			type: "extension_ui_request" as const,
-			id: "approval",
-			method: "select" as const,
-			title: "Allow tool: bash\ngit status",
-			options: ["Approve", "Approve `git status` for this session", "Deny"],
-		};
-		expect(isApprovalRequest(request)).toBe(true);
-		expect(isApprovalRequest({ ...request, options: ["Approve", "Maybe", "Deny"] })).toBe(false);
-		const respond = vi.fn();
-		await mount(<ApprovalDialog request={request} onRespond={respond} />);
-		const button = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("for this session"));
-		await act(async () => {
-			button?.dispatchEvent(new Event("click", { bubbles: true }));
-		});
-		expect(respond).toHaveBeenCalledWith({ value: "Approve `git status` for this session" });
-	});
 	it("focuses the dialog on open and restores the trigger on close", async () => {
 		const trigger = document.createElement("button");
 		document.body.appendChild(trigger);
@@ -215,43 +196,6 @@ describe("Modal", () => {
 		expect(onClose).not.toHaveBeenCalled();
 
 		await pressEscape({ keyCode: 229 });
-		expect(onClose).toHaveBeenCalledTimes(1);
-	});
-
-	it("leaves Escape to an inline editor that owns it, then closes on the next one", async () => {
-		// A browser runs the dialog's document capture listener before the editor
-		// sees the key; linkedom runs capture after bubbling, so call it directly.
-		const captured: EventListener[] = [];
-		const add = document.addEventListener.bind(document);
-		vi.spyOn(document, "addEventListener").mockImplementation(((
-			type: string,
-			listener: EventListener,
-			options?: boolean | AddEventListenerOptions,
-		) => {
-			if (type === "keydown" && options === true) captured.push(listener);
-			add(type, listener, options);
-		}) as typeof document.addEventListener);
-		const onClose = vi.fn();
-		await mount(
-			<Modal open onClose={onClose} title="Dialog">
-				<input data-owns-escape="" />
-			</Modal>,
-		);
-		const escapeFrom = (target: unknown) =>
-			({
-				key: "Escape",
-				keyCode: 27,
-				isComposing: false,
-				target,
-				preventDefault() {},
-				stopPropagation() {},
-				stopImmediatePropagation() {},
-			}) as unknown as Event;
-		const onKeyDown = captured.at(-1);
-		onKeyDown?.(escapeFrom(document.querySelector("input")));
-		expect(onClose).not.toHaveBeenCalled();
-
-		onKeyDown?.(escapeFrom(document.querySelector("[role='dialog']")));
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 

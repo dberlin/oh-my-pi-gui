@@ -1,6 +1,5 @@
 import { memo, useMemo } from "react";
 import { useT } from "./i18n";
-import { openLink } from "./open-link";
 
 /**
  * ANSI escape-sequence renderer for captured subprocess output.
@@ -339,7 +338,7 @@ export const AnsiText = memo(function AnsiText({ text }: { text: string }) {
 						href={seg.href}
 						onClick={e => {
 							e.preventDefault();
-							openLink(seg.href as string, e);
+							window.omp.system.openExternal(seg.href as string);
 						}}
 						style={{ ...segmentStyle(seg), textDecoration: "underline" }}
 					>

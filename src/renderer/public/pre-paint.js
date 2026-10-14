@@ -16,7 +16,7 @@
 		}
 		if (scheme === "dark" || scheme === "light") {
 			document.documentElement.dataset.theme = scheme;
-			document.documentElement.style.backgroundColor = scheme === "dark" ? "#1f1f1f" : "#ffffff";
+			document.documentElement.style.backgroundColor = scheme === "dark" ? "#191b1f" : "#fcfcfb";
 			document.documentElement.style.colorScheme = scheme;
 		}
 	} catch (e) {

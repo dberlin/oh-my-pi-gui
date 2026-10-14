@@ -369,17 +369,14 @@ if (process.argv.includes("stats")) {
 			case "share_session":
 				ok({ url: "http://127.0.0.1/shared#local" });
 				break;
-			case "live_start":
-				write({ type: "live_phase", phase: "connecting" });
-				write({ type: "live_phase", phase: "listening" });
-				ok({ voice: command.voice ?? "marin" });
+			case "get_live_state":
+				ok({ active: false, phase: "connecting", muted: false, inputLevel: 0, outputLevel: 0 });
 				break;
-			case "live_mute":
-				ok({ muted: command.muted ?? true });
+			case "live_start":
+				ok({ active: true, phase: "listening", muted: false, inputLevel: 0, outputLevel: 0 });
 				break;
 			case "live_stop":
-				write({ type: "live_end" });
-				ok();
+				ok({ active: false, phase: "connecting", muted: false, inputLevel: 0, outputLevel: 0 });
 				break;
 			case "btw":
 				ok({ question: command.question, replyText: "Local side answer", canBranch: false });
@@ -595,9 +592,7 @@ if (process.argv.includes("stats")) {
 							assistantMessageEvent: {
 								type: "text_delta",
 								contentIndex: 0,
-								// One paragraph per chunk: the live tail renders as Markdown, where
-								// single newlines are soft breaks that join lines into one paragraph.
-								delta: `Stream chunk ${streamChunks}.\n\n`,
+								delta: `Stream chunk ${streamChunks}.\n`,
 								partial: answer,
 							},
 						});

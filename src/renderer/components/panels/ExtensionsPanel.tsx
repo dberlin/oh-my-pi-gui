@@ -233,7 +233,7 @@ function EnableToggle({
 			aria-label={label}
 			className={cx(
 				"relative h-4 w-7 shrink-0 rounded-full transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50",
-				enabled ? "bg-(--omp-switch-on)" : "bg-(--omp-switch-off)",
+				enabled ? "bg-(--omp-accent)" : "border border-(--omp-border-muted)",
 			)}
 			disabled={disabled}
 			onClick={onToggle}
@@ -243,7 +243,7 @@ function EnableToggle({
 		>
 			<span
 				className={cx(
-					"absolute top-1/2 size-3 -translate-y-1/2 rounded-full bg-white shadow transition-[left] duration-150",
+					"absolute top-1/2 size-3 -translate-y-1/2 rounded-full bg-white shadow transition-all duration-150",
 					enabled ? "left-3.5" : "left-0.5",
 				)}
 			/>
@@ -515,7 +515,9 @@ function HooksTab({
 				{groups.map(([tool, hooks]) => (
 					<section className="flex flex-col gap-1.5" key={tool}>
 						<header className="flex items-center gap-2 px-1">
-							<span className="font-mono text-omp-xs font-semibold text-(--omp-muted)">{tool}</span>
+							<span className="font-mono text-omp-xs font-semibold uppercase tracking-wider text-(--omp-muted)">
+								{tool}
+							</span>
 							<span className="text-omp-xs tabular-nums text-(--omp-dim)">{hooks.length}</span>
 						</header>
 						{hooks.map(hook => {
@@ -878,7 +880,7 @@ function CommandsTab({
 				{groups.map(([source, commands]) => (
 					<section className="flex flex-col gap-1.5" key={source}>
 						<header className="flex items-center gap-2 px-1">
-							<span className="font-mono text-omp-xs font-semibold text-(--omp-muted)">
+							<span className="font-mono text-omp-xs font-semibold uppercase tracking-wider text-(--omp-muted)">
 								{KNOWN_COMMAND_SOURCES[source] ? t(`extPanel.commands.source.${source}`) : source}
 							</span>
 							<span className="text-omp-xs tabular-nums text-(--omp-dim)">{commands.length}</span>

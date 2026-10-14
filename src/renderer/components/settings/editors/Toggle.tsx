@@ -22,7 +22,7 @@ export function Toggle({
 		<button
 			aria-checked={checked}
 			aria-label={label}
-			className="flex w-full cursor-pointer items-start justify-between gap-4 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-(--omp-sidebar-item-hover) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+			className="flex w-full cursor-pointer items-start justify-between gap-4 rounded-md px-2 py-2 text-left transition-colors hover:bg-(--omp-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
 			disabled={disabled}
 			onClick={() => onChange(!checked)}
 			role="switch"
@@ -30,7 +30,7 @@ export function Toggle({
 		>
 			<span className="min-w-0">
 				<span className="flex items-center gap-2">
-					<span className="block text-omp-md font-medium text-(--omp-text)">{label}</span>
+					<span className="block text-xs font-medium text-(--omp-text)">{label}</span>
 					{badge}
 				</span>
 				{description && (
@@ -39,13 +39,13 @@ export function Toggle({
 			</span>
 			<span
 				aria-hidden
-				className={`omp-switch-track relative mt-0.5 h-5 w-9 shrink-0 rounded-full ${
-					checked ? "bg-(--omp-switch-on)" : "bg-(--omp-switch-off)" // surface-ok: toggle switch track fill
+				className={`relative mt-0.5 h-4.5 w-8 shrink-0 rounded-full transition-colors duration-150 ${
+					checked ? "bg-(--omp-accent)" : "bg-(--omp-bg-tertiary) border border-(--omp-border-muted)" // surface-ok: toggle switch track fill
 				}`}
 			>
 				<span
-					className={`omp-switch-thumb absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow ${
-						checked ? "translate-x-4" : "translate-x-0"
+					className={`absolute top-0.5 size-3.5 rounded-full bg-white shadow transition-all duration-150 ${
+						checked ? "left-4" : "left-0.5"
 					}`}
 				/>
 			</span>

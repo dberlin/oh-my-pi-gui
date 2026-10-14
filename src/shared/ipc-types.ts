@@ -21,6 +21,7 @@ import type {
 	ImageContent,
 	ModelCatalogUpdateFrame,
 	PromptResultFrame,
+	RpcBtwFrame,
 	RpcCommand,
 	RpcDebugParams,
 	RpcLiveUpdateFrame,
@@ -72,8 +73,12 @@ export const IPC_EVENTS = {
 	LIVE_UPDATE: "live:update",
 	/** Model/provider discovery completed after a bounded listing response. */
 	MODEL_CATALOG_UPDATE: "model-catalog:update",
+	/** Genuine side-question deltas and lifecycle records, tagged with their owning tab. */
+	BTW_FRAME: "btw:frame",
 	/** Session list changed */
 	SESSIONS_CHANGED: "sessions:changed",
+	/** A local conversation locator is queued for this window to consume. */
+	CONVERSATION_FOCUS: "conversation:focus",
 	/** Log line appended */
 	LOG_LINE: "log:line",
 	/** Stats data ready */
@@ -123,6 +128,8 @@ export const IPC_COMMANDS = {
 	SESSIONS_RENAME: "sessions:rename",
 	/** Full-content search over session files; returns matching paths */
 	SESSIONS_SEARCH: "sessions:search",
+	/** Search spoken messages in local saved conversations. */
+	CONVERSATIONS_SEARCH: "conversations:search",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -191,10 +198,14 @@ export const IPC_COMMANDS = {
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
 	SESSION_CONSUME_PENDING: "session:consume-pending",
+	/** Consume this window's pending local conversation locator (one-shot). */
+	CONVERSATION_FOCUS_CONSUME: "conversation:focus-consume",
 	/** Read a persisted child-agent transcript through the active local/SSH tab. */
 	SESSION_READ_SUBAGENT_TRANSCRIPT: "session:read-subagent-transcript",
 	/** Spawn a tab (own sidecar) bound to the calling window */
 	SPAWN_TAB: "tab:spawn",
+	/** Cancel only the calling window's in-flight saved-session restore operation. */
+	CANCEL_RESTORE: "tab:cancel-restore",
 	/** Close a tab: release its sidecar; last tab leaves the window tab-less */
 	CLOSE_TAB: "tab:close",
 	/** Move full event forwarding to the window's active tab */
@@ -254,6 +265,7 @@ export interface RuntimeErrorReport {
 export type UpdateInstallMode = "automatic" | "manual";
 
 export type UpdateStatus =
+	| { state: "disabled"; version: string }
 	| { state: "idle" }
 	| { state: "checking" }
 	| { state: "available"; version: string; notes?: string; mode: UpdateInstallMode }
@@ -281,6 +293,7 @@ export type MenuAction =
 	| "open-settings"
 	| "open-usage"
 	| "open-command-center"
+	| "open-conversation-search"
 	| "open-context-report"
 	| "open-jobs"
 	| "open-stats"
@@ -596,6 +609,8 @@ export interface IpcStatsFetchPayload {
 export interface IpcNotifyPayload {
 	title: string;
 	body?: string;
+	/** Originating tab keeps equal outcomes from distinct sessions independent. */
+	tabId?: string;
 }
 
 export interface IpcPrefsGetPayload {
@@ -840,9 +855,16 @@ export interface IpcRemoteListHistoryPayload {
  */
 export interface IpcSessionOpenNewWindowPayload {
 	sessionPath?: string;
+	/** Locate this entry after the local saved session is foregrounded. */
+	entryId?: string;
 	cwd?: string;
 	target?: SessionTarget;
 	resumeSessionId?: string;
+}
+
+export interface ConversationFocusRequest {
+	sessionPath: string;
+	entryId: string;
 }
 
 export interface IpcSubagentTranscriptReadPayload {
@@ -864,6 +886,47 @@ export type TabStatus = SidecarStatus | "running";
 /** Session kind: "agent" (tools enabled) or "chat" (tool-free conversation). */
 export type SessionKind = "agent" | "chat";
 
+/** One message that matched a conversation search. */
+export interface ConversationHit {
+	/** The session entry id, used to open the transcript at this message. */
+	entryId: string;
+	role: "user" | "assistant";
+	/** One line around the match; matches are wrapped in \u0001…\u0002. */
+	snippet: string;
+	/** ms since epoch; 0 when unknown. */
+	timestamp: number;
+}
+
+/** A session with matching messages, newest activity first. */
+export interface ConversationSearchResult {
+	path: string;
+	sessionId: string;
+	cwd: string;
+	title: string | null;
+	kind?: "chat";
+	/** File modification time, ms since epoch. */
+	modified: number;
+	hits: ConversationHit[];
+	/** Further matching messages not shown. */
+	more: number;
+}
+
+export interface ConversationSearchResponse {
+	results: ConversationSearchResult[];
+	/** Sessions in the index. */
+	indexed: number;
+	/** Present while sessions are still being read into the index. */
+	indexing: { done: number; total: number } | null;
+	/** The index could not be opened; search is off for this run. */
+	unavailable?: boolean;
+}
+
+export interface IpcConversationSearchPayload {
+	query: string;
+	/** Limit to one project; omitted or null searches every project. */
+	cwd?: string | null;
+}
+
 /**
  * A tab's git-worktree binding (tab × worktree, plan/20). Immutable, set at
  * spawn like `kind`; main-held so it survives renderer reloads. `name` is the
@@ -883,6 +946,18 @@ export interface IpcTabInfo {
 	cwd: string;
 	target: SessionTarget;
 	status: TabStatus;
+	/** Transient turn outcome, independent of the sidecar connection status. */
+	runState?: "retrying" | "completed" | "failed" | "idle";
+	/** Lightweight retry state survives switching to a background tab. Null clears it. */
+	retryInfo?: {
+		attempt: number;
+		maxAttempts: number;
+		delayMs: number;
+		errorMessage: string;
+		startedAt: number;
+	} | null;
+	/** Existing cold tab is reserved while its saved history restores in the background. */
+	restoringSession?: boolean;
 	/** Present on GET_TABS for the tab main currently routes as active. */
 	active?: boolean;
 	/** Present on GET_TABS for the one or two tabs whose full stream is visible. */
@@ -915,12 +990,27 @@ export interface IpcActiveTabEnvelope<T> {
 	payload: T;
 }
 
+/** Blocking UI emitted by a hidden saved-session restore, without changing focus. */
+export interface IpcExtensionUiContext {
+	restoringSession?: boolean;
+	modelOrigin?: IpcSpawnTabPayload["modelOrigin"];
+	restoreRequestId?: string;
+}
+
 /** Spawn a tab bound to the calling window. Defaults: caller's cwd, fresh session. */
 export interface IpcSpawnTabPayload {
 	cwd?: string;
 	sessionPath?: string;
 	target?: SessionTarget;
 	resumeSessionId?: string;
+	/** Reuse only an authenticated caller-window cold logical slot; main validates its saved identity. */
+	existingTabId?: string;
+	/** Explicitly confirmed current-model binding when a saved model cannot restore. */
+	model?: { provider: string; modelId: string };
+	/** Working origin is validated before background restore and again before focus. */
+	modelOrigin?: { tabId: string; sessionId: string };
+	/** Renderer operation identity prevents stale restore interactions after cancellation/reload. */
+	restoreRequestId?: string;
 	/** Session kind for the new tab; omitted = "agent". Immutable once spawned. */
 	kind?: SessionKind;
 	/** Spawn a full agent in the GUI-owned default Work workspace. */
@@ -953,11 +1043,16 @@ export interface IpcSpawnTabResult {
 	ownerTabId?: string;
 	ownerWinId?: number;
 	/**
-	 * Why the spawn was refused (tabId null). `owned` = the session file is
-	 * already attached elsewhere (F-OWN); `kind-mismatch` = the requested kind
-	 * disagrees with the target session file's stamped kind.
+	 * Why the spawn was refused (tabId null): ownership, session kind, unavailable
+	 * saved model requiring confirmation, or a real restore failure.
 	 */
-	refusal?: "owned" | "kind-mismatch";
+	refusal?: "owned" | "kind-mismatch" | "model-restore" | "restore-failed";
+	missingModel?: string;
+	error?: string;
+	/** Temporary restore tab already released by main; discard any queued snapshots. */
+	failedTabId?: string;
+	/** Native restore completed and was verified before this existing tab became focusable. */
+	restoredSession?: boolean;
 }
 
 /** Look up which tab/window owns a session file (F-OWN renderer belt-guards). */
@@ -1049,7 +1144,11 @@ export interface OmpApi {
 		abortAndPrompt(message: string): Promise<RpcResponse>;
 		newSession(parentSession?: string): Promise<RpcResponse>;
 		dropSession(): Promise<RpcResponse>;
-		switchSession(sessionPath: string): Promise<RpcResponse>;
+		switchSession(
+			sessionPath: string,
+			model?: { provider: string; modelId: string },
+			expectedSessionId?: string,
+		): Promise<RpcResponse>;
 		branch(entryId: string): Promise<RpcResponse>;
 		fork(): Promise<RpcResponse>;
 		eval(code: string, language?: "python" | "js" | "ruby" | "julia", excluded?: boolean): Promise<RpcResponse>;
@@ -1062,7 +1161,6 @@ export interface OmpApi {
 		queueClear(lane?: "steering" | "followUp"): Promise<RpcResponse>;
 		setModel(provider: string, modelId: string): Promise<RpcResponse>;
 		cycleModel(direction?: "forward" | "backward"): Promise<RpcResponse>;
-		retry(): Promise<RpcResponse>;
 		clearContext(): Promise<RpcResponse>;
 		abortSubagent(agentId: string): Promise<RpcResponse>;
 		reviveSubagent(agentId: string): Promise<RpcResponse>;
@@ -1216,7 +1314,9 @@ export interface OmpApi {
 			tokenBudget?: number | null;
 			action?: "pause" | "resume" | "drop";
 		}): Promise<RpcResponse>;
-		btw(question: string): Promise<RpcResponse>;
+		btw(question: string, recordId?: string): Promise<RpcResponse>;
+		cancelBtw(recordId?: string): Promise<RpcResponse>;
+		getBtwHistory(): Promise<RpcResponse>;
 		btwBranch(): Promise<RpcResponse>;
 		tan(work: string): Promise<RpcResponse>;
 		omfg(complaint: string): Promise<RpcResponse>;
@@ -1250,7 +1350,10 @@ export interface OmpApi {
 		onBatch(callback: (events: AgentSessionEvent[]) => void): () => void;
 		onSidecarStatus(callback: (status: IpcSidecarStatusPayload) => void): () => void;
 		onTabStatus(callback: (payload: IpcTabStatusPayload) => void): () => void;
-		onExtensionUi(callback: (request: ExtensionUIRequest, tabId: string) => void): () => void;
+		onConversationFocus(callback: () => void): () => void;
+		onExtensionUi(
+			callback: (request: ExtensionUIRequest, tabId: string, context?: IpcExtensionUiContext) => void,
+		): () => void;
 		onHostToolCall(callback: (request: HostToolCallRequest) => void): () => void;
 		onHostUriRequest(callback: (request: HostUriRequest) => void): () => void;
 		onLiveUpdate(callback: (frame: RpcLiveUpdateFrame) => void): () => void;
@@ -1271,6 +1374,7 @@ export interface OmpApi {
 		onTabConfigUpdate(callback: (payload: ConfigUpdateFrame, tabId: string) => void): () => void;
 		onTabPromptResult(callback: (frame: PromptResultFrame, tabId: string) => void): () => void;
 		onTabCommandOutput(callback: (frame: CommandOutputFrame, tabId: string) => void): () => void;
+		onTabBtwFrame(callback: (frame: RpcBtwFrame, tabId: string) => void): () => void;
 		onTabSessionInfoUpdate(callback: (frame: SessionInfoUpdateFrame, tabId: string) => void): () => void;
 		onTabExtensionError(callback: (frame: ExtensionErrorFrame, tabId: string) => void): () => void;
 		onSessionsChanged(callback: () => void): () => void;
@@ -1298,6 +1402,8 @@ export interface OmpApi {
 		delete(sessionPath: string): Promise<void>;
 		rename(sessionPath: string, name: string): Promise<void>;
 		search(query: string, scope: "local" | "global"): Promise<string[]>;
+		/** Search local saved user/assistant messages; never scans SSH hosts. */
+		searchConversations(query: string, cwd: string | null): Promise<ConversationSearchResponse>;
 		/**
 		 * Open a session (or a fresh project window) in a new parallel window.
 		 * False at the cap. When `sessionPath` is already attached to a tab,
@@ -1307,6 +1413,7 @@ export interface OmpApi {
 		openInNewWindow(payload: IpcSessionOpenNewWindowPayload): Promise<boolean>;
 		/** One-shot: the session this window was opened to display, if any. */
 		consumePendingOpen(): Promise<string | null>;
+		consumePendingConversationFocus(): Promise<ConversationFocusRequest | null>;
 		readSubagentTranscript(sessionFile: string): Promise<IpcSubagentTranscriptReadResult>;
 	};
 	remote: {
@@ -1339,6 +1446,7 @@ export interface OmpApi {
 		 * `{ tabId: null, ownerTabId, ownerWinId }` instead of spawning (F-OWN).
 		 */
 		spawn(payload: IpcSpawnTabPayload): Promise<IpcSpawnTabResult | null>;
+		cancelRestore(payload: { restoreRequestId: string }): Promise<boolean>;
 		/** Release a tab's sidecar. False when the tab is unknown or foreign. */
 		close(tabId: string): Promise<boolean>;
 		/** Move full event forwarding to this tab. False when unknown or foreign. */
@@ -1367,7 +1475,7 @@ export interface OmpApi {
 			options?: { directory?: boolean },
 		): Promise<string[] | null>;
 		clipboardRead(): Promise<string>;
-		notify(title: string, body?: string): void;
+		notify(title: string, body?: string, tabId?: string): void;
 	};
 	prefs: {
 		get(key?: string): Promise<unknown>;

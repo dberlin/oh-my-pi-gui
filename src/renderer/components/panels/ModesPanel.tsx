@@ -352,8 +352,8 @@ function Toggle({
 			</span>
 			<button
 				aria-checked={checked}
-				className={`relative mt-0.5 h-5 w-9 shrink-0 omp-switch-track rounded-full disabled:cursor-not-allowed disabled:opacity-50 ${
-					checked ? "bg-(--omp-switch-on)" : "bg-(--omp-switch-off)"
+				className={`relative mt-0.5 h-4.5 w-8 shrink-0 rounded-full transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
+					checked ? "bg-(--omp-accent)" : "border border-(--omp-border-muted)"
 				}`}
 				disabled={disabled}
 				onClick={() => onChange(!checked)}
@@ -362,8 +362,8 @@ function Toggle({
 				type="button"
 			>
 				<span
-					className={`omp-switch-thumb absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow ${
-						checked ? "translate-x-4" : "translate-x-0"
+					className={`absolute top-0.5 size-3.5 rounded-full bg-white shadow transition-all duration-150 ${
+						checked ? "left-4" : "left-0.5"
 					}`}
 				/>
 			</button>
@@ -372,7 +372,9 @@ function Toggle({
 }
 
 function SectionLabel({ children }: { children: ReactNode }) {
-	return <span className="block text-omp-xs font-semibold text-(--omp-muted)">{children}</span>;
+	return (
+		<span className="block text-omp-xs font-semibold tracking-wider text-(--omp-muted) uppercase">{children}</span>
+	);
 }
 
 // ---------------------------------------------------------------------------

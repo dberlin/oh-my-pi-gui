@@ -53,21 +53,126 @@ export function applyUsageSnapshot(state: RpcSessionState, tabId: string): void 
 	withSessionRuntime(tabId, () => writeUsage(state));
 }
 
-/** Apply a get_state snapshot to every state-derived store. */
-export function applySessionState(state: RpcSessionState, fallbackName?: string): void {
+interface MetadataOwnership {
+	model: boolean;
+	thinkingLevel: boolean;
+	fastModeEnabled: boolean;
+	fastModeActive: boolean;
+	tokensPerSecond: boolean;
+	sessionId: boolean;
+	sessionName: boolean;
+	sessionFile: boolean;
+	cwd: boolean;
+	contextUsage: boolean;
+}
+
+/** Track field changes, not just final equality: a newer ABA update still wins. */
+function captureMetadataOwnership(runtime: SessionRuntime) {
+	const fields: MetadataOwnership = {
+		model: true,
+		thinkingLevel: true,
+		fastModeEnabled: true,
+		fastModeActive: true,
+		tokensPerSecond: true,
+		sessionId: true,
+		sessionName: true,
+		sessionFile: true,
+		cwd: true,
+		contextUsage: true,
+	};
+	const stopModel = sessionRuntimeStore<ModelStore>(runtime.tabId, "model")?.subscribe((state, previous) => {
+		if (state.model !== previous.model) fields.model = false;
+		if (state.thinkingLevel !== previous.thinkingLevel) fields.thinkingLevel = false;
+		if (state.fastModeEnabled !== previous.fastModeEnabled) fields.fastModeEnabled = false;
+		if (state.fastModeActive !== previous.fastModeActive) fields.fastModeActive = false;
+		if (state.tokensPerSecond !== previous.tokensPerSecond) fields.tokensPerSecond = false;
+	});
+	const stopSession = sessionRuntimeStore<SessionStore>(runtime.tabId, "session")?.subscribe((state, previous) => {
+		if (state.sessionId !== previous.sessionId) fields.sessionId = false;
+		if (state.sessionName !== previous.sessionName) fields.sessionName = false;
+		if (state.sessionFile !== previous.sessionFile) fields.sessionFile = false;
+		if (state.cwd !== previous.cwd) fields.cwd = false;
+		if (state.contextUsage !== previous.contextUsage) fields.contextUsage = false;
+	});
+	return {
+		fields,
+		stop: () => {
+			stopModel?.();
+			stopSession?.();
+		},
+	};
+}
+
+/** Apply owned metadata independently from lifecycle snapshot freshness. */
+export function applySessionState(
+	state: RpcSessionState,
+	fallbackName?: string,
+	ownership?: { metadata: Readonly<MetadataOwnership>; lifecycle: boolean },
+): void {
 	const runtime = focusedSessionRuntime();
+	const model = useModelStore.getState();
+	const session = useSessionStore.getState();
+	const metadata = ownership?.metadata;
+	const sameModel =
+		!metadata ||
+		metadata.model ||
+		(state.model?.provider === model.model?.provider && state.model?.id === model.model?.id);
+	const fullyOwned =
+		!metadata ||
+		(metadata.model &&
+			metadata.thinkingLevel &&
+			metadata.fastModeEnabled &&
+			metadata.fastModeActive &&
+			metadata.tokensPerSecond &&
+			metadata.sessionId &&
+			metadata.sessionName &&
+			metadata.sessionFile &&
+			metadata.cwd &&
+			metadata.contextUsage);
+	const snapshot: RpcSessionState =
+		metadata && !fullyOwned
+			? {
+					...state,
+					model: metadata.model ? state.model : model.model,
+					thinkingLevel: sameModel && metadata.thinkingLevel ? state.thinkingLevel : model.thinkingLevel,
+					fastModeEnabled: sameModel && metadata.fastModeEnabled ? state.fastModeEnabled : model.fastModeEnabled,
+					fastModeActive: sameModel && metadata.fastModeActive ? state.fastModeActive : model.fastModeActive,
+					tokensPerSecond: sameModel && metadata.tokensPerSecond ? state.tokensPerSecond : model.tokensPerSecond,
+					sessionId: metadata.sessionId ? state.sessionId : session.sessionId,
+					sessionName: metadata.sessionName ? state.sessionName : session.sessionName,
+					sessionFile: metadata.sessionFile ? state.sessionFile : session.sessionFile,
+					cwd: metadata.cwd ? state.cwd : session.cwd,
+					contextUsage: sameModel && metadata.contextUsage ? state.contextUsage : session.contextUsage,
+				}
+			: state;
+	const lifecycle = ownership?.lifecycle ?? true;
 	if (runtime) runtime.recovering = false;
-	if (useSessionStore.getState().sessionId !== state.sessionId) useSubagentGraphStore.getState().reset();
-	useModelStore.getState().setFromState(state);
-	useSessionStore.getState().setFromState(state);
-	if (state.queuedMessages) useQueueStore.getState().setFromFrame(state.queuedMessages);
-	useTabsStore.getState().applyHydratedCwd(state.cwd, runtime?.tabId ?? useTabsStore.getState().activeTabId);
-	writeUsage(state);
-	if (!state.sessionName && fallbackName) {
+	// Initial identity discovery belongs to the live stream already painting.
+	// A genuinely different established session still retires its old graph.
+	if (session.sessionId !== snapshot.sessionId && (lifecycle || session.sessionId)) {
+		useSubagentGraphStore.getState().reset();
+	}
+	model.setFromState(snapshot);
+	if (lifecycle) {
+		session.setFromState(snapshot);
+		if (snapshot.queuedMessages) useQueueStore.getState().setFromFrame(snapshot.queuedMessages);
+		useSettingsStore.getState().setFromState(snapshot);
+		useTodoStore.getState().setPhases(snapshot.todoPhases);
+	} else {
+		useSessionStore.setState({
+			sessionId: snapshot.sessionId,
+			sessionName: metadata?.sessionName ? snapshot.sessionName || null : session.sessionName,
+			sessionFile: snapshot.sessionFile ?? null,
+			cwd: snapshot.cwd ?? session.cwd,
+		});
+	}
+	if (!metadata || metadata.cwd) {
+		useTabsStore.getState().applyHydratedCwd(snapshot.cwd, runtime?.tabId ?? useTabsStore.getState().activeTabId);
+	}
+	if (!metadata || (sameModel && metadata.contextUsage)) writeUsage(snapshot);
+	if ((!metadata || metadata.sessionName) && !snapshot.sessionName && fallbackName) {
 		useSessionStore.setState({ sessionName: fallbackName });
 	}
-	useSettingsStore.getState().setFromState(state);
-	useTodoStore.getState().setPhases(state.todoPhases);
 }
 
 /**
@@ -371,9 +476,20 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 export async function hydrateTabSession(tabId: string, fallbackName?: string): Promise<void> {
 	if (isTabClosed(tabId)) return;
 	const runtime = ensureTabRuntime(tabId);
+	const session = sessionRuntimeStore<SessionStore>(tabId, "session");
+	if (session && !session.getState().cwd) {
+		const targetCwd = useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.cwd;
+		// Bind the owning target before capturing metadata precedence. This is
+		// an absence fallback, not a later route hint superseding native cwd.
+		if (targetCwd) session.setState({ cwd: targetCwd });
+	}
+	const commandGeneration = runtime.commandGeneration;
 	const version = (hydrationVersions.get(runtime) ?? 0) + 1;
 	hydrationVersions.set(runtime, version);
-	const isCurrent = (): boolean => hydrationVersions.get(runtime) === version && sessionRuntime(tabId) === runtime;
+	const isCurrent = (): boolean =>
+		hydrationVersions.get(runtime) === version &&
+		sessionRuntime(tabId) === runtime &&
+		runtime.commandGeneration === commandGeneration;
 	try {
 		void runtime.command({ type: "set_subagent_subscription", level: "events" }).catch(() => {});
 	} catch {
@@ -395,6 +511,7 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 
 	const beforeSessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
 	const beforeEventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
+	const metadata = captureMetadataOwnership(runtime);
 	const stateResponse = runtime.command({ type: "get_state" });
 	const coreResult = Promise.allSettled([stateResponse, createSessionRpcClient(runtime.command).getMessages()]);
 	const subagentsResult = Promise.allSettled([runtime.command({ type: "get_subagents" })]);
@@ -424,8 +541,23 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		settings?.syncDisplaySettings(),
 		settings?.syncApproval(),
 	]);
-	const [stateResult, messagesResult] = await coreResult;
+	let core: Awaited<typeof coreResult>;
+	try {
+		core = await coreResult;
+	} finally {
+		// Ownership covers the read only; no subscriptions survive cancellation,
+		// stale generations, failure, or the subsequent rendering commit.
+		metadata.stop();
+	}
+	const [stateResult, messagesResult] = core;
 	if (!isCurrent()) return;
+	if (stateResult.status === "fulfilled" && stateResult.value.success && stateResult.value.data != null) {
+		const wire = stateResult.value.data as RpcSessionState;
+		const currentSessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
+		// Only identity changes DURING the read retire this snapshot. An
+		// unchanged cached identity may legitimately be corrected by native state.
+		if (!metadata.fields.sessionId && currentSessionId && currentSessionId !== wire.sessionId) return;
+	}
 	const eventsUnchanged =
 		sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion === beforeEventVersion;
 	// `get_state` is the only witness to a live turn. A failed read counts as not
@@ -442,14 +574,14 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		stateResult.value.data != null &&
 		!stateIsStreaming;
 
-	if (
-		eventsUnchanged &&
-		stateResult.status === "fulfilled" &&
-		stateResult.value.success &&
-		stateResult.value.data != null
-	) {
+	if (stateResult.status === "fulfilled" && stateResult.value.success && stateResult.value.data != null) {
 		const wire = stateResult.value.data as RpcSessionState;
-		withSessionRuntime(tabId, () => applySessionState(wire, fallbackName));
+		withSessionRuntime(tabId, () =>
+			applySessionState(wire, fallbackName, {
+				metadata: metadata.fields,
+				lifecycle: eventsUnchanged,
+			}),
+		);
 		// Mid-run attach (launch/reconnect/session switch while the agent is
 		// streaming) missed the agent_start that arms the status row — re-arm
 		// it like the TUI's ensureLoadingAnimation on guest attach, unless a
@@ -457,10 +589,10 @@ export async function hydrateTabSession(tabId: string, fallbackName?: string): P
 		// is actively streaming the row stays hidden behind StreamingRows.
 		const session = sessionRuntimeStore<SessionStore>(tabId, "session");
 		const messages = sessionRuntimeStore<MessagesStore>(tabId, "messages");
-		if (wire.isStreaming && session?.getState().awaitingModelSince === null) {
+		if (eventsUnchanged && wire.isStreaming && session?.getState().awaitingModelSince === null) {
 			session.setState({ awaitingModelSince: Date.now() });
 		}
-		if (!wire.isStreaming) {
+		if (eventsUnchanged && !wire.isStreaming) {
 			// Zombie settle: the run finished while this tab sat in the
 			// background, so its message_end/agent_end never forwarded and the
 			// restored bundle still paints partial assistant content. Clear only

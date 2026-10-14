@@ -35,8 +35,8 @@ export function useThrottledText(text: string, intervalMs: number): string {
 	useEffect(() => {
 		latestRef.current = text;
 
-		// Reset/replacement streams must never keep showing the old value.
-		if (!text.startsWith(displayedRef.current) || intervalMs <= 0) {
+		// Reset/replacement streams must never reveal a suffix from the old value.
+		if (!text.startsWith(displayedRef.current)) {
 			if (frameRequestRef.current !== undefined) cancelPresentationFrame(frameRequestRef.current);
 			frameRequestRef.current = undefined;
 			displayedRef.current = text;
@@ -44,7 +44,13 @@ export function useThrottledText(text: string, intervalMs: number): string {
 			return;
 		}
 
-		if (text === displayedRef.current || frameRequestRef.current !== undefined) return;
+		if (text === displayedRef.current) return;
+		if (intervalMs <= 0) {
+			displayedRef.current = text;
+			setDisplayed(text);
+			return;
+		}
+		if (frameRequestRef.current !== undefined) return;
 
 		const commitOnFrame = (now: number) => {
 			const elapsed = now - lastCommitRef.current;

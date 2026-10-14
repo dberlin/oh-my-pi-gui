@@ -20,7 +20,14 @@ import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
-import { useExtensionUiStore } from "../../stores/extension-ui";
+import { type ExtensionUiStore, useExtensionUiStore } from "../../stores/extension-ui";
+import { useModelRestoreStore } from "../../stores/model-restore";
+import {
+	SessionRuntimeProvider,
+	sessionRuntime,
+	useRuntimeStore,
+	useRuntimeTabId,
+} from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { Button, Input, Modal } from "../common";
 import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
@@ -499,15 +506,34 @@ function PromptEditorForm({
 	);
 }
 
+/** Existing inline surface, temporarily bound only at the original working pane. */
 export function ExtensionAskPanel() {
+	return (
+		<RestoreInteractionScope inline>
+			<ExtensionAskContent />
+		</RestoreInteractionScope>
+	);
+}
+
+function RestoreInteractionScope({ children, inline = false }: { children: ReactNode; inline?: boolean }) {
+	const interaction = useModelRestoreStore(state => state.interactions[0] ?? null);
+	const paneId = useRuntimeTabId();
+	const runtime =
+		interaction && (!inline || paneId === interaction.originTabId) ? sessionRuntime(interaction.tabId) : null;
+	return runtime ? <SessionRuntimeProvider runtime={runtime}>{children}</SessionRuntimeProvider> : children;
+}
+
+function ExtensionAskContent() {
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
+	const store = useRuntimeStore<ExtensionUiStore>("extensionUi", useExtensionUiStore);
 	const request = useMemo(() => pending.find(item => !NON_DIALOG_METHODS.has(item.method)) ?? null, [pending]);
 	const remaining = useCountdown(request);
 	const t = useT();
 
 	if (!request || !isInlineAskRequest(request)) return null;
 	const respond = (response: { value: string } | { askDialog: ExtensionAskDialogResult } | { cancelled: true }) => {
+		if (!store.getState().pendingRequests.some(pending => pending.id === request.id)) return;
 		window.omp.ui.respondExtensionUi({ type: "extension_ui_response", id: request.id, ...response });
 		removeRequest(request.id);
 	};
@@ -678,8 +704,10 @@ function OpenUrlDialog({
 
 function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; remaining: number | null }) {
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
+	const store = useRuntimeStore<ExtensionUiStore>("extensionUi", useExtensionUiStore);
 
 	const respond = (response: { value: string } | { confirmed: boolean } | { cancelled: true }) => {
+		if (!store.getState().pendingRequests.some(pending => pending.id === request.id)) return;
 		window.omp.ui.respondExtensionUi({ type: "extension_ui_response", id: request.id, ...response });
 		removeRequest(request.id);
 	};
@@ -740,9 +768,19 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 	}
 }
 
+/** Pure request rendering: the single App subscription still owns all event intake. */
 export function ExtensionDialog() {
+	return (
+		<RestoreInteractionScope>
+			<ExtensionDialogContent />
+		</RestoreInteractionScope>
+	);
+}
+
+function ExtensionDialogContent() {
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
+	const store = useRuntimeStore<ExtensionUiStore>("extensionUi", useExtensionUiStore);
 
 	const request = useMemo(() => pending.find(item => !NON_DIALOG_METHODS.has(item.method)) ?? null, [pending]);
 	const remaining = useCountdown(request);
@@ -781,6 +819,7 @@ export function ExtensionDialog() {
 	// Timeout: auto-cancel with timedOut marker.
 	useEffect(() => {
 		if (!request || remaining === null || remaining > 0) return;
+		if (!store.getState().pendingRequests.some(pending => pending.id === request.id)) return;
 		window.omp.ui.respondExtensionUi({
 			type: "extension_ui_response",
 			id: request.id,
@@ -788,7 +827,7 @@ export function ExtensionDialog() {
 			timedOut: true,
 		});
 		removeRequest(request.id);
-	}, [request, remaining, removeRequest]);
+	}, [request, remaining, removeRequest, store]);
 
 	return (
 		<>

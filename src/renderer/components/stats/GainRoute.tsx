@@ -75,7 +75,10 @@ export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey
 			{overall && (
 				<>
 					<div className="mb-3 flex items-center gap-2">
-						<label className="text-omp-xs font-semibold text-(--omp-dim)" htmlFor="gain-project">
+						<label
+							className="text-omp-xs font-semibold tracking-widest text-(--omp-dim) uppercase"
+							htmlFor="gain-project"
+						>
 							{t("stats.col.project")}
 						</label>
 						<select

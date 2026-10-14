@@ -21,6 +21,7 @@ import { ImportForeignDialog } from "./components/dialogs/ImportForeignDialog";
 import { JobsDialog } from "./components/dialogs/JobsDialog";
 import { LiveVoiceDialog } from "./components/dialogs/LiveVoiceDialog";
 import { ModelPicker } from "./components/dialogs/ModelPicker";
+import { ModelRestoreDialog } from "./components/dialogs/ModelRestoreDialog";
 import { PlanApprovalDialog } from "./components/dialogs/PlanApprovalDialog";
 import { RenameSessionDialog } from "./components/dialogs/RenameSessionDialog";
 import { SessionInfoDialog } from "./components/dialogs/SessionInfoDialog";
@@ -46,6 +47,7 @@ import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch"
 import { useSidebarRecency } from "./hooks/use-sidebar-recency";
 import { useTraySync } from "./hooks/use-tray-sync";
 import { requestUsageReport, restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
+import { openConversationFocus } from "./lib/conversation-search";
 import {
 	hydrateDisplayPreferences,
 	readDisplayPreference,
@@ -53,7 +55,7 @@ import {
 	useDisplayPreference,
 } from "./lib/display-preferences";
 import { exportSessionHtml } from "./lib/export-session";
-import { useLang, useT } from "./lib/i18n";
+import { translate, useLang, useT } from "./lib/i18n";
 import { isImeKeyEvent } from "./lib/ime";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
 import { abortActiveTurn, restoreQueuedMessages } from "./lib/messages";
@@ -81,6 +83,7 @@ import { useSettingsStore } from "./stores/settings";
 import { ensureTabRuntime } from "./stores/tab-runtime";
 import { adjacentTabId, useSessionTabs, useTabsStore } from "./stores/tabs";
 import { toast } from "./stores/toast";
+import { useTranscriptFocusStore } from "./stores/transcript-focus";
 import { type PanelTab, useUiStore } from "./stores/ui";
 import { subscribeUpdaterStatus } from "./stores/updater";
 
@@ -138,6 +141,9 @@ const AgentHubWindow = lazy(() =>
 const PrCenterWindow = lazy(() =>
 	import("./components/panels/PrCenterWindow").then(m => ({ default: m.PrCenterWindow })),
 );
+const ConversationSearchDialog = lazy(() =>
+	import("./components/dialogs/ConversationSearchDialog").then(m => ({ default: m.ConversationSearchDialog })),
+);
 const ProviderConfigDialog = lazy(() =>
 	import("./components/settings/ProviderConfigDialog").then(m => ({ default: m.ProviderConfigDialog })),
 );
@@ -191,6 +197,67 @@ function FocusedSessionEffects() {
 export function AppGlobalActions() {
 	const { lang, setLang } = useLang();
 	const t = useT();
+
+	// Subscribe before the startup consume so foregrounding a different window
+	// cannot race its renderer boot. A new window may learn its saved owner from
+	// a later light status; retain that request until the local owner exists.
+	useEffect(() => {
+		let live = true;
+		let routing = false;
+		let reading = false;
+		let readAgain = false;
+		const report = (error: unknown) =>
+			toast({ variant: "error", title: translate("app.actionFailed"), message: String(error) });
+		const routePending = async () => {
+			const request = useTranscriptFocusStore.getState().pendingNative;
+			if (!live || routing || !request) return;
+			routing = true;
+			try {
+				if (
+					(await openConversationFocus(request)) &&
+					useTranscriptFocusStore.getState().pendingNative === request
+				) useTranscriptFocusStore.setState({ pendingNative: null });
+			} catch (error) {
+				if (useTranscriptFocusStore.getState().pendingNative === request) {
+					useTranscriptFocusStore.setState({ pendingNative: null });
+				}
+				throw error;
+			} finally {
+				routing = false;
+				const pending = useTranscriptFocusStore.getState().pendingNative;
+				if (live && pending && pending !== request) void routePending().catch(report);
+			}
+		};
+		const consume = async () => {
+			readAgain = true;
+			if (reading) return;
+			reading = true;
+			try {
+				while (live && readAgain) {
+					readAgain = false;
+					const request = await window.omp.sessions.consumePendingConversationFocus();
+					if (request) {
+						useTranscriptFocusStore.setState({ pendingNative: request });
+					}
+				}
+			} finally {
+				reading = false;
+			}
+		};
+		const unsubscribeFocus = window.omp.events.onConversationFocus(() => void consume().catch(report));
+		const unsubscribeTabs = useTabsStore.subscribe(() => void routePending().catch(report));
+		const unsubscribePending = useTranscriptFocusStore.subscribe((state, previous) => {
+			if (state.pendingNative !== previous.pendingNative) void routePending().catch(report);
+		});
+		void routePending().catch(report);
+		void consume().catch(report);
+		return () => {
+			live = false;
+			unsubscribeFocus();
+			unsubscribeTabs();
+			unsubscribePending();
+		};
+	}, []);
 
 	// User keybinding overrides → precompiled chord → actionId lookup (B3,
 	// plan/15 §3.5): keydown dispatch is an O(1) map hit, never a config walk.
@@ -290,6 +357,9 @@ export function AppGlobalActions() {
 					// ⌥A — agent hub (TUI app.agents.hub).
 					ui.openAgentHub("hub");
 					return;
+				case "search.conversations":
+					ui.openConversationSearch();
+					return;
 				case "palette":
 					if (ui.commandPaletteOpen) ui.closeCommandPalette();
 					else ui.openCommandPalette();
@@ -339,6 +409,7 @@ export function AppGlobalActions() {
 				ui.statsDashboardOpen ||
 				ui.benchmarkOpen ||
 				ui.sessionPickerOpen ||
+				ui.conversationSearchOpen ||
 				ui.branchPickerOpen ||
 				ui.hotkeysOpen;
 			if (event.key === "Escape") {
@@ -536,6 +607,10 @@ export function AppGlobalActions() {
 				ui.openPrCenter();
 				return;
 			}
+			if (action === "open-conversation-search") {
+				ui.openConversationSearch();
+				return;
+			}
 			if (action === "open-debug") {
 				ui.openDebug();
 				return;
@@ -605,6 +680,7 @@ export function App() {
 	const statsDashboardOpen = useUiStore(s => s.statsDashboardOpen);
 	const closeStatsDashboard = useUiStore(s => s.closeStatsDashboard);
 	const feedbackOpen = useUiStore(s => s.feedbackOpen);
+	const conversationSearchOpen = useUiStore(s => s.conversationSearchOpen);
 	const modelCompareOpen = useUiStore(s => s.modelCompareOpen);
 	const closeModelCompare = useUiStore(s => s.closeModelCompare);
 	const benchmarkOpen = useUiStore(s => s.benchmarkOpen);
@@ -817,6 +893,7 @@ export function App() {
 			<WorktreeCloseDialog />
 			<SessionPickerDialog />
 			<SessionSwitchDialog />
+			<ModelRestoreDialog />
 			<BranchPickerDialog />
 			<BtwDialog />
 			<CollabDialog />
@@ -844,6 +921,7 @@ export function App() {
 				<ModesPanel open={modesOpen} onClose={closeModes} initialTab={modesTab} />
 				<AgentHubWindow open={agentHubOpen} onClose={closeAgentHub} initialTab={agentHubTab} />
 				<PrCenterWindow />
+				{conversationSearchOpen && <ConversationSearchDialog />}
 				<ProviderConfigDialog
 					open={providerConfigOpen}
 					editProvider={providerConfigEdit}

@@ -11,38 +11,15 @@
  */
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-	ChevronDown,
-	ChevronRight,
-	ChevronsDownUp,
-	ChevronsUpDown,
-	Columns2,
-	FilePen,
-	GitCompareArrows,
-	History,
-	type LucideIcon,
-	Package,
-	Rows3,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, Columns2, FileCode2, Rows3 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DiffView, parseDiff } from "../../lib/diff";
-import { cx, formatClock, formatTimeAgo, resultDetails, resultText } from "../../lib/format";
+import { type DiffLine, DiffView, parseDiff } from "../../lib/diff";
+import { basename, dirname, formatClock, formatTimeAgo, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
-import { type DiffScope, useUiStore } from "../../stores/ui";
-import { ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { RepositoryChanges } from "./RepositoryChanges";
-import {
-	DiffBody,
-	DiffFileCard,
-	DiffStat,
-	FileLabel,
-	PanelEmpty,
-	PanelToolbar,
-	ToolbarIconButton,
-} from "./workspace-ui";
 
 const DIFF_TOOLS = new Set(["edit", "apply_patch", "ast_edit", "write"]);
 
@@ -116,28 +93,82 @@ export function buildEditCandidates(activeTools: ReadonlyMap<string, ToolEntry>)
 function EditPreview({ entry }: { entry: DiffCandidate }) {
 	const t = useT();
 	return entry.isContent ? (
-		<div className="px-3 py-2">
-			<p className={cx("mb-1.5 text-omp-xs", entry.isError ? "text-(--omp-error)" : "text-(--omp-dim)")}>
+		<div>
+			<p className={`text-omp-xs ${entry.isError ? "text-(--omp-error)" : "text-(--omp-muted)"}`}>
 				{t(entry.isError ? "diffPanel.failedEdit" : "diffPanel.writtenContent")}
 			</p>
-			<pre className="overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-[1.45] text-(--omp-text-secondary)">
+			<pre className="overflow-auto whitespace-pre-wrap break-words font-mono text-omp-sm">
 				{entry.diff.slice(0, PREVIEW_TEXT_CHARS)}
 			</pre>
-			{entry.diff.length > PREVIEW_TEXT_CHARS && (
-				<p className="mt-1.5 text-omp-xs text-(--omp-warning)">{t("diffPanel.previewLimited")}</p>
-			)}
+			{entry.diff.length > PREVIEW_TEXT_CHARS && <p>{t("diffPanel.previewLimited")}</p>}
 		</div>
 	) : (
-		<DiffView diff={entry.diff} filePath={entry.file} className="py-1" />
+		<DiffView diff={entry.diff} filePath={entry.file} />
 	);
 }
 
-/** What an edit did: its line delta, "written" for content snapshots, or the failure. */
-function EditOutcome({ entry }: { entry: DiffCandidate }) {
-	const t = useT();
-	if (entry.isError) return <span className="shrink-0 text-omp-xs text-(--omp-error)">{t("diffPanel.error")}</span>;
-	if (entry.isContent) return <span className="shrink-0 text-omp-xs text-(--omp-dim)">{t("diffPanel.written")}</span>;
-	return <DiffStat adds={entry.adds} removes={entry.removes} />;
+/** Pair remove/add runs into side-by-side rows for split view. */
+function toSplitRows(lines: DiffLine[]): { left: DiffLine | null; right: DiffLine | null }[] {
+	const rows: { left: DiffLine | null; right: DiffLine | null }[] = [];
+	let removes: DiffLine[] = [];
+	const flush = (adds: DiffLine[]) => {
+		const width = Math.max(removes.length, adds.length);
+		for (let i = 0; i < width; i++) {
+			rows.push({ left: removes[i] ?? null, right: adds[i] ?? null });
+		}
+		removes = [];
+	};
+	let adds: DiffLine[] = [];
+	for (const line of lines) {
+		if (line.type === "remove") {
+			if (adds.length > 0) {
+				flush(adds);
+				adds = [];
+			}
+			removes.push(line);
+		} else if (line.type === "add") {
+			adds.push(line);
+		} else {
+			if (removes.length > 0 || adds.length > 0) {
+				flush(adds);
+				adds = [];
+			}
+			rows.push({ left: line, right: line });
+		}
+	}
+	if (removes.length > 0 || adds.length > 0) flush(adds);
+	return rows;
+}
+
+const LINE_CLASS: Record<DiffLine["type"], string> = {
+	add: "bg-[color-mix(in_srgb,var(--omp-diff-added)_12%,transparent)] text-(--omp-diff-added)",
+	remove: "bg-[color-mix(in_srgb,var(--omp-diff-removed)_12%,transparent)] text-(--omp-diff-removed)",
+	context: "text-(--omp-diff-context)",
+};
+
+function SplitDiff({ diff }: { diff: string }) {
+	const rows = useMemo(() => toSplitRows(parseDiff(diff)), [diff]);
+	return (
+		<div className="grid grid-cols-2 gap-px overflow-x-auto rounded-md border border-(--omp-border-muted) bg-(--omp-border-muted) font-mono text-omp-sm leading-[1.45]">
+			{(["left", "right"] as const).map(side => (
+				<div className="min-w-0 bg-(--omp-code-bg)" key={side}>
+					{rows.map((row, index) => {
+						const line = row[side];
+						return (
+							<div
+								className={`px-2 whitespace-pre ${line ? LINE_CLASS[line.type] : "text-transparent"}`}
+								key={index}
+							>
+								{line
+									? `${line.type === "add" ? "+" : line.type === "remove" ? "-" : " "}${line.content}`
+									: "·"}
+							</div>
+						);
+					})}
+				</div>
+			))}
+		</div>
+	);
 }
 
 // ─── Timeline view ──────────────────────────────────────────────────────────
@@ -244,24 +275,32 @@ function FileGroupHeader({
 	collapsed: boolean;
 	onToggle: () => void;
 }) {
+	const base = basename(group.file);
+	const dir = dirname(group.file);
+	// dirname() returns "/" for directory-less relative paths — hide it there.
+	const dirPrefix = dir === "/" ? (group.file.startsWith("/") ? "/" : "") : `${dir}/`;
 	return (
 		<button
 			aria-expanded={!collapsed}
-			className="omp-diff-card-header flex h-8 w-full min-w-0 items-center gap-2 px-3 text-left text-omp-sm"
+			className="flex w-full items-center gap-1.5 rounded px-1 py-1.5 text-left transition-colors hover:bg-(--omp-selected-bg)"
 			onClick={onToggle}
+			title={group.file}
 			type="button"
 		>
-			<ChevronRight
-				aria-hidden="true"
-				className={cx("omp-disclosure-chevron shrink-0 text-(--omp-dim)", !collapsed && "rotate-90")}
-				size={13}
-			/>
-			<span className="min-w-0 flex-1">
-				<FileLabel path={group.file} />
+			{collapsed ? (
+				<ChevronRight className="shrink-0 text-(--omp-dim)" size={12} />
+			) : (
+				<ChevronDown className="shrink-0 text-(--omp-dim)" size={12} />
+			)}
+			<FileCode2 className="shrink-0 text-(--omp-dim)" size={12} />
+			<span className="min-w-0 truncate font-mono text-omp-sm text-(--omp-text)">
+				{dirPrefix && <span className="text-(--omp-dim)">{dirPrefix}</span>}
+				{base}
 			</span>
-			{group.adds + group.removes > 0 && <DiffStat adds={group.adds} removes={group.removes} />}
-			<span className="w-7 shrink-0 text-right font-mono text-omp-xs tabular-nums text-(--omp-dim)">
-				×{group.edits.length}
+			<span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-omp-xs">
+				<span className="text-(--omp-diff-added)">+{group.adds}</span>
+				<span className="text-(--omp-diff-removed)">-{group.removes}</span>
+				<span className="px-1 py-px text-omp-xxs text-(--omp-dim)">×{group.edits.length}</span>
 			</span>
 		</button>
 	);
@@ -276,23 +315,36 @@ function EditTimelineRow({
 	expanded: boolean;
 	onToggle: () => void;
 }) {
+	const t = useT();
 	return (
-		<div className="omp-timeline-edit pb-0.5">
+		<div className="pb-0.5 pl-4">
 			<button
 				aria-expanded={expanded}
-				className="flex h-7 w-full items-center gap-2 rounded-md pr-3 pl-8 text-left text-omp-xs hover:bg-(--omp-sidebar-item-hover)"
+				className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left transition-colors hover:bg-(--omp-selected-bg)"
 				onClick={onToggle}
 				type="button"
 			>
-				<span aria-hidden="true" className={cx("omp-timeline-dot", entry.isError && "omp-timeline-dot--error")} />
-				<span className="shrink-0 text-(--omp-muted)">{entry.toolName}</span>
-				<EditOutcome entry={entry} />
-				<span className="ml-auto shrink-0 text-(--omp-dim)" title={formatClock(entry.timestamp)}>
-					{formatTimeAgo(new Date(entry.timestamp).toISOString(), { compact: true })}
+				{expanded ? (
+					<ChevronDown className="shrink-0 text-(--omp-dim)" size={12} />
+				) : (
+					<ChevronRight className="shrink-0 text-(--omp-dim)" size={12} />
+				)}
+				<span className="flex shrink-0 items-center gap-1 font-mono text-omp-xs">
+					<span className="text-(--omp-diff-added)">+{entry.adds}</span>
+					<span className="text-(--omp-diff-removed)">-{entry.removes}</span>
+				</span>
+				<span className="shrink-0 px-1.5 py-px text-omp-xxs text-(--omp-dim)">{entry.toolName}</span>
+				{entry.isError && (
+					<span className="shrink-0 px-1 py-px text-omp-xxs text-(--omp-diff-removed)">
+						{t("diffPanel.error")}
+					</span>
+				)}
+				<span className="ml-auto shrink-0 text-omp-xs text-(--omp-dim)" title={formatClock(entry.timestamp)}>
+					{formatTimeAgo(new Date(entry.timestamp).toISOString())}
 				</span>
 			</button>
 			{expanded && (
-				<div className="omp-diff-card-body mt-0.5 mr-3 ml-8 overflow-hidden rounded-md border border-(--omp-border-muted)">
+				<div className="mt-0.5 overflow-hidden rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) py-1">
 					<EditPreview entry={entry} />
 				</div>
 			)}
@@ -333,8 +385,8 @@ function DiffTimeline({ candidates }: { candidates: DiffCandidate[] }) {
 		estimateSize: index => {
 			const row = rows[index];
 			if (!row) return 28;
-			if (row.kind === "file") return 32;
-			return row.entry.id === expandedId ? 280 : 30;
+			if (row.kind === "file") return 30;
+			return row.entry.id === expandedId ? 280 : 26;
 		},
 		overscan: 10,
 		measureElement: element => element.getBoundingClientRect().height,
@@ -349,9 +401,9 @@ function DiffTimeline({ candidates }: { candidates: DiffCandidate[] }) {
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="space-y-2 px-3 pt-2.5 pb-2">
-				<div className="flex items-center gap-2 text-omp-sm text-(--omp-muted)">
-					<span className="min-w-0 flex-1 truncate">
+			<div className="space-y-1.5 px-3 pb-2">
+				<div className="flex items-center gap-2 text-omp-xs text-(--omp-dim)">
+					<span>
 						{t("diffPanel.summary", {
 							edits: candidates.length,
 							editPlural: candidates.length === 1 ? "" : "s",
@@ -359,12 +411,15 @@ function DiffTimeline({ candidates }: { candidates: DiffCandidate[] }) {
 							filePlural: groups.length === 1 ? "" : "s",
 						})}
 					</span>
-					{totals.adds + totals.removes > 0 && <DiffStat adds={totals.adds} removes={totals.removes} />}
+					<span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono">
+						<span className="text-(--omp-diff-added)">+{totals.adds}</span>
+						<span className="text-(--omp-diff-removed)">-{totals.removes}</span>
+					</span>
 				</div>
-				{totals.adds + totals.removes > 0 && <EditActivityStrip edits={candidates} />}
+				<EditActivityStrip edits={candidates} />
 			</div>
 
-			<div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3">
+			<div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3">
 				<div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
 					{virtualizer.getVirtualItems().map(item => {
 						const row = rows[item.index];
@@ -413,189 +468,117 @@ function DiffTimeline({ candidates }: { candidates: DiffCandidate[] }) {
 	);
 }
 
-// ─── Session edits view ─────────────────────────────────────────────────────
-
-/** The newest edit of every file, newest file first. */
-function latestPerFile(candidates: DiffCandidate[]): DiffCandidate[] {
-	const seen = new Set<string>();
-	const out: DiffCandidate[] = [];
-	for (const candidate of candidates) {
-		if (seen.has(candidate.file)) continue;
-		seen.add(candidate.file);
-		out.push(candidate);
-	}
-	return out;
-}
-
-function SessionEdits({ candidates, split }: { candidates: DiffCandidate[]; split: boolean }) {
-	const t = useT();
-	const latest = useMemo(() => latestPerFile(candidates), [candidates]);
-	// The newest file opens by default; anything the user toggles is theirs.
-	const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
-	const isOpen = (entry: DiffCandidate, index: number) => toggled.get(entry.id) ?? index === 0;
-	const allOpen = latest.every(isOpen);
-	const totals = useMemo(
-		() =>
-			latest.reduce((sum, entry) => ({ adds: sum.adds + entry.adds, removes: sum.removes + entry.removes }), {
-				adds: 0,
-				removes: 0,
-			}),
-		[latest],
-	);
-	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="flex h-9 shrink-0 items-center gap-2 pr-2 pl-3">
-				<span className="min-w-0 flex-1 truncate text-omp-sm text-(--omp-muted)">
-					{t("diffPanel.filesEdited", { count: latest.length, plural: latest.length === 1 ? "" : "s" })}
-				</span>
-				{totals.adds + totals.removes > 0 && <DiffStat adds={totals.adds} removes={totals.removes} />}
-				{latest.length > 1 && (
-					<ToolbarIconButton
-						label={t(allOpen ? "diffPanel.collapseAll" : "diffPanel.expandAll")}
-						onClick={() => setToggled(new Map(latest.map(entry => [entry.id, !allOpen])))}
-					>
-						{allOpen ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
-					</ToolbarIconButton>
-				)}
-			</div>
-			<div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3">
-				{latest.map((entry, index) => (
-					<DiffFileCard
-						key={entry.id}
-						expanded={isOpen(entry, index)}
-						onToggle={() => setToggled(previous => new Map(previous).set(entry.id, !isOpen(entry, index)))}
-						label={<FileLabel path={entry.file} />}
-						trailing={
-							<>
-								<EditOutcome entry={entry} />
-								<span
-									className="w-9 shrink-0 text-right text-omp-xs text-(--omp-dim)"
-									title={formatClock(entry.timestamp)}
-								>
-									{formatTimeAgo(new Date(entry.timestamp).toISOString(), { compact: true })}
-								</span>
-							</>
-						}
-					>
-						{split && !entry.isContent ? (
-							<DiffBody diff={entry.diff} filePath={entry.file} split />
-						) : (
-							<EditPreview entry={entry} />
-						)}
-					</DiffFileCard>
-				))}
-			</div>
-		</div>
-	);
-}
-
-// ─── Panel ──────────────────────────────────────────────────────────────────
-
-const MODES: { id: DiffScope; icon: LucideIcon }[] = [
-	{ id: "repository", icon: GitCompareArrows },
-	{ id: "current", icon: FilePen },
-	{ id: "timeline", icon: History },
-	{ id: "artifacts", icon: Package },
-];
-
 export function DiffPanel() {
 	const t = useT();
 	const activeTools = useToolsStore(state => state.activeTools);
+	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [split, setSplit] = useState(false);
-	// Store-owned so the transcript's "Review" link can open a specific scope.
-	const mode = useUiStore(state => state.diffScope);
-	const setMode = useUiStore(state => state.setDiffScope);
-	const [scopeMenu, setScopeMenu] = useState<ContextMenuAnchor | null>(null);
+	const [mode, setMode] = useState<"repository" | "current" | "timeline" | "artifacts">("repository");
 	const sessionId = useSessionStore(state => state.sessionId);
 	const allCandidates = useMemo(() => buildEditCandidates(activeTools), [activeTools]);
 	const candidates = useMemo(
 		() => allCandidates.filter(entry => (mode === "artifacts" ? entry.isVirtual : !entry.isVirtual)),
 		[allCandidates, mode],
 	);
-	const current = MODES.find(entry => entry.id === mode) ?? MODES[0]!;
-	const ScopeIcon = current.icon;
-	const showLayout = mode === "repository" || (mode === "current" && candidates.some(entry => !entry.isContent));
+
+	const selected = candidates.find(c => c.id === selectedId) ?? candidates[0] ?? null;
 
 	return (
 		<div className="flex h-full flex-col">
-			<span className="sr-only">{t("diffPanel.title")}</span>
-			<PanelToolbar className="border-b border-(--omp-border-muted)">
-				<button
-					type="button"
-					aria-label={t("diffPanel.scope.aria")}
-					aria-haspopup="menu"
-					aria-expanded={scopeMenu !== null}
-					onClick={event => {
-						const rect = event.currentTarget.getBoundingClientRect();
-						setScopeMenu({
-							x: Number.isFinite(rect.left) ? rect.left : 8,
-							y: (Number.isFinite(rect.bottom) ? rect.bottom : 40) + 4,
-						});
-					}}
-					className="omp-pressable -ml-1.5 flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-omp-md font-medium text-(--omp-text) hover:bg-(--omp-selected-bg)"
-				>
-					<ScopeIcon aria-hidden="true" size={14} className="shrink-0 text-(--omp-muted)" />
-					<span className="truncate">{t(`diffPanel.mode.${mode}`)}</span>
-					<ChevronDown aria-hidden="true" size={13} className="shrink-0 text-(--omp-dim)" />
-				</button>
-				<span className="flex-1" />
-				{showLayout && (
-					<div className="omp-segmented" role="group" aria-label={t("diffPanel.layout")}>
-						<button
-							aria-label={t("diffPanel.unified")}
-							title={t("diffPanel.unified")}
-							aria-pressed={!split}
-							className="flex h-6 w-7 items-center justify-center"
-							onClick={() => setSplit(false)}
-							type="button"
-						>
-							<Rows3 size={13} />
-						</button>
-						<button
-							aria-label={t("diffPanel.split")}
-							title={t("diffPanel.split")}
-							aria-pressed={split}
-							className="flex h-6 w-7 items-center justify-center"
-							onClick={() => setSplit(true)}
-							type="button"
-						>
-							<Columns2 size={13} />
-						</button>
+			<div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2.5 pb-1.5">
+				<span className="text-omp-xs font-medium tracking-widest text-(--omp-dim) uppercase">
+					{t("diffPanel.title")}
+				</span>
+				<div className="flex items-center gap-1">
+					<div className="flex items-center gap-0.5 rounded-md border border-(--omp-border-muted) p-0.5">
+						{(["repository", "current", "timeline", "artifacts"] as const).map(value => (
+							<button
+								aria-label={t(`diffPanel.mode.${value}`)}
+								aria-pressed={mode === value}
+								className={`rounded px-1.5 py-0.5 text-omp-xxs font-medium tracking-wide uppercase transition-colors ${mode === value ? "bg-(--omp-selected-bg) text-(--omp-text)" : "text-(--omp-dim) hover:text-(--omp-text)"}`}
+								key={value}
+								onClick={() => setMode(value)}
+								type="button"
+							>
+								{t(`diffPanel.mode.${value}`)}
+							</button>
+						))}
 					</div>
-				)}
-			</PanelToolbar>
+					{mode === "current" && (
+						<div className="flex items-center gap-0.5 rounded-md border border-(--omp-border-muted) p-0.5">
+							<button
+								aria-label={t("diffPanel.unified")}
+								aria-pressed={!split}
+								className={`rounded p-1 transition-colors ${!split ? "bg-(--omp-selected-bg) text-(--omp-text)" : "text-(--omp-dim) hover:text-(--omp-text)"}`}
+								onClick={() => setSplit(false)}
+								type="button"
+							>
+								<Rows3 size={12} />
+							</button>
+							<button
+								aria-label={t("diffPanel.split")}
+								aria-pressed={split}
+								className={`rounded p-1 transition-colors ${split ? "bg-(--omp-selected-bg) text-(--omp-text)" : "text-(--omp-dim) hover:text-(--omp-text)"}`}
+								onClick={() => setSplit(true)}
+								type="button"
+							>
+								<Columns2 size={12} />
+							</button>
+						</div>
+					)}
+				</div>
+			</div>
 
 			{mode === "repository" ? (
-				<RepositoryChanges key={sessionId} split={split} />
+				<RepositoryChanges key={sessionId} />
 			) : candidates.length === 0 ? (
-				<PanelEmpty
-					icon={mode === "artifacts" ? Package : FilePen}
-					title={t(mode === "artifacts" ? "diffPanel.emptyArtifacts" : "diffPanel.empty")}
-					hint={t(mode === "artifacts" ? "diffPanel.emptyArtifactsHint" : "diffPanel.emptyHint")}
-				/>
+				<div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+					<div className="px-3 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
+						{t("diffPanel.empty")}
+						<br />
+						{t("diffPanel.emptyHint")}
+					</div>
+				</div>
 			) : mode === "timeline" || mode === "artifacts" ? (
 				<DiffTimeline candidates={candidates} />
 			) : (
-				<SessionEdits candidates={candidates} split={split} />
-			)}
+				<>
+					{candidates.length > 1 && (
+						<div className="px-3 pb-1.5">
+							<select
+								aria-label={t("diffPanel.selectFile")}
+								className="w-full rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2 py-1 font-mono text-omp-sm text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none"
+								onChange={event => setSelectedId(event.target.value)}
+								value={selected?.id ?? ""}
+							>
+								{candidates.map(candidate => (
+									<option key={candidate.id} value={candidate.id}>
+										{candidate.file} — {candidate.toolName}
+									</option>
+								))}
+							</select>
+						</div>
+					)}
 
-			{scopeMenu && (
-				<ContextMenu
-					x={scopeMenu.x}
-					y={scopeMenu.y}
-					onClose={() => setScopeMenu(null)}
-					items={MODES.map(entry => ({
-						id: `diff-mode-${entry.id}`,
-						label: t(`diffPanel.mode.${entry.id}`),
-						description: t(`diffPanel.mode.${entry.id}Description`),
-						icon: entry.icon,
-						hint: entry.id === mode ? "✓" : undefined,
-						onSelect: () => {
-							setMode(entry.id);
-							setScopeMenu(null);
-						},
-					}))}
-				/>
+					<div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+						{selected && (
+							<div className="space-y-1.5">
+								<div className="flex items-center gap-1.5 text-omp-sm text-(--omp-muted)">
+									<FileCode2 className="shrink-0 text-(--omp-dim)" size={12} />
+									<span className="truncate font-mono">{selected.file}</span>
+									<span className="ml-auto shrink-0 px-1.5 py-px text-omp-xxs text-(--omp-dim)">
+										{selected.toolName}
+									</span>
+								</div>
+								{split && !selected.isContent ? (
+									<SplitDiff diff={selected.diff} />
+								) : (
+									<EditPreview entry={selected} />
+								)}
+							</div>
+						)}
+					</div>
+				</>
 			)}
 		</div>
 	);

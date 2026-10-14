@@ -640,6 +640,7 @@ export type NewWindowRequestResult =
 			cwd: string;
 			target: SessionTarget;
 			sessionPath?: string;
+			entryId?: string;
 			resumeSessionId?: string;
 	  }
 	| { ok: false; error: string };
@@ -652,8 +653,9 @@ export function resolveNewWindowRequest(
 ): NewWindowRequestResult {
 	if (
 		!isPlainRecord(payload) ||
-		!hasOnlyKeys(payload, ["sessionPath", "cwd", "target", "resumeSessionId"]) ||
+		!hasOnlyKeys(payload, ["sessionPath", "entryId", "cwd", "target", "resumeSessionId"]) ||
 		(payload.sessionPath !== undefined && !nonEmptyString(payload.sessionPath)) ||
+		(payload.entryId !== undefined && (!nonEmptyString(payload.entryId) || !nonEmptyString(payload.sessionPath))) ||
 		(payload.cwd !== undefined && !nonEmptyString(payload.cwd)) ||
 		(payload.resumeSessionId !== undefined &&
 			(!nonEmptyString(payload.resumeSessionId) ||
@@ -681,6 +683,7 @@ export function resolveNewWindowRequest(
 			target: { type: "local" },
 		};
 		if (payload.sessionPath !== undefined) result.sessionPath = payload.sessionPath;
+		if (payload.entryId !== undefined) result.entryId = payload.entryId;
 		return result;
 	}
 	if (payload.sessionPath !== undefined) return { ok: false, error: "Remote windows cannot open local session paths" };

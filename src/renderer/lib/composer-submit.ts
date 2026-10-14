@@ -31,6 +31,8 @@ export type ComposerSubmit =
 	| { kind: "clear" }
 	/** A GUI-native command opened/executed its affordance synchronously. */
 	| { kind: "handled" }
+	/** Native compaction refusal is an understood command, not a lost prompt. */
+	| { kind: "compact"; request: () => Promise<RpcResponse> }
 	/** Dispatch this lazy request; on success call {@link settleComposerResponse}. */
 	| { kind: "send"; request: () => Promise<RpcResponse> };
 
@@ -149,7 +151,7 @@ export function planComposerSubmit(input: {
 	// parameterized command through its dedicated RPC so instructions survive
 	// and it gets the compact timeout instead of the short prompt timeout.
 	if (nativeBuiltin && commandName === "compact") {
-		return { kind: "send", request: () => rpc.compact(args) };
+		return { kind: "compact", request: () => rpc.compact(args) };
 	}
 	const guiHandled = isSlashCommand ? runGuiOnlyBuiltin(message, commands, input.beforeGuiCommand) : undefined;
 	if (guiHandled !== undefined) return { kind: guiHandled ? "handled" : "blocked" };

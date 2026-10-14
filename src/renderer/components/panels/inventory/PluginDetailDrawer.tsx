@@ -644,7 +644,7 @@ export function PluginDetailDrawer({
 								/>
 							</section>
 							<section>
-								<div className="mb-1.5 text-omp-sm font-semibold text-(--omp-dim)">
+								<div className="mb-1.5 text-omp-sm font-semibold tracking-wide text-(--omp-dim) uppercase">
 									{t("pluginDetail.features")}
 								</div>
 								{detail.features.length === 0 ? (
@@ -700,7 +700,7 @@ export function PluginDetailDrawer({
 								)}
 							</section>
 							<section>
-								<div className="mb-1.5 text-omp-sm font-semibold text-(--omp-dim)">
+								<div className="mb-1.5 text-omp-sm font-semibold tracking-wide text-(--omp-dim) uppercase">
 									{t("pluginDetail.settings")}
 								</div>
 								{fields.length === 0 ? (

@@ -1,7 +1,7 @@
 /**
- * PanelContainer chat filter: a tool-free chat tab renders only the files
- * drawer tab (diffs can't exist without tools); an agent tab also gets
- * diff. Logs live in their own dialog, never in the drawer. Todo/plan/agents/queue moved to the center dock — they must not
+ * PanelContainer chat filter: a tool-free chat tab renders only the files +
+ * logs drawer tabs (diffs can't exist without tools); an agent tab also gets
+ * diff. Todo/plan/agents/queue moved to the center dock — they must not
  * appear here. Same linkedom + react-dom harness as mode-visibility.test.tsx.
  */
 
@@ -15,11 +15,6 @@ import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { PanelContainer } from "./PanelContainer";
-
-// xterm's bundle (the Terminal view) reads `self` when it loads, before any test code runs.
-vi.hoisted(() => {
-	(globalThis as Record<string, unknown>).self = globalThis;
-});
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -107,17 +102,16 @@ function FileLinkHarness({ content = "[report](docs/report.md)" }: { content?: s
 }
 
 describe("PanelContainer chat tab filter", () => {
-	it("renders only the files tab in a chat tab", async () => {
+	it("renders only files + logs tabs in a chat tab", async () => {
 		seedActiveTab("chat");
 		useUiStore.setState({ panelTab: "files", panelVisible: true });
 		await mount(<PanelContainer />);
 
 		const labels = drawerTabLabels();
 		expect(labels).toContain("Files");
-		// Diff, shells, and agent browsing need tools; todo/plan/agents/queue live in the center dock now.
-		for (const agentOnly of ["Changes", "Terminal", "Browser"]) {
-			expect(labels).not.toContain(agentOnly);
-		}
+		expect(labels).toContain("Logs");
+		// Diff is agent-only; todo/plan/agents/queue live in the center dock now.
+		expect(labels).not.toContain("Diff");
 	});
 
 	it("falls back to the files surface when the agent-only diff tab was selected before entering chat", async () => {
@@ -134,11 +128,11 @@ describe("PanelContainer chat tab filter", () => {
 		await mount(<PanelContainer />);
 
 		const labels = drawerTabLabels();
-		for (const visible of ["Changes", "Files", "Terminal", "Browser"]) {
+		for (const visible of ["Diff", "Files", "Logs"]) {
 			expect(labels).toContain(visible);
 		}
-		// Live-execution tabs moved to the center dock, logs to their own dialog.
-		for (const moved of ["Todo", "Plan", "Agents", "Queue", "Logs"]) {
+		// The drawer's old live-execution tabs moved to the center dock.
+		for (const moved of ["Todo", "Plan", "Agents", "Queue"]) {
 			expect(labels).not.toContain(moved);
 		}
 	});

@@ -50,7 +50,8 @@ afterAll(() => {
 // in the same component) — stub the minimal surface it and `hydrateKeymap`'s
 // prefs read touch so mounting doesn't throw.
 (window as unknown as { omp: unknown }).omp = {
-	events: { onMenuAction: () => () => {} },
+	events: { onMenuAction: () => () => {}, onConversationFocus: () => () => {} },
+	sessions: { consumePendingConversationFocus: async () => null },
 	prefs: { get: async () => undefined, set: async () => undefined },
 };
 

@@ -62,18 +62,6 @@ if [ -n "$new_version" ] && [ ! -f "$native_dir/pi_natives.darwin-arm64.node" ];
 else
 	echo "natives present (or version unchanged)"
 fi
-# Source runs and tests (`bun test`, `bun src/cli.ts`) load the workspace addon, and
-# build:omp restores whatever it found there after compiling — so an addon from an older
-# release would stay put and fail every test that needs a newer native export.
-workspace_addon="packages/natives/native/pi_natives.darwin-arm64.node"
-if [ -f "$native_dir/pi_natives.darwin-arm64.node" ] && ! bun -e '
-	const vs = require("./packages/natives/native/version-sentinel.js");
-	const bytes = require("node:fs").readFileSync(process.argv[1]);
-	process.exit(vs.containsVersionStamp(bytes, process.argv[2]) ? 0 : 1);
-' "$workspace_addon" "$new_version" 2>/dev/null; then
-	cp "$native_dir/pi_natives.darwin-arm64.node" "$workspace_addon"
-	echo "workspace addon refreshed to v$new_version"
-fi
 
 say "5/7 gen:stats (embed stats dashboard)"
 bun --cwd=packages/stats run gen:stats

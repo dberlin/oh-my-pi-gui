@@ -29,15 +29,13 @@ export interface ContextMenuItem {
 
 interface ContextMenuProps {
 	items: ContextMenuItem[];
-	/** Viewport coordinates for the menu's top-left corner (bottom-left with `placement="above"`). */
+	/** Viewport coordinates for the menu's top-left corner. */
 	x: number;
 	y: number;
-	/** `above` grows the menu upward from `y` — for triggers near the bottom edge, like the composer. */
-	placement?: "below" | "above";
 	onClose: () => void;
 }
 
-export function ContextMenu({ items, x, y, placement = "below", onClose }: ContextMenuProps) {
+export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
 	const [activeIndex, setActiveIndex] = useState(() => items.findIndex(item => !item.disabled));
 	const [pos, setPos] = useState({ left: x, top: y });
@@ -48,9 +46,9 @@ export function ContextMenu({ items, x, y, placement = "below", onClose }: Conte
 		if (!el) return;
 		const rect = el.getBoundingClientRect();
 		const left = Math.min(x, window.innerWidth - rect.width - 8);
-		const top = placement === "above" ? y - rect.height : Math.min(y, window.innerHeight - rect.height - 8);
+		const top = Math.min(y, window.innerHeight - rect.height - 8);
 		setPos({ left: Math.max(8, left), top: Math.max(8, top) });
-	}, [x, y, placement]);
+	}, [x, y]);
 
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;

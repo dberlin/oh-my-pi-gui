@@ -11,7 +11,6 @@ import { act } from "react";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcGitChanges } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
-import { useSessionStore } from "../../stores/session";
 import { RepositoryChanges } from "./RepositoryChanges";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -47,25 +46,9 @@ let getGitChanges: Mock<() => Promise<unknown>>;
 
 function installMockOmp(next: () => Promise<unknown>): void {
 	getGitChanges = vi.fn(next);
-	const getGitDiff = vi.fn(async (path: string) => ({
-		type: "response",
-		command: "get_git_diff",
-		success: true,
-		data: {
-			path,
-			diff: `--- a/${path}\n+++ b/${path}\n@@ -1 +1,2 @@\n-old\n+new\n+more`,
-			kind: "text",
-			truncated: false,
-		},
-	}));
-	(window as unknown as { omp: { rpc: { getGitChanges: Mock; getGitDiff: Mock } } }).omp = {
-		rpc: { getGitChanges, getGitDiff },
+	(window as unknown as { omp: { rpc: { getGitChanges: Mock } } }).omp = {
+		rpc: { getGitChanges },
 	};
-}
-
-/** Paths of the change rows on screen. */
-function rowPaths(): string[] {
-	return queryAll("[data-change-path]").map(row => row.getAttribute("data-change-path") ?? "");
 }
 
 let root: ReturnType<typeof createRoot>;
@@ -126,7 +109,6 @@ afterEach(async () => {
 		});
 	}
 	container?.remove();
-	useSessionStore.getState().reset();
 });
 
 describe("RepositoryChanges", () => {
@@ -138,9 +120,7 @@ describe("RepositoryChanges", () => {
 			data: changes("src/a.ts"),
 		}));
 		await mount();
-		expect(rowPaths()).toEqual(["src/a.ts"]);
-		// A small change set opens with its diff and line counts.
-		expect(bodyText()).toContain("+2");
+		expect(bodyText()).toContain("src/a.ts");
 		expect(getGitChanges).toHaveBeenCalledTimes(1);
 
 		getGitChanges.mockResolvedValueOnce({
@@ -154,8 +134,8 @@ describe("RepositoryChanges", () => {
 
 		// The user was looking at real changes; a failed re-read may not turn the
 		// panel into an empty "clean tree".
-		expect(rowPaths()).toEqual(["src/a.ts"]);
-		expect(bodyText()).not.toContain("Working tree clean");
+		expect(bodyText()).toContain("src/a.ts");
+		expect(bodyText()).not.toContain("No net changes in this checkout.");
 		expect(bodyText()).toContain("git status failed");
 	});
 
@@ -187,31 +167,8 @@ describe("RepositoryChanges", () => {
 		await click(refreshButton());
 		await flush();
 
-		expect(rowPaths()).toEqual(["src/b.ts"]);
+		expect(bodyText()).toContain("src/b.ts");
+		expect(bodyText()).not.toContain("src/a.ts");
 		expect(bodyText()).not.toContain("git status failed");
-	});
-
-	it("re-reads the checkout when a run settles", async () => {
-		// An open drawer follows the agent's work: the files it just wrote appear
-		// without a manual refresh.
-		installMockOmp(async () => ({
-			type: "response",
-			command: "get_git_changes",
-			success: true,
-			data: changes("src/a.ts"),
-		}));
-		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		await mount();
-		getGitChanges.mockResolvedValueOnce({
-			type: "response",
-			command: "get_git_changes",
-			success: true,
-			data: changes("src/a.ts", "src/new.ts"),
-		});
-
-		await act(async () => useSessionStore.setState({ isStreaming: false }));
-		await flush();
-
-		expect(rowPaths()).toEqual(["src/a.ts", "src/new.ts"]);
 	});
 });

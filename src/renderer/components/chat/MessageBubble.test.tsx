@@ -2,10 +2,19 @@ import { parseHTML } from "linkedom";
 import { act, Profiler } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
-import type { AgentMessage, ToolCallContent } from "../../../shared/rpc-types";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentMessage, RpcCommand, ToolCallContent } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { groupReadRows } from "../../lib/read-group";
+import { useMessagesStore } from "../../stores/messages";
+import { useSessionStore } from "../../stores/session";
+import {
+	deleteSessionRuntime,
+	SessionRuntimeProvider,
+	setFocusedSessionRuntime,
+	withSessionRuntime,
+} from "../../stores/session-runtime-context";
+import { createTabRuntime } from "../../stores/tab-runtime";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
@@ -60,6 +69,12 @@ function completedToolEntry(result: string): ToolEntry {
 
 afterEach(() => {
 	useToolsStore.getState().reset();
+	setFocusedSessionRuntime(null);
+	deleteSessionRuntime("failure-origin");
+	deleteSessionRuntime("failure-other");
+	useMessagesStore.getState().reset();
+	useSessionStore.getState().reset();
+	vi.restoreAllMocks();
 });
 
 describe("MessageBubble tool messages", () => {
@@ -700,5 +715,83 @@ describe("MessageBubble reasoning disclosure", () => {
 			"true",
 		);
 		await second.unmount();
+	});
+});
+
+describe("MessageBubble failed turn recovery", () => {
+	const failed: AgentMessage = {
+		role: "assistant",
+		content: [],
+		errorMessage: "Provider overloaded",
+		stopReason: "error",
+		timestamp: 123,
+	};
+
+	it("retries the latest failed turn through vanilla's native text command in the rendered origin tab", async () => {
+		const commandForTab = vi.fn(async (_tabId: string, command: RpcCommand) => ({
+			type: "response" as const,
+			command: command.type,
+			success: true as const,
+			data: { agentInvoked: true },
+		}));
+		window.omp = { rpc: { commandForTab } } as unknown as typeof window.omp;
+		const origin = createTabRuntime("failure-origin");
+		createTabRuntime("failure-other");
+		withSessionRuntime("failure-origin", () => {
+			useMessagesStore.setState({ messages: [failed] });
+			useSessionStore.setState({ status: "ready", isStreaming: false });
+		});
+		setFocusedSessionRuntime("failure-other");
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		try {
+			await act(async () =>
+				root.render(
+					<I18nProvider>
+						<SessionRuntimeProvider runtime={origin}>
+							<MessageBubble message={failed} />
+						</SessionRuntimeProvider>
+					</I18nProvider>,
+				),
+			);
+			const retry = container.querySelector(".omp-message-error button");
+			expect(retry).not.toBeNull();
+			if (!retry) throw new Error("Failed turn has no Retry");
+			await act(async () => retry.dispatchEvent(new Event("click", { bubbles: true })));
+			expect(commandForTab.mock.calls.map(([tabId, command]) => [tabId, command.type, "message" in command ? command.message : null])).toEqual([
+				["failure-origin", "prompt", "/retry"],
+			]);
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+		}
+	});
+
+	it("keeps the failure readable but cannot retry from a projected subagent transcript", () => {
+		useMessagesStore.setState({ messages: [failed] });
+		useSessionStore.setState({ status: "ready" });
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble message={failed} readOnly />
+			</I18nProvider>,
+		);
+		const fragment = document.createElement("div");
+		fragment.innerHTML = html;
+		expect(fragment.querySelector(".omp-message-error")?.textContent).toContain("Provider overloaded");
+		expect(fragment.querySelector(".omp-message-error button")).toBeNull();
+	});
+
+	it("does not retry an older failure after a newer user turn", () => {
+		useMessagesStore.setState({ messages: [failed, { role: "user", content: "New request", timestamp: 124 }] });
+		useSessionStore.setState({ status: "ready" });
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble message={failed} />
+			</I18nProvider>,
+		);
+		const fragment = document.createElement("div");
+		fragment.innerHTML = html;
+		expect(fragment.querySelector(".omp-message-error button")).toBeNull();
 	});
 });

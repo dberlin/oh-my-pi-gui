@@ -22,7 +22,7 @@ interface Row {
 function Section({ title, rows }: { title: string; rows: Row[] }) {
 	return (
 		<section>
-			<h3 className="mb-1 text-omp-xxs font-semibold text-(--omp-dim)">{title}</h3>
+			<h3 className="mb-1 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">{title}</h3>
 			<div className="overflow-hidden rounded-md border border-(--omp-border-muted)">
 				{rows.map(row => (
 					<div
@@ -169,7 +169,7 @@ export function SessionInfoDialog() {
 						)}
 						{stats.contextUsage && contextView && (
 							<section>
-								<h3 className="mb-1 text-omp-xxs font-semibold text-(--omp-dim)">
+								<h3 className="mb-1 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 									{t("sessionInfo.contextWindow")}
 								</h3>
 								<div className="rounded-md border border-(--omp-border-muted) px-2.5 py-2">

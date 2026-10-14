@@ -45,7 +45,14 @@ import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { toolEntryKey, useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
-import { hydrateSession, hydrateTabSession, recoverReadySession, useRpcEvents } from "./use-rpc-events";
+import {
+	applyModelInfo,
+	applySessionState,
+	hydrateSession,
+	hydrateTabSession,
+	recoverReadySession,
+	useRpcEvents,
+} from "./use-rpc-events";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -3626,7 +3633,7 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 	});
 
 	it("drops in-flight event batches for a closed tab instead of polluting the focused pane", async () => {
-		const { emitTabBatch, notify } = installTabRoutedMockOmp();
+		const { emitTabBatch } = installTabRoutedMockOmp();
 		seedTwoTabs();
 		await mount(<RpcEventsProbe />);
 		await act(async () => {
@@ -3645,8 +3652,6 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 
 		// No ghost runtime resurrection for the closed tab…
 		expect(sessionRuntime("t-dead")).toBeNull();
-		// …no completion notification for a tab the user closed…
-		expect(notify).not.toHaveBeenCalled();
 		// …and the live pane's stores are untouched by the dead tab's frames.
 		expect(sessionRuntimeStore<MessagesStore>("t-live", "messages")?.getState().messages).toHaveLength(0);
 		expect(sessionRuntimeStore<SessionStore>("t-live", "session")?.getState().isStreaming).toBe(false);
@@ -3676,5 +3681,471 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 		// Without the tombstone gate this frame falls through to the focused
 		// runtime and resets its stores wholesale.
 		expect(sessionRuntimeStore<MessagesStore>("t-live", "messages")?.getState().messages).toContain(kept);
+	});
+});
+
+describe("tab outcome background notifications", () => {
+	it.each([
+		{
+			name: "background completion in a focused window",
+			tabId: "notice-b",
+			focused: true,
+			enabled: true,
+			setting: "on",
+			outcome: "completed",
+			count: 1,
+		},
+		{
+			name: "visible completion",
+			tabId: "notice-a",
+			focused: true,
+			enabled: true,
+			setting: "on",
+			outcome: "completed",
+			count: 0,
+		},
+		{
+			name: "disabled GUI preference",
+			tabId: "notice-b",
+			focused: true,
+			enabled: false,
+			setting: "on",
+			outcome: "completed",
+			count: 0,
+		},
+		{
+			name: "disabled agent preference",
+			tabId: "notice-b",
+			focused: true,
+			enabled: true,
+			setting: "off",
+			outcome: "completed",
+			count: 0,
+		},
+		{
+			name: "opted-in background failure",
+			tabId: "notice-b",
+			focused: true,
+			enabled: true,
+			setting: "on",
+			outcome: "failed",
+			count: 1,
+		},
+		{
+			name: "default-off background failure",
+			tabId: "notice-b",
+			focused: false,
+			enabled: true,
+			setting: undefined,
+			outcome: "failed",
+			count: 0,
+		},
+	] as const)("notifies once for $name", async ({ tabId, focused, enabled, setting, outcome, count }) => {
+		const { notify, commandForTab, emitTabBatch } = installTabRoutedMockOmp();
+		Object.defineProperty(document, "hasFocus", { configurable: true, value: () => focused });
+		useUiStore.setState({ notifications: enabled });
+		useTabsStore.setState({
+			tabs: [
+				{ id: "notice-a", kind: "agent", cwd: "/a", target: { type: "local" }, status: "ready", unreadDone: false },
+				{ id: "notice-b", kind: "agent", cwd: "/b", target: { type: "local" }, status: "ready", unreadDone: false },
+			],
+			activeTabId: "notice-a",
+			split: null,
+		});
+		ensureTabRuntime("notice-a");
+		ensureTabRuntime("notice-b");
+		setFocusedSessionRuntime("notice-a");
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation((origin, command) =>
+			command.type === "get_settings"
+				? Promise.resolve(
+						success({ values: { [outcome === "failed" ? "error.notify" : "completion.notify"]: setting } }),
+					)
+				: original(origin, command),
+		);
+		await mount(<RpcEventsProbe />);
+		await act(async () => {
+			useTabsStore.getState().applyTabStatus({
+				tabId,
+				kind: "agent",
+				cwd: "/b",
+				target: { type: "local" },
+				status: "running",
+				runState: "retrying",
+			});
+			useTabsStore.getState().applyTabStatus({
+				tabId,
+				kind: "agent",
+				cwd: "/b",
+				target: { type: "local" },
+				status: "ready",
+				runState: outcome,
+			});
+			useTabsStore.getState().applyTabStatus({
+				tabId,
+				kind: "agent",
+				cwd: "/b",
+				target: { type: "local" },
+				status: "ready",
+				runState: outcome,
+				title: "Updated title",
+			});
+			// Visible tabs also get a full agent_end; it must not duplicate the light outcome.
+			emitTabBatch(
+				[
+					{
+						type: "agent_end",
+						messages: [
+							{
+								role: "assistant",
+								content: [],
+								timestamp: 1,
+								stopReason: outcome === "failed" ? "error" : "stop",
+							},
+						],
+					},
+				],
+				tabId,
+			);
+		});
+		await flush();
+		expect(notify).toHaveBeenCalledTimes(count);
+		Reflect.deleteProperty(document, "hasFocus");
+		useUiStore.setState({ notifications: true });
+	});
+
+	it("suppresses a queued background notice when that tab becomes visible before its preference read resolves", async () => {
+		const { notify, commandForTab } = installTabRoutedMockOmp();
+		Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+		useUiStore.setState({ notifications: true });
+		useTabsStore.setState({
+			tabs: [
+				{
+					id: "pending-a",
+					kind: "agent",
+					cwd: "/a",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+				{
+					id: "pending-b",
+					kind: "agent",
+					cwd: "/b",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "pending-a",
+			split: null,
+		});
+		ensureTabRuntime("pending-a");
+		ensureTabRuntime("pending-b");
+		setFocusedSessionRuntime("pending-a");
+		await mount(<RpcEventsProbe />);
+		const settings = Promise.withResolvers<RpcResponse>();
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation((origin, command) =>
+			command.type === "get_settings" ? settings.promise : original(origin, command),
+		);
+		await act(async () => {
+			useTabsStore.getState().applyTabStatus({
+				tabId: "pending-b",
+				kind: "agent",
+				cwd: "/b",
+				target: { type: "local" },
+				status: "running",
+			});
+			useTabsStore.getState().applyTabStatus({
+				tabId: "pending-b",
+				kind: "agent",
+				cwd: "/b",
+				target: { type: "local" },
+				status: "ready",
+				runState: "completed",
+			});
+			useTabsStore.setState({
+				split: { axis: "columns", firstTabId: "pending-a", secondTabId: "pending-b", ratio: 0.5 },
+			});
+			settings.resolve(success({ values: { "completion.notify": "on" } }));
+		});
+		await flush();
+		expect(notify).not.toHaveBeenCalled();
+		Reflect.deleteProperty(document, "hasFocus");
+		useTabsStore.setState({ split: null });
+	});
+
+	it("waits for the authoritative light settlement before notifying a deferred pooled failure", async () => {
+		const { notify, commandForTab, emitTabBatch } = installTabRoutedMockOmp();
+		Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+		useUiStore.setState({ notifications: true });
+		useTabsStore.setState({
+			tabs: [
+				{
+					id: "deferred-notice-a",
+					kind: "agent",
+					cwd: "/a",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+				{
+					id: "deferred-notice-b",
+					kind: "agent",
+					cwd: "/b",
+					target: { type: "local" },
+					status: "ready",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "deferred-notice-a",
+			split: null,
+		});
+		ensureTabRuntime("deferred-notice-a");
+		ensureTabRuntime("deferred-notice-b");
+		setFocusedSessionRuntime("deferred-notice-a");
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation((origin, command) =>
+			command.type === "get_settings"
+				? Promise.resolve(success({ values: { "error.notify": origin === "deferred-notice-a" ? "on" : "off" } }))
+				: original(origin, command),
+		);
+		await mount(<RpcEventsProbe />);
+		await act(async () => {
+			// Main still owns deferred background work: the terminal event only
+			// records pendingOutcome; there is no light terminal runState yet.
+			useTabsStore.getState().applyTabStatus({
+				tabId: "deferred-notice-a",
+				kind: "agent",
+				cwd: "/a",
+				target: { type: "local" },
+				status: "running",
+			});
+			emitTabBatch(
+				[
+					{
+						type: "agent_end",
+						isTerminal: true,
+						messages: [
+							{
+								role: "assistant",
+								content: [],
+								timestamp: 1,
+								stopReason: "error",
+								errorMessage: "provider quota exhausted",
+							},
+						],
+					},
+				],
+				"deferred-notice-a",
+			);
+		});
+		await flush();
+		expect(notify).not.toHaveBeenCalled();
+		await act(async () => {
+			// This light outcome is emitted only after genuine session_settled.
+			useTabsStore.getState().applyTabStatus({
+				tabId: "deferred-notice-a",
+				kind: "agent",
+				cwd: "/a",
+				target: { type: "local" },
+				status: "ready",
+				runState: "failed",
+			});
+		});
+		await flush();
+		expect(notify).toHaveBeenCalledTimes(1);
+		Reflect.deleteProperty(document, "hasFocus");
+	});
+});
+
+describe("cold-layout metadata precedence during history hydration", () => {
+	async function pendingBootSnapshot(holdMessages = false) {
+		const harness = installTabRoutedMockOmp();
+		const tabId = "cold-boot-metadata";
+		const session = seedReadyTab(tabId);
+		await mount(<RpcEventsProbe />);
+		session.getState().reset();
+		session.setState({ status: "ready", cwd: "/alpha" });
+		const model = sessionRuntimeStore<ModelStore>(tabId, "model")!;
+		model.getState().reset();
+		const response = Promise.withResolvers<RpcResponse>();
+		const messages = Promise.withResolvers<RpcResponse>();
+		const requested = Promise.withResolvers<void>();
+		const original = harness.commandForTab.getMockImplementation()!;
+		harness.commandForTab.mockImplementation((id, command) => {
+			if (command.type === "get_state") {
+				requested.resolve();
+				return response.promise;
+			}
+			if (holdMessages && command.type === "get_messages") return messages.promise;
+			return original(id, command);
+		});
+		const stateRead = Promise.withResolvers<void>();
+		const runtime = sessionRuntime(tabId)!;
+		const originalCommand = runtime.command;
+		runtime.command = async (command, timeout) => {
+			const result = await originalCommand(command, timeout);
+			if (command.type === "get_state") stateRead.resolve();
+			return result;
+		};
+		const hydration = hydrateTabSession(tabId);
+		await requested.promise;
+		const wire: RpcSessionState = {
+			...sessionState(),
+			sessionId: "native-boot",
+			sessionName: "Native restored task",
+			sessionFile: "/sessions/native-boot.jsonl",
+			cwd: "/alpha",
+			model: { provider: "native", id: "boot-model" },
+			thinkingLevel: "low",
+			contextUsage: { tokens: 80, contextWindow: 2000, percent: 4 },
+		};
+		return { ...harness, tabId, session, model, response, messages, stateRead, hydration, wire };
+	}
+
+	it("initializes native identity/model after streamed history advances eventVersion, without erasing its live turn", async () => {
+		const fixture = await pendingBootSnapshot();
+		const history: AgentMessage = { role: "user", content: "history arrived during snapshot", timestamp: 2 };
+		await act(async () => {
+			fixture.emitTabBatch([{ type: "agent_start" }, { type: "message_end", message: history }], fixture.tabId);
+		});
+		expect(fixture.session.getState().eventVersion).toBeGreaterThan(0);
+		fixture.response.resolve(success(fixture.wire));
+		await act(async () => {
+			await fixture.hydration;
+		});
+		expect(fixture.session.getState()).toMatchObject({
+			sessionId: "native-boot",
+			sessionName: "Native restored task",
+			sessionFile: "/sessions/native-boot.jsonl",
+			isStreaming: true,
+		});
+		expect(fixture.model.getState()).toMatchObject({
+			model: { provider: "native", id: "boot-model" },
+			thinkingLevel: "low",
+		});
+		const transcript = sessionRuntimeStore<MessagesStore>(fixture.tabId, "messages")!.getState();
+		expect([...transcript.messages, ...transcript.liveMessages]).toContainEqual(history);
+	});
+
+	it("fills missing identity but keeps genuinely newer model/thinking and live lifecycle fields", async () => {
+		const fixture = await pendingBootSnapshot();
+		await act(async () => {
+			applyModelInfo({ provider: "live", id: "newer-model" }, fixture.tabId);
+			fixture.emitTabBatch(
+				[{ type: "agent_start" }, { type: "thinking_level_changed", thinkingLevel: "high" }],
+				fixture.tabId,
+			);
+		});
+		fixture.response.resolve(success(fixture.wire));
+		await act(async () => {
+			await fixture.hydration;
+		});
+		expect(fixture.session.getState()).toMatchObject({ sessionId: "native-boot", isStreaming: true });
+		expect(fixture.model.getState()).toMatchObject({
+			model: { provider: "live", id: "newer-model" },
+			thinkingLevel: "high",
+		});
+	});
+
+	it("preserves authoritative model metadata updates that do not advance the lifecycle eventVersion", async () => {
+		const fixture = await pendingBootSnapshot();
+		const revision = fixture.session.getState().eventVersion;
+		await act(async () => {
+			applyModelInfo({ provider: "live", id: "acknowledged-model" }, fixture.tabId);
+			fixture.model.setState({ thinkingLevel: "high" });
+		});
+		expect(fixture.session.getState().eventVersion).toBe(revision);
+		fixture.response.resolve(success(fixture.wire));
+		await act(async () => {
+			await fixture.hydration;
+		});
+		expect(fixture.session.getState().sessionId).toBe("native-boot");
+		expect(fixture.model.getState()).toMatchObject({
+			model: { provider: "live", id: "acknowledged-model" },
+			thinkingLevel: "high",
+		});
+	});
+
+	it("keeps a genuinely newer native cwd update over an older pending recovery snapshot", async () => {
+		const fixture = await pendingBootSnapshot();
+		await act(async () => {
+			applySessionState({ ...fixture.wire, cwd: "/verified-live-cwd" });
+		});
+		fixture.response.resolve(success(fixture.wire));
+		await act(async () => {
+			await fixture.hydration;
+		});
+		expect(fixture.session.getState().cwd).toBe("/verified-live-cwd");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === fixture.tabId)?.cwd).toBe("/verified-live-cwd");
+	});
+
+	it("does not mistake a newer thinking value returning to its original value for untouched metadata", async () => {
+		const fixture = await pendingBootSnapshot();
+		// Both changes happen after the read starts, ending at the original
+		// undefined level; equality with the initial value is not ownership.
+		await act(async () => {
+			fixture.emitTabBatch([{ type: "thinking_level_changed", thinkingLevel: "high" }], fixture.tabId);
+			fixture.model.setState({ thinkingLevel: undefined });
+		});
+		fixture.response.resolve(success(fixture.wire));
+		await act(async () => {
+			await fixture.hydration;
+		});
+		expect(fixture.session.getState().sessionId).toBe("native-boot");
+		expect(fixture.model.getState().model).toMatchObject({ provider: "native", id: "boot-model" });
+		expect(fixture.model.getState().thinkingLevel).toBeUndefined();
+	});
+
+	it("does not apply state already read before a same-runtime context generation advances while messages are pending", async () => {
+		const fixture = await pendingBootSnapshot(true);
+		fixture.response.resolve(success(fixture.wire));
+		await fixture.stateRead.promise;
+		await sessionRuntime(fixture.tabId)!.command({ type: "clear_context" });
+		fixture.messages.resolve(success({ messages: [] }));
+		await act(async () => {
+			await fixture.hydration;
+		});
+		expect(fixture.session.getState().sessionId).toBe("");
+		expect(fixture.model.getState().model).toBeNull();
+	});
+
+	it("does not mix an old initial snapshot into a newly established different session identity", async () => {
+		const fixture = await pendingBootSnapshot(true);
+		const newer: AgentMessage = { role: "user", content: "newer session history", timestamp: 3 };
+		await act(async () => {
+			fixture.session.setState({ sessionId: "newer-session", sessionName: "Newer name" });
+			fixture.emitTabBatch([{ type: "message_end", message: newer }], fixture.tabId);
+		});
+		fixture.response.resolve(success(fixture.wire));
+		fixture.messages.resolve(success({ messages: [{ role: "user", content: "obsolete history", timestamp: 1 }] }));
+		await act(async () => {
+			await fixture.hydration;
+		});
+		expect(fixture.session.getState()).toMatchObject({ sessionId: "newer-session", sessionFile: null });
+		const transcript = sessionRuntimeStore<MessagesStore>(fixture.tabId, "messages")!.getState();
+		expect([...transcript.messages, ...transcript.liveMessages]).toEqual([newer]);
+	});
+
+	it("discards an initial metadata snapshot after its runtime is retired", async () => {
+		const fixture = await pendingBootSnapshot();
+		useTabsStore.getState().reset();
+		ensureTabRuntime(fixture.tabId);
+		setFocusedSessionRuntime(fixture.tabId);
+		const currentSession = sessionRuntimeStore<SessionStore>(fixture.tabId, "session")!;
+		const currentModel = sessionRuntimeStore<ModelStore>(fixture.tabId, "model")!;
+		currentSession.setState({ sessionId: "replacement", status: "ready" });
+		currentModel.setState({ model: { provider: "live", id: "replacement-model" }, thinkingLevel: "high" });
+		fixture.response.resolve(success(fixture.wire));
+		await act(async () => {
+			await fixture.hydration;
+		});
+		expect(currentSession.getState().sessionId).toBe("replacement");
+		expect(currentModel.getState()).toMatchObject({
+			model: { provider: "live", id: "replacement-model" },
+			thinkingLevel: "high",
+		});
 	});
 });

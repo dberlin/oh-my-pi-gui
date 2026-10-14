@@ -22,12 +22,12 @@ interface DollarGuardOptions {
  *   attempt rewinds and the opening `$` is emitted as literal data, so
  *   following `**`/`_` still parse and the next `$` gets its own attempt.
  *
- * Guard rules (pandoc's, plus a currency bias): for a single `$`, the opening
- * needs a non-space, non-digit on its right (a digit means money); the closing
- * run must have a non-space on its left and no digit on its right.
- * `$$…$$` keeps upstream behavior — display math like `$$15$$` still renders.
- * One regression accepted: real math starting with a bare digit (`$2^n$`)
- * stays literal — prices are far more common in chat output.
+ * Guard rules: a single `$` needs non-space content on its right; the closing
+ * run needs a non-space on its left and no digit on its right. A digit-led
+ * span containing prose whitespace is money unless it also contains explicit
+ * math syntax. This keeps `$5 and $10 and $x^2$` literal around the prices
+ * without regressing existing numeric equations such as `$2^n$` or `$2 + 3$`.
+ * `$$…$$` keeps upstream behavior, including numeric display math.
  */
 export function remarkDollarGuard(this: Processor, options?: DollarGuardOptions): void {
 	const single = options?.singleDollarTextMath !== false;
@@ -69,6 +69,9 @@ function tokenizeGuardedMath(single: boolean): Tokenizer {
 			let size = 0;
 			let token: Token | undefined;
 			let previous = -1;
+			let numericStart = false;
+			let numericWhitespace = false;
+			let numericMathSyntax = false;
 			return start;
 
 			function start(code: number | null): State | undefined {
@@ -91,7 +94,7 @@ function tokenizeGuardedMath(single: boolean): Tokenizer {
 			function first(code: number | null): State | undefined {
 				if (sizeOpen === 1) {
 					if (!single || code === null || markdownLineEndingOrSpace(code)) return nok(code);
-					if (code >= codes.digit0 && code <= codes.digit9) return nok(code);
+					numericStart = code >= codes.digit0 && code <= codes.digit9;
 				} else if (code === null) {
 					return nok(code);
 				}
@@ -103,6 +106,7 @@ function tokenizeGuardedMath(single: boolean): Tokenizer {
 				if (markdownLineEnding(code)) {
 					// Inline math cannot span a paragraph break (\r\n is one ending).
 					if (markdownLineEnding(previous) && !(previous === 13 && code === 10)) return nok(code);
+					if (numericStart) numericWhitespace = true;
 					effects.enter("mathTextData");
 					effects.consume(code);
 					effects.exit("mathTextData");
@@ -123,6 +127,23 @@ function tokenizeGuardedMath(single: boolean): Tokenizer {
 					effects.exit("mathTextData");
 					return between(code);
 				}
+				if (numericStart) {
+					if (markdownLineEndingOrSpace(code)) numericWhitespace = true;
+					else if (
+						code === codes.backslash ||
+						code === codes.caret ||
+						code === codes.underscore ||
+						code === codes.plusSign ||
+						code === codes.dash ||
+						code === codes.asterisk ||
+						code === codes.slash ||
+						code === codes.equalsTo ||
+						code === codes.lessThan ||
+						code === codes.greaterThan
+					) {
+						numericMathSyntax = true;
+					}
+				}
 				previous = code;
 				effects.consume(code);
 				return data;
@@ -136,13 +157,17 @@ function tokenizeGuardedMath(single: boolean): Tokenizer {
 				}
 				if (
 					size === sizeOpen &&
-					!markdownLineEndingOrSpace(previous) &&
+					(sizeOpen !== 1 || !markdownLineEndingOrSpace(previous)) &&
+					(!numericStart || !numericWhitespace || numericMathSyntax) &&
 					(sizeOpen !== 1 || code === null || code < codes.digit0 || code > codes.digit9)
 				) {
 					effects.exit("mathTextSequence");
 					effects.exit("mathText");
 					return ok(code);
 				}
+				// A rejected digit-led span is a price, not the start of a later
+				// equation. Rewind now so the next dollar gets its own attempt.
+				if (numericStart && size === sizeOpen) return nok(code);
 				// Rejected close — the `$` run is content, keep scanning.
 				if (token) token.type = "mathTextData";
 				previous = codes.dollarSign;

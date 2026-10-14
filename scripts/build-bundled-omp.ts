@@ -3,9 +3,9 @@
  * Build the GUI's bundled (built-in) omp sidecar binary.
  *
  * Produces a self-contained `resources/omp` executable from the omp monorepo's
- * coding-agent source via compileCodingAgent (Bun.build --compile). The native
- * addon archive is embedded as an asset, so the binary needs no external omp,
- * no node_modules, and no bun runtime — the GUI spawns it as its dedicated
+ * coding-agent source via compileCodingAgent (Bun.build --compile). Native
+ * addons are embedded as compressed assets, so the binary needs no external
+ * omp, no node_modules, and no bun runtime — the GUI spawns it as its dedicated
  * sidecar. The packaged GUI NEVER falls back to a system-installed omp
  * (src/main/index.ts resolveBundledOmp).
  *
@@ -23,8 +23,8 @@
  *      packages/natives/native/ — reuses matching local or installed addons,
  *      otherwise downloads the official published leaf package
  *      (@oh-my-pi/pi-natives-<tag>@<version>). Accepts current and legacy stamps.
- *   3. Generates the stats dashboard archive, collab tool views, and native
- *      addon assets required by a self-contained compiled binary.
+ *   3. Generates the stats dashboard and collab tool views required by a
+ *      self-contained compiled binary.
  *   4. Compiles the GUI entry (vanilla CLI plus private embedded stats selector).
  *   5. Restores temporary generated assets and addon staging, so the monorepo
  *      tree is left in its normal development state.
@@ -273,10 +273,10 @@ async function restoreStagedAddons(): Promise<void> {
 // Embed → compile → restore originals
 // ---------------------------------------------------------------------------
 
-async function runPackageScript(cwd: string, script: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+async function runPackageScript(cwd: string, script: string): Promise<void> {
 	const proc = Bun.spawn([process.execPath, "run", script], {
 		cwd,
-		env,
+		env: process.env,
 		stdout: "inherit",
 		stderr: "inherit",
 	});
@@ -301,23 +301,12 @@ async function signMacBinary(filePath: string): Promise<void> {
 	if (exitCode !== 0) throw new Error(`codesign failed with exit code ${exitCode}`);
 }
 
-async function embedNativeForTarget(target: SidecarTarget): Promise<void> {
-	const env = {
-		...process.env,
-		TARGET_PLATFORM: target.platformTag.split("-")[0]!,
-		TARGET_ARCH: target.platformTag.split("-")[1]!,
-	};
-	await runPackageScript(nativesDir, "gen:native", env);
-}
-
 /**
  * Preserve the caller's generated state, not just upstream's empty stubs.
  * The stats build also replaces dist/client; tool-view generation has no reset.
  */
-async function snapshotGeneratedAssets(target: SidecarTarget): Promise<() => Promise<void>> {
+async function snapshotGeneratedAssets(): Promise<() => Promise<void>> {
 	const paths = [
-		path.join(nativesNativeDir, "embedded-addon.js"),
-		path.join(nativesNativeDir, `embedded-addons.${target.platformTag}.tar.gz`),
 		path.join(statsDir, "src", "embedded-client.generated.txt"),
 		path.join(statsDir, "dist", "client"),
 		path.join(codingAgentDir, "src", "export", "html", "tool-views.generated.js"),
@@ -366,19 +355,22 @@ const require = createRequire(path.join(codingAgentDir, "package.json"));
 const transformersVersion = (require("@huggingface/transformers/package.json") as { version?: string }).version;
 if (!transformersVersion) throw new Error("@huggingface/transformers package.json has no version");
 
-const restoreGeneratedAssets = await snapshotGeneratedAssets(target);
+const restoreGeneratedAssets = await snapshotGeneratedAssets();
 try {
 	try {
 		await stageNativeAddon(target);
 		await fs.mkdir(path.dirname(out), { recursive: true });
 		await runPackageScript(statsDir, "gen:stats");
 		await runPackageScript(collabWebDir, "gen:tool-views");
-		await embedNativeForTarget(target);
 		await compileCodingAgent({
 			repoRoot,
 			entrypoint: path.join(guiRoot, "scripts", "bundled-omp-entry.ts"),
 			outfile: out,
 			transformersVersion,
+			native: {
+				platform: target.platformTag.split("-")[0]!,
+				arch: target.platformTag.split("-")[1]!,
+			},
 			...(target.target ? { target: target.target } : {}),
 			skipBuiltinCodesign: shouldAdhocSign,
 		});

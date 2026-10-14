@@ -19,6 +19,7 @@ import {
 	forkSessionFromGui,
 	groupByCategory,
 	prefillComposer,
+	retryFailedTurn,
 } from "../../lib/command-registry";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -62,6 +63,7 @@ const SUBAGENT_VIEW_COMMANDS: Record<string, true> = {
 	jobs: true,
 	"new-chat-tab": true,
 	"new-tab": true,
+	search: true,
 	"session info": true,
 	stats: true,
 	theme: true,
@@ -315,22 +317,18 @@ export function CommandPalette() {
 		[t],
 	);
 
-	/** Retry the last FAILED turn via the retry RPC (TUI /retry parity). */
+	/** Retry the last failed turn through vanilla's native /retry text handler. */
 	const retryTurn = useCallback(async () => {
 		if (!sidecarReady) {
 			toast({ variant: "warning", message: t("common.notConnected") });
 			return;
 		}
-		const response = await tabRpc.retry();
-		if (!response.success) {
-			toast({ variant: "error", title: t("palette.failed"), message: response.error });
-			return;
+		try {
+			await retryFailedTurn(tabRpc);
+		} catch (cause) {
+			toast({ variant: "error", title: t("palette.failed"), message: String(cause) });
 		}
-		const data = response.data as { retried?: boolean } | undefined;
-		if (!data?.retried) {
-			toast({ variant: "warning", title: t("palette.retryNothing"), message: t("palette.retryNothingDesc") });
-		}
-	}, [sidecarReady, t, tabRpc.retry]);
+	}, [sidecarReady, t, tabRpc]);
 
 	const menuItems = useMemo(
 		() =>

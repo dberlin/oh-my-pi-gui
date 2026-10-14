@@ -8,11 +8,13 @@ import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "
 import Store from "electron-store";
 import { z } from "zod";
 import type {
+	ConversationSearchResponse,
 	CustomProviderInput,
 	FsTreeEntry,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
 	IpcCloseTabPayload,
+	IpcConversationSearchPayload,
 	IpcExtensionUiRespondPayload,
 	IpcFsListPayload,
 	IpcFsListResult,
@@ -53,13 +55,16 @@ import { parseLaunchProfile } from "../shared/launch-profile";
 import type { AgentMessage, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { requestQuit } from "./app-quit";
 import { BenchmarkRunner } from "./benchmark-runner";
+import { unsupportedBtwBranchResponse } from "./btw-transport";
 import { executeConfigRpcCommand, isConfigRpcCommand } from "./config-rpc";
+import type { ConversationIndex } from "./conversation-index";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { mainT } from "./i18n";
 import { isLocalSshSettingsCommand, isLocalSshSettingsCommandType } from "./local-ssh-settings";
 import type { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
+import { createModelRecoveryGuard, prepareModelRecoveryCommand, prepareModelRestoreOrigin } from "./model-recovery";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
 import type { RemoteAcpClient } from "./remote-acp";
 import type { RemoteHostCatalog } from "./remote-host-catalog";
@@ -113,6 +118,8 @@ export interface IpcDeps {
 	/** Demand-driven revive for the bundled stats server (no server → "exhausted"). */
 	statsRestart: () => Revive;
 	logWatcher: LogWatcher;
+	/** Local message-level search; null when SQLite/FTS5 is unavailable. */
+	conversationIndex: ConversationIndex | null;
 	windowManager: WindowManager;
 	benchmarkBinaryPath: string | null;
 	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
@@ -632,6 +639,10 @@ const persistedEntrySchema = z.looseObject({
 	timestamp: z.string(),
 });
 type PersistedEntry = z.infer<typeof persistedEntrySchema>;
+const canonicalSessionEntriesSchema = z.object({
+	entries: z.array(persistedEntrySchema),
+	leafId: z.string().nullable(),
+});
 
 const persistedAgentMessageSchema = z
 	.looseObject({
@@ -668,15 +679,18 @@ const persistedCustomMessageSchema = persistedEntrySchema.extend({
 	details: z.unknown().optional(),
 });
 
-function persistedActivePath(entries: PersistedEntry[]): PersistedEntry[] {
+function persistedActivePath(entries: PersistedEntry[], leafId?: string | null): PersistedEntry[] {
 	const byId = new Map(entries.map(entry => [entry.id, entry]));
 	const pathEntries: PersistedEntry[] = [];
 	const visited = new Set<string>();
-	let current = entries.at(-1);
+	let current = leafId === undefined ? entries.at(-1) : leafId === null ? undefined : byId.get(leafId);
 	while (current && !visited.has(current.id)) {
 		visited.add(current.id);
 		pathEntries.push(current);
 		current = current.parentId ? byId.get(current.parentId) : undefined;
+	}
+	if (leafId !== undefined && leafId !== null && (current || pathEntries.at(-1)?.parentId !== null)) {
+		throw new Error("Native active branch is missing, incomplete, or cyclic");
 	}
 	return pathEntries.reverse();
 }
@@ -701,6 +715,60 @@ function collapsedPersistedTranscriptEntries(pathEntries: PersistedEntry[]): Per
 		compaction,
 		...pathEntries.slice(compactionIndex + 1),
 	];
+}
+
+function persistedTranscriptMessages(pathEntries: PersistedEntry[], includeEntryIds = false): AgentMessage[] {
+	const messages: AgentMessage[] = [];
+	for (const entry of pathEntries) {
+		if (entry.type === "message") {
+			const parsed = persistedAgentMessageSchema.safeParse(entry.message);
+			if (!parsed.success) {
+				if (includeEntryIds) throw new Error("Invalid native persisted message");
+				continue;
+			}
+			messages.push(
+				includeEntryIds && (parsed.data.role === "user" || parsed.data.role === "assistant")
+					? { ...parsed.data, entryId: entry.id }
+					: parsed.data,
+			);
+			continue;
+		}
+		if (entry.type === "custom_message") {
+			const parsed = persistedCustomMessageSchema.safeParse(entry);
+			if (!parsed.success) {
+				if (includeEntryIds) throw new Error("Invalid native custom message");
+				continue;
+			}
+			messages.push({
+				role: "custom",
+				customType: parsed.data.customType,
+				content: parsed.data.content,
+				display: parsed.data.display,
+				...(parsed.data.details === undefined ? {} : { details: parsed.data.details }),
+				timestamp: Date.parse(parsed.data.timestamp),
+			});
+			continue;
+		}
+		if (entry.type === "branch_summary" && typeof entry.summary === "string" && typeof entry.fromId === "string") {
+			messages.push({
+				role: "branchSummary",
+				summary: entry.summary,
+				fromId: entry.fromId,
+				timestamp: Date.parse(entry.timestamp),
+			});
+			continue;
+		}
+		if (entry.type === "compaction" && typeof entry.summary === "string" && typeof entry.tokensBefore === "number") {
+			messages.push({
+				role: "compactionSummary",
+				summary: entry.summary,
+				...(typeof entry.shortSummary === "string" ? { shortSummary: entry.shortSummary } : {}),
+				tokensBefore: entry.tokensBefore,
+				timestamp: Date.parse(entry.timestamp),
+			});
+		}
+	}
+	return messages;
 }
 
 export function parsePersistedSubagentMessages(content: string): AgentMessage[] {
@@ -733,47 +801,7 @@ export function parsePersistedSubagentMessages(content: string): AgentMessage[] 
 		const parsed = persistedEntrySchema.safeParse(row);
 		if (parsed.success) entries.push(parsed.data);
 	}
-	const messages: AgentMessage[] = [];
-	for (const entry of collapsedPersistedTranscriptEntries(persistedActivePath(entries))) {
-		if (entry.type === "message") {
-			const parsed = persistedAgentMessageSchema.safeParse(entry.message);
-			if (parsed.success) messages.push(parsed.data);
-			continue;
-		}
-		if (entry.type === "custom_message") {
-			const parsed = persistedCustomMessageSchema.safeParse(entry);
-			if (!parsed.success) continue;
-			const customMessage: AgentMessage = {
-				role: "custom",
-				customType: parsed.data.customType,
-				content: parsed.data.content,
-				display: parsed.data.display,
-				...(parsed.data.details === undefined ? {} : { details: parsed.data.details }),
-				timestamp: Date.parse(parsed.data.timestamp),
-			};
-			messages.push(customMessage);
-			continue;
-		}
-		if (entry.type === "branch_summary" && typeof entry.summary === "string" && typeof entry.fromId === "string") {
-			messages.push({
-				role: "branchSummary",
-				summary: entry.summary,
-				fromId: entry.fromId,
-				timestamp: Date.parse(entry.timestamp),
-			});
-			continue;
-		}
-		if (entry.type === "compaction" && typeof entry.summary === "string" && typeof entry.tokensBefore === "number") {
-			messages.push({
-				role: "compactionSummary",
-				summary: entry.summary,
-				...(typeof entry.shortSummary === "string" ? { shortSummary: entry.shortSummary } : {}),
-				tokensBefore: entry.tokensBefore,
-				timestamp: Date.parse(entry.timestamp),
-			});
-		}
-	}
-	return messages;
+	return persistedTranscriptMessages(collapsedPersistedTranscriptEntries(persistedActivePath(entries)));
 }
 
 function decodePersistedSubagentMessages(data: Uint8Array): IpcSubagentTranscriptReadResult {
@@ -867,6 +895,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const remoteWorkspaceTrust = new RemoteWorkspaceTrust();
 	const remoteRequests = new RemoteRequestRegistry();
 	const remoteResumeGrants = new RemoteResumeGrantRegistry();
+	const modelRecoveryGuard = createModelRecoveryGuard();
 	const remoteDispatchDeps = {
 		catalog: deps.remoteHostCatalog,
 		lookupTab: (_tabId: string) => null,
@@ -1130,6 +1159,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			};
 		}
 		const { id: _id, ...cmd } = payload.command;
+		const unsupportedBtw = unsupportedBtwBranchResponse(payload.command);
+		if (unsupportedBtw) return unsupportedBtw;
 		const issuerTabInfo = issuerTabId
 			? sidecarPool.tabsForWindow(win).find(tab => tab.tabId === issuerTabId)
 			: undefined;
@@ -1155,6 +1186,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// and silently diverge the owner's file. The renderer pre-check routes
 		// to the owner; this catches the race.
 		if (cmd.type === "switch_session") {
+			await sidecarPool.waitForSessionRestore(cmd.sessionPath);
 			const blocker = sidecarPool.foreignSessionOwner(issuerTabId, cmd.sessionPath);
 			if (blocker) {
 				return {
@@ -1169,7 +1201,64 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			}
 		}
 		try {
-			const response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
+			let dispatchCommand: RpcCommand = { ...cmd, id: _id } as RpcCommand;
+			modelRecoveryGuard.observe(client, dispatchCommand);
+			const unchangedSession = modelRecoveryGuard.capture(client);
+			if (dispatchCommand.type === "switch_session") {
+				const prepared = await prepareModelRecoveryCommand(
+					dispatchCommand,
+					request => client.command(request, payload.timeoutMs),
+					() =>
+						unchangedSession() &&
+						(issuerTabId ? sidecarPool.sidecarForTab(win, issuerTabId) : sidecarPool.sidecarForWindow(win)) ===
+							sidecar &&
+						sidecar.rpcClient === client &&
+						sidecar.status === "ready",
+				);
+				if ("response" in prepared) return prepared.response;
+				dispatchCommand = prepared.command;
+			}
+			if ((cmd.type === "get_messages" || cmd.type === "get_messages_page") && issuerTab?.target.type === "local") {
+				// Vanilla context messages have no entry identity. Read its journal
+				// and explicit current leaf instead of matching text or guessing the
+				// latest on-disk branch. Keep full history for precompaction locate.
+				const snapshot = await client.command({ type: "get_entries" }, payload.timeoutMs);
+				const currentTab = sidecarPool.tabsForWindow(win).find(tab => tab.tabId === issuerTabId);
+				if (
+					!unchangedSession() ||
+					!currentTab ||
+					currentTab.sessionId !== issuerTabInfo?.sessionId ||
+					sidecarPool.sidecarForTab(win, issuerTab.tabId) !== sidecar ||
+					sidecar.rpcClient !== client ||
+					sidecar.status !== "ready"
+				) {
+					return {
+						id: _id, type: "response", command: cmd.type, success: false,
+						code: "session_changed", error: "Session changed while reading its transcript",
+					};
+				}
+				if (!snapshot.success) return { ...snapshot, id: _id, command: cmd.type };
+				try {
+					const canonical = canonicalSessionEntriesSchema.parse(snapshot.data);
+					const messages = persistedTranscriptMessages(
+						persistedActivePath(canonical.entries, canonical.leafId),
+						true,
+					);
+					// One complete canonical page avoids mixing native context cursors
+					// with a different full-history transcript.
+					return {
+						id: _id, type: "response", command: cmd.type, success: true,
+						data: cmd.type === "get_messages_page" ? { messages, totalMessages: messages.length } : { messages },
+					};
+				} catch (error) {
+					return {
+						id: _id, type: "response", command: cmd.type, success: false,
+						code: "invalid_session_entries",
+						error: error instanceof Error ? error.message : "Invalid native journal snapshot",
+					};
+				}
+			}
+			const response = await client.command(dispatchCommand, payload.timeoutMs);
 			observeRemoteCatalogRpcResponse(deps.remoteHostCatalog, issuerTab?.target ?? null, cmd, response);
 			if (response.success && issuerTab) remoteWorkspaceTrust.observeRpcSuccess(issuerTab, cmd, response.data);
 			// F-OWN registration points carried by this passthrough: a successful
@@ -1357,12 +1446,28 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return authorized.ok ? authorized.value : false;
 		}
 		if (request.sessionPath) {
+			await deps.sidecarPool.waitForSessionRestore(request.sessionPath);
 			const owner = deps.sidecarPool.sessionOwner(request.sessionPath);
-			if (owner && deps.windowManager.focusWindowById(owner.winId)) return true;
+			if (owner) {
+				if (request.entryId) {
+					deps.windowManager.queueConversationFocus(owner.winId, {
+						sessionPath: request.sessionPath,
+						entryId: request.entryId,
+					});
+				}
+				if (deps.windowManager.focusWindowById(owner.winId)) return true;
+			}
 		}
 		if (deps.sidecarPool.atCap) return false;
 		const kind = request.sessionPath ? await sessionIndex.kindFor(request.sessionPath) : undefined;
-		return deps.spawnWindow(request.cwd, request.sessionPath, kind, request.target, request.resumeSessionId) !== null;
+		const win = deps.spawnWindow(request.cwd, request.sessionPath, kind, request.target, request.resumeSessionId);
+		if (win && request.sessionPath && request.entryId) {
+			deps.windowManager.queueConversationFocus(win.webContents.id, {
+				sessionPath: request.sessionPath,
+				entryId: request.entryId,
+			});
+		}
+		return win !== null;
 	});
 
 	// Fresh window pulls the session it was opened to display (one-shot). The
@@ -1371,6 +1476,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.SESSION_CONSUME_PENDING, event => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		return win ? (deps.windowManager.consumePendingSession(win) ?? null) : null;
+	});
+
+	ipcMain.handle(IPC_COMMANDS.CONVERSATION_FOCUS_CONSUME, event => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		return win ? deps.windowManager.consumePendingConversationFocus(win) : null;
 	});
 
 	ipcMain.handle(
@@ -1407,6 +1517,48 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				sessionIndex,
 				fallbackCwd: () => cwdFor(deps, event) ?? deps.initialCwd(),
 				defaultWorkspace: ensureDefaultWorkspace,
+				prepareModelOrigin: async request => {
+					const origin = request.modelOrigin;
+					if (!origin) return { error: "Saved-session restore requires its working origin" };
+					const originSidecar = sidecarPool.sidecarForTab(win, origin.tabId);
+					const originClient = originSidecar?.rpcClient;
+					if (!originSidecar || !originClient) return { error: "The working session is no longer available" };
+					const unchanged = modelRecoveryGuard.capture(originClient);
+					return prepareModelRestoreOrigin(
+						request,
+						command => originClient.command(command),
+						() =>
+							unchanged() &&
+							sidecarPool.sidecarForTab(win, origin.tabId) === originSidecar &&
+							originSidecar.rpcClient === originClient &&
+							originSidecar.status === "ready",
+					);
+				},
+				watchModelOrigin: (request, cancel) => {
+					const origin = request.modelOrigin;
+					if (!origin) return () => {};
+					const originSidecar = sidecarPool.sidecarForTab(win, origin.tabId);
+					const originClient = originSidecar?.rpcClient;
+					if (!originSidecar || !originClient || originSidecar.status !== "ready") {
+						cancel();
+						return () => {};
+					}
+					const detachGuard = modelRecoveryGuard.subscribe(originClient, cancel);
+					const onStatus = () => {
+						if (
+							sidecarPool.sidecarForTab(win, origin.tabId) !== originSidecar ||
+							originSidecar.rpcClient !== originClient ||
+							originSidecar.status !== "ready"
+						) {
+							cancel();
+						}
+					};
+					originSidecar.on("status", onStatus);
+					return () => {
+						detachGuard();
+						originSidecar.off("status", onStatus);
+					};
+				},
 				authorizeRemoteTarget: (
 					target: SshSessionTarget,
 					cwd: unknown,
@@ -1421,6 +1573,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			win,
 			payload,
 		);
+	});
+
+	ipcMain.handle(IPC_COMMANDS.CANCEL_RESTORE, (event, payload: { restoreRequestId?: unknown } | null) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || typeof payload?.restoreRequestId !== "string" || !payload.restoreRequestId) return false;
+		return sidecarPool.cancelSessionRestoreRequest(win, payload.restoreRequestId);
 	});
 
 	// Release a tab's sidecar. The window falls back to its initial no-tab
@@ -1458,8 +1616,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// F-OWN: which tab/window owns a session file, if any. The renderer
 	// belt-guards (open tab / open-in-new-window rows) consult this before
 	// attempting an attach.
-	ipcMain.handle(IPC_COMMANDS.GET_SESSION_OWNER, (_event, payload: IpcGetSessionOwnerPayload) => {
-		return typeof payload?.sessionPath === "string" ? deps.sidecarPool.sessionOwner(payload.sessionPath) : null;
+	ipcMain.handle(IPC_COMMANDS.GET_SESSION_OWNER, async (_event, payload: IpcGetSessionOwnerPayload) => {
+		if (typeof payload?.sessionPath !== "string") return null;
+		await deps.sidecarPool.waitForSessionRestore(payload.sessionPath);
+		return deps.sidecarPool.sessionOwner(payload.sessionPath);
 	});
 
 	// Full-content search over session files (raw JSONL grep in main, scoped to
@@ -1473,6 +1633,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			candidates.map(info => info.path),
 		);
 	});
+
+	ipcMain.handle(
+		IPC_COMMANDS.CONVERSATIONS_SEARCH,
+		async (_event, payload: IpcConversationSearchPayload): Promise<ConversationSearchResponse> => {
+			if (!deps.conversationIndex) return { results: [], indexed: 0, indexing: null, unavailable: true };
+			const query = typeof payload?.query === "string" ? payload.query.slice(0, 200) : "";
+			const cwd = typeof payload?.cwd === "string" && payload.cwd ? payload.cwd : null;
+			return deps.conversationIndex.searchFresh(query, { cwd });
+		},
+	);
 
 	// Stats
 	ipcMain.handle(IPC_COMMANDS.STATS_FETCH, async (_event, payload: IpcStatsFetchPayload) => {
@@ -1611,11 +1781,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	ipcMain.handle(IPC_COMMANDS.SYSTEM_NOTIFY, (event, payload: IpcNotifyPayload) => {
 		if (typeof payload.title === "string") {
-			// Dedupe within a window (a turn can emit the same notification from
-			// several renderers), but NOT across windows — two parallel sessions
-			// finishing in different windows are distinct events the user wants.
+			// Equal outcomes from different tabs/windows are distinct events.
+			// Suppress only repeated notices from the same origin.
 			const winId = BrowserWindow.fromWebContents(event.sender)?.webContents.id ?? 0;
-			const key = `${winId}${payload.title}${payload.body ?? ""}`;
+			const key = JSON.stringify([winId, payload.tabId ?? "", payload.title, payload.body ?? ""]);
 			const now = Date.now();
 			if (key === lastNotifyKey && now - lastNotifyAt < 1500) return;
 			lastNotifyKey = key;

@@ -23,7 +23,6 @@ import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { useUiStore } from "../stores/ui";
 import { saveGuiPreference } from "./display-preferences";
 import { useT } from "./i18n";
-import { openLink } from "./open-link";
 import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_CODE } from "./preview";
 import { remarkDollarGuard } from "./remark-dollar-guard";
 import { remarkLatexMath } from "./remark-latex-math";
@@ -42,22 +41,14 @@ interface MarkdownRendererProps {
 	 * SSR/tests pass this — the pref store's server snapshot is always off.
 	 */
 	codeLineNumbers?: boolean;
-	/**
-	 * Content is the still-growing tail of a streaming reply: code renders in
-	 * its final chrome but skips syntax highlighting, which would otherwise
-	 * re-tokenize the whole fence on every frame.
-	 */
+	/** Live fences retain code chrome but defer highlighting/diagrams until complete. */
 	streaming?: boolean;
 }
 
 // Hoisted to module scope: stable plugin arrays and component maps keep
 // ReactMarkdown from treating the pipeline as changed on every render.
 // remark-math must precede rehype-katex: it parses $...$/$$...$$ into math
-// nodes that rehype-katex (rehype chain below) then renders. The dollar guard
-// registers AFTER remark-math because micromark prepends each extension's
-// constructs — later registration means it is tried BEFORE mathText, letting
-// it keep prices like `$15 … $25` literal instead of letting them eat the
-// markup between them.
+// nodes that rehype-katex (rehype chain below) then renders.
 const REMARK_PLUGINS: Options["remarkPlugins"] = [remarkGfm, remarkMath, remarkDollarGuard, remarkLatexMath];
 const REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR: Options["remarkPlugins"] = [
 	remarkGfm,
@@ -196,7 +187,7 @@ function ExternalLink({ href, children, ...props }: ComponentPropsWithoutRef<"a"
 				e.preventDefault();
 				const filePath = filePathFromHref(href);
 				if (filePath) useUiStore.getState().openFilePreview(filePath);
-				else openLink(href, e);
+				else window.omp.system.openExternal(href);
 			}}
 			className="text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
 		>
@@ -296,8 +287,9 @@ function isMermaidCodeElement(node: ReactNode): boolean {
 }
 
 function CodeBlock({ className, children, ...props }: ComponentPropsWithoutRef<"code">) {
+	const streaming = useContext(StreamingContent);
 	// Mermaid fences render as diagrams; MermaidBlock falls back to source on error.
-	if (typeof className === "string" && MERMAID_CLASS.test(className)) {
+	if (!streaming && typeof className === "string" && MERMAID_CLASS.test(className)) {
 		return <MermaidBlock code={textOf(children)} />;
 	}
 	// Fenced (className-carrying) code reaches here only as Pre's child — Pre
@@ -374,7 +366,7 @@ function Pre({ children }: ComponentPropsWithoutRef<"pre">) {
 	const streaming = useContext(StreamingContent);
 	// A mermaid fence swaps the whole block for a diagram with its own chrome —
 	// skip the <pre> wrapper so the diagram is not boxed like code.
-	if (isMermaidCodeElement(children)) return <>{children}</>;
+	if (!streaming && isMermaidCodeElement(children)) return <>{children}</>;
 	// Every other fence renders through the shared CodeBlock: same language
 	// badge, copy button, gutter, and lazy highlighting as the tool cards. The
 	// fence's trailing newline never paints a visible line — strip it.
@@ -468,7 +460,7 @@ function RemoteMarkdownImage({ src, alt }: { src: string; alt: string }) {
 				href={src}
 				onClick={event => {
 					event.preventDefault();
-					openLink(src, event);
+					window.omp.system.openExternal(src);
 				}}
 				className="shrink-0 truncate font-mono text-omp-xs text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
 			>

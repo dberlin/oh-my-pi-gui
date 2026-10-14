@@ -131,6 +131,14 @@ export function Sidebar() {
 				.join(" / "),
 		[keymapOverrides],
 	);
+	const searchShortcut = useMemo(
+		() =>
+			[...compileKeymap(KEYMAP_ACTIONS, keymapOverrides)]
+				.filter(([, action]) => action === "search.conversations")
+				.map(([chord]) => chord)
+				.join(" / "),
+		[keymapOverrides],
+	);
 	const [mode, setMode] = useState<SidebarMode>("code");
 	const [navigationExpanded, setNavigationExpanded] = useState(true);
 	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(null);
@@ -702,6 +710,14 @@ export function Sidebar() {
 									onClick: () => useUiStore.getState().openCommandPalette(),
 								},
 								{
+									id: "search",
+									icon: Search,
+									label: t("titlebar.search"),
+									shortcut: searchShortcut,
+									title: t("titlebar.searchHint"),
+									onClick: () => useUiStore.getState().openConversationSearch(),
+								},
+								{
 									id: "capabilities",
 									icon: Sparkles,
 									label: t("settings.capabilities.title"),
@@ -775,6 +791,7 @@ export function Sidebar() {
 										type="button"
 										onClick={item.onClick}
 										data-command-center-entry={item.id === "commands" ? true : undefined}
+										data-conversation-search-entry={item.id === "search" ? true : undefined}
 										title={item.title}
 										className="omp-pressable flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-omp-md text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 									>

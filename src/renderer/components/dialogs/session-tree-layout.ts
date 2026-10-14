@@ -87,9 +87,8 @@ export function buildSessionTreeLayout(entries: SessionTreeEntry[]): SessionTree
 		);
 	}
 
-	// Depth via walk-up with cycle protection; a cycle re-attaches the walked
-	// entry to the root. Depths are memoized and backfilled along each walk, so
-	// a long chain resolves in one pass instead of an O(n²) walk-per-entry.
+	// Memoize and backfill depths so a long chain needs one pass, not a
+	// separate walk to the root per entry. A cycle re-roots the walked entry.
 	const depthOf = new Map<string, number>([[SESSION_ROOT_ID, 0]]);
 	for (const entry of entries) {
 		if (depthOf.has(entry.entryId)) continue;
@@ -103,15 +102,14 @@ export function buildSessionTreeLayout(entries: SessionTreeEntry[]): SessionTree
 				base = known;
 				break;
 			}
-			if (onPath.has(cursor)) break; // re-entered this walk's path → cycle
+			if (onPath.has(cursor)) break;
 			onPath.add(cursor);
 			path.push(cursor);
 			cursor = parentOf.get(cursor) ?? SESSION_ROOT_ID;
 		}
 		if (base === null && cursor !== SESSION_ROOT_ID) {
-			// Walked into a cycle: re-root the entry (prior semantics) and leave
-			// the rest of the path unresolved — those entries walk again and now
-			// terminate at the freshly rooted node.
+			// Preserve the prior cycle cut: only re-root the walked entry.
+			// Remaining entries resolve on later walks after the cycle breaks.
 			parentOf.set(entry.entryId, SESSION_ROOT_ID);
 			depthOf.set(entry.entryId, 1);
 			continue;
@@ -130,9 +128,8 @@ export function buildSessionTreeLayout(entries: SessionTreeEntry[]): SessionTree
 		else childrenOf.set(parent, [entry.entryId]);
 	}
 
-	// Tidy columns: leaves take successive x slots; internal nodes center on
-	// children. This is an iterative post-order walk — the same recursion over
-	// a deep session (one node per message) overflows the call stack.
+	// Iterative postorder keeps deep sessions off the call stack. Leaves take
+	// successive x slots; internal nodes center on their children as before.
 	let leafCount = 0;
 	const slotOf = new Map<string, number>();
 	const postOrder: string[] = [];
@@ -144,10 +141,10 @@ export function buildSessionTreeLayout(entries: SessionTreeEntry[]): SessionTree
 			postOrder.push(top.id);
 			continue;
 		}
-		if (expanded.has(top.id)) continue; // residual cycle: skip instead of looping
+		if (expanded.has(top.id)) continue;
 		expanded.add(top.id);
 		pending.push({ id: top.id, expanded: true });
-		// Pushed in reverse so the left-to-right sibling order survives the LIFO pop.
+		// Reverse pushes preserve left-to-right wire order on the LIFO stack.
 		const kids = childrenOf.get(top.id) ?? [];
 		for (let i = kids.length - 1; i >= 0; i--) pending.push({ id: kids[i]!, expanded: false });
 	}

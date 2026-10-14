@@ -169,6 +169,23 @@ it("does not deliver an old view's command to the replacement session", async ()
 	expect(enabled).toBe(true);
 });
 
+it("marks retired-runtime compaction as not dispatched without running it against the replacement", async () => {
+	const old = createTabRuntime("tab-a");
+	replaceTabRuntime("tab-a");
+	let compactions = 0;
+	vi.spyOn(window.omp.rpc, "commandForTab").mockImplementation(async (_tabId, command) => {
+		if (command.type === "compact") compactions++;
+		return { type: "response", command: command.type, success: true, data: {} };
+	});
+
+	expect(await old.command({ type: "compact" })).toMatchObject({
+		success: false,
+		command: "compact",
+		code: "rpc_not_dispatched",
+	});
+	expect(compactions).toBe(0);
+});
+
 it("preserves a committed session change acknowledgement when its metadata arrives before the response", async () => {
 	const runtime = createTabRuntime("tab-a");
 	vi.spyOn(window.omp.rpc, "commandForTab").mockImplementation(async (_tabId, command) => {
@@ -189,10 +206,19 @@ it("loads selected agents through their owning tab while keeping Main selection 
 	const viewA = sessionRuntimeStore<AgentViewStore>("tab-a", "agentView")!;
 	const viewB = sessionRuntimeStore<AgentViewStore>("tab-b", "agentView")!;
 	vi.spyOn(window.omp.rpc, "commandForTab").mockImplementation(async (tabId, command) => ({
-		type: "response", command: command.type, success: true,
+		type: "response",
+		command: command.type,
+		success: true,
 		data: { messages: [{ role: "user", content: `history for ${tabId}`, timestamp: 1 }], hasMore: false },
 	}));
-	const selected = { id: "shared-agent", index: 1, agent: "worker", status: "running", lastUpdate: 1, kind: "sub" } as const;
+	const selected = {
+		id: "shared-agent",
+		index: 1,
+		agent: "worker",
+		status: "running",
+		lastUpdate: 1,
+		kind: "sub",
+	} as const;
 	setFocusedSessionRuntime("tab-a");
 	await viewB.getState().selectSubagent(selected);
 	expect(viewA.getState().target).toEqual({ kind: "main" });
@@ -239,11 +265,19 @@ it("discards selected transcript pages after runtime replacement without falling
 	const page = Promise.withResolvers<RpcResponse>();
 	vi.spyOn(window.omp.rpc, "commandForTab").mockReturnValueOnce(page.promise);
 	const loading = oldView.getState().selectSubagent({
-		id: "old", index: 1, agent: "worker", status: "completed",
-		sessionFile: "/sessions/old.jsonl", lastUpdate: 1, kind: "sub",
+		id: "old",
+		index: 1,
+		agent: "worker",
+		status: "completed",
+		sessionFile: "/sessions/old.jsonl",
+		lastUpdate: 1,
+		kind: "sub",
 	});
 	replaceTabRuntime("tab-a");
-	page.resolve({ type: "response", command: "get_subagent_messages", success: true,
+	page.resolve({
+		type: "response",
+		command: "get_subagent_messages",
+		success: true,
 		data: { messages: [{ role: "user", content: "stale bytes", timestamp: 1 }], nextByte: 8, hasMore: true },
 	});
 	await loading;

@@ -104,3 +104,94 @@ describe("message pagination", () => {
 		expect(calls).toEqual(["get_messages_page", "get_messages_page", "get_messages"]);
 	});
 });
+
+describe("provider logout", () => {
+	it("clears the provider's stored accounts using their credential ids", async () => {
+		const stored = new Map([
+			[17, "openai"],
+			[42, "openai"],
+			[81, "anthropic"],
+		]);
+		const rpc = createSessionRpcClient(async command => {
+			if (command.type === "get_logout_accounts") {
+				return {
+					type: "response",
+					command: command.type,
+					success: true,
+					data: {
+						accounts: [...stored]
+							.filter(([, provider]) => provider === command.providerId)
+							.map(([credentialId, provider]) => ({
+								credentialId,
+								provider,
+								label: `Account ${credentialId}`,
+								detail: "",
+								type: "oauth",
+								active: credentialId === 17,
+							})),
+					},
+				};
+			}
+			if (command.type !== "logout" || stored.get(command.credentialId) !== command.providerId)
+				return { type: "response", command: command.type, success: false, error: "Invalid credential" };
+			stored.delete(command.credentialId);
+			return { type: "response", command: command.type, success: true, data: {} };
+		});
+
+		expect(await rpc.logout("openai")).toMatchObject({ command: "logout", success: true });
+		expect([...stored]).toEqual([[81, "anthropic"]]);
+	});
+
+	it("surfaces account discovery errors without attempting credential removal", async () => {
+		const calls: string[] = [];
+		const rpc = createSessionRpcClient(async command => {
+			calls.push(command.type);
+			return { type: "response", command: command.type, success: false, error: "Account store unavailable" };
+		});
+
+		expect(await rpc.logout("openai")).toMatchObject({ success: false, error: "Account store unavailable" });
+		expect(calls).toEqual(["get_logout_accounts"]);
+	});
+
+	it("does not send an invalid logout when no stored accounts remain", async () => {
+		const calls: string[] = [];
+		const rpc = createSessionRpcClient(async command => {
+			calls.push(command.type);
+			return { type: "response", command: command.type, success: true, data: { accounts: [] } };
+		});
+
+		expect(await rpc.logout("openai")).toMatchObject({ command: "logout", success: true });
+		expect(calls).toEqual(["get_logout_accounts"]);
+	});
+
+	it("stops clearing credentials and reports the first removal failure", async () => {
+		const removed: number[] = [];
+		const rpc = createSessionRpcClient(async command => {
+			if (command.type === "get_logout_accounts")
+				return {
+					type: "response",
+					command: command.type,
+					success: true,
+					data: {
+						accounts: [17, 42, 63].map(credentialId => ({
+							credentialId,
+							provider: "openai",
+							label: `Account ${credentialId}`,
+							detail: "",
+							type: "oauth",
+							active: credentialId === 17,
+						})),
+					},
+				};
+			if (command.type !== "logout")
+				return { type: "response", command: command.type, success: false, error: "Unexpected command" };
+			if (command.credentialId === 42)
+				return { type: "response", command: command.type, success: false, error: "Credential disappeared" };
+			removed.push(command.credentialId);
+			return { type: "response", command: command.type, success: true, data: {} };
+		});
+
+		expect(await rpc.logout("openai")).toMatchObject({ success: false, error: "Credential disappeared" });
+		expect(removed).toEqual([17]);
+	});
+});

@@ -7,11 +7,17 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { AgentMessage, RpcQueuedMessage, RpcResponse } from "../../../shared/rpc-types";
+import type {
+	AgentMessage,
+	RpcCommand,
+	RpcQueuedMessage,
+	RpcResponse,
+	RpcSessionState,
+} from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
-import { pasteMarkerText, storePaste } from "../../lib/paste-blobs";
+import { dropPaste, expandPasteMarkers, pasteMarkerText, storePaste } from "../../lib/paste-blobs";
 import { useAgentViewStore } from "../../stores/agent-view";
-import { useComposerStore } from "../../stores/composer";
+import { type ComposerImage, useComposerStore } from "../../stores/composer";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
@@ -26,6 +32,7 @@ import {
 import { useSettingsStore } from "../../stores/settings";
 import { createTabRuntime, replaceTabRuntime } from "../../stores/tab-runtime";
 import { useTabsStore } from "../../stores/tabs";
+import { useToastStore } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { InputArea } from "./InputArea";
 import { QueueComposerChip } from "./QueueComposerChip";
@@ -267,6 +274,7 @@ afterEach(async () => {
 	useSettingsStore.getState().reset();
 	useTabsStore.getState().reset();
 	useUiStore.getState().closeComposerEditor();
+	useToastStore.setState({ toasts: [] });
 	setWindowWidth(1200);
 	vi.restoreAllMocks();
 });
@@ -321,6 +329,137 @@ describe("InputArea queue manager", () => {
 		await click(clear);
 		expect(queueClear).toHaveBeenCalledWith("followUp");
 		expect(useQueueStore.getState().followUp).toEqual([]);
+	});
+});
+
+describe("InputArea manual compaction outcomes", () => {
+	it("clears a command the origin tab understood and declined without marking its draft as lost", async () => {
+		await mount(true);
+		const commands: string[] = [];
+		window.omp.rpc.commandForTab = vi.fn(async (tabId: string, command: RpcCommand): Promise<RpcResponse> => {
+			if (command.type === "compact") {
+				commands.push(tabId);
+				return {
+					type: "response",
+					command: "compact",
+					success: false,
+					error: "Nothing to compact (session too small)",
+				};
+			}
+			return ok({});
+		});
+		await act(async () => {
+			createTabRuntime("t1");
+			withSessionRuntime("t1", () => useComposerStore.getState().setDraft("other pane"));
+			setFocusedSessionRuntime("t1");
+			useTabsStore.setState({ activeTabId: "t1" });
+		});
+		await typeInto(findTextarea(), "/compact keep API details");
+		await pressEnter(findTextarea());
+		await flush();
+		expect(commands).toEqual(["t0"]);
+		expect(withSessionRuntime("t0", () => useComposerStore.getState().draft)).toBe("");
+		expect(withSessionRuntime("t0", () => useComposerStore.getState().submissionUncertain)).toBe(false);
+		expect(withSessionRuntime("t1", () => useComposerStore.getState().draft)).toBe("other pane");
+		expect(useInputHistoryStore.getState().entries).toEqual([]);
+		expect(useToastStore.getState().toasts.map(entry => entry.variant)).toEqual(["warning"]);
+	});
+
+	it.each([
+		{ error: "Sidecar not connected", nextStatus: "ready", commandAck: false, code: undefined },
+		{ error: "Sidecar not ready (starting)", nextStatus: "starting", commandAck: false, code: undefined },
+		{ error: "Originating runtime retired", nextStatus: "ready", commandAck: true, code: "rpc_not_dispatched" },
+	] as const)(
+		"restores compact input refused before dispatch: $error",
+		async ({ error, nextStatus, commandAck, code }) => {
+			await mount(true);
+			const blob = storePaste("Keep the API decisions\nand the unresolved migration questions.");
+			const draft = `  /compact ${pasteMarkerText(blob.id, blob.content)}\n`;
+			const image: ComposerImage = {
+				content: { type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+				preview: "data:image/png;base64,aW1hZ2U=",
+			};
+			let bridgeSawReady = false;
+			window.omp.rpc.commandForTab = vi.fn(async (tabId: string, command: RpcCommand): Promise<RpcResponse> => {
+				if (command.type !== "compact") return ok({});
+				bridgeSawReady = withSessionRuntime(tabId, () => useSessionStore.getState().status === "ready");
+				withSessionRuntime(tabId, () => useSessionStore.setState({ status: nextStatus }));
+				// Main omits command; a retired runtime identifies definite non-dispatch by code.
+				const bridgeRefusal: unknown = {
+					type: "response",
+					success: false,
+					error,
+					code,
+					...(commandAck ? { command: "compact" } : {}),
+				};
+				return bridgeRefusal as RpcResponse;
+			});
+			try {
+				await act(async () => useComposerStore.getState().setImages([image]));
+				await typeInto(findTextarea(), draft);
+				await pressEnter(findTextarea());
+				await flush();
+				expect(bridgeSawReady).toBe(true);
+				expect(useComposerStore.getState().draft).toBe(draft);
+				expect(useComposerStore.getState().images).toEqual([image]);
+				expect(expandPasteMarkers(useComposerStore.getState().draft)).toBe(
+					"  /compact Keep the API decisions\nand the unresolved migration questions.\n",
+				);
+				expect(useComposerStore.getState().submissionUncertain).toBe(false);
+				expect(useComposerStore.getState().sending).toBe(false);
+				expect(useInputHistoryStore.getState().entries).toEqual([]);
+				expect(useToastStore.getState().toasts.map(entry => entry.variant)).toEqual(["error"]);
+			} finally {
+				dropPaste(blob.id);
+			}
+		},
+	);
+
+	it("restores the exact compact draft when the transport cannot confirm delivery", async () => {
+		await mount(true);
+		const recoveredState: RpcSessionState = {
+			sessionId: "before-restart",
+			sessionName: null,
+			sessionFile: null,
+			cwd: "/tmp",
+			thinkingLevel: "high",
+			isStreaming: false,
+			isCompacting: false,
+			steeringMode: "all",
+			followUpMode: "all",
+			interruptMode: "immediate",
+			fastModeEnabled: false,
+			fastModeActive: false,
+			tokensPerSecond: null,
+			autoCompactionEnabled: true,
+			messageCount: 0,
+			queuedMessageCount: 0,
+			queuedMessages: { steering: [], followUp: [] },
+			todoPhases: [],
+		};
+		window.omp.rpc.commandForTab = vi.fn(async (_tabId: string, command: RpcCommand): Promise<RpcResponse> => {
+			if (command.type === "compact") {
+				return {
+					type: "response",
+					command: "compact",
+					success: false,
+					code: "rpc_delivery_unknown",
+					error: "Acknowledgement lost",
+				};
+			}
+			if (command.type === "get_state") return ok(recoveredState);
+			if (command.type === "get_messages") return ok({ messages: [] });
+			if (command.type === "get_queue") return ok({ steering: [], followUp: [] });
+			if (command.type === "get_subagents") return ok({ subagents: [] });
+			return ok({});
+		});
+		await typeInto(findTextarea(), "  /compact preserve decisions\n");
+		await pressEnter(findTextarea());
+		await flush();
+		expect(useComposerStore.getState().draft).toBe("  /compact preserve decisions\n");
+		expect(useComposerStore.getState().submissionUncertain).toBe(true);
+		expect(useInputHistoryStore.getState().entries).toEqual([]);
+		expect(useToastStore.getState().toasts.map(entry => entry.variant)).toEqual(["error"]);
 	});
 });
 describe("InputArea queue shorthand submit", () => {

@@ -1,115 +1,93 @@
 import { GitBranch, MessageCircleQuestion } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { type BtwHistoryRecord, getBtwLatestTurn } from "../../../shared/rpc-types";
-import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
+import { useEffect, useRef, useState } from "react";
+import { BtwConversation, type BtwConversationState, latestBtwTurn } from "../../lib/btw-conversation";
 import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
-import { useRuntimeTabId, useTabCommand } from "../../stores/session-runtime-context";
+import { type SessionStore, useSessionStore } from "../../stores/session";
+import {
+	sessionRuntime,
+	sessionRuntimeStore,
+	useRuntimeTabId,
+	useTabCommand,
+} from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Modal, Spinner, TextArea } from "../common";
+
+const EMPTY_ANSWER: BtwConversationState = {
+	record: null,
+	answer: "",
+	loading: false,
+	cancelling: false,
+	error: null,
+};
 
 export function BtwDialog() {
 	const t = useT();
 	const command = useTabCommand();
 	const tabId = useRuntimeTabId();
+	const originSessionId = useSessionStore(state => state.sessionId);
 	const generation = useRef(0);
+	const conversation = useRef<BtwConversation | null>(null);
 	const [draft, setDraft] = useState("");
 	const question = useUiStore(state => state.btwRequest);
 	const close = useUiStore(state => state.closeBtw);
-	const [record, setRecord] = useState<BtwHistoryRecord | null>(null);
-	const [liveAnswer, setLiveAnswer] = useState("");
-	const [error, setError] = useState<string | null>(null);
-	const [loading, setLoading] = useState(false);
+	const [state, setState] = useState(EMPTY_ANSWER);
 	const [branching, setBranching] = useState(false);
-	const recordIdRef = useRef<string | null>(null);
-	/** Topic whose latest turn is still streaming; cancelled when the dialog closes. */
-	const runningIdRef = useRef<string | null>(null);
 
-	const trackRecord = useCallback((next: BtwHistoryRecord): void => {
-		setRecord(next);
-		setLiveAnswer(getBtwLatestTurn(next).answer);
-		runningIdRef.current = getBtwLatestTurn(next).status === "running" ? next.id : null;
-	}, []);
-
-	// biome-ignore lint/correctness/useExhaustiveDependencies: changing the bound task invalidates the pending answer even if its question is identical.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a dialog generation follows its opening question and originating session, not the current draft.
 	useEffect(() => {
-		generation.current++;
-		setRecord(null);
-		setLiveAnswer("");
-		setError(null);
-		setLoading(false);
+		const version = ++generation.current;
+		const runtime = sessionRuntime(tabId);
+		const originCommand = runtime?.command ?? command;
+		const commandGeneration = runtime?.commandGeneration;
+		const isCurrent = (): boolean =>
+			generation.current === version &&
+			(!tabId || sessionRuntime(tabId) === runtime) &&
+			runtime?.commandGeneration === commandGeneration &&
+			(tabId
+				? (sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId ?? originSessionId)
+				: useSessionStore.getState().sessionId) === originSessionId;
+		const owner = new BtwConversation(originCommand, isCurrent, setState);
+		conversation.current = owner;
+		setState(EMPTY_ANSWER);
 		setBranching(false);
 		setDraft(question ?? "");
-		recordIdRef.current = null;
-		runningIdRef.current = null;
+		const subscribe = window.omp.events?.onTabBtwFrame;
+		const unsubscribe =
+			question !== null && typeof subscribe === "function"
+				? subscribe((frame, frameTabId) => {
+						if (frameTabId === (tabId ?? "")) owner.frame(frame);
+					})
+				: undefined;
 		return () => {
+			unsubscribe?.();
+			// Cancel before retiring this generation: the captured command must
+			// never address the tab's replacement session.
+			void owner.close().catch(cause => {
+				toast({ variant: "error", message: String(cause) });
+			});
 			generation.current++;
-			// The sidecar runs one side question at a time: an answer left
-			// streaming after close would reject the next /btw as "still running".
-			const runningId = runningIdRef.current;
-			runningIdRef.current = null;
-			if (runningId) void command({ type: "btw_cancel", recordId: runningId }).catch(() => {});
+			if (conversation.current === owner) conversation.current = null;
 		};
-	}, [question, command]);
+	}, [question, command, tabId, originSessionId]);
 
-	// Streaming frames: deltas append to the running answer; record snapshots are
-	// authoritative on every lifecycle change (started/complete/cancelled/error).
-	useEffect(() => {
-		return window.omp.events.onBtwFrame(frame => {
-			const currentId = recordIdRef.current;
-			if (!currentId) return;
-			if (frame.type === "btw_delta") {
-				if (frame.recordId === currentId) setLiveAnswer(prev => prev + frame.delta);
-				return;
-			}
-			if (frame.record.id !== currentId) return;
-			trackRecord(frame.record);
-			setLoading(false);
-		});
-	}, [trackRecord]);
-
-	const latest = record ? getBtwLatestTurn(record) : null;
+	const latest = state.record ? latestBtwTurn(state.record) : null;
 	const running = latest?.status === "running";
-
-	const ask = async () => {
-		if (!draft.trim() || loading || running) return;
-		const version = generation.current;
-		setError(null);
-		setLoading(true);
-		try {
-			const priorId = record?.id;
-			const response = await command(
-				{ type: "btw", question: draft.trim(), ...(priorId ? { recordId: priorId } : {}) },
-				120_000,
-			);
-			if (generation.current !== version) return;
-			if (!response.success) throw new Error(response.error);
-			const data = response.data as { record: BtwHistoryRecord };
-			recordIdRef.current = data.record.id;
-			trackRecord(data.record);
-		} catch (cause) {
-			if (generation.current === version) setError(String(cause));
-		} finally {
-			// The response carries the started record; the running state below
-			// shows its own streaming/thinking indicator.
-			if (generation.current === version) setLoading(false);
+	const busy = state.loading || running;
+	const canBranch = latest?.status === "complete" && !state.loading;
+	const ask = async (): Promise<void> => {
+		if (typeof window.omp.events?.onTabBtwFrame !== "function") {
+			setState(current => ({ ...current, error: t("btw.streamingUnsupported") }));
+			return;
 		}
-	};
-
-	const answerText = running || !record ? liveAnswer : latest!.answer;
-	const canBranch = latest?.status === "complete";
-
-	const cancel = (): void => {
-		const runningId = runningIdRef.current;
-		if (!runningId) return;
-		void command({ type: "btw_cancel", recordId: runningId }).catch(() => {});
+		await conversation.current?.ask(draft);
 	};
 
 	const copyAnswer = async (): Promise<void> => {
-		if (!answerText.trim()) return;
-		if (!(await copyText(answerText))) {
+		if (!state.answer.trim()) return;
+		if (!(await copyText(state.answer))) {
 			toast({ variant: "error", message: t("btw.copyFailed") });
 			return;
 		}
@@ -119,24 +97,20 @@ export function BtwDialog() {
 	const branch = async (): Promise<void> => {
 		if (!canBranch || branching) return;
 		const version = generation.current;
+		const originCommand = sessionRuntime(tabId)?.command ?? command;
 		setBranching(true);
 		try {
-			const response = await command({ type: "btw_branch" });
-			if (!response.success) throw new Error(response.error);
-			const data = response.data as { cancelled?: boolean } | undefined;
-			if (data?.cancelled) {
-				toast({ variant: "info", message: t("btw.branchCancelled") });
-				return;
-			}
-			if (tabId) await hydrateTabSession(tabId);
-			else await hydrateSession();
+			const response = await originCommand({ type: "btw_branch" });
 			if (version !== generation.current) return;
-			close();
-			toast({ variant: "success", message: t("btw.branched") });
+			if (!response.success) throw new Error(response.error);
+			// No vanilla RPC can promote an answer. Never treat a legacy or
+			// accidental successful acknowledgement as a persisted branch.
+			throw new Error(t("btw.unsupported"));
 		} catch (cause) {
-			toast({ variant: "error", title: t("btw.branchFailed"), message: String(cause) });
+			if (version === generation.current)
+				toast({ variant: "error", title: t("btw.branchFailed"), message: String(cause) });
 		} finally {
-			setBranching(false);
+			if (version === generation.current) setBranching(false);
 		}
 	};
 
@@ -147,24 +121,19 @@ export function BtwDialog() {
 				<TextArea
 					aria-label={t("btw.title")}
 					value={draft}
-					onChange={event => {
-						setDraft(event.target.value);
-					}}
-					disabled={loading || branching}
+					onChange={event => setDraft(event.target.value)}
+					disabled={busy || branching}
 					rows={3}
 				/>
 			</div>
-			{loading && !record ? (
-				<div className="flex items-center justify-center gap-2 py-16 text-sm text-(--omp-dim)">
-					<Spinner size="sm" /> {t("btw.thinking")}
+			{state.error ? (
+				<div className="mb-2 rounded-lg border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent p-3 text-sm text-[var(--omp-error)]">
+					{state.error}
 				</div>
-			) : error ? (
-				<div className="rounded-lg border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent p-3 text-sm text-[var(--omp-error)]">
-					{error}
-				</div>
-			) : record ? (
+			) : null}
+			{state.record ? (
 				<div className="max-h-[55vh] overflow-y-auto pr-1">
-					{(record.followUps?.length ?? 0) > 0 && latest ? (
+					{(state.record.followUps?.length ?? 0) > 0 && latest ? (
 						<div className="mb-2 text-xs text-(--omp-dim)">{latest.question}</div>
 					) : null}
 					{latest && latest.status !== "running" && latest.status !== "complete" ? (
@@ -174,31 +143,40 @@ export function BtwDialog() {
 								: latest.error || t("btw.statusError")}
 						</div>
 					) : null}
-					{answerText ? (
-						<MarkdownRenderer content={answerText} />
-					) : running ? (
+					{state.answer ? (
+						<MarkdownRenderer content={state.answer} />
+					) : busy ? (
 						<div className="flex items-center gap-2 py-8 text-sm text-(--omp-dim)">
 							<Spinner size="sm" /> {t("btw.thinking")}
 						</div>
 					) : null}
 				</div>
+			) : state.loading ? (
+				<div className="flex items-center justify-center gap-2 py-16 text-sm text-(--omp-dim)">
+					<Spinner size="sm" /> {t("btw.thinking")}
+				</div>
 			) : null}
 			<div className="mt-5 flex justify-end gap-2 border-t border-(--omp-border-muted) pt-3">
-				{running ? (
-					<Button onClick={cancel} size="sm" variant="secondary">
+				{busy ? (
+					<Button
+						disabled={state.cancelling}
+						onClick={() => void conversation.current?.cancel()}
+						size="sm"
+						variant="secondary"
+					>
 						{t("btw.cancel")}
 					</Button>
 				) : (
-					<Button
-						disabled={!draft.trim() || loading || branching}
-						loading={loading}
-						onClick={() => void ask()}
-						size="sm"
-					>
+					<Button disabled={!draft.trim() || branching} onClick={() => void ask()} size="sm">
 						{t("btw.ask")}
 					</Button>
 				)}
-				<Button disabled={!answerText.trim()} onClick={() => void copyAnswer()} size="sm" variant="secondary">
+				<Button
+					disabled={!state.answer.trim() || state.loading}
+					onClick={() => void copyAnswer()}
+					size="sm"
+					variant="secondary"
+				>
 					{t("btw.copy")}
 				</Button>
 				<Button disabled={!canBranch || branching} onClick={() => void branch()} size="sm">

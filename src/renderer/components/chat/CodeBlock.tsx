@@ -10,6 +10,8 @@ export interface CodeBlockProps {
 	code?: string;
 	/** Language hint for highlighting and the badge. */
 	language?: string;
+	/** Disable tokenization for a still-growing fence while preserving its chrome. */
+	highlight?: boolean;
 	/** Pre-highlighted HTML (hljs output) — rendered verbatim. */
 	highlightedHtml?: string;
 	/** Show the language badge. */
@@ -18,8 +20,6 @@ export interface CodeBlockProps {
 	showCopy?: boolean;
 	/** Show the line-number gutter. */
 	showLineNumbers?: boolean;
-	/** Tokenize with highlight.js. Off for code that is still streaming in. */
-	highlight?: boolean;
 	/** Highlight these literal strings inside the code (e.g. grep pattern). */
 	highlightPattern?: string;
 	/** Number shown on the first gutter line (ranged reads start past 1). */
@@ -56,11 +56,11 @@ function normalizeLanguage(lang: string | undefined): string {
 export function CodeBlock({
 	code,
 	language,
+	highlight = true,
 	highlightedHtml,
 	showLanguage = true,
 	showCopy = true,
 	showLineNumbers = true,
-	highlight = true,
 	startLine,
 	lineNumbers,
 	highlightPattern,
@@ -70,9 +70,8 @@ export function CodeBlock({
 	const t = useT();
 	const lang = normalizeLanguage(language);
 	const [copied, setCopied] = useState(false);
-	const tokenize = highlight && !highlightedHtml && Boolean(code) && (code?.length ?? 0) <= HIGHLIGHT_CHAR_CAP;
 	const [hlHtml, setHlHtml] = useState<string | null>(() => {
-		if (!tokenize || !code) return null;
+		if (!highlight || highlightedHtml || !code || code.length > HIGHLIGHT_CHAR_CAP) return null;
 		const hljs = getLoadedHljs();
 		if (!hljs) return null;
 		return lang !== "plaintext" && hljs.getLanguage(lang)
@@ -81,7 +80,7 @@ export function CodeBlock({
 	});
 
 	useEffect(() => {
-		if (!tokenize || !code) return;
+		if (!highlight || highlightedHtml || !code || code.length > HIGHLIGHT_CHAR_CAP) return;
 
 		let cancelled = false;
 		void loadHljs().then(hljs => {
@@ -95,7 +94,7 @@ export function CodeBlock({
 		return () => {
 			cancelled = true;
 		};
-	}, [code, lang, tokenize]);
+	}, [code, lang, highlightedHtml, highlight]);
 
 	// Final rendered HTML: pre-highlighted input, lazy hljs output, or escaped
 	// plain code — with optional pattern matches wrapped in <mark>. Pattern
@@ -107,12 +106,10 @@ export function CodeBlock({
 		// shorter value — otherwise the old source displays while Copy takes
 		// the new one.
 		const overCap = code != null && code.length > HIGHLIGHT_CHAR_CAP;
-		const plain = overCap || (!highlight && !highlightedHtml);
-		const base = plain
-			? code != null
+		const base =
+			code != null && (overCap || !highlight)
 				? escapeHtml(code)
-				: null
-			: (highlightedHtml ?? hlHtml ?? (code != null ? escapeHtml(code) : null));
+				: (highlightedHtml ?? hlHtml ?? (code != null ? escapeHtml(code) : null));
 		if (base == null) return null;
 		if (!highlightPattern) return base;
 		const re = new RegExp(escapeRegExp(highlightPattern), "gi");
@@ -145,19 +142,23 @@ export function CodeBlock({
 	return (
 		<div
 			className={cx(
-				"omp-code-block group/code relative overflow-hidden rounded-xl border border-[color:var(--omp-md-code-block-border,var(--omp-border))] bg-[var(--omp-code-bg)]",
+				"group/code relative overflow-hidden rounded-lg border border-[color:var(--omp-md-code-block-border,var(--omp-border))] bg-[var(--omp-code-bg)]",
 				className,
 			)}
 		>
 			{(showLanguage || showCopy) && (
-				<div className="omp-code-block-header flex h-8 items-center gap-2 px-3.5">
-					{showLanguage && <span className="text-omp-xs font-medium text-[var(--omp-dim)]">{lang}</span>}
+				<div className="flex h-7 items-center justify-end gap-2 border-b border-[var(--omp-border-muted)]/60 px-2.5">
+					{showLanguage && (
+						<span className="font-mono text-omp-xs font-medium uppercase tracking-[0.08em] text-[var(--omp-dim)]">
+							{lang}
+						</span>
+					)}
 					{showCopy && (
 						<button
 							type="button"
 							onClick={handleCopy}
 							title={t("chat.copyCode")}
-							className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-[var(--omp-dim)] opacity-60 transition-[opacity,background-color,color] duration-150 hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] focus:opacity-100 group-hover/code:opacity-100"
+							className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--omp-dim)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] focus:opacity-100 group-hover/code:opacity-100"
 						>
 							{copied ? <Check size={12} className="text-[var(--omp-success)]" /> : <Copy size={12} />}
 						</button>
@@ -173,12 +174,12 @@ export function CodeBlock({
 							startLine={startLine}
 							className="px-2.5 py-3 text-omp-md leading-[1.5]"
 						/>
-						<pre className="min-w-0 flex-1 overflow-x-auto px-3.5 py-3 font-mono text-omp-md leading-[1.5]">
+						<pre className="min-w-0 flex-1 overflow-x-auto px-3 py-3 font-mono text-omp-md leading-[1.5]">
 							{codeElement}
 						</pre>
 					</div>
 				) : (
-					<pre className="overflow-x-auto px-3.5 py-3 font-mono text-omp-md leading-[1.55]">{codeElement}</pre>
+					<pre className="overflow-x-auto px-3 py-3 font-mono text-omp-md leading-[1.5]">{codeElement}</pre>
 				)}
 			</div>
 		</div>

@@ -32,6 +32,7 @@ import type { BrowserWindow } from "electron";
 import {
 	IPC_EVENTS,
 	type IpcSessionOwner,
+	type IpcSpawnTabPayload,
 	type IpcSetTabViewPayload,
 	type IpcTabInfo,
 	type IpcTabStatusPayload,
@@ -60,8 +61,9 @@ import {
 	type SidecarStatusPayload,
 	type SubagentFrame,
 } from "../shared/rpc-types";
-import { normalizeSessionTarget } from "../shared/session-target";
+import { normalizeSessionTarget, sameSessionTarget } from "../shared/session-target";
 import type { WindowTabFact } from "./quit-guard";
+import { parseBtwFrame } from "./btw-transport";
 import type { SidecarManager } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
@@ -72,6 +74,7 @@ export type SidecarFactory = (options: {
 	fresh: boolean;
 	target: SessionTarget;
 	resumeSessionId?: string;
+	model?: IpcSpawnTabPayload["model"];
 }) => SidecarManager;
 
 function immutableTarget(target: SessionTarget): SessionTarget {
@@ -93,6 +96,14 @@ interface PoolEntry {
 	kind: "agent" | "chat";
 	/** Untargeted startup tab; disposed when the user opens an explicit tab. */
 	placeholder: boolean;
+	/** Hidden, ownership-reserved background restore; never focusable until commit. */
+	restoringSession?: boolean;
+	restoreSettled?: { promise: Promise<void>; resolve: () => void };
+	modelOrigin?: IpcSpawnTabPayload["modelOrigin"];
+	restoreRequestId?: string;
+	resumeSessionId?: string;
+	retainedRestore?: { sessionId?: string; title?: string | null };
+	restoreFailurePending?: boolean;
 	/**
 	 * Git-worktree binding (plan/20). Immutable, set at acquire from the spawn
 	 * payload; surfaced via tabStatusPayload so the chip and close flow know
@@ -107,6 +118,10 @@ interface PoolEntry {
 	awaitingSessionSettled: boolean;
 	/** Automatic transcript compaction state once observed — true blocks session mutation. */
 	compacting?: boolean;
+	/** Agent outcome is independent of connection readiness. */
+	runState?: IpcTabInfo["runState"];
+	retryInfo?: IpcTabInfo["retryInfo"];
+	pendingOutcome?: "completed" | "failed" | "idle";
 	/** Session meta cached from session_info_update (TAB_STATUS / GET_TABS). */
 	sessionId?: string;
 	/**
@@ -154,6 +169,17 @@ export class SidecarPool {
 	 * final response or when the owning entry/window is released.
 	 */
 	#requestOwners = new Map<string, PoolEntry>();
+	#restoreRequests = new Map<
+		BrowserWindow,
+		Map<
+			string,
+			{
+				controller: AbortController;
+				origin?: IpcSpawnTabPayload["modelOrigin"];
+				onClosed: () => void;
+			}
+		>
+	>();
 
 	/**
 	 * Synchronously-reserved spawn slots. An acquire claims one before the
@@ -215,13 +241,21 @@ export class SidecarPool {
 	 */
 	acquire(options: SidecarAcquireOptions): SidecarManager | null {
 		if (this.atCap) return null;
+		if (
+			options.restoreRequestId &&
+			this.#restoreRequests.get(options.win)?.get(options.restoreRequestId)?.controller.signal.aborted
+		)
+			return null;
+		const reservedPath =
+			options.target?.type === "ssh" ? undefined : (options.restoreSessionPath ?? options.sessionPath);
+		if (reservedPath && this.#sessionOwners.has(reservedPath)) return null;
 		this.#reserved++;
+		let hiddenEntry: PoolEntry | undefined;
 		try {
 			const {
 				cwd,
 				win,
 				tabId = nextSnowflake(),
-				sessionPath,
 				resumeSessionId,
 				kind = "agent",
 				worktree,
@@ -232,7 +266,14 @@ export class SidecarPool {
 			} = options;
 			const target = immutableTarget(normalizeSessionTarget(options.target));
 			const remoteResumeSessionId = target.type === "ssh" ? resumeSessionId : undefined;
-			const sidecar = this.#factory({ cwd, kind, fresh, target, resumeSessionId: remoteResumeSessionId });
+			const sidecar = this.#factory({
+				cwd,
+				kind,
+				fresh,
+				target,
+				resumeSessionId: remoteResumeSessionId,
+				...(options.model ? { model: options.model } : {}),
+			});
 			const entry: PoolEntry = {
 				sidecar,
 				tabId,
@@ -240,6 +281,11 @@ export class SidecarPool {
 				winId: win.webContents.id,
 				kind,
 				placeholder,
+				restoringSession: options.restoringSession,
+				modelOrigin: options.modelOrigin,
+				restoreRequestId: options.restoreRequestId,
+				resumeSessionId: remoteResumeSessionId,
+				sessionId: remoteResumeSessionId,
 				target,
 				worktree,
 				status: sidecar.status,
@@ -248,14 +294,19 @@ export class SidecarPool {
 				detachFull: null,
 			};
 			if (title) entry.title = title;
+			if (entry.restoringSession) {
+				const settled = Promise.withResolvers<void>();
+				entry.restoreSettled = { promise: settled.promise, resolve: settled.resolve };
+			}
 			this.#wireLight(entry);
 			this.#entries.add(entry);
 			this.#byTabId.set(tabId, entry);
+			if (entry.restoringSession) hiddenEntry = entry;
 			// F-OWN: a local spawn-with-sessionPath owns that file immediately,
 			// including a deferred restore. Remote identity is a host/session id
 			// and must never enter the local path-owner map.
-			if (target.type === "local" && sessionPath) this.#registerSessionFile(entry, sessionPath);
-			if (!deferStart && !this.#activeByWindow.has(entry.winId)) {
+			if (target.type === "local" && reservedPath) this.#registerSessionFile(entry, reservedPath);
+			if (!deferStart && !entry.restoringSession && !this.#activeByWindow.has(entry.winId)) {
 				this.#activeByWindow.set(entry.winId, entry.tabId);
 				this.#visibleByWindow.set(entry.winId, new Set([entry.tabId]));
 				this.#syncFullWiring(entry.winId);
@@ -269,6 +320,7 @@ export class SidecarPool {
 			this.#notifyWindowTabsChanged(win);
 			return sidecar;
 		} catch {
+			if (hiddenEntry) this.#releaseEntry(hiddenEntry);
 			return null;
 		} finally {
 			// Release the synchronous reservation exactly once: on success the
@@ -287,7 +339,7 @@ export class SidecarPool {
 	 */
 	#ensureStarted(entry: PoolEntry): void {
 		if (entry.sidecar.status !== "asleep") return;
-		const sessionPath = entry.sessionFile;
+		const sessionPath = entry.restoringSession ? undefined : entry.sessionFile;
 		if (sessionPath) entry.sidecar.restart(undefined, sessionPath);
 		else entry.sidecar.start();
 	}
@@ -295,15 +347,39 @@ export class SidecarPool {
 	/** Per-tab light wiring, attached for the entry's whole life: TAB_STATUS pushes. */
 	#wireLight(entry: PoolEntry): void {
 		const { sidecar, win } = entry;
+		const publish = (payload: IpcTabStatusPayload): void => {
+			if (!entry.restoringSession || entry.retainedRestore) forwardToWindow(win, IPC_EVENTS.TAB_STATUS, payload);
+		};
+		const retireQuestions = () => {
+			for (const [id, owner] of this.#requestOwners) {
+				if (owner !== entry) continue;
+				this.#requestOwners.delete(id);
+				forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, {
+					tabId: entry.tabId,
+					restoringSession: true,
+					modelOrigin: entry.modelOrigin,
+					restoreRequestId: entry.restoreRequestId,
+					request: { type: "extension_ui_request", id: `cancel-${id}`, method: "cancel", targetId: id },
+				});
+			}
+		};
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
 			entry.status = payload.status;
+			if (
+				entry.restoringSession &&
+				(payload.status === "restarting" || payload.status === "error" || payload.status === "exited")
+			)
+				retireQuestions();
 			// A restart/exit kills any in-flight run along with the process.
 			if (payload.status !== "ready") {
 				entry.running = false;
 				entry.awaitingSessionSettled = false;
 				entry.compacting = undefined;
+				entry.runState = undefined;
+				entry.retryInfo = entry.retryInfo === undefined ? undefined : null;
+				entry.pendingOutcome = undefined;
 			}
-			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			publish(tabStatusPayload(entry));
 		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
 			if (frame.title !== undefined) entry.title = frame.title;
@@ -315,46 +391,164 @@ export class SidecarPool {
 				// first attach (previousId undefined) keeps the acquire-time
 				// registration; the renderer's hydrate (get_state) re-registers
 				// the current file after a real change.
-				if (previousId !== undefined && previousId !== frame.sessionId) this.#unregisterSessionFile(entry);
+				if (previousId !== undefined && previousId !== frame.sessionId) {
+					if (!entry.restoringSession) this.#unregisterSessionFile(entry);
+					entry.runState = undefined;
+					entry.retryInfo = entry.retryInfo === undefined ? undefined : null;
+					entry.pendingOutcome = undefined;
+				}
 			}
 			// Session meta changes ride the light channel too, so a background
 			// tab's title/id updates without waiting for a status flip.
-			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			publish(tabStatusPayload(entry));
 		});
 		const setRunning = (running: boolean): void => {
 			const wasBusy = entry.running || entry.compacting === true;
+			const wasOutcome = entry.runState;
 			entry.running = running;
+			if (!running && entry.pendingOutcome) {
+				entry.runState = entry.pendingOutcome;
+				entry.pendingOutcome = undefined;
+			}
 			const busy = entry.running || entry.compacting === true;
-			if (busy !== wasBusy) forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			if (busy !== wasBusy || entry.runState !== wasOutcome) {
+				publish(tabStatusPayload(entry));
+			}
 		};
 		sidecar.on("promptResult", (frame: PromptResultFrame) => {
 			if (typeof frame.sessionSettled !== "boolean") return;
 			entry.awaitingSessionSettled = !frame.sessionSettled;
+			if (frame.agentInvoked || frame.status === "error") {
+				entry.pendingOutcome =
+					frame.status === "error" ? "failed" : frame.status === "aborted" ? "idle" : "completed";
+			}
 			setRunning(!frame.sessionSettled);
 		});
 		sidecar.on("sessionSettled", (_frame: SessionSettledFrame) => {
 			entry.awaitingSessionSettled = false;
+			if (entry.running && !entry.pendingOutcome) entry.pendingOutcome = "completed";
 			setRunning(false);
 		});
-		// Agent-end means one run yielded; upstream prompt/session-settled frames
-		// keep background async work represented as running until it is quiet.
+		// Nonterminal yields and retry attempts do not complete the logical turn.
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
 			const wasBusy = entry.running || entry.compacting === true;
 			const wasPlaceholder = entry.placeholder;
+			const wasOutcome = entry.runState;
+			const wasRetry = entry.retryInfo;
+			let startedInBatch = false;
 			for (const event of events) {
 				if (event.type === "agent_start") {
+					startedInBatch = true;
 					entry.running = true;
 					entry.placeholder = false;
+					if (!entry.retryInfo) {
+						entry.runState = undefined;
+						entry.pendingOutcome = undefined;
+					}
+				} else if (event.type === "auto_retry_start") {
+					entry.running = true;
+					entry.runState = "retrying";
+					entry.pendingOutcome = undefined;
+					entry.retryInfo = {
+						attempt: event.attempt,
+						maxAttempts: event.maxAttempts,
+						delayMs: event.delayMs,
+						errorMessage: event.errorMessage,
+						startedAt: Date.now(),
+					};
+				} else if (event.type === "auto_retry_end") {
+					entry.retryInfo = null;
+					entry.runState = undefined;
+					entry.pendingOutcome = event.success ? undefined : "failed";
 				} else if (event.type === "agent_end") {
-					if (!entry.awaitingSessionSettled) entry.running = false;
+					if (event.isTerminal === false || entry.retryInfo) continue;
+					const last = event.messages?.findLast(message => message.role === "assistant");
+					const outcome =
+						last?.stopReason === "aborted"
+							? "idle"
+							: last?.stopReason === "error" || entry.pendingOutcome === "failed" || entry.runState === "failed"
+								? "failed"
+								: "completed";
+					if (entry.awaitingSessionSettled) {
+						entry.pendingOutcome = outcome;
+					} else {
+						entry.running = false;
+						entry.runState = outcome;
+						entry.pendingOutcome = undefined;
+					}
 				} else if (event.type === "auto_compaction_start") entry.compacting = true;
 				else if (event.type === "auto_compaction_end") entry.compacting = false;
 			}
 			const busy = entry.running || entry.compacting === true;
-			if (busy !== wasBusy || entry.placeholder !== wasPlaceholder) {
-				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			const shortTurn = startedInBatch && !wasBusy && !busy && entry.status === "ready";
+			if (shortTurn) {
+				// Preserve a real start that batching would otherwise hide from
+				// completion badges and the once-per-turn notification gate.
+				const started = tabStatusPayload(entry);
+				started.status = "running";
+				delete started.runState;
+				publish(started);
+			}
+			if (
+				shortTurn ||
+				busy !== wasBusy ||
+				entry.placeholder !== wasPlaceholder ||
+				entry.runState !== wasOutcome ||
+				entry.retryInfo !== wasRetry
+			) {
+				publish(tabStatusPayload(entry));
 			}
 			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
+		});
+		sidecar.on("extensionUi", (request: ExtensionUIRequest) => {
+			if (!entry.restoringSession) return;
+			if (request.method === "cancel") {
+				if (this.#requestOwners.get(request.targetId) !== entry) return;
+				this.#requestOwners.delete(request.targetId);
+			} else {
+				if (!BLOCKING_UI_METHODS[request.method]) return;
+				if (!sidecar.extensionUiTransportReady) {
+					const message =
+						"This omp runtime cannot answer blocking extension UI during RPC bootstrap. " +
+						"Move interactive startup prompts to session_before_switch, or use a runtime whose input reader starts before session_start.";
+					// Never show a question the native runtime cannot yet consume.
+					// Existing origin-bound cancellation owns target cleanup.
+					sidecar.markUnhealthy(message);
+					if (entry.restoreRequestId) {
+						this.#restoreRequests.get(win)?.get(entry.restoreRequestId)?.controller.abort(new Error(message));
+					}
+					return;
+				}
+				if (!this.#registerRequestOwner(request.id, entry)) return;
+			}
+			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, {
+				tabId: entry.tabId,
+				request,
+				restoringSession: true,
+				modelOrigin: entry.modelOrigin,
+				restoreRequestId: entry.restoreRequestId,
+			});
+		});
+		sidecar.on("hostToolCall", (request: HostToolCallRequest) => {
+			if (!entry.restoringSession || sidecar.denyRemoteHostTool(request) || !this.#requestIdAvailable(request.id))
+				return;
+			if (this.hostToolExecutor?.(sidecar, request, win)) return;
+			sidecar.sendSideChannel({
+				type: "host_tool_result",
+				id: request.id,
+				result: {
+					content: [{ type: "text", text: "This host tool is not available while restoring a saved session" }],
+				},
+				isError: true,
+			});
+		});
+		sidecar.on("hostUriRequest", (request: HostUriRequest) => {
+			if (!entry.restoringSession || !this.#requestIdAvailable(request.id)) return;
+			sidecar.sendSideChannel({
+				type: "host_uri_result",
+				id: request.id,
+				error: "This host URI is not available while restoring a saved session",
+			});
 		});
 	}
 
@@ -367,7 +561,7 @@ export class SidecarPool {
 	 * gets spawned — the one moment the pool knows the user can see it.
 	 */
 	#wireFull(entry: PoolEntry): void {
-		if (entry.detachFull) return;
+		if (entry.restoringSession || entry.detachFull) return;
 		this.#ensureStarted(entry);
 		const { sidecar, win } = entry;
 		const removers: (() => void)[] = [];
@@ -382,6 +576,10 @@ export class SidecarPool {
 		};
 		wire("events", (events: AgentSessionEvent[]) => {
 			forwardActive(IPC_EVENTS.EVENTS_BATCH, events);
+		});
+		wire("frame", (value: unknown) => {
+			const frame = parseBtwFrame(value);
+			if (frame) forwardActive(IPC_EVENTS.BTW_FRAME, frame);
 		});
 		wire("status", (payload: SidecarStatusPayload) => {
 			forwardActive(IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
@@ -445,7 +643,7 @@ export class SidecarPool {
 		const visible = this.#visibleByWindow.get(winId) ?? new Set<string>();
 		for (const entry of this.#entries) {
 			if (entry.winId !== winId) continue;
-			if (visible.has(entry.tabId)) this.#wireFull(entry);
+			if (visible.has(entry.tabId) && !entry.restoringSession) this.#wireFull(entry);
 			else entry.detachFull?.();
 		}
 	}
@@ -459,8 +657,20 @@ export class SidecarPool {
 	 */
 	#releaseEntry(entry: PoolEntry): void {
 		if (!this.#entries.delete(entry)) return;
+		for (const [win, requests] of this.#restoreRequests) {
+			for (const [id, request] of requests) {
+				if (
+					(request.origin?.tabId === entry.tabId && win === entry.win) ||
+					(entry.restoreRequestId === id && win === entry.win)
+				) {
+					request.controller.abort(new Error("The restore origin or target retired"));
+				}
+			}
+		}
 		this.#byTabId.delete(entry.tabId);
 		this.#unregisterSessionFile(entry);
+		entry.restoreSettled?.resolve();
+		entry.restoreSettled = undefined;
 		// Drop pending routes pointing at the released entry. A late response is
 		// genuinely unknown; a still-live route owned by another entry is kept.
 		for (const [id, owner] of this.#requestOwners) {
@@ -487,7 +697,9 @@ export class SidecarPool {
 		// During window teardown every entry self-releases; activating a sibling
 		// whose window is already gone would wire forwarders for nothing.
 		if (entry.win.isDestroyed()) return;
-		const candidates = [...this.#entries].filter(candidate => candidate.winId === entry.winId);
+		const candidates = [...this.#entries].filter(
+			candidate => candidate.winId === entry.winId && !candidate.restoringSession,
+		);
 		const candidate = candidates.find(item => visible?.has(item.tabId)) ?? candidates[0];
 		if (!candidate) {
 			this.#visibleByWindow.delete(entry.winId);
@@ -503,7 +715,7 @@ export class SidecarPool {
 		const active = this.#byTabId.get(this.#activeByWindow.get(win.webContents.id) ?? "");
 		if (active && active.win === win) return active;
 		for (const entry of this.#entries) {
-			if (entry.win === win) return entry;
+			if (entry.win === win && !entry.restoringSession) return entry;
 		}
 		return undefined;
 	}
@@ -523,7 +735,8 @@ export class SidecarPool {
 	async commandForIdleSession(sessionPath: string, command: RpcCommand): Promise<RpcResponse | null> {
 		const owner = this.#sessionOwners.get(sessionPath);
 		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
-		if (!entry || entry.running || entry.compacting === true || entry.status !== "ready") return null;
+		if (!entry || entry.restoringSession || entry.running || entry.compacting === true || entry.status !== "ready")
+			return null;
 		const client = entry.sidecar.rpcClient;
 		return client ? await client.command(command) : null;
 	}
@@ -554,7 +767,7 @@ export class SidecarPool {
 			return false;
 		for (const tabId of ids) {
 			const entry = this.#byTabId.get(tabId);
-			if (!entry || entry.win !== win) return false;
+			if (!entry || entry.win !== win || entry.restoringSession) return false;
 		}
 		const winId = win.webContents.id;
 		this.#activeByWindow.set(winId, focusedTabId);
@@ -582,6 +795,160 @@ export class SidecarPool {
 	 */
 	sessionOwner(sessionPath: string): IpcSessionOwner | null {
 		return this.#sessionOwners.get(sessionPath) ?? null;
+	}
+
+	/** Register before any asynchronous origin read or process startup. */
+	beginSessionRestoreRequest(win: BrowserWindow, id: string, origin?: IpcSpawnTabPayload["modelOrigin"]): AbortSignal {
+		let requests = this.#restoreRequests.get(win);
+		if (!requests) {
+			requests = new Map();
+			this.#restoreRequests.set(win, requests);
+		}
+		if (requests.has(id)) throw new Error("Saved-session restore request is already active");
+		const controller = new AbortController();
+		controller.signal.addEventListener(
+			"abort",
+			() => {
+				for (const entry of this.#entries) {
+					if (entry.win !== win || entry.restoreRequestId !== id || !entry.restoringSession) continue;
+					if (entry.retainedRestore) {
+						void this.failSessionRestore(entry.tabId).catch(error =>
+							console.error("Stopping saved-session restore failed", error),
+						);
+					} else this.#releaseEntry(entry);
+				}
+			},
+			{ once: true },
+		);
+		const onClosed = () => controller.abort(new Error("The restore window closed"));
+		requests.set(id, { controller, origin, onClosed });
+		win.once("closed", onClosed);
+		if (win.isDestroyed()) onClosed();
+		return controller.signal;
+	}
+
+	cancelSessionRestoreRequest(win: BrowserWindow, id: string): boolean {
+		const request = this.#restoreRequests.get(win)?.get(id);
+		if (!request) return false;
+		request.controller.abort(new Error("Saved-session restore was cancelled"));
+		return true;
+	}
+
+	finishSessionRestoreRequest(win: BrowserWindow, id: string): void {
+		const requests = this.#restoreRequests.get(win);
+		const request = requests?.get(id);
+		if (!request) return;
+		win.removeListener("closed", request.onClosed);
+		requests?.delete(id);
+		if (requests?.size === 0) this.#restoreRequests.delete(win);
+	}
+
+	/** Owner-routing waits for a hidden restore to commit or release its reservation. */
+	waitForSessionRestore(sessionPath: string): Promise<void> {
+		const owner = this.#sessionOwners.get(sessionPath);
+		return (owner && this.#byTabId.get(owner.tabId)?.restoreSettled?.promise) || Promise.resolve();
+	}
+
+	/** A cold owner keeps its slot/file reservation and never launches a second manager. */
+	async beginSessionRestore(
+		win: BrowserWindow,
+		tabId: string,
+		payload: IpcSpawnTabPayload,
+	): Promise<SidecarManager | null> {
+		const entry = this.#byTabId.get(tabId);
+		if (
+			!entry ||
+			entry.win !== win ||
+			entry.restoringSession ||
+			!["asleep", "error", "exited"].includes(entry.status) ||
+			entry.running ||
+			entry.compacting
+		)
+			return null;
+		if (payload.kind && payload.kind !== entry.kind) return null;
+		if (payload.cwd && payload.cwd !== entry.sidecar.cwd) return null;
+		if (entry.target.type === "local") {
+			if (
+				!payload.sessionPath ||
+				payload.sessionPath !== entry.sessionFile ||
+				payload.resumeSessionId ||
+				(payload.target && payload.target.type !== "local")
+			)
+				return null;
+		} else {
+			if (
+				!payload.target ||
+				!sameSessionTarget(payload.target, entry.target) ||
+				payload.sessionPath ||
+				!payload.resumeSessionId ||
+				payload.resumeSessionId !== (entry.sessionId ?? entry.resumeSessionId)
+			)
+				return null;
+		}
+		const signal = payload.restoreRequestId
+			? this.#restoreRequests.get(win)?.get(payload.restoreRequestId)?.controller.signal
+			: undefined;
+		if (signal?.aborted) return null;
+		entry.retainedRestore = { sessionId: entry.sessionId, title: entry.title };
+		entry.restoringSession = true;
+		entry.modelOrigin = payload.modelOrigin;
+		entry.restoreRequestId = payload.restoreRequestId;
+		const settled = Promise.withResolvers<void>();
+		entry.restoreSettled = { promise: settled.promise, resolve: settled.resolve };
+		entry.detachFull?.();
+		// Expose the logical busy slot, not scratch process metadata/history.
+		forwardToWindow(win, IPC_EVENTS.TAB_STATUS, { ...tabStatusPayload(entry), status: "starting" });
+		try {
+			await entry.sidecar.startFreshForRestore(payload.model, signal);
+			if (this.#byTabId.get(tabId) !== entry) return null;
+			if (signal?.aborted) {
+				await this.failSessionRestore(tabId);
+				return null;
+			}
+			return entry.sidecar;
+		} catch {
+			await this.failSessionRestore(tabId);
+			return null;
+		}
+	}
+
+	async failSessionRestore(tabId: string): Promise<boolean> {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry?.retainedRestore || !entry.restoringSession || entry.restoreFailurePending) return false;
+		const snapshot = entry.retainedRestore;
+		entry.restoreFailurePending = true;
+		// Claim cleanup synchronously so an abort and the transaction catch do
+		// not stop/rewrite the same retained owner twice.
+		try {
+			await entry.sidecar.stopFailedSessionRestore();
+		} finally {
+			if (this.#byTabId.get(tabId) === entry) {
+				entry.sessionId = snapshot.sessionId;
+				entry.title = snapshot.title;
+				entry.restoringSession = false;
+				entry.retainedRestore = undefined;
+				entry.restoreFailurePending = false;
+				entry.status = "error";
+				entry.restoreSettled?.resolve();
+				entry.restoreSettled = undefined;
+				forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+				this.#notifyWindowTabsChanged(entry.win);
+			}
+		}
+		return true;
+	}
+
+	/** Publish only a fully restored, verified background tab. */
+	finishSessionRestore(tabId: string): boolean {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry || !entry.restoringSession || entry.status !== "ready") return false;
+		entry.restoringSession = false;
+		entry.restoreSettled?.resolve();
+		entry.restoreSettled = undefined;
+		entry.retainedRestore = undefined;
+		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#notifyWindowTabsChanged(entry.win);
+		return true;
 	}
 
 	/**
@@ -697,7 +1064,7 @@ export class SidecarPool {
 		let visibleTabIds: Set<string> | undefined;
 		let split: WindowSplitView | undefined;
 		for (const entry of this.#entries) {
-			if (entry.win !== win) continue;
+			if (entry.win !== win || (entry.restoringSession && !entry.retainedRestore)) continue;
 			activeTabId ??= this.#activeByWindow.get(entry.winId);
 			visibleTabIds ??= this.#visibleByWindow.get(entry.winId);
 			split ??= this.#splitByWindow.get(entry.winId);
@@ -722,7 +1089,9 @@ export class SidecarPool {
 
 	/** Serializable layout for the window, excluding transient run/status data. */
 	tabLayoutForWindow(win: BrowserWindow): PersistedTabLayout | null {
-		const entries = [...this.#entries].filter(entry => entry.win === win);
+		const entries = [...this.#entries].filter(
+			entry => entry.win === win && (!entry.restoringSession || entry.retainedRestore !== undefined),
+		);
 		if (entries.length === 0) return null;
 		const activeTabId = this.#activeByWindow.get(win.webContents.id);
 		const activeIndex = Math.max(
@@ -742,7 +1111,8 @@ export class SidecarPool {
 				if (entry.placeholder) descriptor.placeholder = true;
 				// Written even when the live title is null, so a cleared title
 				// cannot survive as a stale one until the tab is spawned again.
-				if (entry.title !== undefined) descriptor.title = entry.title ?? undefined;
+				const title = entry.retainedRestore ? entry.retainedRestore.title : entry.title;
+				if (title !== undefined) descriptor.title = title ?? undefined;
 				return descriptor;
 			}),
 			...(split && firstIndex >= 0 && secondIndex >= 0
@@ -813,6 +1183,9 @@ export class SidecarPool {
 	}
 
 	async disposeAll(): Promise<void> {
+		for (const requests of this.#restoreRequests.values()) {
+			for (const request of requests.values()) request.controller.abort(new Error("The sidecar pool closed"));
+		}
 		for (const entry of this.#entries) {
 			entry.sidecar.removeAllListeners();
 			this.#trackDisposal(entry.sidecar.dispose());
@@ -824,8 +1197,12 @@ export class SidecarPool {
 		this.#splitByWindow.clear();
 		this.#sessionOwners.clear();
 		this.#requestOwners.clear();
+		for (const [win, requests] of this.#restoreRequests) {
+			for (const request of requests.values()) win.removeListener("closed", request.onClosed);
+		}
+		this.#restoreRequests.clear();
 		this.#restoringWindows.clear();
-		await Promise.all([...this.#pendingDisposals]);
+		await Promise.all(this.#pendingDisposals);
 		if (this.#disposalFailures.length > 0) {
 			const errors = this.#disposalFailures.splice(0);
 			throw new AggregateError(errors, "One or more sidecars could not be disposed");
@@ -876,10 +1253,18 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 		// reports its connection state even with a dead in-flight run.
 		status: entry.running && entry.status === "ready" ? "running" : entry.status,
 	};
+	if (entry.restoringSession) payload.restoringSession = true;
 	if (entry.compacting !== undefined) payload.compacting = entry.compacting;
+	if (entry.runState !== undefined) payload.runState = entry.runState;
+	if (entry.retryInfo !== undefined) payload.retryInfo = entry.retryInfo;
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
+	if (entry.retainedRestore) {
+		payload.sessionId = entry.retainedRestore.sessionId;
+		payload.title = entry.retainedRestore.title;
+		payload.status = "starting";
+	}
 	return payload;
 }
 const MAX_SIDE_CHANNEL_REQUEST_ID_LENGTH = 128;
@@ -895,6 +1280,13 @@ export interface SidecarAcquireOptions {
 	tabId?: string;
 	sessionPath?: string;
 	resumeSessionId?: string;
+	model?: IpcSpawnTabPayload["model"];
+	/** Reserve a local target without launching --session; native RPC restores it. */
+	restoreSessionPath?: string;
+	/** Hide local/SSH saved-session startup until native restore is verified. */
+	restoringSession?: boolean;
+	modelOrigin?: IpcSpawnTabPayload["modelOrigin"];
+	restoreRequestId?: string;
 	kind?: SessionKind;
 	worktree?: IpcTabWorktree;
 	fresh?: boolean;

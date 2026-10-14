@@ -75,7 +75,9 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 		>
 			<div className="flex items-center gap-1.5">
 				<RoleGlyph role={entry.role} />
-				<span className={cx("shrink-0 text-omp-xxs font-semibold", meta.className)}>{t(meta.labelKey)}</span>
+				<span className={cx("shrink-0 text-omp-xxs font-semibold tracking-widest uppercase", meta.className)}>
+					{t(meta.labelKey)}
+				</span>
 				{entry.timestamp > 0 && (
 					<span
 						className="shrink-0 text-omp-xxs tabular-nums text-(--omp-dim)"

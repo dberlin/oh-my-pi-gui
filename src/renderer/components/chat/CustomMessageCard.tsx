@@ -84,13 +84,14 @@ function num(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-const HEADER_CLASS = "mb-2 flex items-center gap-1.5 text-omp-xs font-bold text-[var(--omp-custom-msg-label)]";
+const HEADER_CLASS =
+	"mb-2 flex items-center gap-1.5 text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]";
 const HEADER_META_CLASS = "font-medium normal-case tracking-normal text-[var(--omp-dim)]";
 
 /** Card frame matching ContextBubble: rounded custom-message background on the chat gutter. */
 function CardFrame({ children }: { children: ReactNode }) {
 	return (
-		<div className="omp-custom-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
+		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
 			<div className="omp-transcript-content rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-custom-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
 				{children}
 			</div>
@@ -133,7 +134,11 @@ function CollapsibleText({ text, lines, className }: { text: string; lines: numb
 function CompletionRows({ children, inProcess }: { children: ReactNode; inProcess: boolean }) {
 	return (
 		<div
-			className={inProcess ? "py-0.5" : "omp-custom-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2"}
+			className={
+				inProcess
+					? "py-0.5"
+					: "omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2"
+			}
 		>
 			<div className={cx("space-y-0.5", !inProcess && "omp-transcript-content")}>{children}</div>
 		</div>
@@ -619,7 +624,9 @@ function SkillCard({ message }: { message: AgentMessage }) {
 				className={cx("flex w-full items-center gap-1.5 text-left", text && "cursor-pointer")}
 			>
 				<Zap size={12} className="shrink-0 text-[var(--omp-custom-msg-label)]" />
-				<span className="text-omp-xs font-bold text-[var(--omp-custom-msg-label)]">{t("chat.custom.skill")}</span>
+				<span className="text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
+					{t("chat.custom.skill")}
+				</span>
 				<span className="shrink-0 text-omp-md font-semibold text-[var(--omp-text)]">{name}</span>
 				{args && (
 					<span className="min-w-0 flex-1 truncate font-mono text-omp-sm text-[var(--omp-dim)]">{args}</span>
@@ -643,8 +650,10 @@ function SkillCard({ message }: { message: AgentMessage }) {
 				</div>
 			)}
 			{open && text && (
-				<div className="mt-2 border-t border-[var(--omp-border-muted)]/70 pt-2">
-					<div className="mb-1 text-omp-xs font-bold text-[var(--omp-muted)]">{t("chat.custom.prompt")}</div>
+				<div className="omp-fade-in mt-2 border-t border-[var(--omp-border-muted)]/70 pt-2">
+					<div className="mb-1 text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-muted)]">
+						{t("chat.custom.prompt")}
+					</div>
 					<MarkdownRenderer content={text} />
 				</div>
 			)}
@@ -660,7 +669,7 @@ function CollabCard({ message }: { message: AgentMessage }) {
 	const from = str(resultDetails(message)?.from) ?? "guest";
 	const text = resultText(message.content).trim();
 	return (
-		<div className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
+		<div className="omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
 			<div className="omp-transcript-content rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
 				<div className="mb-1.5 text-omp-md font-bold text-[var(--omp-accent)]">«{from}» ›</div>
 				{text && <MarkdownRenderer content={text} singleDollarTextMath={false} />}

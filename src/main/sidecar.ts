@@ -11,7 +11,8 @@ import { join } from "node:path";
 import { PassThrough, type Readable } from "node:stream";
 import Store from "electron-store";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags, VALUED_FLAGS } from "../shared/launch-profile";
-import type { SessionTarget, SshSessionTarget } from "../shared/ipc-types";
+import type { IpcSpawnTabPayload, SessionTarget, SshSessionTarget } from "../shared/ipc-types";
+import { timeoutForCommand } from "../shared/rpc-client";
 import type {
 	AgentSessionEvent,
 	CommandOutputFrame,
@@ -175,6 +176,8 @@ export interface SidecarOptions {
 	target?: SessionTarget;
 	/** Remote session identity used by SSH `--resume`; never a local session path. */
 	resumeSessionId?: string;
+	/** Explicitly confirmed model for a saved-session launch; overrides profile flags. */
+	model?: IpcSpawnTabPayload["model"];
 	/** App-lifetime SSH dependencies are composed once in main. */
 	remoteSsh?: RemoteSshService;
 	remoteHostCatalog?: RemoteHostCatalog;
@@ -395,6 +398,8 @@ export class SidecarManager extends EventEmitter {
 	#generation = 0;
 	/** `start()` calls in flight; a superseded env resolution must not spawn. */
 	#startSeq = 0;
+	/** A correlated response proves stdin processing; early ready does not. */
+	#extensionUiTransportReady = false;
 	#lastStderr: string[] = [];
 	/**
 	 * `asleep` until something calls start(): a restored background tab costs
@@ -427,13 +432,16 @@ export class SidecarManager extends EventEmitter {
 	#configEnv: NodeJS.ProcessEnv = {};
 	#disposePromise: Promise<void> | null = null;
 	#freshLaunchPending: boolean;
+	#pendingLaunchModel: IpcSpawnTabPayload["model"];
 	#disposed = false;
+	#coldRestorePending = false;
 
 	constructor(options: SidecarOptions) {
 		super();
 		this.#options = options;
 		this.#freshLaunchPending = options.fresh === true;
 		this.#latestRemoteSessionId = options.resumeSessionId ?? null;
+		this.#pendingLaunchModel = options.model;
 	}
 
 	get status(): SidecarStatus {
@@ -446,6 +454,10 @@ export class SidecarManager extends EventEmitter {
 
 	get rpcClient(): RpcClient | null {
 		return this.#rpcClient;
+	}
+
+	get extensionUiTransportReady(): boolean {
+		return this.#extensionUiTransportReady;
 	}
 
 	async runCli(args: string[]): Promise<string> {
@@ -600,6 +612,9 @@ export class SidecarManager extends EventEmitter {
 				resolution.runtime.home,
 			);
 			args.push(...launchFlags);
+			if (this.#pendingLaunchModel) {
+				args.push("--model", `${this.#pendingLaunchModel.provider}/${this.#pendingLaunchModel.modelId}`);
+			}
 
 			this.#remoteTarget = resolution.target;
 			this.#remoteRuntime = resolution.runtime;
@@ -650,6 +665,9 @@ export class SidecarManager extends EventEmitter {
 			process.platform === "win32" ? this.#configEnv.USERPROFILE || homedir() : this.#configEnv.HOME || homedir(),
 		);
 		args.push(...launchFlags);
+		if (this.#pendingLaunchModel) {
+			args.push("--model", `${this.#pendingLaunchModel.provider}/${this.#pendingLaunchModel.modelId}`);
+		}
 
 		// Source sidecar (monorepo dev): run the workspace coding-agent from
 		// source via bun so in-repo RPC fixes are live in the running GUI.
@@ -779,7 +797,10 @@ export class SidecarManager extends EventEmitter {
 		// Response frame → route to RPC client
 		if (obj.type === "response") {
 			const handled = this.#rpcClient?.onResponse(obj as unknown as RpcResponse);
-			if (handled) return;
+			if (handled) {
+				this.#extensionUiTransportReady = true;
+				return;
+			}
 		}
 
 		// Extension UI request
@@ -828,11 +849,14 @@ export class SidecarManager extends EventEmitter {
 			return;
 		}
 		if (obj.type === "prompt_result") {
+			// Terminal frames must not overtake their batched lifecycle events.
+			this.#batcher?.flushNow();
 			this.emit("promptResult", obj as unknown as PromptResultFrame);
 			this.emit("frame", obj);
 			return;
 		}
 		if (obj.type === "session_settled") {
+			this.#batcher?.flushNow();
 			this.emit("sessionSettled", obj as unknown as SessionSettledFrame);
 			this.emit("frame", obj);
 			return;
@@ -910,7 +934,13 @@ export class SidecarManager extends EventEmitter {
 			if (!this.#isLive(generation) || this.#child !== child) return;
 
 			if (this.#freshLaunchPending) {
-				const created = await client.command({ type: "new_session" });
+				// Legacy v1 has no negotiation response. Prove its input reader
+				// before issuing a command whose extension UI can block.
+				if (!this.#extensionUiTransportReady) {
+					await client.command({ type: "get_state" });
+					if (!this.#isLive(generation) || this.#child !== child) return;
+				}
+				const created = await client.command({ type: "new_session" }, timeoutForCommand({ type: "new_session" }));
 				if (!created.success) throw new Error(created.error ?? "Fresh session creation failed");
 				if ((created.data as { cancelled?: unknown } | undefined)?.cancelled === true) {
 					throw new Error("Fresh session creation was cancelled");
@@ -922,6 +952,7 @@ export class SidecarManager extends EventEmitter {
 			// Freshness is a creation contract, not a restart policy. Once the
 			// tab has created its new session, later restarts may auto-resume it.
 			this.#freshLaunchPending = false;
+			this.#pendingLaunchModel = undefined;
 			this.#setStatus("ready");
 			this.#restartCount = 0;
 		} catch (error) {
@@ -957,7 +988,11 @@ export class SidecarManager extends EventEmitter {
 
 			this.#setStatus("starting", `Preparing remote session on ${target.hostAlias}`);
 			if (!this.#remoteLaunchResumed) {
-				const created = await client.command({ type: "new_session" });
+				if (!this.#extensionUiTransportReady) {
+					await client.command({ type: "get_state" });
+					if (!this.#isLive(generation) || this.#child !== child) return;
+				}
+				const created = await client.command({ type: "new_session" }, timeoutForCommand({ type: "new_session" }));
 				if (!created.success) throw new Error(created.error ?? "Remote session creation failed");
 			}
 			const state = await client.command({ type: "get_state" });
@@ -965,6 +1000,7 @@ export class SidecarManager extends EventEmitter {
 			if (!this.#isLive(generation) || this.#child !== child) return;
 
 			this.#freshLaunchPending = false;
+			this.#pendingLaunchModel = undefined;
 			this.#setStatus("ready");
 			this.#restartCount = 0;
 		} catch (error) {
@@ -1045,6 +1081,7 @@ export class SidecarManager extends EventEmitter {
 		// Any async continuation of the current cycle (pending negotiation) is
 		// stale from here on, even before the replacement spawns.
 		this.#generation++;
+		this.#extensionUiTransportReady = false;
 		this.#detachParser?.();
 		this.#detachParser = null;
 		this.#batcher?.flushNow();
@@ -1107,6 +1144,34 @@ export class SidecarManager extends EventEmitter {
 		if (target.type === "ssh") this.#remoteTarget = target;
 		return target;
 	}
+	/** A failed retained restore has no live transport and must be cold on retry. */
+	async stopFailedSessionRestore(): Promise<void> {
+		// Retained owners survive stop; their pending environment work must not.
+		this.#startSeq++;
+		try {
+			await this.kill();
+		} finally {
+			if (!this.#disposed) this.#setStatus("error");
+		}
+	}
+
+	/** Restart only a cold logical owner, without resuming a local file before validation. */
+	async startFreshForRestore(model?: IpcSpawnTabPayload["model"], signal?: AbortSignal): Promise<void> {
+		if (!["asleep", "error", "exited"].includes(this.status)) throw new Error("The saved-session owner is not cold");
+		this.#coldRestorePending = true;
+		try {
+			await this.kill();
+			await this.#remoteRestartPromise;
+			if (this.#disposed || signal?.aborted) throw new Error("The saved-session owner retired");
+			this.#restartCount = 0;
+			this.#resumeSessionPath = null;
+			this.#freshLaunchPending = this.#options.target?.type !== "ssh";
+			this.#pendingLaunchModel = model;
+			this.start();
+		} finally {
+			this.#coldRestorePending = false;
+		}
+	}
 	restart(cwd?: string, resumeSessionPath?: string): void {
 		this.#restartCount = 0;
 		if (this.#options.target?.type === "ssh") {
@@ -1143,7 +1208,7 @@ export class SidecarManager extends EventEmitter {
 		while (!this.#disposed) {
 			const generation = this.#remoteRestartGeneration;
 			await this.kill();
-			if (this.#disposed) return;
+			if (this.#disposed || this.#coldRestorePending) return;
 			if (generation !== this.#remoteRestartGeneration) continue;
 			this.start();
 			return;

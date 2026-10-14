@@ -114,7 +114,7 @@ Still readable`);
 		expect(unfinished.documentElement.textContent).toContain("Still readable");
 	});
 
-	it("keeps currency amounts literal instead of letting $…$ math swallow them", () => {
+	it("keeps currency prices literal without swallowing adjacent Markdown", () => {
 		const document = render("美国年付 **$15 (1Gbps/2T流量)**、$25 (2Gbps/4T)，CMIN2 三网直连款 $35-52/年");
 		expect(document.querySelector(".katex")).toBeNull();
 		expect(document.querySelector("strong")?.textContent).toBe("$15 (1Gbps/2T流量)");
@@ -122,18 +122,30 @@ Still readable`);
 		expect(document.documentElement.textContent).toContain("$35-52/年");
 	});
 
-	it("still renders real inline math while sparing adjacent prices", () => {
-		const document = render("costs $5 and $10 and $x^2$ mixed");
-		expect(document.querySelectorAll(".katex")).toHaveLength(1);
-		expect(document.querySelector("annotation")?.textContent).toBe("x^2");
+	it("preserves actual math beside prices, including expressions starting with a digit", () => {
+		const document = render("costs $5 and $10 and $x^2$; compute $2^n$ or $2 + 3$");
+		expect(Array.from(document.querySelectorAll("annotation"), node => node.textContent)).toEqual([
+			"x^2",
+			"2^n",
+			"2 + 3",
+		]);
 		expect(document.documentElement.textContent).toContain("costs $5 and $10 and");
-		// $$…$$ is untouched: digit content still typesets.
 		const doubled = render("$$15$$ and $$x$$");
 		expect(doubled.querySelectorAll(".katex")).toHaveLength(2);
-		// A closing $ followed by a digit is a price, not a close (pandoc rule).
 		const trailingDigit = render("a $x$5 b");
 		expect(trailingDigit.querySelector(".katex")).toBeNull();
 		expect(trailingDigit.documentElement.textContent).toContain("$x$5");
+	});
+
+	it.each([true, false])("preserves padded double-dollar math with single-dollar parsing %s", singleDollar => {
+		const document = render("Compute $$ x^2 $$ here.", singleDollar);
+		expect(document.querySelector("annotation")?.textContent?.trim()).toBe("x^2");
+		expect(document.documentElement.textContent).not.toContain("$$");
+	});
+
+	it("renders numeric comparisons rather than treating them as currency prose", () => {
+		const document = render("Compare $2 < 3$ and $5 > 1$.");
+		expect(Array.from(document.querySelectorAll("annotation"), node => node.textContent)).toEqual(["2 < 3", "5 > 1"]);
 	});
 
 	it("keeps untrusted TeX links and HTML inert while rendering adjacent valid math", () => {

@@ -1,8 +1,10 @@
 import { promises as fsp } from "node:fs";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
+import type { NotificationConstructorOptions } from "electron";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { IPC_COMMANDS, type SessionTarget } from "../shared/ipc-types";
+import type { RpcResponse } from "../shared/rpc-types";
 import {
 	type IpcDeps,
 	parsePersistedSubagentMessages,
@@ -16,6 +18,7 @@ const ipcTestState = vi.hoisted(() => ({
 	fromWebContents: vi.fn(),
 	showOpenDialog: vi.fn(),
 	storeSet: vi.fn(),
+	shownNotifications: [] as NotificationConstructorOptions[],
 }));
 
 vi.mock("electron", () => ({
@@ -42,7 +45,10 @@ vi.mock("electron", () => ({
 		on: vi.fn(),
 	},
 	Notification: class {
-		show(): void {}
+		constructor(private readonly options: NotificationConstructorOptions) {}
+		show(): void {
+			ipcTestState.shownNotifications.push(this.options);
+		}
 	},
 	shell: {
 		openExternal: vi.fn(),
@@ -63,10 +69,6 @@ vi.mock("electron-store", () => ({
 		}
 	},
 }));
-
-// electron-updater constructs its native Electron adapter when autoUpdater is
-// read. Keep that external runtime out of these IPC tests; appVersion stays real.
-vi.mock("electron-updater", () => ({ default: { autoUpdater: {} } }));
 
 const MAIN_OWNED_KEYS = ["remoteHosts", "remoteExecutableOverrides", "remoteRecentWorkspaces"] as const;
 
@@ -212,6 +214,7 @@ function registerLocalSshHandlerFixture(
 		activeTabForWindow: vi.fn(() => "active-tab"),
 		entryForWindow: vi.fn(() => ({ sidecar: activeSidecar, target: active.target })),
 		foreignSessionOwner: vi.fn(() => null),
+		waitForSessionRestore: vi.fn(async () => {}),
 		sidecarForWindow: vi.fn(() => activeSidecar),
 		sidecarForTab: vi.fn((_win: object, tabId: string) =>
 			tabId === "local-tab"
@@ -253,6 +256,7 @@ function registerLocalSshHandlerFixture(
 
 beforeEach(() => {
 	ipcTestState.handlers.clear();
+	ipcTestState.shownNotifications.length = 0;
 	vi.clearAllMocks();
 });
 
@@ -268,6 +272,206 @@ describe("IPC startup", () => {
 		expect(await invokeProjectHandler(IPC_COMMANDS.SYSTEM_INFO, fixture.event)).toMatchObject({
 			appVersion: "0.7.2",
 		});
+	});
+});
+
+describe("cross-window conversation locators", () => {
+	function fixture(owned: boolean) {
+		const callerSender = {};
+		const ownerSender = {};
+		const caller = { webContents: { id: 71 } };
+		const owner = { webContents: { id: 72 } };
+		const queued = new Map<number, { sessionPath: string; entryId: string }>();
+		let focused: number | null = null;
+		const deps = {
+			sidecarPool: {
+				entryForWindow: () => undefined,
+				sidecarForWindow: () => null,
+				tabsForWindow: () => [],
+				waitForSessionRestore: async () => {},
+				sessionOwner: () => owned ? { tabId: "owner-tab", winId: 72 } : null,
+				atCap: false,
+			},
+			sessionIndex: { kindFor: async () => "agent" },
+			statsClient: {},
+			logWatcher: {},
+			windowManager: {
+				subscribeWindowClosed: () => () => {},
+				recordFor: (win: typeof caller) => ({ cwd: "/project", win }),
+				focusWindowById: (id: number) => { focused = id; return id === 72; },
+				queueConversationFocus: (id: number, request: { sessionPath: string; entryId: string }) => {
+					queued.set(id, request);
+					return true;
+				},
+				consumePendingConversationFocus: (win: typeof caller) => {
+					const pending = queued.get(win.webContents.id) ?? null;
+					queued.delete(win.webContents.id);
+					return pending;
+				},
+			},
+			spawnWindow: () => owner,
+			initialCwd: () => "/project",
+			remoteSsh: {},
+			remoteHostCatalog: {},
+			remoteAcp: {},
+		} as unknown as IpcDeps;
+		ipcTestState.fromWebContents.mockImplementation(sender => sender === callerSender ? caller : sender === ownerSender ? owner : null);
+		registerIpcHandlers(deps);
+		return { caller: { sender: callerSender }, owner: { sender: ownerSender }, focused: () => focused };
+	}
+
+	it("delivers the selected entry only to the existing owner window and consumes it once", async () => {
+		const setup = fixture(true);
+		expect(await invokeProjectHandler(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, setup.caller, {
+			sessionPath: "/sessions/a.jsonl", cwd: "/project", entryId: "entry-7",
+		})).toBe(true);
+		expect(setup.focused()).toBe(72);
+		expect(await invokeProjectHandler("conversation:focus-consume", setup.caller)).toBeNull();
+		expect(await invokeProjectHandler("conversation:focus-consume", setup.owner)).toEqual({
+			sessionPath: "/sessions/a.jsonl", entryId: "entry-7",
+		});
+		expect(await invokeProjectHandler("conversation:focus-consume", setup.owner)).toBeNull();
+	});
+
+	it("retains a locator for the newly spawned window before its renderer subscribes", async () => {
+		const setup = fixture(false);
+		expect(await invokeProjectHandler(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, setup.caller, {
+			sessionPath: "/sessions/b.jsonl", cwd: "/project", entryId: "entry-9",
+		})).toBe(true);
+		expect(await invokeProjectHandler("conversation:focus-consume", setup.owner)).toEqual({
+			sessionPath: "/sessions/b.jsonl", entryId: "entry-9",
+		});
+		expect(await invokeProjectHandler("conversation:focus-consume", setup.caller)).toBeNull();
+	});
+});
+
+describe("canonical local transcript hydration", () => {
+	function entry(id: string, parentId: string | null, role: "user" | "assistant", text = "identical text") {
+		return { type: "message", id, parentId, timestamp: "2026-10-17T00:00:00.000Z", message: { role, content: text, timestamp: 1000 } };
+	}
+
+	function fixture(entries: unknown[], leafId: string | null, options: {
+		target?: SessionTarget;
+		beforeEntries?: () => Promise<void>;
+		failure?: RpcResponse;
+	} = {}) {
+		const sender = {};
+		const win = { webContents: { id: 71 } };
+		const target = options.target ?? { type: "local" };
+		const sidecar = {
+			status: "ready", cwd: "/project",
+			rpcClient: {
+				command: async (command: { type: string }): Promise<RpcResponse> => {
+					if (command.type === "get_entries") {
+						await options.beforeEntries?.();
+						return options.failure ?? { type: "response", command: command.type, success: true, data: { entries, leafId } };
+					}
+					return { type: "response", command: command.type, success: true, data: {
+						messages: [{ role: "user", content: "native context without entry identity", timestamp: 1000 }],
+						...(command.type === "get_messages_page" ? { totalMessages: 1 } : {}),
+					} };
+				},
+			},
+		};
+		const deps = {
+			sidecarPool: {
+				activeTabForWindow: () => "tab-1",
+				entryForWindow: () => ({ sidecar, target }),
+				sidecarForWindow: () => sidecar,
+				sidecarForTab: (_win: unknown, tabId: string) => tabId === "tab-1" ? sidecar : null,
+				tabsForWindow: () => [{ tabId: "tab-1", target, status: "ready", sessionId: "s1" }],
+			},
+			sessionIndex: {}, statsClient: {}, logWatcher: {},
+			windowManager: { subscribeWindowClosed: () => () => {} },
+			remoteHostCatalog: {}, remoteSsh: {}, remoteAcp: {},
+		} as unknown as IpcDeps;
+		ipcTestState.fromWebContents.mockReturnValue(win);
+		registerIpcHandlers(deps);
+		return { sender };
+	}
+
+	it.each(["get_messages", "get_messages_page"])("hydrates $0 with exact identities from the native active leaf, not duplicate text or the file tail", async type => {
+		const event = fixture([
+			entry("root", null, "user"),
+			entry("active-assistant", "root", "assistant"),
+			entry("abandoned-user", "root", "user"),
+			entry("abandoned-assistant", "abandoned-user", "assistant"),
+		], "active-assistant");
+		const response = await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, event, { command: { type, limit: 1 } });
+		expect(response).toMatchObject({ success: true, command: type, data: { messages: [
+			{ role: "user", content: "identical text", entryId: "root" },
+			{ role: "assistant", content: "identical text", entryId: "active-assistant" },
+		] } });
+		if (type === "get_messages_page") expect(response).toMatchObject({ data: { totalMessages: 2 } });
+	});
+
+	it("retains exact precompaction user and assistant entries on the native active branch for locate expansion", async () => {
+		const event = fixture([
+			entry("old-user", null, "user", "older question"),
+			entry("old-assistant", "old-user", "assistant", "older answer"),
+			entry("kept-user", "old-assistant", "user", "recent question"),
+			{ type: "compaction", id: "compact", parentId: "kept-user", timestamp: "2026-10-17T00:00:00.000Z", firstKeptEntryId: "kept-user", summary: "compacted context", tokensBefore: 123 },
+			entry("new-assistant", "compact", "assistant", "recent answer"),
+		], "new-assistant");
+		expect(await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, event, { command: { type: "get_messages" } })).toMatchObject({
+			success: true, data: { messages: [
+				{ entryId: "old-user", role: "user" },
+				{ entryId: "old-assistant", role: "assistant" },
+				{ entryId: "kept-user", role: "user" },
+				{ role: "compactionSummary", summary: "compacted context" },
+				{ entryId: "new-assistant", role: "assistant" },
+			] },
+		});
+	});
+
+	it("does not select the file tail when the native active leaf is explicitly empty", async () => {
+		const event = fixture([entry("abandoned", null, "user")], null);
+		expect(await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, event, { command: { type: "get_messages" } })).toMatchObject({
+			success: true, data: { messages: [] },
+		});
+	});
+
+	it("preserves native canonical-read errors instead of a success-shaped identity fallback", async () => {
+		const event = fixture([], null, { failure: { type: "response", command: "get_entries", success: false, code: "session_busy", error: "Native journal is busy" } });
+		expect(await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, event, { command: { type: "get_messages" } })).toMatchObject({
+			success: false, command: "get_messages", code: "session_busy", error: "Native journal is busy",
+		});
+	});
+
+	it("refuses a canonical snapshot with an unknown leaf rather than guessing an alternate branch", async () => {
+		const event = fixture([entry("tail", null, "user")], "missing");
+		expect(await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, event, { command: { type: "get_messages" } })).toMatchObject({ success: false });
+	});
+
+	it("retires a pending canonical read when a session mutation is queued", async () => {
+		const gate = Promise.withResolvers<void>();
+		const event = fixture([entry("old-user", null, "user")], "old-user", { beforeEntries: () => gate.promise });
+		const hydration = invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, event, { command: { type: "get_messages" } });
+		await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, event, { command: { type: "new_session" } });
+		gate.resolve();
+		expect(await hydration).toMatchObject({ success: false });
+	});
+
+	it("leaves SSH transcript hydration on its native transport without local reconstruction", async () => {
+		const event = fixture([entry("local-only", null, "user")], "local-only", { target: SSH_TARGET });
+		expect(await invokeProjectHandler(IPC_COMMANDS.RPC_COMMAND, event, { command: { type: "get_messages" } })).toMatchObject({
+			success: true, data: { messages: [{ role: "user", content: "native context without entry identity", timestamp: 1000 }] },
+		});
+	});
+});
+
+describe("native notification tab ownership", () => {
+	it("shows equal outcomes from distinct tabs but suppresses the same tab's immediate duplicate", async () => {
+		const fixture = registerProjectHandlerFixture({ type: "local" });
+		const first = { title: "Equal session title", body: "Completed", tabId: "native-notice-a" };
+		const second = { ...first, tabId: "native-notice-b" };
+		await invokeProjectHandler(IPC_COMMANDS.SYSTEM_NOTIFY, fixture.event, first);
+		await invokeProjectHandler(IPC_COMMANDS.SYSTEM_NOTIFY, fixture.event, second);
+		await invokeProjectHandler(IPC_COMMANDS.SYSTEM_NOTIFY, fixture.event, second);
+		expect(ipcTestState.shownNotifications).toEqual([
+			{ title: "Equal session title", body: "Completed" },
+			{ title: "Equal session title", body: "Completed" },
+		]);
 	});
 });
 

@@ -18,6 +18,7 @@ import { useSubagentsStore } from "./stores/subagents";
 import { ensureTabRuntime } from "./stores/tab-runtime";
 import { useTabsStore } from "./stores/tabs";
 import { useTodoStore } from "./stores/todo";
+import { useTranscriptFocusStore } from "./stores/transcript-focus";
 import { useUiStore } from "./stores/ui";
 import { useUpdaterStore } from "./stores/updater";
 
@@ -75,6 +76,10 @@ let cycleThinkingLevel: Mock;
 let dequeue: Mock;
 let prefsSet: Mock;
 let composerFills: ComposerFillDetail[];
+type PendingConversationFocus = { sessionPath: string; entryId: string };
+let pendingConversationFocus: PendingConversationFocus | null = null;
+let conversationFocusListener: (() => void) | undefined;
+let conversationFocusOrder: string[] = [];
 
 function captureComposerFill(event: Event): void {
 	composerFills.push((event as CustomEvent<ComposerFillDetail>).detail);
@@ -98,12 +103,29 @@ async function mountApp(): Promise<void> {
 			menuListener = listener;
 			return subscribe();
 		},
+		onConversationFocus: (listener: () => void) => {
+			conversationFocusListener = listener;
+			conversationFocusOrder.push("subscribe");
+			return subscribe();
+		},
 	};
 	const rpc = { cycleModel, cycleThinkingLevel, dequeue };
 	(testWindow as unknown as Record<string, unknown>).omp = {
 		events,
 		rpc,
 		prefs: { get: vi.fn(async () => null), set: prefsSet },
+		sessions: {
+			consumePendingConversationFocus: vi.fn(async () => {
+				conversationFocusOrder.push("consume");
+				const pending = pendingConversationFocus;
+				pendingConversationFocus = null;
+				return pending;
+			}),
+		},
+		tabs: {
+			setActive: vi.fn(async () => true),
+			getSessionOwner: vi.fn(async () => null),
+		},
 	};
 
 	container = testDocument.createElement("div") as unknown as Element;
@@ -205,6 +227,7 @@ function resetUiState(): void {
 	useUiStore.getState().cancelCloseTab();
 	useUiStore.setState({
 		commandPaletteOpen: false,
+		conversationSearchOpen: false,
 		hotkeysOpen: false,
 		keymapHydrated: false,
 		keymapOverrides: {},
@@ -220,6 +243,10 @@ function resetUiState(): void {
 beforeEach(() => {
 	resetTabRoute();
 	useAgentViewStore.getState().reset();
+	pendingConversationFocus = null;
+	conversationFocusListener = undefined;
+	conversationFocusOrder = [];
+	useTranscriptFocusStore.setState({ target: null, pendingNative: null });
 	resetUiState();
 	composerFills = [];
 	useActivitySidebarStore.getState().reset();
@@ -266,6 +293,98 @@ describe("App workspace composition", () => {
 		expect((container as Element).querySelector("textarea")).not.toBeNull();
 		expect((container as Element).querySelector('[data-activity-section="agents"]')).not.toBeNull();
 	});
+});
+
+describe("conversation search entry points", () => {
+	it.each(["metaKey", "ctrlKey"] as const)("opens local search with Shift plus %s-F", async modifier => {
+		await mountApp();
+		await selectSubagent();
+		await pressKey({ key: "F", code: "KeyF", shiftKey: true, [modifier]: true });
+		expect(useUiStore.getState().conversationSearchOpen).toBe(true);
+	});
+
+	it("opens local search from the native menu without a sidecar mutation", async () => {
+		await mountApp();
+		await selectSubagent();
+		await runMenuAction("open-conversation-search");
+		expect(useUiStore.getState().conversationSearchOpen).toBe(true);
+		expect(cycleModel).not.toHaveBeenCalled();
+	});
+
+	it("keeps plain Cmd-F and Cmd-G on the pane-scoped transcript event path", async () => {
+		await mountApp();
+		const actions: string[] = [];
+		const onFind = (event: Event) => {
+			const detail = (event as CustomEvent<{ action: string; fallback: boolean }>).detail;
+			if (!detail.fallback) actions.push(detail.action);
+		};
+		testWindow.addEventListener("omp:transcript-find", onFind);
+		try {
+			await pressKey({ key: "f", code: "KeyF", metaKey: true });
+			await pressKey({ key: "g", code: "KeyG", metaKey: true });
+			expect(actions).toEqual(["open", "next"]);
+			expect(useUiStore.getState().conversationSearchOpen).toBe(false);
+		} finally {
+			testWindow.removeEventListener("omp:transcript-find", onFind);
+		}
+	});
+	it("consumes queued cross-window locators after subscribing and selects the local owner", async () => {
+		const path = "/sessions/owned-local.jsonl";
+		useTabsStore.setState({
+			activeTabId: "ssh-origin",
+			tabs: [
+				{
+					id: "ssh-origin", cwd: "/same", kind: "agent", status: "starting", unreadDone: false,
+					sessionPath: path,
+					target: {
+						type: "ssh", hostAlias: "dev", cwd: "/same", originCwd: "/local",
+						host: { host: "example.com", sourceId: "dev", sourceLevel: "user" },
+					},
+				},
+				{
+					id: "local-owner", cwd: "/same", kind: "agent", status: "starting", unreadDone: false,
+					sessionPath: path, target: { type: "local" },
+				},
+			],
+		});
+		pendingConversationFocus = { sessionPath: path, entryId: "first-entry" };
+		await mountApp();
+		expect(conversationFocusOrder.slice(0, 2)).toEqual(["subscribe", "consume"]);
+		expect(useTabsStore.getState().activeTabId).toBe("local-owner");
+		expect(useTranscriptFocusStore.getState().target).toMatchObject({
+			sessionPath: path, entryId: "first-entry",
+		});
+		pendingConversationFocus = { sessionPath: path, entryId: "second-entry" };
+		await act(async () => conversationFocusListener?.());
+		await flush();
+		expect(useTranscriptFocusStore.getState().target).toMatchObject({
+			sessionPath: path, entryId: "second-entry",
+		});
+	});
+
+	it("retains a startup locator across shell remount until the local owner appears", async () => {
+		const path = "/sessions/startup-local.jsonl";
+		pendingConversationFocus = { sessionPath: path, entryId: "startup-entry" };
+		await mountApp();
+		expect(useTranscriptFocusStore.getState().target).toBeNull();
+		await act(async () => root?.unmount());
+		container?.remove();
+		root = null;
+		container = null;
+		await mountApp();
+		await act(async () => {
+			useTabsStore.getState().applyTabStatus({
+				tabId: "startup-owner", cwd: "/local", target: { type: "local" }, kind: "agent",
+				status: "starting", sessionPath: path,
+			});
+		});
+		await flush();
+		expect(useTabsStore.getState().activeTabId).toBe("startup-owner");
+		expect(useTranscriptFocusStore.getState().target).toMatchObject({
+			sessionPath: path, entryId: "startup-entry",
+		});
+	});
+
 });
 
 describe("App global actions in selected-subagent mode", () => {

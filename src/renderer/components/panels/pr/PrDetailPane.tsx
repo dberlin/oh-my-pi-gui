@@ -127,7 +127,7 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 		// Keyed on the selection so switching PRs replays the entrance instead of
 		// mutating the previous PR's body in place, and resets the local body
 		// expansion that belongs to the PR being left behind.
-		<div key={selected} className="flex flex-col gap-4 p-4">
+		<div key={selected} className="omp-fade-up flex flex-col gap-4 p-4">
 			{/* Header card */}
 			<div className="flex flex-col gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent p-3">
 				<div className="flex items-start gap-2">
@@ -179,7 +179,9 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 			{/* Body */}
 			{detail.body.trim().length > 0 && (
 				<section>
-					<h3 className="mb-1.5 text-omp-sm font-medium text-(--omp-dim)">{t("prCenter.section.body")}</h3>
+					<h3 className="mb-1.5 text-omp-sm font-medium uppercase tracking-wide text-(--omp-dim)">
+						{t("prCenter.section.body")}
+					</h3>
 					<div className="rounded-lg border border-(--omp-border-muted) p-3 text-omp-md">
 						<MarkdownRenderer content={shownBody} />
 						{collapsible && (
@@ -200,7 +202,7 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 			{/* Checks */}
 			{detail.checks.length > 0 && (
 				<section>
-					<h3 className="mb-1.5 text-omp-sm font-medium text-(--omp-dim)">
+					<h3 className="mb-1.5 text-omp-sm font-medium uppercase tracking-wide text-(--omp-dim)">
 						{t("prCenter.section.checks", { count: String(detail.checks.length) })}
 					</h3>
 					<div className="flex flex-col gap-0.5 rounded-lg border border-(--omp-border-muted) p-2">
@@ -219,7 +221,7 @@ export function PrDetailPane({ onCreateOpen }: { onCreateOpen: () => void }) {
 
 			{/* Files */}
 			<section>
-				<h3 className="mb-1.5 text-omp-sm font-medium text-(--omp-dim)">
+				<h3 className="mb-1.5 text-omp-sm font-medium uppercase tracking-wide text-(--omp-dim)">
 					{t("prCenter.section.files", { count: String(detail.files.length) })}
 				</h3>
 				<div className="flex flex-col gap-1.5">

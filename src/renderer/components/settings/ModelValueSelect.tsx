@@ -286,7 +286,7 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 							<>
 								{currentIsCustom && (
 									<>
-										<div className="px-2 pt-1 pb-0.5 text-omp-xxs font-semibold text-(--omp-dim)">
+										<div className="px-2 pt-1 pb-0.5 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
 											{t("modelValue.currentCustom")}
 										</div>
 										{renderOption({ value })}

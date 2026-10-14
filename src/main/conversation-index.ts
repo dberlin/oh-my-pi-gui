@@ -1,19 +1,15 @@
 /**
- * Search over what was said in agent sessions — the user's messages and the
- * assistant's replies, never tool output — answered per message, so a hit
- * opens the session at that message.
- *
- * A derived, GUI-owned cache: an SQLite FTS5 (trigram) table of message text,
- * kept in the app's data folder and safe to delete. Session files are
- * append-only past their title slot, so a grown file is read only from where
- * the last pass stopped; a shrunk or replaced one is read again in full.
- * Reads are chunked and yield between chunks so a large session never stalls
- * the main process.
+ * Message-level search of LOCAL saved conversations, never tool output.
+ * SQLite is a disposable, GUI-owned cache; saved JSONL is opened read-only.
+ * Changed files are re-read in full: a matching tail cannot prove that earlier
+ * text was not rewritten. Chunked reads yield between chunks.
  */
 import { rmSync } from "node:fs";
 import { type FileHandle, open, readdir, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+import { StringDecoder } from "node:string_decoder";
 import { setImmediate as nextTick, setTimeout as sleep } from "node:timers/promises";
 import type {
 	ConversationHit,
@@ -22,35 +18,24 @@ import type {
 	SessionKind,
 } from "../shared/ipc-types";
 
-const SCHEMA_VERSION = "1";
-/** Bytes before the read offset that must still match for an append-only read. */
-const TAIL_CHECK_BYTES = 64;
-/** Bytes read per chunk; the main process yields between chunks. */
+const requireBuiltin = createRequire(import.meta.url);
+const SCHEMA_VERSION = "2";
 const CHUNK_BYTES = 2 * 1024 * 1024;
-/** Head bytes holding the title slot and session header. */
 const HEAD_BYTES = 8 * 1024;
-/** Longest message body kept; longer replies match on their opening. */
 const MAX_BODY_CHARS = 20_000;
-/** Matching messages read per search before grouping. */
 const MAX_ROWS = 400;
 const HITS_PER_SESSION = 3;
 const MAX_SESSIONS = 60;
-/** Characters of context on each side of the first match in a snippet. */
 const SNIPPET_CONTEXT = 60;
-/** How long a search waits for the index to catch up before answering with what it has. */
 const FRESH_WAIT_MS = 400;
-/** A search within this long of the last pass reuses it instead of re-scanning. */
 const FRESH_MAX_AGE_MS = 2000;
-/** Snippet match delimiters; the renderer turns them into <mark>. */
+/** Snippet delimiters rendered as highlights, not HTML. */
 export const MARK_OPEN = "\u0001";
 export const MARK_CLOSE = "\u0002";
 
 interface FileRow {
 	path: string;
 	signature: string;
-	indexed_bytes: number;
-	/** Hex of the TAIL_CHECK_BYTES before indexed_bytes. */
-	tail: string;
 }
 
 interface SessionHead {
@@ -67,72 +52,77 @@ interface ParsedMessage {
 	timestamp: number;
 }
 
-/** Text of a persisted user/assistant message entry line; null for anything else. */
+/** Keep spoken text blocks only; reasoning, tool calls/results and custom entries stay private. */
 export function parseMessageLine(line: string): ParsedMessage | null {
-	// Cheap rejects first: most lines are tool results and other entry kinds.
-	if (!line.includes('"type":"message"')) return null;
-	if (!line.includes('"role":"user"') && !line.includes('"role":"assistant"')) return null;
-	let row: { type?: unknown; id?: unknown; timestamp?: unknown; message?: Record<string, unknown> };
+	if (!line.includes('"message"')) return null;
+	let row: unknown;
 	try {
 		row = JSON.parse(line);
 	} catch {
 		return null;
 	}
+	if (
+		!row || typeof row !== "object" ||
+		!("type" in row) || row.type !== "message" ||
+		!("id" in row) || typeof row.id !== "string" ||
+		!("message" in row)
+	) return null;
 	const message = row.message;
-	if (row.type !== "message" || typeof row.id !== "string" || !message) return null;
+	if (!message || typeof message !== "object" || !("content" in message) || !("role" in message)) return null;
+	if (("hidden" in message && message.hidden === true) || ("display" in message && message.display === false)) return null;
 	const role = message.role;
 	if (role !== "user" && role !== "assistant") return null;
 	let body: string;
 	if (typeof message.content === "string") body = message.content;
 	else if (Array.isArray(message.content)) {
 		body = message.content
-			.filter(
-				(part): part is { type: "text"; text: string } => part?.type === "text" && typeof part.text === "string",
-			)
+			.filter((part): part is { type: "text"; text: string } => part?.type === "text" && typeof part.text === "string")
 			.map(part => part.text)
 			.join("\n");
 	} else return null;
 	body = body.trim();
 	if (!body) return null;
-	const stamp =
-		typeof message.timestamp === "number"
+	const timestamp =
+		"timestamp" in message && typeof message.timestamp === "number"
 			? message.timestamp
-			: typeof row.timestamp === "string"
+			: "timestamp" in row && typeof row.timestamp === "string"
 				? Date.parse(row.timestamp) || 0
 				: 0;
-	return { entryId: row.id, role, body: body.slice(0, MAX_BODY_CHARS), timestamp: stamp };
+	return { entryId: row.id, role, body: body.slice(0, MAX_BODY_CHARS), timestamp };
 }
 
-/** Title, id, cwd and kind from a session file's opening lines. */
+/** Current title slots take precedence over legacy header titles, including an explicit empty title. */
 export function parseSessionHead(head: string): SessionHead {
 	const result: SessionHead = { sessionId: null, cwd: null, title: null, kind: null };
+	let hasTitleSlot = false;
 	for (const line of head.split("\n").slice(0, 3)) {
-		let row: Record<string, unknown>;
+		let row: unknown;
 		try {
 			row = JSON.parse(line);
 		} catch {
 			continue;
 		}
-		if (row.type === "title" && typeof row.title === "string" && row.title.trim()) result.title = row.title.trim();
+		if (!row || typeof row !== "object" || !("type" in row)) continue;
+		if (row.type === "title" && "title" in row && typeof row.title === "string") {
+			hasTitleSlot = true;
+			result.title = row.title.trim() || null;
+		}
 		if (row.type === "session") {
-			if (typeof row.id === "string") result.sessionId = row.id;
-			if (typeof row.cwd === "string") result.cwd = row.cwd;
-			if (row.kind === "chat") result.kind = "chat";
+			if ("id" in row && typeof row.id === "string") result.sessionId = row.id;
+			if ("cwd" in row && typeof row.cwd === "string") result.cwd = row.cwd;
+			if (!hasTitleSlot && "title" in row && typeof row.title === "string") result.title = row.title.trim() || null;
+			if ("kind" in row && row.kind === "chat") result.kind = "chat";
 			break;
 		}
 	}
 	return result;
 }
 
-/** Whitespace-separated terms, lowercased and de-duplicated; at most eight. */
 export function searchTerms(query: string): string[] {
 	return [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, 8);
 }
 
-/**
- * The stretch of `body` around its first matching term, every term wrapped in
- * MARK_OPEN/MARK_CLOSE, on one line, with ellipses where text was cut.
- */
+/** A bounded, single-line window around the first matching term. */
 export function buildSnippet(body: string, terms: readonly string[]): string {
 	const flat = body.replace(/\s+/g, " ").trim();
 	const lower = flat.toLowerCase();
@@ -145,9 +135,9 @@ export function buildSnippet(body: string, terms: readonly string[]): string {
 	const end = Math.min(flat.length, Math.max(first, 0) + SNIPPET_CONTEXT * 2 + 40);
 	const window = flat.slice(start, end);
 	const windowLower = window.toLowerCase();
-	// Mark every occurrence of every term, longest first so overlaps keep the longer one.
 	const marks: Array<[number, number]> = [];
 	for (const term of [...terms].sort((a, b) => b.length - a.length)) {
+		if (!term) continue;
 		let from = 0;
 		for (;;) {
 			const at = windowLower.indexOf(term, from);
@@ -168,49 +158,36 @@ export function buildSnippet(body: string, terms: readonly string[]): string {
 	return `${start > 0 ? "…" : ""}${out}${end < flat.length ? "…" : ""}`;
 }
 
-/** FTS5 phrase for one term: quoted, inner quotes doubled. */
-function phrase(term: string): string {
-	return `"${term.replaceAll('"', '""')}"`;
-}
-
-function likePattern(term: string): string {
-	return `%${term.replace(/[\\%_]/g, char => `\\${char}`)}%`;
-}
-
-/** Hex of the bytes just before `offset`, which an append must leave untouched. */
-async function tailAt(handle: FileHandle, offset: number): Promise<string> {
-	const start = Math.max(0, offset - TAIL_CHECK_BYTES);
-	const buffer = Buffer.alloc(offset - start);
-	if (buffer.length > 0) await handle.read(buffer, 0, buffer.length, start);
-	return buffer.toString("hex");
+function unavailable(): ConversationSearchResponse {
+	return { results: [], indexed: 0, indexing: null, unavailable: true };
 }
 
 export class ConversationIndex {
 	readonly #db: DatabaseSync;
 	readonly #sessionsDir: string;
 	#refreshing: Promise<void> | null = null;
+	#closing: Promise<void> | null = null;
 	#lastRefresh = 0;
 	#progress: { done: number; total: number } | null = null;
 	#closed = false;
 
 	constructor(dbPath: string, sessionsDir: string) {
 		this.#sessionsDir = sessionsDir;
-		this.#db = new DatabaseSync(dbPath);
-		this.#db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
-		this.#db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
-		const version = this.#db.prepare("SELECT value FROM meta WHERE key = 'schema'").get() as
-			| { value: string }
-			| undefined;
-		if (version?.value !== SCHEMA_VERSION) {
-			this.#db.exec("DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS entries;");
-			this.#db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema', ?)").run(SCHEMA_VERSION);
-		}
-		this.#db.exec(`
+		// Lazy builtin loading lets the GUI report unavailable on runtimes without SQLite.
+		const { DatabaseSync: Database } = requireBuiltin("node:sqlite") as { DatabaseSync: typeof DatabaseSync };
+		this.#db = new Database(dbPath);
+		try {
+			this.#db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+			this.#db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+			const version = this.#db.prepare("SELECT value FROM meta WHERE key = 'schema'").get() as { value: string } | undefined;
+			if (version?.value !== SCHEMA_VERSION) {
+				this.#db.exec("DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS entries;");
+				this.#db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema', ?)").run(SCHEMA_VERSION);
+			}
+			this.#db.exec(`
 CREATE TABLE IF NOT EXISTS files (
 	path TEXT PRIMARY KEY,
 	signature TEXT NOT NULL,
-	indexed_bytes INTEGER NOT NULL,
-	tail TEXT NOT NULL,
 	session_id TEXT,
 	cwd TEXT,
 	title TEXT,
@@ -225,65 +202,81 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5(
 	ts UNINDEXED,
 	tokenize = 'trigram'
 );`);
+		} catch (error) {
+			this.#db.close();
+			throw error;
+		}
 	}
 
-	close(): void {
+	/** Stop accepting work immediately, then drain reads before releasing SQLite. */
+	close(): Promise<void> {
+		if (this.#closing) return this.#closing;
 		this.#closed = true;
-		this.#db.close();
+		this.#closing = (async () => {
+			// Refresh failures belong to their callers; shutdown only drains the pass.
+			await this.#refreshing?.catch(() => undefined);
+			this.#db.close();
+		})();
+		return this.#closing;
 	}
 
-	/**
-	 * Search after catching up with recent writes. A long first pass is not
-	 * waited out: the answer then carries `indexing` progress and the caller asks again.
-	 */
 	async searchFresh(query: string, scope: { cwd?: string | null } = {}): Promise<ConversationSearchResponse> {
-		// A failed pass still leaves what was indexed before it searchable.
+		if (this.#closed) return unavailable();
 		const pass = this.refresh({ maxAgeMs: FRESH_MAX_AGE_MS }).catch(() => undefined);
-		await Promise.race([pass, sleep(FRESH_WAIT_MS)]);
+		const timeout = new AbortController();
+		try {
+			await Promise.race([pass, sleep(FRESH_WAIT_MS, undefined, { signal: timeout.signal })]);
+		} finally {
+			timeout.abort();
+		}
 		return this.search(query, scope);
 	}
 
-	/** Bring the index up to date with the sessions folder; concurrent calls share one pass. */
+	/** Concurrent callers share one pass. A failed pass never counts as fresh. */
 	refresh(options: { maxAgeMs?: number } = {}): Promise<void> {
+		if (this.#closed) return Promise.resolve();
 		if (this.#refreshing) return this.#refreshing;
 		if (options.maxAgeMs !== undefined && Date.now() - this.#lastRefresh < options.maxAgeMs) return Promise.resolve();
-		this.#refreshing = this.#refresh().finally(() => {
-			this.#refreshing = null;
+		// Discovery is work too: a bounded search must tell its caller to poll
+		// even before the first filesystem scan has finished.
+		this.#progress = { done: 0, total: 0 };
+		this.#refreshing = this.#refresh().then(() => {
 			this.#lastRefresh = Date.now();
+		}).finally(() => {
+			this.#refreshing = null;
 			this.#progress = null;
 		});
 		return this.#refreshing;
 	}
 
 	search(query: string, scope: { cwd?: string | null } = {}): ConversationSearchResponse {
-		const indexed = (this.#db.prepare("SELECT COUNT(*) AS n FROM files").get() as { n: number }).n;
+		if (this.#closed) return unavailable();
+		const count = this.#db.prepare("SELECT COUNT(*) AS n FROM files").get() as { n: number };
+		const indexed = count.n;
 		const terms = searchTerms(query);
 		const status = { indexed, indexing: this.#progress ? { ...this.#progress } : null };
 		if (terms.length === 0) return { results: [], ...status };
-
 		const long = terms.filter(term => [...term].length >= 3);
 		const short = terms.filter(term => [...term].length < 3);
 		const where: string[] = [];
 		const params: Array<string | number> = [];
 		if (long.length > 0) {
 			where.push("entries MATCH ?");
-			params.push(long.map(phrase).join(" AND "));
+			// FTS quoted phrases: doubled inner quotes keep operators literal.
+			params.push(long.map(term => `"${term.replaceAll('"', '""')}"`).join(" AND "));
 		}
 		for (const term of short) {
 			where.push("body LIKE ? ESCAPE '\\'");
-			params.push(likePattern(term));
+			params.push(`%${term.replace(/[\\%_]/g, char => `\\${char}`)}%`);
 		}
 		if (scope.cwd) {
 			where.push("path IN (SELECT path FROM files WHERE cwd = ?)");
 			params.push(scope.cwd);
 		}
 		params.push(MAX_ROWS);
-		const rows = this.#db
-			.prepare(
-				`SELECT body, path, entry_id, role, ts FROM entries WHERE ${where.join(" AND ")} ORDER BY CAST(ts AS INTEGER) DESC LIMIT ?`,
-			)
-			.all(...params) as Array<{ body: string; path: string; entry_id: string; role: string; ts: number | string }>;
-
+		const rows = this.#db.prepare(
+			`SELECT body, path, entry_id, role, ts FROM entries WHERE ${where.join(" AND ")} ORDER BY CAST(ts AS INTEGER) DESC LIMIT ?`,
+		).all(...params) as Array<{ body: string; path: string; entry_id: string; role: string; ts: number | string }>;
 		const byPath = new Map<string, ConversationHit[]>();
 		for (const row of rows) {
 			const hits = byPath.get(row.path) ?? [];
@@ -309,7 +302,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5(
 				  }
 				| undefined;
 			if (!file) continue;
-			// Newest hits decided the order; the session reads in conversation order.
 			const shown = hits.slice(0, HITS_PER_SESSION).sort((a, b) => a.timestamp - b.timestamp);
 			results.push({
 				path,
@@ -327,8 +319,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5(
 
 	async #refresh(): Promise<void> {
 		const files = await this.#scan();
+		if (this.#closed) return;
 		const known = new Map(
-			(this.#db.prepare("SELECT path, signature, indexed_bytes, tail FROM files").all() as unknown as FileRow[]).map(
+			(this.#db.prepare("SELECT path, signature FROM files").all() as unknown as FileRow[]).map(
 				row => [row.path, row],
 			),
 		);
@@ -344,7 +337,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5(
 		this.#progress = { done: 0, total: stale.length };
 		for (const [path, info] of stale) {
 			if (this.#closed) return;
-			await this.#indexFile(path, info, known.get(path));
+			await this.#indexFile(path, info);
 			if (this.#progress) this.#progress.done += 1;
 		}
 	}
@@ -356,23 +349,29 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5(
 			projects = (await readdir(this.#sessionsDir, { withFileTypes: true }))
 				.filter(entry => entry.isDirectory())
 				.map(entry => join(this.#sessionsDir, entry.name));
-		} catch {
-			return found;
+		} catch (error) {
+			if (error instanceof Error && "code" in error && error.code === "ENOENT") return found;
+			throw error;
 		}
 		for (const project of projects) {
+			if (this.#closed) break;
 			let names: string[];
 			try {
-				names = (await readdir(project)).filter(name => name.endsWith(".jsonl"));
-			} catch {
-				continue;
+				names = (await readdir(project, { withFileTypes: true }))
+					.filter(entry => entry.isFile() && entry.name.endsWith(".jsonl"))
+					.map(entry => entry.name);
+			} catch (error) {
+				if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+				throw error;
 			}
 			for (const name of names) {
+				if (this.#closed) break;
 				const path = join(project, name);
 				try {
 					const info = await stat(path);
 					found.set(path, { signature: `${info.mtimeMs}:${info.size}`, size: info.size, mtimeMs: info.mtimeMs });
-				} catch {
-					// Removed between listing and stat.
+				} catch (error) {
+					if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
 				}
 			}
 		}
@@ -382,64 +381,56 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5(
 	async #indexFile(
 		path: string,
 		info: { signature: string; size: number; mtimeMs: number },
-		previous: FileRow | undefined,
 	): Promise<void> {
 		let handle: FileHandle;
 		try {
 			handle = await open(path, "r");
-		} catch {
-			return;
+		} catch (error) {
+			if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+			throw error;
 		}
 		try {
+			if (this.#closed) return;
 			const headBuffer = Buffer.alloc(Math.min(HEAD_BYTES, info.size));
 			await handle.read(headBuffer, 0, headBuffer.length, 0);
 			const head = parseSessionHead(headBuffer.toString("utf8"));
-			// Appends continue from the last complete line; a file rewritten underneath starts over.
-			const append =
-				previous !== undefined &&
-				info.size >= previous.indexed_bytes &&
-				(await tailAt(handle, previous.indexed_bytes)) === previous.tail;
-			let offset = append ? previous.indexed_bytes : 0;
+			let offset = 0;
 			const parsed: ParsedMessage[] = [];
+			const decoder = new StringDecoder("utf8");
 			let carry = "";
 			while (offset < info.size) {
+				if (this.#closed) return;
 				const length = Math.min(CHUNK_BYTES, info.size - offset);
 				const buffer = Buffer.alloc(length);
 				const { bytesRead } = await handle.read(buffer, 0, length, offset);
 				if (bytesRead === 0) break;
-				const text = carry + buffer.toString("utf8", 0, bytesRead);
+				const chunk = buffer.subarray(0, bytesRead);
+				const text = carry + decoder.write(chunk);
 				const lastNewline = text.lastIndexOf("\n");
-				// Only whole lines count; a trailing partial line is read again next pass.
-				const complete = lastNewline === -1 ? "" : text.slice(0, lastNewline);
-				carry = lastNewline === -1 ? text : text.slice(lastNewline + 1);
-				for (const line of complete.split("\n")) {
-					const message = parseMessageLine(line);
-					if (message) parsed.push(message);
+				if (lastNewline !== -1) {
+					for (const line of text.slice(0, lastNewline).split("\n")) {
+						const message = parseMessageLine(line);
+						if (message) parsed.push(message);
+					}
 				}
+				carry = lastNewline === -1 ? text : text.slice(lastNewline + 1);
 				offset += bytesRead;
 				await nextTick();
-				if (this.#closed) return;
 			}
-			const indexedBytes = info.size - Buffer.byteLength(carry, "utf8");
-			const tail = await tailAt(handle, indexedBytes);
+			if (this.#closed) return;
 			this.#db.exec("BEGIN");
 			try {
-				if (!append) this.#db.prepare("DELETE FROM entries WHERE path = ?").run(path);
-				const insert = this.#db.prepare(
-					"INSERT INTO entries (body, path, entry_id, role, ts) VALUES (?, ?, ?, ?, ?)",
-				);
-				for (const message of parsed)
-					insert.run(message.body, path, message.entryId, message.role, message.timestamp);
+				this.#db.prepare("DELETE FROM entries WHERE path = ?").run(path);
+				const insert = this.#db.prepare("INSERT INTO entries (body, path, entry_id, role, ts) VALUES (?, ?, ?, ?, ?)");
+				for (const message of parsed) insert.run(message.body, path, message.entryId, message.role, message.timestamp);
 				this.#db
 					.prepare(
-						`INSERT OR REPLACE INTO files (path, signature, indexed_bytes, tail, session_id, cwd, title, kind, modified)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+						`INSERT OR REPLACE INTO files (path, signature, session_id, cwd, title, kind, modified)
+VALUES (?, ?, ?, ?, ?, ?, ?)`,
 					)
 					.run(
 						path,
 						info.signature,
-						indexedBytes,
-						tail,
 						head.sessionId,
 						head.cwd,
 						head.title,
@@ -457,10 +448,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	}
 }
 
-/**
- * Open the index at `dbPath`, starting over once if the file is unreadable —
- * it is only a cache of the session files. Null when even a fresh file fails.
- */
+/** Recover a corrupt disposable cache once; no SQLite/FTS5 means search is explicitly unavailable. */
 export function openConversationIndex(
 	dbPath: string,
 	sessionsDir: string,

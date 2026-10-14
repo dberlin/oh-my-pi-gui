@@ -205,7 +205,7 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 					<button
 						type="button"
 						onClick={() => setVarsOpen(v => !v)}
-						className="flex items-center gap-1 text-omp-xs font-semibold text-[var(--omp-dim)] transition-colors hover:text-[var(--omp-text)]"
+						className="flex items-center gap-1 text-omp-xs font-semibold uppercase tracking-wider text-[var(--omp-dim)] transition-colors hover:text-[var(--omp-text)]"
 					>
 						{varsOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
 						{t("tools.debug.variables")}

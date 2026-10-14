@@ -94,8 +94,8 @@ export function ApprovalControl() {
 				onClick={() => setOpen(value => !value)}
 				title={t("input.approval.title", { mode: t(`input.approval.${mode}`) })}
 				className={cx(
-					"omp-pressable flex h-8 items-center gap-1.5 rounded-full px-2.5 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
-					mode === "yolo" ? "text-[var(--omp-warning)]" : "text-[var(--omp-muted)]",
+					"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
+					mode === "yolo" ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
 				)}
 			>
 				<ShieldCheck size={14} />

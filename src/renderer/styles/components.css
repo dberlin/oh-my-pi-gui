@@ -6,7 +6,8 @@
 /* ---------------------------------------------------------------------------
  * Streaming caret
  * ------------------------------------------------------------------------- */
-.omp-caret {
+.omp-caret,
+.omp-streaming-formatted-tail [data-omp-caret]::after {
 	display: inline-block;
 	width: 7px;
 	height: 1.05em;
@@ -16,6 +17,10 @@
 	background: var(--omp-streaming-cursor);
 	transform-origin: center bottom;
 	animation: omp-caret-breathe 0.92s ease-in-out infinite; /* motion-ok: caret loop */
+}
+
+.omp-streaming-formatted-tail [data-omp-caret]::after {
+	content: "";
 }
 
 @keyframes omp-caret-breathe {
@@ -42,19 +47,14 @@
 	line-height: 1.7;
 }
 
-/* A commit appends one chunk and only flips the class on the previous one, so
- * revealed text never loses its node mid-motion. Transitions (not animations)
- * because the stream's commit cadence must be able to interrupt a fade without
- * restarting it, which is what made the old per-frame re-keyed reveal strobe. */
-.omp-streaming-chunk {
-	transition:
-		opacity var(--omp-motion-fast) var(--omp-ease),
-		filter var(--omp-motion-fast) var(--omp-ease);
+/* Markdown owns block whitespace; literal unfinished math keeps its line breaks.
+ * Scope to formatted answer tails so ThinkingBlock's plain stream is unchanged. */
+.omp-streaming-formatted-tail {
+	white-space: normal;
 }
 
-.omp-streaming-reveal {
-	opacity: 0.8;
-	filter: blur(0.3px);
+.omp-streaming-plain {
+	white-space: pre-wrap;
 }
 
 
@@ -333,14 +333,9 @@
 	.omp-thinking-shimmer {
 		animation: none;
 	}
-	.omp-caret {
+	.omp-caret,
+	.omp-streaming-formatted-tail [data-omp-caret]::after {
 		animation: none;
-	}
-	/* With transitions flattened, the reveal dim would itself strobe at the
-	 * commit cadence: dim for one frame, full for the next. */
-	.omp-streaming-reveal {
-		opacity: 1;
-		filter: none;
 	}
 }
 
@@ -1220,5 +1215,28 @@
 	.omp-editorial-transcript .omp-user-bubble-actions {
 		opacity: 1;
 		pointer-events: auto;
+	}
+}
+
+/* Search result locate cue: color only, without moving transcript rows. */
+.omp-editorial-transcript .omp-row-found > .omp-transcript-row {
+	border-radius: 14px;
+	animation: omp-row-found 1.8s var(--omp-ease) both; /* motion-ok: color-only locate cue */
+}
+
+@keyframes omp-row-found {
+	0%,
+	40% {
+		background-color: color-mix(in srgb, var(--omp-accent) 11%, transparent);
+	}
+	100% {
+		background-color: transparent;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.omp-editorial-transcript .omp-row-found > .omp-transcript-row {
+		animation: none !important;
+		background-color: color-mix(in srgb, var(--omp-accent) 11%, transparent);
 	}
 }

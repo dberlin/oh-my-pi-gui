@@ -24,7 +24,7 @@ import { useUiStore } from "../../stores/ui";
 
 const triggerClass = (active: boolean) =>
 	cx(
-		"omp-pressable flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-omp-md font-medium",
+		"omp-pressable flex h-8 items-center gap-1.5 rounded-lg border px-2 text-omp-md font-medium",
 		active
 			? "border-[var(--omp-border-accent)] bg-[var(--omp-accent-dim)] text-[var(--omp-accent)]"
 			: "border-transparent text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)]",
@@ -165,7 +165,7 @@ export function ComposerModes() {
 							style={{ left: pos.left, bottom: pos.bottom }}
 							aria-hidden={menuClosing || undefined}
 							className={cx(
-								"fixed z-[100] w-72 overflow-hidden rounded-xl border border-[var(--omp-border)] bg-[var(--omp-panel-bg)] p-1 shadow-[var(--omp-shadow-md)]",
+								"fixed z-[100] w-64 overflow-hidden rounded-xl border border-[var(--omp-border)] bg-[var(--omp-panel-bg)] p-1 shadow-[var(--omp-shadow-md)]",
 								menuClosing ? "omp-scale-out pointer-events-none" : "omp-pop-in",
 							)}
 							role="menu"
@@ -174,7 +174,6 @@ export function ComposerModes() {
 						>
 							<ModeRow
 								label={t("input.plan.label")}
-								description={t("input.modes.planDesc")}
 								title={t("input.plan.title")}
 								checked={planModeEnabled}
 								onSelect={() => select(togglePlan)}
@@ -182,7 +181,6 @@ export function ComposerModes() {
 							{goalStatusInFooter && (
 								<ModeRow
 									label={t("modesPanel.tabs.goal")}
-									description={t("input.modes.goalDesc")}
 									title={
 										goalActive && goalObjective
 											? t("input.goal.activeTitle", { objective: goalObjective })
@@ -195,7 +193,6 @@ export function ComposerModes() {
 							)}
 							<ModeRow
 								label={t("modesPanel.tabs.loop")}
-								description={t("input.modes.loopDesc")}
 								title={loopActive ? t("input.loop.activeTitle", { args: loopArgs }) : t("input.loop.title")}
 								checked={loopActive}
 								navigates
@@ -203,22 +200,20 @@ export function ComposerModes() {
 							/>
 							<ModeRow
 								label={t("modesPanel.tabs.vibe")}
-								description={t("input.modes.vibeDesc")}
-								title={t("modesPanel.vibe.toggleDesc")}
+								title={t("modesPanel.tabs.vibe")}
 								checked={vibeModeEnabled}
 								navigates
 								onSelect={() => select(() => openModes("vibe"))}
 							/>
 							<ModeRow
 								label={t("input.roles.label")}
-								description={t("input.modes.rolesDesc")}
 								title={t("input.roles.title")}
 								checked={false}
 								navigates
 								onSelect={() => select(openModelRoles)}
 							/>
 							<div className="mx-2 my-1 border-t border-[var(--omp-border-muted)]" />
-							<div className="px-2.5 pt-1 pb-0.5 text-omp-xs font-semibold text-[var(--omp-dim)]">
+							<div className="px-2.5 pt-1 pb-0.5 text-omp-xs font-semibold uppercase tracking-wide text-[var(--omp-dim)]">
 								{t("input.more.label")}
 							</div>
 							<MoreRow
@@ -262,14 +257,12 @@ export function ComposerModes() {
 
 function ModeRow({
 	label,
-	description,
 	title,
 	checked,
 	navigates,
 	onSelect,
 }: {
 	label: string;
-	description: string;
 	title: string;
 	checked: boolean;
 	navigates?: boolean;
@@ -279,17 +272,12 @@ function ModeRow({
 		<button
 			type="button"
 			aria-pressed={checked}
-			className="omp-pressable group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-[var(--omp-selected-bg)]"
+			className="omp-pressable flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 			onClick={onSelect}
 			title={title}
 			role="menuitem"
 		>
-			<span className="min-w-0 flex-1">
-				<span className="block truncate text-omp-md font-medium text-[var(--omp-text-secondary)] group-hover:text-[var(--omp-text)]">
-					{label}
-				</span>
-				<span className="block truncate text-omp-xs text-[var(--omp-dim)]">{description}</span>
-			</span>
+			<span className="min-w-0 flex-1 truncate">{label}</span>
 			{checked && <Check size={13} className="shrink-0 text-[var(--omp-accent)]" strokeWidth={3} />}
 			{navigates && <ChevronRight size={13} className="shrink-0 text-[var(--omp-dim)]" />}
 		</button>
@@ -309,7 +297,7 @@ function MoreRow({ label, checked, onToggle }: { label: string; checked: boolean
 			<span
 				className={cx(
 					"relative h-4 w-7 shrink-0 rounded-full transition-colors",
-					checked ? "bg-[var(--omp-switch-on)]" : "bg-[var(--omp-switch-off)]",
+					checked ? "bg-[var(--omp-accent)]" : "bg-[var(--omp-border-strong)]",
 				)}
 			>
 				<span

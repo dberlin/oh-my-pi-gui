@@ -135,6 +135,27 @@ export function claimRowEntrances(state: RowEntranceState, pass: RowEntrancePass
 	return claims;
 }
 
+/**
+ * Find the virtual row holding a persisted session entry, including a folded
+ * process group that must open before its message can be shown.
+ */
+export function locateEntryRow(
+	rows: readonly Row[],
+	entryId: string,
+): { index: number; kind: "message" | "process" } | null {
+	// Compact mode may split one entry into reasoning and a visible answer.
+	// Prefer the searchable answer over its earlier reasoning-only process row.
+	for (const [index, row] of rows.entries()) {
+		if (row.kind === "message" && row.message.entryId === entryId) return { index, kind: "message" };
+	}
+	for (const [index, row] of rows.entries()) {
+		if (row.kind === "process" && row.messages.some(message => message.entryId === entryId)) {
+			return { index, kind: "process" };
+		}
+	}
+	return null;
+}
+
 export type HistoryRow =
 	| { kind: "message"; message: AgentMessage; reaction?: string; identityKey?: string }
 	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[]; identityKey?: string }

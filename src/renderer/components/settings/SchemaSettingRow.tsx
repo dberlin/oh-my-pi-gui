@@ -271,7 +271,7 @@ function SchemaSettingRow({
 		entry.restartRequired === true ? (
 			<span
 				title={t("settings.restartRequired.hint")}
-				className="shrink-0 rounded border border-[var(--omp-warning)]/40 px-1 py-px text-omp-xxs font-medium text-[var(--omp-warning)]"
+				className="shrink-0 rounded border border-[var(--omp-warning)]/40 px-1 py-px text-omp-xxs font-medium uppercase tracking-wide text-[var(--omp-warning)]"
 			>
 				{t("settings.restartRequired.badge")}
 			</span>

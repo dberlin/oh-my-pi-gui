@@ -30,7 +30,9 @@ export function ProgressBar({ value, label, valueText, color, height = 6, classN
 
 	return (
 		<div className={`flex items-center gap-2 ${className ?? ""}`.trim()}>
-			{label && <span className="shrink-0 text-omp-xs font-medium text-(--omp-muted)">{label}</span>}
+			{label && (
+				<span className="shrink-0 text-omp-xs font-medium tracking-wide text-(--omp-muted) uppercase">{label}</span>
+			)}
 			<div
 				aria-valuemax={1}
 				aria-valuemin={0}

@@ -156,7 +156,10 @@ export function ImportForeignDialog() {
 			}
 			if (importedCount === 0) return;
 			if (sessions.length === 1 && firstImported) {
-				const tabId = await useTabsStore.getState().openTab({ sessionPath: firstImported.sessionPath });
+				const tabId = await useTabsStore.getState().openTab({
+					sessionPath: firstImported.sessionPath,
+					cwd: firstImported.cwd,
+				});
 				if (tabId) close();
 				else setImportError(t("import.openFailed", { path: firstImported.sessionPath }));
 				return;

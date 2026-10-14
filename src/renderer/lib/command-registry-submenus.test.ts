@@ -47,7 +47,6 @@ const ctx: CommandRegistryContext = {
 	openThemePicker: () => {},
 	openModes: () => {},
 	openAgentHub: () => {},
-	openMemory: () => {},
 	openPrCenter: () => {},
 	openHotkeys: () => {},
 	openImportDialog: () => {},
@@ -217,24 +216,13 @@ describe("nativized action wiring", () => {
 		}
 	});
 
-	it("memory panel and memory view open the Memory window, not the backend inventory", () => {
-		const openMemory = vi.fn();
-		wiredCtx = { ...wiredCtx, openMemory };
-		for (const name of ["memory panel", "memory view"]) {
-			const affordance = wired(name);
-			if (affordance.kind !== "window") throw new Error("expected window");
-			affordance.open();
-		}
-		expect(openMemory).toHaveBeenCalledTimes(2);
-		expect(openSettings).not.toHaveBeenCalled();
-	});
-
 	it.each([
 		["hooks", "hooks"],
 		["commands", "commands"],
 		["mcp panel", "mcp"],
 		["marketplace panel", "resources:marketplaces"],
 		["plugins panel", "resources:plugins"],
+		["memory panel", "resources:memory"],
 		["templates", "resources:templates"],
 		["extensions", "skills"],
 	] as const)("%s deep-links to Settings route %s", (name, route) => {

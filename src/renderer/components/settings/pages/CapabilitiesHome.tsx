@@ -102,7 +102,6 @@ function CapabilityCard({
 	status,
 	statusActive = false,
 	featured = false,
-	wide = false,
 	children,
 }: {
 	icon: ReactNode;
@@ -111,15 +110,13 @@ function CapabilityCard({
 	status?: string;
 	statusActive?: boolean;
 	featured?: boolean;
-	/** Span the whole row without the featured accent — for cards whose actions need room. */
-	wide?: boolean;
 	children: ReactNode;
 }) {
 	return (
 		<section
-			className={`rounded-xl border bg-transparent p-4 ${featured || wide ? "settings-capability-featured" : ""} ${
+			className={`rounded-xl border bg-transparent p-4 ${
 				featured
-					? "border-[color-mix(in_srgb,var(--omp-accent)_45%,var(--omp-border-muted))]"
+					? "settings-capability-featured border-[color-mix(in_srgb,var(--omp-accent)_45%,var(--omp-border-muted))]"
 					: "border-(--omp-border-muted)"
 			}`}
 		>
@@ -195,7 +192,7 @@ export function CapabilitiesHome({
 	return (
 		<div>
 			<header className="mb-6 max-w-2xl">
-				<div className="mb-2 flex items-center gap-1.5 text-omp-xs font-semibold text-(--omp-accent)">
+				<div className="mb-2 flex items-center gap-1.5 text-omp-xs font-semibold tracking-[0.14em] text-(--omp-accent) uppercase">
 					<Sparkles size={12} />
 					{t("settings.capabilities.eyebrow")}
 				</div>
@@ -228,7 +225,6 @@ export function CapabilitiesHome({
 					description={t("settings.capabilities.quickActionsDesc")}
 					icon={<Command size={16} />}
 					title={t("settings.capabilities.quickActions")}
-					wide
 				>
 					<TargetButton label={t("cmd.btw")} onOpen={onOpenTarget} target="btw" variant="secondary" />
 					<TargetButton label={t("cmd.tan")} onOpen={onOpenTarget} target="tan" />

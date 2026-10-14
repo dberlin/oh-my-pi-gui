@@ -10,6 +10,7 @@ import {
 	ListTodo,
 	Loader2,
 	PenLine,
+	RotateCw,
 	SearchCode,
 	Sparkles,
 	X,
@@ -19,20 +20,29 @@ import type { SshSessionTarget } from "../../../shared/ipc-types";
 import type { AgentMessage, RpcQueuedMessage, SidecarStatus, ToolCallContent } from "../../../shared/rpc-types";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { isRenderableMessageText } from "../../lib/messages";
+import { abortActiveTurn, isRenderableMessageText } from "../../lib/messages";
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry, type ResolveToolCall } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { thinkingDisclosureKey } from "../../stores/messages";
 import { type QueueLane, useQueueStore } from "../../stores/queue";
 import { toast } from "../../stores/toast";
 import type { TodoSnapshot } from "../../stores/todo";
-import type { TranscriptView } from "../../stores/session";
+import { type TranscriptView, useSessionStore } from "../../stores/session";
+import {
+	sessionRuntime,
+	useRuntimeStore,
+	useRuntimeTabId,
+	useSessionRuntime,
+	withSessionRuntime,
+} from "../../stores/session-runtime-context";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
+import { useTabsStore } from "../../stores/tabs";
+import { TRANSCRIPT_FOCUS_TTL_MS, useTranscriptFocusStore } from "../../stores/transcript-focus";
 import { scopedDisclosureKey, type TranscriptDetail, useDisclosureScope, useUiStore } from "../../stores/ui";
 import { PiLogo } from "../common";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
-import { ConversationNavigator, type ConversationNavigationModel } from "./ConversationNavigator";
+import type { ConversationNavigationModel } from "./ConversationNavigator";
 import {
 	buildConversationAnchors,
 	buildHistoryRows,
@@ -48,6 +58,7 @@ import {
 	type MountedTranscriptRow,
 	mergeTodoSnapshots,
 	messageTimestampMs,
+	locateEntryRow,
 	type Row,
 	shouldRePinTranscript,
 } from "./chat-stream-utils";
@@ -115,7 +126,19 @@ export type TranscriptViewportProps = (
 };
 
 const EMPTY_QUEUED: MainTranscriptAugments["queued"] = { steering: [], followUp: [] };
+const FOUND_MARK_MS = 1800;
 const EMPTY_TODO_HISTORY: readonly TodoSnapshot[] = [];
+
+/** Only empty, adjacent provider failures can be folded; partial work stays visible. */
+function isEmptyRetryFailure(message: AgentMessage): boolean {
+	if (message.role !== "assistant" || message.stopReason !== "error" || !message.errorMessage) return false;
+	if (typeof message.content === "string") return !isRenderableMessageText(message.content);
+	return (message.content ?? []).every(
+		block =>
+			(block.type === "text" && !isRenderableMessageText(block.text)) ||
+			(block.type === "thinking" && !isRenderableMessageText(block.thinking)),
+	);
+}
 
 /**
  * Shared virtual transcript surface. Main-only rows are admitted exclusively
@@ -186,23 +209,59 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 	const userScrollIntentRef = useRef(!pinned);
 	const gestureAnchorRef = useRef<{ index: string; offset: number } | null>(null);
 	const gestureTowardTailRef = useRef<GestureTowardTail>(null);
+	const failures = useMemo(() => {
+		const displayMessages: AgentMessage[] = [];
+		const repeats = new Map<AgentMessage, number>();
+		for (const message of messages) {
+			const previous = displayMessages.at(-1);
+			if (
+				previous &&
+				isEmptyRetryFailure(previous) &&
+				isEmptyRetryFailure(message) &&
+				previous.errorMessage === message.errorMessage
+			) {
+				const count = (repeats.get(previous) ?? 1) + 1;
+				repeats.delete(previous);
+				repeats.set(message, count);
+				displayMessages[displayMessages.length - 1] = message;
+			} else {
+				displayMessages.push(message);
+			}
+		}
+		return { displayMessages, repeats };
+	}, [messages]);
 
-	const lastCompactionIndex = isMain ? messages.findLastIndex(message => message.role === "compactionSummary") : -1;
+	const lastCompactionIndex = isMain
+		? failures.displayMessages.findLastIndex(message => message.role === "compactionSummary")
+		: -1;
 	const hiddenCount = collapseCompacted && !preCompactionOpen && lastCompactionIndex > 0 ? lastCompactionIndex : 0;
 	const historyRows = useMemo<HistoryRow[]>(() => {
 		const built = buildHistoryRows(
-			hiddenCount > 0 ? messages.slice(hiddenCount) : messages,
+			hiddenCount > 0 ? failures.displayMessages.slice(hiddenCount) : failures.displayMessages,
 			transcriptDetail,
 			expandedProcessKeys,
 			resolveToolCall,
 		);
 		const grouped = groupReadRows(built, resolveToolCall) as HistoryRow[];
 		return isMain ? mergeTodoSnapshots(grouped, todoHistory) : grouped;
-	}, [messages, hiddenCount, transcriptDetail, todoHistory, resolveToolCall, isMain, expandedProcessKeys]);
+	}, [
+		failures.displayMessages,
+		hiddenCount,
+		transcriptDetail,
+		todoHistory,
+		resolveToolCall,
+		isMain,
+		expandedProcessKeys,
+	]);
 
 	const hasStreamedContent =
-		hasStreamingTranscriptContent(streamingMessage, streamingText, streamingThinking, activeTools, streamGeneration) ||
-		Boolean(main?.hasLiveToolsForStream);
+		hasStreamingTranscriptContent(
+			streamingMessage,
+			streamingText,
+			streamingThinking,
+			activeTools,
+			streamGeneration,
+		) || Boolean(main?.hasLiveToolsForStream);
 
 	// Main alone owns retry/compaction/model-wait status.
 	const showStatusRow =
@@ -507,6 +566,81 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 		});
 	}, []);
 
+	// Search requests belong to a LOCAL saved session, not whichever runtime
+	// happens to be focused when this effect runs (split panes stay mounted).
+	const runtimeTabId = useRuntimeTabId();
+	const focusTabId = main?.tabId ?? runtimeTabId;
+	const localTranscript = useTabsStore(
+		state => state.tabs.find(tab => tab.id === (focusTabId ?? state.activeTabId))?.target.type !== "ssh",
+	);
+	const sessionFile = useSessionStore(state => state.sessionFile);
+	const focusTarget = useTranscriptFocusStore(state => state.target);
+	const settleFocus = useTranscriptFocusStore(state => state.settle);
+	const [found, setFound] = useState<{ key: string; nonce: number } | null>(null);
+	useLayoutEffect(() => {
+		const target = focusTarget;
+		if (!isMain || !localTranscript || !target || target.sessionPath !== sessionFile) return;
+		if (Date.now() - target.requestedAt > TRANSCRIPT_FOCUS_TTL_MS) {
+			settleFocus(target.nonce);
+			return;
+		}
+		if (status !== "ready" || switchPending) return;
+		if (
+			hiddenCount > 0 &&
+			failures.displayMessages.slice(0, hiddenCount).some(message => message.entryId === target.entryId)
+		) {
+			setPreCompactionOpen(true);
+			return;
+		}
+		const located = locateEntryRow(rows, target.entryId);
+		const key = located ? rowKeys[located.index] : undefined;
+		if (!located || !key) {
+			// Hydration publishes session metadata and history in the same turn.
+			// Changing rows cancels this frame before an absent-branch notice.
+			const frame = requestAnimationFrame(() => {
+				if (useTranscriptFocusStore.getState().target?.nonce !== target.nonce) return;
+				settleFocus(target.nonce);
+				toast({ variant: "info", message: t("search.notOnBranch") });
+			});
+			return () => cancelAnimationFrame(frame);
+		}
+		if (located.kind === "process" && !expandedProcessKeys.has(key)) {
+			updateProcessExpanded(key, true);
+			return;
+		}
+		settleFocus(target.nonce);
+		// Revoke tail ownership synchronously so a queued follower cannot undo
+		// the locate. Scroll after compaction/process disclosures have committed.
+		userScrollIntentRef.current = false;
+		gestureAnchorRef.current = null;
+		gestureTowardTailRef.current = false;
+		viewRef.current.pinned = false;
+		setPinned(false);
+		virtualizer.scrollToIndex(located.index, { align: "center" });
+		setFound({ key, nonce: target.nonce });
+	}, [
+		isMain,
+		localTranscript,
+		focusTarget,
+		sessionFile,
+		status,
+		switchPending,
+		hiddenCount,
+		failures.displayMessages,
+		rows,
+		rowKeys,
+		expandedProcessKeys,
+		settleFocus,
+		t,
+		updateProcessExpanded,
+		virtualizer,
+	]);
+	useEffect(() => {
+		if (!found) return;
+		const timer = window.setTimeout(() => setFound(null), FOUND_MARK_MS);
+		return () => clearTimeout(timer);
+	}, [found]);
+
 	useEffect(() => {
 		if (!onConversationNavigationChange) return;
 		onConversationNavigationChange(
@@ -534,7 +668,10 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 	const clearUserScrollIntent = useCallback(() => {
 		userScrollIntentRef.current = false;
 	}, []);
-	const expandFindProcess = useCallback((rowKey: string) => updateProcessExpanded(rowKey, true), [updateProcessExpanded]);
+	const expandFindProcess = useCallback(
+		(rowKey: string) => updateProcessExpanded(rowKey, true),
+		[updateProcessExpanded],
+	);
 	const findContext = useMemo<TranscriptFindContext>(
 		() => ({ resolveToolCall, lookupToolEntry: key => activeTools.get(key) }),
 		[resolveToolCall, activeTools],
@@ -651,6 +788,7 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 									data-index={item.index}
 									data-row-key={rowKey}
 									data-transcript-kind={row.kind}
+									className={rowKey === found?.key ? "omp-row-found" : undefined}
 									ref={virtualizer.measureElement}
 									style={{
 										position: "absolute",
@@ -665,6 +803,7 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 											<MessageBubble
 												message={row.message}
 												reaction={row.reaction}
+												repeats={failures.repeats.get(row.message)}
 												readOnly={!isMain}
 												resolveToolCall={resolveToolCall}
 												runningIndicator="dot"
@@ -715,6 +854,7 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 												awaitingModelSince={awaitingModelSince}
 												compactionInfo={compactionInfo}
 												retryInfo={retryInfo}
+												shownError={messages.at(-1)?.errorMessage}
 											/>
 										)}
 									</div>
@@ -750,11 +890,6 @@ function TranscriptViewportContent(props: TranscriptViewportProps) {
 				) : null}
 				{find.open ? <TranscriptFindTicks ticks={find.ticks} currentOrdinal={find.current} /> : null}
 			</div>
-			<ConversationNavigator
-				activeIndex={activeConversationIndex}
-				anchors={conversationAnchors}
-				onNavigate={jumpToConversation}
-			/>
 		</>
 	);
 }
@@ -950,7 +1085,12 @@ export function StreamingRows({
 				{hasThinking ? (
 					<ExecutionGroup expanded={expanded} live onExpandedChange={onExpandedChange} stepCount={1}>
 						<div className="omp-process-group omp-process-group--live">
-							<ThinkingBlock disclosureKey={liveThinkingKey} live streamingTextStarted={hasText} text={streamingThinking} />
+							<ThinkingBlock
+								disclosureKey={liveThinkingKey}
+								live
+								streamingTextStarted={hasText}
+								text={streamingThinking}
+							/>
 						</div>
 					</ExecutionGroup>
 				) : null}
@@ -962,7 +1102,6 @@ export function StreamingRows({
 		</div>
 	);
 }
-
 
 /** Seconds past which the waiting row escalates to the slow-response hint. */
 const SLOW_RESPONSE_HINT_SECONDS = 30;
@@ -987,19 +1126,45 @@ const STALLED_RESPONSE_HINT_SECONDS = 90;
  *   elapsed seconds; past 30s a slow-response hint appears so a stalled
  *   provider reads as "slow but alive" rather than dead air.
  *
- * All variants carry the Esc interrupt hint (App routes Esc → rpc.abort),
- * matching the TUI's `[esc]` / `(esc to cancel)` suffixes.
+ * Inline Stop uses the rendered session runtime, including retry cancellation;
+ * Esc remains available through the app-level interrupt shortcut.
  */
 export function TurnStatusRow({
 	awaitingModelSince,
 	compactionInfo,
 	retryInfo,
+	shownError,
 }: {
 	awaitingModelSince: number | null;
 	compactionInfo: MainTranscriptCompactionInfo | null;
 	retryInfo: MainTranscriptRetryInfo | null;
+	shownError?: string;
 }) {
 	const t = useT();
+	const rpc = useTabRpc();
+	const tabId = useRuntimeTabId();
+	const runtime = useSessionRuntime();
+	const sessionStore = useRuntimeStore("session", useSessionStore);
+	const sessionId = useSessionStore(state => state.sessionId);
+	const readOnly = useSessionStore(state => state.collab?.readOnly === true);
+	const switchPending = useSessionStore(state => state.switchPending !== null);
+	const [stopping, setStopping] = useState(false);
+	const stop = async () => {
+		if (runtime && sessionRuntime(runtime.tabId) !== runtime) return;
+		const state = sessionStore.getState();
+		if (stopping || state.collab?.readOnly || state.switchPending || state.sessionId !== sessionId) return;
+		setStopping(true);
+		try {
+			const response = await (tabId
+				? withSessionRuntime(tabId, () => abortActiveTurn(rpc, tabId))
+				: abortActiveTurn(rpc));
+			if (!response.success) throw new Error(response.error);
+		} catch (cause) {
+			toast({ variant: "error", title: t("chat.stopFailed"), message: String(cause) });
+		} finally {
+			setStopping(false);
+		}
+	};
 	const now = Date.now();
 	// 1s ticking clock shared by the countdown/elapsed variants.
 	const [, setNowTick] = useState(0);
@@ -1032,7 +1197,7 @@ export function TurnStatusRow({
 							seconds: remainingSeconds,
 						})
 					: t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
-		detail = retryInfo.errorMessage || null;
+		detail = retryInfo.errorMessage && retryInfo.errorMessage !== shownError ? retryInfo.errorMessage : null;
 		announcement = t("chat.retry.inflight", {
 			attempt: retryInfo.attempt,
 			maxAttempts: retryInfo.maxAttempts,
@@ -1065,9 +1230,13 @@ export function TurnStatusRow({
 			<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
 				{announcement}
 			</span>
-			<div className="flex items-center gap-2.5">
-				<Loader2 size={14} className={cx("animate-spin shrink-0", iconClass)} />
-				<span>{text}</span>
+			<div className="flex flex-wrap items-center gap-2.5">
+				{retryInfo ? (
+					<RotateCw aria-hidden size={14} className={cx("animate-spin shrink-0", iconClass)} />
+				) : (
+					<Loader2 aria-hidden size={14} className={cx("animate-spin shrink-0", iconClass)} />
+				)}
+				<span className="tabular-nums">{text}</span>
 				{stalled ? (
 					<span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.stalled")}</span>
 				) : (
@@ -1076,9 +1245,19 @@ export function TurnStatusRow({
 						{slow ? <span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.slow")}</span> : null}
 					</>
 				)}
+				{!readOnly && !switchPending && (
+					<button
+						type="button"
+						disabled={stopping}
+						onClick={() => void stop()}
+						className="omp-pressable flex h-7 shrink-0 items-center rounded-full border border-[var(--omp-border)] px-2.5 text-omp-sm font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)] disabled:opacity-50"
+					>
+						{t("chat.retry.stop")}
+					</button>
+				)}
 			</div>
 			{detail ? (
-				<div className="max-w-full truncate pl-[26px] text-omp-sm text-[var(--omp-dim)]" title={detail}>
+				<div className="max-w-full break-words whitespace-pre-wrap pl-[26px] text-omp-sm text-[var(--omp-dim)]">
 					{detail}
 				</div>
 			) : null}

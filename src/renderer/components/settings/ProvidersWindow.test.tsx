@@ -69,7 +69,7 @@ describe("resolveProviderEditAction", () => {
 });
 
 describe("providerDiscoveryErrors", () => {
-	it("reports failures only for providers in use, never for optional local probes", () => {
+	it("reports configured upstream failures without alarming on optional local probes", () => {
 		expect(
 			providerDiscoveryErrors(
 				[
@@ -89,19 +89,25 @@ describe("providerDiscoveryErrors", () => {
 						models: [],
 						error: "connection refused",
 					},
-					{
-						provider: "ollama-cloud",
-						status: "unavailable",
-						optional: false,
-						stale: false,
-						models: [],
-						error: "upstream model list unavailable",
-					},
 				],
 				"Discovery unavailable",
-				new Set(["custom-openai", "ollama"]),
+				new Set(["custom-openai"]),
 			),
 		).toEqual(["custom-openai: HTTP 401"]);
+	});
+
+	it("hides unused catalog failures but retains configured authentication failures, including local providers", () => {
+		const states = ["unused-catalog", "configured-cloud", "configured-local"].map(provider => ({
+			provider,
+			status: "unavailable" as const,
+			optional: provider === "configured-local",
+			stale: false,
+			models: [],
+			error: "HTTP 401",
+		}));
+		expect(
+			providerDiscoveryErrors(states, "Discovery unavailable", new Set(["configured-cloud", "configured-local"])),
+		).toEqual(["configured-cloud: HTTP 401", "configured-local: HTTP 401"]);
 	});
 });
 
@@ -235,22 +241,12 @@ function providersResponse(data: ProvidersResult): RpcResponse {
 }
 
 const getProviders = vi.fn(async () => providersResponse(snapshot([row("anthropic")])));
-const getLogoutAccounts = vi.fn(
-	async (): Promise<RpcResponse> => ({
-		type: "response",
-		command: "get_logout_accounts",
-		success: true,
-		data: {
-			accounts: [{ credentialId: 1, provider: "anthropic", label: "a", detail: "", type: "oauth", active: true }],
-		},
-	}),
-);
 const logout = vi.fn(async (): Promise<RpcResponse> => ({ type: "response", command: "logout", success: true }));
 const listProviders = vi.fn(async (): Promise<CustomProviderView[]> => []);
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
-		rpc: { getProviders, getLogoutAccounts, logout },
+		rpc: { getProviders, logout },
 		models: { listProviders },
 	},
 });
@@ -300,6 +296,52 @@ afterEach(async () => {
 });
 
 describe("ProvidersWindow", () => {
+	it("surfaces discovery failure for an explicitly configured no-auth built-in provider", async () => {
+		listProviders.mockResolvedValueOnce([
+			{ ...config("ollama", true), baseUrl: "http://127.0.0.1:11434/v1", auth: "none", hasApiKey: false },
+			config("configured-cloud"),
+		]);
+		getProviders.mockResolvedValueOnce(
+			providersResponse(
+				snapshot([], {
+					discoveryStates: [
+						{
+							provider: "ollama",
+							status: "unavailable",
+							optional: false,
+							stale: false,
+							models: [],
+							error: "connection refused",
+						},
+						{
+							provider: "configured-cloud",
+							status: "unavailable",
+							optional: false,
+							stale: false,
+							models: [],
+							error: "HTTP 401 invalid credentials",
+						},
+						{
+							provider: "unused-catalog",
+							status: "unavailable",
+							optional: false,
+							stale: false,
+							models: [],
+							error: "unused discovery warning",
+						},
+					],
+				}),
+			),
+		);
+		useSessionStore.setState({ status: "ready" });
+		useUiStore.getState().openProviders();
+		await mountWindow();
+
+		expect(text()).toContain("ollama: connection refused");
+		expect(text()).toContain("configured-cloud: HTTP 401 invalid credentials");
+		expect(text()).not.toContain("unused discovery warning");
+	});
+
 	it("shows a provider list that a catalog push replaces, not just the read it made on open", async () => {
 		useSessionStore.setState({ status: "ready" });
 		useUiStore.getState().openProviders();
@@ -373,8 +415,7 @@ describe("ProvidersWindow", () => {
 			buttonWithLabel(translate("providers.logoutConfirm"))?.click();
 		});
 
-		expect(getLogoutAccounts).toHaveBeenCalledWith("my-proxy");
-		expect(logout).toHaveBeenCalledWith("my-proxy", 1);
+		expect(logout).toHaveBeenCalledWith("my-proxy");
 		expect(logout).toHaveBeenCalledOnce();
 		// A non-forced read is answered from a cache row that is still fresh, which
 		// is why the row kept showing the logged-in provider after logout.

@@ -71,27 +71,103 @@ describe("DiffView render budget", () => {
 	});
 });
 
-describe("parseDiff git headers", () => {
-	it("drops git's extended header lines so a patch starts at its first real line", () => {
+describe("git diff header parsing", () => {
+	it.each([
+		"index a4445d3..cf101ac 100644",
+		"new file mode 100644",
+		"deleted file mode 100644",
+		"old mode 100644",
+		"new mode 100755",
+	])("omits the pre-hunk '%s' metadata without advancing source numbers", header => {
 		const patch = [
-			"diff --git a/README.md b/README.md",
-			"index a4445d3..cf101ac 100644",
-			"--- a/README.md",
-			"+++ b/README.md",
-			"@@ -1,2 +1,3 @@",
-			" # demo",
-			" ",
-			"+Status: reviewed",
+			"diff --git a/demo.txt b/demo.txt",
+			header,
+			"--- a/demo.txt",
+			"+++ b/demo.txt",
+			"@@ -7,2 +9,2 @@",
+			" shared",
+			"-before",
+			"+after",
 		].join("\n");
-		expect(parseDiff(patch).map(line => `${line.type}:${line.content}`)).toEqual([
-			"context:# demo",
-			"context:",
-			"add:Status: reviewed",
+		expect(parseDiff(patch)).toEqual([
+			{ type: "context", content: "shared", oldLine: 7, newLine: 9 },
+			{ type: "remove", content: "before", oldLine: 8, newLine: undefined },
+			{ type: "add", content: "after", oldLine: undefined, newLine: 10 },
 		]);
-		// Inside a hunk the same text is source, not a header.
-		expect(parseDiff("@@ -1 +1 @@\n-index 1a..2b x\n+index 3c..4d y").map(line => line.type)).toEqual([
-			"remove",
-			"add",
+	});
+
+	it.each([
+		"index a4445d3..cf101ac 100644",
+		"new file mode 100644",
+		"deleted file mode 100644",
+		"old mode 100644",
+		"new mode 100755",
+		"--- a/demo.txt",
+		"+++ b/demo.txt",
+	])("preserves '%s' as genuine hunk source", content => {
+		const patch = `@@ -7,2 +9,2 @@\n ${content}\n-${content}\n+${content}`;
+		expect(parseDiff(patch)).toEqual([
+			{ type: "context", content, oldLine: 7, newLine: 9 },
+			{ type: "remove", content, oldLine: 8, newLine: undefined },
+			{ type: "add", content, oldLine: undefined, newLine: 10 },
 		]);
+	});
+
+	it("preserves metadata-like numbered wire rows before the first hunk", () => {
+		expect(parseDiff("-12|old mode 100644\n+14|new mode 100755\n 13|index 1a..2b 100644")).toEqual([
+			{ type: "remove", content: "old mode 100644", oldLine: 12, newLine: undefined },
+			{ type: "add", content: "new mode 100755", oldLine: undefined, newLine: 14 },
+			{ type: "context", content: "index 1a..2b 100644", oldLine: 13, newLine: 15 },
+		]);
+	});
+
+	it.each(["diff --git a/second.txt b/second.txt", "Index: second.txt"])(
+		"starts a fresh header section at '%s' between files",
+		boundary => {
+			const patch = [
+				"diff --git a/first.txt b/first.txt",
+				"index 1a..2b 100644",
+				"--- a/first.txt",
+				"+++ b/first.txt",
+				"@@ -3 +5 @@",
+				"-first before",
+				"+first after",
+				boundary,
+				"old mode 100644",
+				"new mode 100755",
+				"index 3c..4d",
+				"--- a/second.txt",
+				"+++ b/second.txt",
+				"@@ -11 +13 @@",
+				"-second before",
+				"+second after",
+			].join("\n");
+			expect(parseDiff(patch)).toEqual([
+				{ type: "remove", content: "first before", oldLine: 3, newLine: undefined },
+				{ type: "add", content: "first after", oldLine: undefined, newLine: 5 },
+				{ type: "remove", content: "second before", oldLine: 11, newLine: undefined },
+				{ type: "add", content: "second after", oldLine: undefined, newLine: 13 },
+			]);
+		},
+	);
+
+	it("renders only source rows for a patch carrying blob and mode metadata", () => {
+		const patch = [
+			"diff --git a/demo.txt b/demo.txt",
+			"old mode 100644",
+			"new mode 100755",
+			"index a4445d3..cf101ac 100755",
+			"--- a/demo.txt",
+			"+++ b/demo.txt",
+			"@@ -7 +9 @@",
+			"-before",
+			"+after",
+		].join("\n");
+		const document = render(<DiffView diff={patch} />);
+		expect(paintedRows(document)).toBe(2);
+		expect(document.body.textContent).toContain("before");
+		expect(document.body.textContent).toContain("after");
+		expect(document.body.textContent).not.toContain("index a4445d3");
+		expect(document.body.textContent).not.toContain("mode 100");
 	});
 });

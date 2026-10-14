@@ -1,8 +1,9 @@
-import { Archive, Bot, Check, Copy, FileText, GitBranch, Terminal } from "lucide-react";
+import { Archive, Bot, Check, CircleAlert, Copy, FileText, GitBranch, RotateCw, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
+import { retryFailedTurn } from "../../lib/command-registry";
 import { copyText, cx, formatClock, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
@@ -11,9 +12,9 @@ import { extractModelMentions, type ModelMentionChip } from "../../lib/model-men
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import type { ResolveToolCall } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { thinkingDisclosureKey } from "../../stores/messages";
+import { thinkingDisclosureKey, useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
-import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
@@ -33,6 +34,8 @@ export interface MessageBubbleProps {
 	readOnly?: boolean;
 	/** Resolves occurrence keys and results from a transcript-local projection. */
 	resolveToolCall?: ResolveToolCall;
+	/** Consecutive empty failures represented by this final attempt. */
+	repeats?: number;
 }
 
 const COMPACTION_METHOD_KEYS: Record<string, string> = {
@@ -52,6 +55,82 @@ function InlineImage({ image }: { image: ImageContent }) {
 			alt={t("chat.attachedImage")}
 			className="my-1 max-h-48 max-w-64 rounded-md border border-[var(--omp-border-muted)] object-contain"
 		/>
+	);
+}
+
+function MessageError({ message, readOnly, repeats }: { message: AgentMessage; readOnly: boolean; repeats: number }) {
+	const t = useT();
+	const rpc = useTabRpc();
+	const messagesStore = useRuntimeStore("messages", useMessagesStore);
+	const sessionStore = useRuntimeStore("session", useSessionStore);
+	const isLatest = useMessagesStore(state => (state.liveMessages.at(-1) ?? state.messages.at(-1)) === message);
+	const idle = useSessionStore(
+		state =>
+			state.status === "ready" &&
+			!state.isStreaming &&
+			!state.isCompacting &&
+			state.retryInfo === null &&
+			state.switchPending === null &&
+			!state.collab?.readOnly,
+	);
+	const [retrying, setRetrying] = useState(false);
+	const canRetry = message.role === "assistant" && !readOnly && isLatest && idle;
+	const retry = async () => {
+		const state = sessionStore.getState();
+		const history = messagesStore.getState();
+		if (
+			!canRetry ||
+			retrying ||
+			(history.liveMessages.at(-1) ?? history.messages.at(-1)) !== message ||
+			state.status !== "ready" ||
+			state.isStreaming ||
+			state.isCompacting ||
+			state.retryInfo !== null ||
+			state.switchPending !== null ||
+			state.collab?.readOnly
+		) {
+			return;
+		}
+		setRetrying(true);
+		try {
+			await retryFailedTurn(rpc);
+		} catch (cause) {
+			toast({ variant: "error", title: t("chat.error.retryFailed"), message: String(cause) });
+		} finally {
+			setRetrying(false);
+		}
+	};
+	return (
+		<div
+			role="alert"
+			className="omp-message-error mt-2 flex min-w-0 items-start gap-3 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5"
+		>
+			<CircleAlert aria-hidden size={15} className="mt-0.5 shrink-0 text-[var(--omp-error)]" />
+			<div className="min-w-0 flex-1">
+				<p className="text-omp-md font-medium text-[var(--omp-text)]">
+					{t("chat.error.title")}
+					{repeats > 1 && (
+						<span className="ml-2 text-omp-sm font-normal tabular-nums text-[var(--omp-dim)]">
+							{t("chat.error.repeats", { count: repeats })}
+						</span>
+					)}
+				</p>
+				<p className="mt-0.5 break-words whitespace-pre-wrap text-omp-sm leading-relaxed text-[var(--omp-muted)]">
+					{message.errorMessage}
+				</p>
+			</div>
+			{canRetry && (
+				<button
+					type="button"
+					disabled={retrying}
+					onClick={() => void retry()}
+					className="omp-pressable flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-[var(--omp-border)] px-2.5 text-omp-sm font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)] disabled:opacity-50"
+				>
+					<RotateCw aria-hidden size={12} className={cx(retrying && "animate-spin")} />
+					{t("common.retry")}
+				</button>
+			)}
+		</div>
 	);
 }
 
@@ -254,6 +333,7 @@ export const MessageBubble = memo(function MessageBubble({
 	runningIndicator = "spinner",
 	readOnly = false,
 	resolveToolCall,
+	repeats = 1,
 }: MessageBubbleProps) {
 	const t = useT();
 	const rpc = useTabRpc();
@@ -492,11 +572,7 @@ export const MessageBubble = memo(function MessageBubble({
 					</div>
 				)}
 				{blocks}
-				{message.errorMessage && (
-					<div className="omp-message-error mt-2 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5 text-omp-lg leading-relaxed break-words text-[var(--omp-error)]">
-						{message.errorMessage}
-					</div>
-				)}
+				{message.errorMessage && <MessageError message={message} readOnly={readOnly} repeats={repeats} />}
 				<UsageRow message={message} />
 				{!compactChrome && (
 					<div className="mt-2 flex items-center gap-1.5 text-omp-xs tabular-nums text-[var(--omp-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">

@@ -1,17 +1,27 @@
 import { EventEmitter } from "node:events";
+import { withTimeout } from "../../../utils/src/async";
 import type { BrowserWindow } from "electron";
 import { describe, expect, it } from "vitest";
 import {
 	IPC_EVENTS,
+	type IpcSpawnTabPayload,
 	type IpcTabStatusPayload,
 	type SessionKind,
 	type SessionTarget,
 	type SshSessionTarget,
 } from "../shared/ipc-types";
-import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
+import type {
+	ExtensionUIRequest,
+	RpcCommand,
+	RpcResponse,
+	SessionInfoUpdateFrame,
+	SidecarStatus,
+} from "../shared/rpc-types";
 import type { SidecarManager } from "./sidecar";
+import { createModelRecoveryGuard, waitForSidecarReady } from "./model-recovery";
 import { SidecarPool } from "./sidecar-pool";
 import type { PersistedTabLayout } from "./tab-layout";
+import { createExtensionUiStore } from "../renderer/stores/extension-ui";
 
 /** Minimal SidecarManager stand-in: an EventEmitter with lifecycle recording. */
 class FakeSidecar extends EventEmitter {
@@ -41,6 +51,8 @@ class FakeSidecar extends EventEmitter {
 	get status(): SidecarStatus {
 		return this.currentStatus;
 	}
+	/** These light-channel fixtures represent an already active protocol reader. */
+	extensionUiTransportReady = true;
 	/**
 	 * A manager exists before any process does: `start()` is what reports
 	 * `starting`, exactly like SidecarManager.
@@ -60,7 +72,14 @@ class FakeSidecar extends EventEmitter {
 		this.restartArgs.push({ cwd, sessionPath });
 		if (this.currentStatus === "asleep") this.emitStatus("starting");
 	}
+	async startFreshForRestore(_model?: IpcSpawnTabPayload["model"]): Promise<void> {
+		this.emitStatus("starting");
+	}
 	kill(): void {}
+	async stopFailedSessionRestore(): Promise<void> {
+		this.kill();
+		this.emitStatus("error");
+	}
 	dispose(): Promise<void> {
 		this.disposed = true;
 		this.disposeCount++;
@@ -159,6 +178,7 @@ function fakeWindow(id: number): FakeWindow {
 		},
 		isDestroyed: () => destroyed,
 		once: (event: string, listener: () => void) => emitter.once(event, listener),
+		removeListener: (event: string, listener: () => void) => emitter.removeListener(event, listener),
 	} as unknown as BrowserWindow;
 	return {
 		win,
@@ -595,6 +615,7 @@ describe("SidecarPool tabs", () => {
 				cwd: "/b",
 				target: { type: "local" },
 				status: "ready",
+				runState: "completed",
 				placeholder: false,
 				sessionPath: null,
 			},
@@ -634,6 +655,91 @@ describe("SidecarPool tabs", () => {
 
 		sidecar?.emit("sessionSettled", { type: "session_settled" });
 		expect((pool.tabsForWindow(fw.win)[0] as IpcTabStatusPayload).status).toBe("ready");
+	});
+
+	it("keeps retry attempts amber until a real terminal completion in the owning window", () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(1);
+		const other = fakeWindow(2);
+		pool.acquire({ cwd: "/a", win: owner.win, tabId: "retry-tab" });
+		pool.acquire({ cwd: "/b", win: other.win, tabId: "other-tab" });
+		const sidecar = sidecars[0]!;
+		sidecar.emitStatus("ready");
+		owner.sent.length = 0;
+		other.sent.length = 0;
+		sidecar.emitAgentEvents(["agent_start"]);
+		sidecar.emit("events", [
+			{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 500, errorMessage: "busy" },
+		]);
+		sidecar.emit("events", [{ type: "agent_end", isTerminal: false }]);
+		expect(pool.tabsForWindow(owner.win)[0]).toMatchObject({ status: "running", runState: "retrying" });
+		sidecar.emit("events", [{ type: "auto_retry_end", success: true, attempt: 1 }]);
+		expect(pool.tabsForWindow(owner.win)[0]?.status).toBe("running");
+		sidecar.emit("events", [
+			{ type: "agent_end", messages: [{ role: "assistant", content: [], timestamp: 1, stopReason: "stop" }] },
+		]);
+		expect(pool.tabsForWindow(owner.win)[0]).toMatchObject({ status: "ready", runState: "completed" });
+		expect(other.sentTo(IPC_EVENTS.TAB_STATUS)).toHaveLength(0);
+		sidecar.emitAgentEvents(["agent_start"]);
+		expect(pool.tabsForWindow(owner.win)[0]?.runState).not.toBe("completed");
+	});
+
+	it("preserves a retry failure through agent_end and clears it on a fresh run", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire({ cwd: "/a", win: fw.win, tabId: "failure-tab" });
+		const sidecar = sidecars[0]!;
+		sidecar.emitStatus("ready");
+		sidecar.emitAgentEvents(["agent_start"]);
+		sidecar.emit("events", [
+			{ type: "auto_retry_start", attempt: 3, maxAttempts: 3, delayMs: 100, errorMessage: "busy" },
+		]);
+		sidecar.emit("events", [{ type: "auto_retry_end", success: false, attempt: 3, finalError: "quota" }]);
+		sidecar.emitAgentEvents(["agent_end"]);
+		expect(pool.tabsForWindow(fw.win)[0]).toMatchObject({ status: "ready", runState: "failed" });
+		sidecar.emitAgentEvents(["agent_start"]);
+		expect(pool.tabsForWindow(fw.win)[0]?.runState).not.toBe("failed");
+		sidecar.emit("events", [
+			{ type: "agent_end", messages: [{ role: "assistant", content: [], timestamp: 2, stopReason: "aborted" }] },
+		]);
+		expect(pool.tabsForWindow(fw.win)[0]).toMatchObject({ status: "ready", runState: "idle" });
+	});
+
+	it("does not report completion while deferred background work still owns the turn", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire({ cwd: "/a", win: fw.win, tabId: "deferred-tab" });
+		const sidecar = sidecars[0]!;
+		sidecar.emitStatus("ready");
+		sidecar.emitAgentEvents(["agent_start"]);
+		sidecar.emit("promptResult", {
+			type: "prompt_result",
+			agentInvoked: true,
+			status: "completed",
+			sessionSettled: false,
+		});
+		sidecar.emit("events", [{ type: "agent_end", isTerminal: false }]);
+		expect(pool.tabsForWindow(fw.win)[0]).toMatchObject({ status: "running" });
+		expect(pool.tabsForWindow(fw.win)[0]?.runState).not.toBe("completed");
+		sidecar.emit("sessionSettled", { type: "session_settled" });
+		expect(pool.tabsForWindow(fw.win)[0]).toMatchObject({ status: "ready", runState: "completed" });
+	});
+
+	it("preserves both lifecycle transitions when a short turn starts and finishes inside one event batch", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire({ cwd: "/a", win: fw.win, tabId: "quick-tab" });
+		const sidecar = sidecars[0]!;
+		sidecar.emitStatus("ready");
+		fw.sent.length = 0;
+		sidecar.emitAgentEvents(["agent_start", "agent_end"]);
+		expect(
+			fw.sentTo(IPC_EVENTS.TAB_STATUS).map(frame => {
+				const payload = frame.data as IpcTabStatusPayload;
+				return payload.status;
+			}),
+		).toEqual(["running", "ready"]);
+		expect(pool.tabsForWindow(fw.win)[0]).toMatchObject({ status: "ready", runState: "completed" });
 	});
 
 	it("re-wires forwarding on switch without duplicating listeners", () => {
@@ -1611,5 +1717,493 @@ describe("SidecarPool quit inventory", () => {
 		b?.emitAgentEvents(["agent_end"]);
 		expect(pool.releaseTab("tab-b")).toBe(true);
 		expect(pool.tabInventory().map(entry => entry.tabId)).toEqual(["tab-a", "tab-c"]);
+	});
+});
+
+describe("hidden saved-session restore ownership", () => {
+	it("reserves the file atomically without launching --session or making the pending tab focusable", async () => {
+		const { pool, sidecars } = fakePool();
+		const first = fakeWindow(1);
+		const second = fakeWindow(2);
+		pool.acquire({ cwd: "/working", win: first.win, tabId: "working" });
+		const pending = pool.acquire({
+			cwd: "/saved",
+			win: first.win,
+			tabId: "restore",
+			restoreSessionPath: "/sessions/saved.jsonl",
+			restoringSession: true,
+			fresh: true,
+		});
+		expect(pending).not.toBeNull();
+		expect(pool.sessionOwner("/sessions/saved.jsonl")).toEqual({ tabId: "restore", winId: 1 });
+		expect(sidecars[1]?.started).toBe(true);
+		expect(sidecars[1]?.restartArgs).toEqual([]);
+		expect(pool.tabsForWindow(first.win).map(tab => tab.tabId)).toEqual(["working"]);
+		expect(pool.setActiveTab(first.win, "restore")).toBe(false);
+		expect(
+			pool.acquire({
+				cwd: "/saved",
+				win: second.win,
+				tabId: "duplicate",
+				restoreSessionPath: "/sessions/saved.jsonl",
+				restoringSession: true,
+				fresh: true,
+			}),
+		).toBeNull();
+		let settled = false;
+		const waiting = pool.waitForSessionRestore("/sessions/saved.jsonl").then(() => {
+			settled = true;
+		});
+		await Promise.resolve();
+		expect(settled).toBe(false);
+		sidecars[1]?.emitSessionInfo({ sessionId: "fresh" });
+		sidecars[1]?.emitSessionInfo({ sessionId: "saved" });
+		expect(pool.sessionOwner("/sessions/saved.jsonl")?.tabId).toBe("restore");
+		sidecars[1]?.emitStatus("ready");
+		expect(pool.finishSessionRestore("restore")).toBe(true);
+		await waiting;
+		expect(pool.tabsForWindow(first.win).map(tab => tab.tabId)).toEqual(["working", "restore"]);
+		expect(pool.setActiveTab(first.win, "restore")).toBe(true);
+		pool.releaseTab("restore");
+		pool.releaseTab("working");
+	});
+
+	it("releases failed restore ownership before waking a concurrent opener", async () => {
+		const { pool } = fakePool();
+		const window = fakeWindow(1);
+		pool.acquire({
+			cwd: "/saved",
+			win: window.win,
+			tabId: "restore",
+			restoreSessionPath: "/sessions/saved.jsonl",
+			restoringSession: true,
+			fresh: true,
+		});
+		expect(pool.sessionOwner("/sessions/saved.jsonl")?.tabId).toBe("restore");
+		const waiting = pool.waitForSessionRestore("/sessions/saved.jsonl");
+		pool.releaseTab("restore");
+		await waiting;
+		expect(pool.sessionOwner("/sessions/saved.jsonl")).toBeNull();
+		expect(pool.tabsForWindow(window.win)).toEqual([]);
+	});
+});
+
+it("does not leave a hidden session owner or waiter behind when its fresh startup throws", async () => {
+	const window = fakeWindow(1);
+	class BrokenSidecar extends FakeSidecar {
+		override start(): void {
+			throw new Error("startup failed");
+		}
+	}
+	const pool = new SidecarPool(options => new BrokenSidecar(options.cwd) as unknown as SidecarManager);
+	expect(
+		pool.acquire({
+			cwd: "/saved",
+			win: window.win,
+			tabId: "failed-start",
+			restoreSessionPath: "/sessions/saved.jsonl",
+			restoringSession: true,
+			fresh: true,
+		}),
+	).toBeNull();
+	expect(pool.sessionOwner("/sessions/saved.jsonl")).toBeNull();
+	await pool.waitForSessionRestore("/sessions/saved.jsonl");
+	expect(pool.tabsForWindow(window.win)).toEqual([]);
+});
+
+describe("hidden restore interaction origin routing", () => {
+	it("renders and answers a blocking restore request through its own sidecar without making that tab visible", () => {
+		const { pool, sidecars } = fakePool();
+		const window = fakeWindow(1);
+		pool.acquire({ cwd: "/working", win: window.win, tabId: "working" });
+		pool.acquire({
+			cwd: "/saved",
+			win: window.win,
+			tabId: "hidden",
+			restoreSessionPath: "/sessions/saved.jsonl",
+			restoringSession: true,
+			fresh: true,
+			modelOrigin: { tabId: "working", sessionId: "working-session" },
+			restoreRequestId: "restore-op",
+		});
+		sidecars[1]!.emit("extensionUi", {
+			type: "extension_ui_request",
+			id: "hidden-confirm",
+			method: "confirm",
+			title: "Restore decision",
+			message: "Proceed?",
+		});
+		const frame = window.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data;
+		expect(frame).toMatchObject({
+			tabId: "hidden",
+			restoringSession: true,
+			restoreRequestId: "restore-op",
+			modelOrigin: { tabId: "working", sessionId: "working-session" },
+			request: { id: "hidden-confirm", method: "confirm" },
+		});
+		const response = { type: "extension_ui_response", id: "hidden-confirm", confirmed: false };
+		expect(pool.routeSideChannel(window.win, "hidden-confirm", response, true)).toBe("routed");
+		expect(sidecars[1]!.sentFrames).toEqual([response]);
+		expect(sidecars[0]!.sentFrames).toEqual([]);
+		expect(pool.tabsForWindow(window.win).map(tab => tab.tabId)).toEqual(["working"]);
+		pool.releaseTab("hidden");
+		pool.releaseTab("working");
+	});
+
+	it("uses the existing inline host executor with the hidden origin and returns real unsupported URI errors", () => {
+		const { pool, sidecars } = fakePool();
+		const window = fakeWindow(1);
+		pool.acquire({ cwd: "/working", win: window.win, tabId: "working" });
+		pool.acquire({ cwd: "/saved", win: window.win, tabId: "hidden", restoringSession: true, fresh: true });
+		pool.hostToolExecutor = (sidecar, request, ownerWindow) => {
+			expect(ownerWindow).toBe(window.win);
+			sidecar.sendSideChannel({
+				type: "host_tool_result",
+				id: request.id,
+				result: { content: [{ type: "text", text: "clipboard value" }] },
+			});
+			return true;
+		};
+		sidecars[1]!.emit("hostToolCall", {
+			type: "host_tool_call",
+			id: "hidden-tool",
+			toolCallId: "tool-call",
+			toolName: "gui_clipboard_read",
+			arguments: {},
+		});
+		sidecars[1]!.emit("hostUriRequest", {
+			type: "host_uri_request",
+			id: "hidden-uri",
+			operation: "read",
+			url: "gui://resource",
+		});
+		expect(sidecars[1]!.sentFrames).toMatchObject([
+			{ type: "host_tool_result", id: "hidden-tool", result: { content: [{ text: "clipboard value" }] } },
+			{ type: "host_uri_result", id: "hidden-uri", error: expect.any(String) },
+		]);
+		expect(sidecars[0]!.sentFrames).toEqual([]);
+		pool.releaseTab("hidden");
+		pool.releaseTab("working");
+	});
+
+	it("retires a dead startup question before a native retry can ask again", () => {
+		const { pool, sidecars } = fakePool();
+		const window = fakeWindow(1);
+		pool.acquire({
+			cwd: "/saved",
+			win: window.win,
+			tabId: "hidden",
+			restoringSession: true,
+			fresh: true,
+			restoreRequestId: "restore-op",
+		});
+		sidecars[0]!.emit("extensionUi", {
+			type: "extension_ui_request",
+			id: "old-input",
+			method: "input",
+			title: "Old input",
+		});
+		sidecars[0]!.emitStatus("restarting");
+		expect(window.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).toMatchObject({
+			request: { method: "cancel", targetId: "old-input" },
+		});
+		expect(
+			pool.routeSideChannel(
+				window.win,
+				"old-input",
+				{
+					type: "extension_ui_response",
+					id: "old-input",
+					value: "late value",
+				},
+				true,
+			),
+		).toBe("unknown");
+		pool.releaseTab("hidden");
+	});
+});
+
+describe("restore request cancellation lifetime", () => {
+	it("aborts a pending readiness barrier only for the caller's nonce and window", async () => {
+		const { pool, sidecars } = fakePool();
+		const caller = fakeWindow(1);
+		const foreign = fakeWindow(2);
+		const signal = pool.beginSessionRestoreRequest(caller.win, "restore-cancel");
+		pool.acquire({
+			cwd: "/saved",
+			win: caller.win,
+			tabId: "pending-ready",
+			restoringSession: true,
+			fresh: true,
+			restoreRequestId: "restore-cancel",
+		});
+		const ready = waitForSidecarReady(sidecars[0] as unknown as SidecarManager, signal);
+		expect(pool.cancelSessionRestoreRequest(foreign.win, "restore-cancel")).toBe(false);
+		expect(pool.cancelSessionRestoreRequest(caller.win, "unrelated")).toBe(false);
+		expect(signal.aborted).toBe(false);
+		expect(pool.cancelSessionRestoreRequest(caller.win, "restore-cancel")).toBe(true);
+		await expect(ready).rejects.toThrow();
+		pool.finishSessionRestoreRequest(caller.win, "restore-cancel");
+		pool.releaseTab("pending-ready");
+	});
+
+	it("records cancellation before acquisition and wakes a real pending origin read without allocating a target", async () => {
+		const { pool } = fakePool();
+		const caller = fakeWindow(1);
+		const signal = pool.beginSessionRestoreRequest(caller.win, "before-acquire");
+		const read = Promise.withResolvers<void>();
+		const pending = withTimeout(read.promise, 660_000, "origin read", signal);
+		expect(pool.cancelSessionRestoreRequest(caller.win, "before-acquire")).toBe(true);
+		await expect(pending).rejects.toThrow();
+		expect(
+			pool.acquire({
+				cwd: "/saved",
+				win: caller.win,
+				tabId: "too-late",
+				restoringSession: true,
+				fresh: true,
+				restoreRequestId: "before-acquire",
+			}),
+		).toBeNull();
+		expect(pool.tabsForWindow(caller.win)).toEqual([]);
+		read.resolve();
+		pool.finishSessionRestoreRequest(caller.win, "before-acquire");
+	});
+
+	it("aborts a registered request when its working-origin tab retires", () => {
+		const { pool } = fakePool();
+		const caller = fakeWindow(1);
+		pool.acquire({ cwd: "/working", win: caller.win, tabId: "working" });
+		const signal = pool.beginSessionRestoreRequest(caller.win, "origin-retired", {
+			tabId: "working",
+			sessionId: "working-session",
+		});
+		pool.releaseTab("working");
+		expect(signal.aborted).toBe(true);
+		pool.finishSessionRestoreRequest(caller.win, "origin-retired");
+	});
+});
+
+describe("retained cold saved-session restore", () => {
+	it("holds the existing slot and file owner through background restore, releasing no draft-bearing logical tab on failure", async () => {
+		const { pool, sidecars } = fakePool(2);
+		const window = fakeWindow(1);
+		pool.acquire({ cwd: "/working", win: window.win, tabId: "working" });
+		pool.acquire({
+			cwd: "/saved",
+			win: window.win,
+			tabId: "cold",
+			sessionPath: "/sessions/cold.jsonl",
+			deferStart: true,
+		});
+		const manager = await pool.beginSessionRestore(window.win, "cold", {
+			sessionPath: "/sessions/cold.jsonl",
+			restoreRequestId: "cold-request",
+		});
+		expect(manager).toBe(sidecars[1]);
+		expect(pool.size).toBe(2);
+		expect(pool.sessionOwner("/sessions/cold.jsonl")?.tabId).toBe("cold");
+		expect(pool.tabsForWindow(window.win).find(tab => tab.tabId === "cold")).toMatchObject({
+			status: "starting",
+			restoringSession: true,
+		});
+		expect(pool.setActiveTab(window.win, "cold")).toBe(false);
+		expect(await pool.failSessionRestore("cold")).toBe(true);
+		expect(pool.tabsForWindow(window.win).find(tab => tab.tabId === "cold")).toMatchObject({
+			status: "error",
+			sessionPath: "/sessions/cold.jsonl",
+		});
+		expect(pool.sessionOwner("/sessions/cold.jsonl")?.tabId).toBe("cold");
+		expect(sidecars[1]!.disposed).toBe(false);
+		pool.releaseTab("cold");
+		pool.releaseTab("working");
+	});
+
+	it("refuses mismatched or foreign retained owners before launching a process", async () => {
+		const { pool, sidecars } = fakePool();
+		const caller = fakeWindow(1);
+		const foreign = fakeWindow(2);
+		pool.acquire({
+			cwd: "/saved",
+			win: caller.win,
+			tabId: "cold",
+			sessionPath: "/sessions/cold.jsonl",
+			deferStart: true,
+		});
+		expect(await pool.beginSessionRestore(foreign.win, "cold", { sessionPath: "/sessions/cold.jsonl" })).toBeNull();
+		expect(await pool.beginSessionRestore(caller.win, "cold", { sessionPath: "/sessions/other.jsonl" })).toBeNull();
+		expect(sidecars[0]!.started).toBe(false);
+		expect(pool.sessionOwner("/sessions/cold.jsonl")?.tabId).toBe("cold");
+		pool.releaseTab("cold");
+	});
+});
+
+describe("reviewed restore lifecycle boundaries", () => {
+	it("native cancellation retires the hidden editor and exposes its successor without stealing another origin's route", () => {
+		const { pool, sidecars } = fakePool();
+		const window = fakeWindow(1);
+		pool.acquire({ cwd: "/working", win: window.win, tabId: "working" });
+		pool.acquire({
+			cwd: "/saved",
+			win: window.win,
+			tabId: "hidden",
+			restoringSession: true,
+			fresh: true,
+			restoreRequestId: "editor-restore",
+		});
+		sidecars[0]!.emitExtensionUi("working-question");
+		sidecars[1]!.emit("extensionUi", {
+			type: "extension_ui_request",
+			id: "dead-editor",
+			method: "editor",
+			title: "Dead editor",
+		});
+		sidecars[1]!.emit("extensionUi", {
+			type: "extension_ui_request",
+			id: "cancel-dead",
+			method: "cancel",
+			targetId: "dead-editor",
+		});
+		sidecars[1]!.emit("extensionUi", {
+			type: "extension_ui_request",
+			id: "live-editor",
+			method: "editor",
+			title: "Live editor",
+		});
+		sidecars[1]!.emit("extensionUi", {
+			type: "extension_ui_request",
+			id: "foreign-cancel",
+			method: "cancel",
+			targetId: "working-question",
+		});
+		const queue = createExtensionUiStore();
+		for (const frame of window.sentTo(IPC_EVENTS.EXTENSION_UI)) {
+			const envelope = frame.data as { tabId: string; request: ExtensionUIRequest };
+			if (envelope.tabId === "hidden") queue.getState().pushRequest(envelope.request);
+		}
+		expect(queue.getState().pendingRequests.map(request => request.id)).toEqual(["live-editor"]);
+		expect(
+			pool.routeSideChannel(
+				window.win,
+				"dead-editor",
+				{
+					type: "extension_ui_response",
+					id: "dead-editor",
+					value: "late obsolete answer",
+				},
+				true,
+			),
+		).toBe("unknown");
+		expect(
+			pool.routeSideChannel(
+				window.win,
+				"live-editor",
+				{
+					type: "extension_ui_response",
+					id: "live-editor",
+					value: "live answer",
+				},
+				true,
+			),
+		).toBe("routed");
+		expect(
+			pool.routeSideChannel(
+				window.win,
+				"working-question",
+				{
+					type: "extension_ui_response",
+					id: "working-question",
+					confirmed: true,
+				},
+				true,
+			),
+		).toBe("routed");
+		expect(sidecars[1]!.sentFrames).toMatchObject([{ id: "live-editor", value: "live answer" }]);
+		expect(sidecars[0]!.sentFrames).toMatchObject([{ id: "working-question", confirmed: true }]);
+		pool.releaseTab("hidden");
+		pool.releaseTab("working");
+	});
+
+	it("closing a background sibling cannot reattach an active retained owner's scratch full stream", async () => {
+		const { pool, sidecars } = fakePool();
+		const window = fakeWindow(1);
+		pool.acquire({
+			cwd: "/saved",
+			win: window.win,
+			tabId: "cold",
+			sessionPath: "/sessions/cold.jsonl",
+			deferStart: true,
+		});
+		pool.setActiveTab(window.win, "cold");
+		sidecars[0]!.emitStatus("error");
+		pool.acquire({ cwd: "/other", win: window.win, tabId: "other" });
+		await pool.beginSessionRestore(window.win, "cold", { sessionPath: "/sessions/cold.jsonl" });
+		const previousFullStatuses = window.sentTo(IPC_EVENTS.SIDECAR_STATUS).length;
+		pool.releaseTab("other");
+		sidecars[0]!.emitAgentEvents(["agent_start"]);
+		sidecars[0]!.emitStatus("ready");
+		expect(window.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(0);
+		expect(window.sentTo(IPC_EVENTS.SIDECAR_STATUS)).toHaveLength(previousFullStatuses);
+		expect(pool.finishSessionRestore("cold")).toBe(true);
+		expect(pool.setActiveTab(window.win, "cold")).toBe(true);
+		sidecars[0]!.emitAgentEvents(["agent_start"]);
+		expect(window.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
+		pool.releaseTab("cold");
+	});
+
+	it("origin model cancellation cannot persist a never-opened temporary target for the next launch", async () => {
+		const { pool, sidecars } = fakePool();
+		const window = fakeWindow(1);
+		const saved: PersistedTabLayout[] = [];
+		pool.onWindowTabsChanged = (_win, layout) => {
+			if (layout) saved.push(layout);
+		};
+		pool.acquire({ cwd: "/working", win: window.win, tabId: "working", fresh: true });
+		pool.acquire({
+			cwd: "/cold",
+			win: window.win,
+			tabId: "cold",
+			sessionPath: "/sessions/cold.jsonl",
+			deferStart: true,
+			title: "Retained logical title",
+		});
+		await pool.beginSessionRestore(window.win, "cold", { sessionPath: "/sessions/cold.jsonl" });
+		sidecars[1]!.emitSessionInfo({ sessionId: "scratch", title: "Scratch title" });
+		pool.beginSessionRestoreRequest(window.win, "cancel-persistence", {
+			tabId: "working",
+			sessionId: "working-session",
+		});
+		pool.acquire({
+			cwd: "/temporary",
+			win: window.win,
+			tabId: "temporary",
+			restoringSession: true,
+			restoreSessionPath: "/sessions/never-opened.jsonl",
+			fresh: true,
+			restoreRequestId: "cancel-persistence",
+		});
+		const guard = createModelRecoveryGuard();
+		const stop = guard.subscribe(sidecars[0]!.rpcClient, () => {
+			pool.cancelSessionRestoreRequest(window.win, "cancel-persistence");
+		});
+		guard.observe(sidecars[0]!.rpcClient, { type: "set_model", provider: "openai", modelId: "changed-current" });
+		expect(pool.sessionOwner("/sessions/never-opened.jsonl")).toBeNull();
+		const persisted = saved.at(-1)!;
+		expect(persisted.tabs.map(tab => tab.cwd)).toEqual(["/working", "/cold"]);
+		expect(persisted.tabs[1]).toMatchObject({
+			sessionPath: "/sessions/cold.jsonl",
+			title: "Retained logical title",
+		});
+		const relaunched = fakePool();
+		const nextWindow = fakeWindow(2);
+		expect(relaunched.pool.restoreLayout(nextWindow.win, persisted)).toBe(2);
+		expect(
+			relaunched.pool.tabsForWindow(nextWindow.win).some(tab => tab.sessionPath === "/sessions/never-opened.jsonl"),
+		).toBe(false);
+		stop();
+		pool.finishSessionRestoreRequest(window.win, "cancel-persistence");
+		await pool.failSessionRestore("cold");
+		await pool.disposeAll();
+		await relaunched.pool.disposeAll();
 	});
 });

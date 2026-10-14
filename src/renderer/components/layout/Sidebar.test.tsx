@@ -276,7 +276,7 @@ afterEach(async () => {
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
 	useSidebarPrefs.getState().reset();
-	useUiStore.setState({ panelVisible: false });
+	useUiStore.setState({ panelVisible: false, conversationSearchOpen: false });
 	useRemoteStore.getState().reset();
 	vi.restoreAllMocks();
 });
@@ -438,19 +438,16 @@ describe("Sidebar menus and pinned ordering", () => {
 	});
 
 	it("starts a tool-free chat without selecting a workspace", async () => {
-		const omp = installMockOmp(LIST);
+		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
 
 		await fire(container.querySelector("[data-sidebar-new-chat]"), "onClick");
 
-		expect(omp.tabs.spawn).toHaveBeenCalledWith({
-			cwd: "/work/alpha",
-			kind: "chat",
-			sessionPath: undefined,
-			worktree: undefined,
-		});
 		expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === useTabsStore.getState().activeTabId)?.kind).toBe(
+			"chat",
+		);
 	});
 
 	it("uses the open tab's live status instead of the session file's stale completion status", async () => {
@@ -566,19 +563,20 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		await fire(row as unknown as Element, "onClick");
 
-		expect(omp.tabs.spawn).toHaveBeenCalledWith({
-			cwd: "/work/alpha",
+		const tabs = useTabsStore.getState();
+		expect(tabs.activeTabId).not.toBe("t0");
+		expect(tabs.tabs.find(tab => tab.id === tabs.activeTabId)).toMatchObject({
 			kind: "agent",
 			sessionPath: "/work/alpha/one.jsonl",
-			worktree: undefined,
 		});
+		expect(tabs.tabs.some(tab => tab.id === "t0")).toBe(true);
 		expect(omp.sessions.openInNewWindow).not.toHaveBeenCalled();
 	});
 
 	it("renders chats globally outside workspaces and opens them in chat tabs", async () => {
 		const chat = session("/work/alpha/chat.jsonl", "/work/alpha", { kind: "chat" });
 		const agent = session("/work/alpha/agent.jsonl", "/work/alpha");
-		const omp = installMockOmp([chat, agent]);
+		installMockOmp([chat, agent]);
 		seedStores();
 		await mount(<Sidebar />);
 
@@ -594,12 +592,9 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		await fire(row as unknown as Element, "onClick");
 
-		expect(omp.tabs.spawn).toHaveBeenCalledWith({
-			cwd: "/work/alpha",
-			kind: "chat",
-			sessionPath: "/work/alpha/chat.jsonl",
-			worktree: undefined,
-		});
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === useTabsStore.getState().activeTabId)?.kind).toBe(
+			"chat",
+		);
 	});
 
 	it("keeps the active task protected while it is compacting", async () => {
@@ -817,9 +812,7 @@ describe("Sidebar remote history", () => {
 		);
 		const picker = document.body.querySelector('[role="dialog"][aria-label="Choose remote workspace"]');
 		if (!picker) throw new Error("remote workspace picker not found");
-		const confirm = [...picker.querySelectorAll("button")].find(
-			button => button.textContent === "Open workspace",
-		);
+		const confirm = [...picker.querySelectorAll("button")].find(button => button.textContent === "Open workspace");
 		expect(confirm?.getAttribute("disabled")).toBeNull();
 		await fire(confirm as unknown as TestElement, "onClick");
 		expect(omp.tabs.spawn).toHaveBeenCalledWith({
@@ -912,5 +905,17 @@ describe("Sidebar remote history", () => {
 		expect(container.querySelector('[data-remote-session="build-1"]')).not.toBeNull();
 		expect(omp.remote.listHistory.mock.calls.map(call => call[0])).toEqual(["legacy", "build", "build"]);
 		expect(useRemoteStore.getState().hosts.prod?.historyStatus).toBe("idle");
+	});
+});
+
+describe("local conversation search entry", () => {
+	it("opens search from the existing navigation without replacing the sidebar", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+		await fire(container.querySelector("[data-conversation-search-entry]"), "onClick");
+		expect(useUiStore.getState().conversationSearchOpen).toBe(true);
+		expect(container.querySelector("[data-sidebar-navigation]")).not.toBeNull();
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0"]);
 	});
 });

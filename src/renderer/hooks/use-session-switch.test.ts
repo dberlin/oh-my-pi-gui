@@ -12,7 +12,7 @@
 import { parseHTML } from "linkedom";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
-import type { RpcResponse, RpcSessionState } from "../../shared/rpc-types";
+import type { RpcCommand, RpcResponse, RpcSessionState } from "../../shared/rpc-types";
 import { useAgentViewStore } from "../stores/agent-view";
 import { useComposerStore } from "../stores/composer";
 import { useForkHandoffStore } from "../stores/fork-handoff";
@@ -21,13 +21,16 @@ import { useModelStore } from "../stores/model";
 import { usePlanApprovalStore } from "../stores/plan-approval";
 import { useQueueStore } from "../stores/queue";
 import { useSessionStore } from "../stores/session";
+import { deleteSessionRuntime, setFocusedSessionRuntime } from "../stores/session-runtime-context";
+import { createTabRuntime } from "../stores/tab-runtime";
 import { useSubagentsStore } from "../stores/subagents";
 import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
-import { dropSessionNow, newSessionNow, switchSessionNow } from "./use-session-switch";
+import { useModelRestoreStore } from "../stores/model-restore";
+import { confirmModelRestore, dropSessionNow, newSessionNow, switchSessionNow } from "./use-session-switch";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -94,7 +97,7 @@ interface MockOmp {
 		getLoopMode: Mock<() => Promise<RpcResponse>>;
 		getVibeMode: Mock<() => Promise<RpcResponse>>;
 		getQueue: Mock<() => Promise<RpcResponse>>;
-		switchSession: Mock<(sessionPath: string, model?: { provider: string; modelId: string }) => Promise<RpcResponse>>;
+		switchSession: Mock<(sessionPath: string) => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	};
 }
@@ -144,6 +147,8 @@ function selectSubagentTarget(): void {
 }
 
 function resetAll(): void {
+	deleteSessionRuntime("t0");
+	setFocusedSessionRuntime(null);
 	useTabsStore.getState().reset();
 	useAgentViewStore.getState().selectMain();
 	useComposerStore.getState().reset();
@@ -158,6 +163,7 @@ function resetAll(): void {
 	useUiStore.getState().closeSessionOverlays();
 	useForkHandoffStore.getState().closeHandoffDialog();
 	useToastStore.setState({ toasts: [] });
+	useModelRestoreStore.getState().close();
 }
 
 let omp: MockOmp;
@@ -526,46 +532,6 @@ describe("session replacement transactions and F-OWN owner guard", () => {
 		);
 	});
 
-	it("offers the model-restore dialog instead of a toast when the saved model is unavailable", async () => {
-		seedTabs();
-		omp.rpc.switchSession.mockResolvedValue({
-			type: "response",
-			command: "switch_session",
-			success: false,
-			error: "Could not restore model gone/model-x",
-		});
-
-		const result = await switchSessionNow(session("/sessions/x.jsonl"));
-
-		expect(result).toBe(false);
-		expect(useUiStore.getState().modelRestorePrompt).toEqual({
-			session: session("/sessions/x.jsonl"),
-			missingModel: "gone/model-x",
-		});
-		expect(useToastStore.getState().toasts).toEqual([]);
-		expect(useSessionStore.getState().switchPending).toBeNull();
-	});
-
-	it("binds the session to an explicit model and toasts if that still fails", async () => {
-		seedTabs();
-		const target = session("/sessions/x.jsonl");
-		const model = { provider: "anthropic", modelId: "claude-opus" };
-
-		await expect(switchSessionNow(target, model)).resolves.toBe(true);
-		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/sessions/x.jsonl", model);
-
-		omp.rpc.switchSession.mockResolvedValue({
-			type: "response",
-			command: "switch_session",
-			success: false,
-			error: "Could not restore model gone/model-x",
-		});
-		await expect(switchSessionNow(target, model)).resolves.toBe(false);
-		// No dialog loop: an explicit binding that fails is an ordinary error.
-		expect(useUiStore.getState().modelRestorePrompt).toBeNull();
-		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
-	});
-
 	it("switches in place when the file kind matches the active tab", async () => {
 		seedTabs();
 
@@ -574,5 +540,234 @@ describe("session replacement transactions and F-OWN owner guard", () => {
 		expect(result).toBe(true);
 		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/sessions/agent.jsonl");
 		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+	});
+
+	it("offers explicit recovery while Cancel preserves the working transcript and model", async () => {
+		useSessionStore.setState({ sessionId: "working" });
+		const kept = { role: "user" as const, content: "keep me", timestamp: 1 };
+		useMessagesStore.setState({ messages: [kept], totalMessages: 1 });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		omp.rpc.switchSession.mockResolvedValue({
+			type: "response",
+			command: "switch_session",
+			success: false,
+			error: "Could not restore model removed/old",
+		});
+
+		expect(await switchSessionNow(session("/sessions/target.jsonl"))).toBe(false);
+		expect(useModelRestoreStore.getState().prompt).toMatchObject({
+			session: { path: "/sessions/target.jsonl" },
+			missingModel: "removed/old",
+			currentModel: { provider: "openai", modelId: "current" },
+		});
+		useModelRestoreStore.getState().close();
+		expect(useMessagesStore.getState().messages).toEqual([kept]);
+		expect(useSessionStore.getState().sessionId).toBe("working");
+		expect(useModelStore.getState().model).toEqual({ provider: "openai", id: "current" });
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("confirmed current-model recovery retains the target history instead of creating a new session", async () => {
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		omp.rpc.switchSession
+			.mockResolvedValueOnce({
+				type: "response",
+				command: "switch_session",
+				success: false,
+				error: "Could not restore model removed/old",
+			})
+			.mockResolvedValueOnce(ok({ cancelled: false }));
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "target" })));
+		const history = { role: "user" as const, content: "target history", timestamp: 1 };
+		omp.rpc.getMessages.mockResolvedValue(ok({ messages: [history] }));
+		await switchSessionNow(session("/sessions/target.jsonl"));
+
+		expect(await confirmModelRestore()).toBe(true);
+		expect(omp.rpc.switchSession).toHaveBeenLastCalledWith(
+			"/sessions/target.jsonl",
+			{ provider: "openai", modelId: "current" },
+			"working",
+		);
+		expect(omp.rpc.newSession).not.toHaveBeenCalled();
+		expect(useMessagesStore.getState().messages).toEqual([history]);
+		expect(useSessionStore.getState().sessionId).toBe("target");
+		expect(useModelRestoreStore.getState().prompt).toBeNull();
+	});
+
+	it("keeps the working session and recovery target when confirmed restore fails", async () => {
+		useSessionStore.setState({ sessionId: "working" });
+		const kept = { role: "user" as const, content: "keep me", timestamp: 1 };
+		useMessagesStore.setState({ messages: [kept], totalMessages: 1 });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		omp.rpc.switchSession
+			.mockResolvedValueOnce({
+				type: "response",
+				command: "switch_session",
+				success: false,
+				error: "Could not restore model removed/old",
+			})
+			.mockResolvedValueOnce({
+				type: "response",
+				command: "switch_session",
+				success: false,
+				error: "No API key for openai/current",
+			});
+		await switchSessionNow(session("/sessions/target.jsonl"));
+
+		expect(await confirmModelRestore()).toBe(false);
+		expect(useMessagesStore.getState().messages).toEqual([kept]);
+		expect(useSessionStore.getState().sessionId).toBe("working");
+		expect(useModelRestoreStore.getState().prompt?.session.path).toBe("/sessions/target.jsonl");
+		expect(useModelRestoreStore.getState().busy).toBe(false);
+	});
+
+	it.each(["session", "model", "tab"])("refuses recovery after the origin %s changes", async changed => {
+		seedTabs();
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		omp.rpc.switchSession.mockResolvedValue({
+			type: "response",
+			command: "switch_session",
+			success: false,
+			error: "Could not restore model removed/old",
+		});
+		await switchSessionNow(session("/sessions/target.jsonl"));
+		if (changed === "session") useSessionStore.setState({ sessionId: "replacement" });
+		if (changed === "model") useModelStore.setState({ model: { provider: "openai", id: "different" } });
+		if (changed === "tab") useTabsStore.setState({ activeTabId: "t1" });
+
+		expect(await confirmModelRestore()).toBe(false);
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(useModelRestoreStore.getState().prompt).toBeNull();
+	});
+
+	it("does not offer a silent fallback when the current model is unavailable", async () => {
+		useSessionStore.setState({ sessionId: "working" });
+		omp.rpc.switchSession.mockResolvedValue({
+			type: "response",
+			command: "switch_session",
+			success: false,
+			error: "Could not restore model removed/old",
+		});
+		await switchSessionNow(session("/sessions/target.jsonl"));
+
+		expect(useModelRestoreStore.getState().prompt?.currentModel).toBeNull();
+		expect(await confirmModelRestore()).toBe(false);
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(useSessionStore.getState().sessionId).toBe("working");
+	});
+
+	it("refuses confirmation when the originating runtime is replaced even with the same session id", async () => {
+		seedTabs();
+		createTabRuntime("t0");
+		setFocusedSessionRuntime("t0");
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		omp.rpc.switchSession.mockResolvedValue({
+			type: "response",
+			command: "switch_session",
+			success: false,
+			error: "Could not restore model removed/old",
+		});
+		await switchSessionNow(session("/sessions/target.jsonl"));
+		expect(useModelRestoreStore.getState().prompt).not.toBeNull();
+		createTabRuntime("t0");
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+
+		expect(await confirmModelRestore()).toBe(false);
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(1);
+		expect(useModelRestoreStore.getState().prompt).toBeNull();
+	});
+
+	it("retains recovery after its own rejected runtime mutation without accepting a later unrelated mutation", async () => {
+		seedTabs();
+		const runtime = createTabRuntime("t0");
+		setFocusedSessionRuntime("t0");
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		omp.rpc.switchSession
+			.mockResolvedValueOnce({
+				type: "response",
+				command: "switch_session",
+				success: false,
+				error: "Could not restore model removed/old",
+			})
+			.mockResolvedValueOnce({
+				type: "response",
+				command: "switch_session",
+				success: false,
+				error: "No API key for openai/current",
+			});
+		await switchSessionNow(session("/sessions/target.jsonl"));
+
+		expect(await confirmModelRestore()).toBe(false);
+		const prompt = useModelRestoreStore.getState().prompt!;
+		expect(prompt.session.path).toBe("/sessions/target.jsonl");
+		expect(prompt.isCurrent()).toBe(true);
+		await runtime.command({ type: "new_session" });
+		expect(prompt.isCurrent()).toBe(false);
+		expect(await confirmModelRestore()).toBe(false);
+		expect(omp.rpc.switchSession).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not show a late missing-model failure over a replacement session", async () => {
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		const delayed = Promise.withResolvers<RpcResponse>();
+		const started = Promise.withResolvers<void>();
+		omp.rpc.switchSession.mockImplementation(() => {
+			started.resolve();
+			return delayed.promise;
+		});
+		const switching = switchSessionNow(session("/sessions/target.jsonl"));
+		await started.promise;
+		useSessionStore.setState({ sessionId: "replacement" });
+		delayed.resolve({
+			type: "response",
+			command: "switch_session",
+			success: false,
+			error: "Could not restore model removed/old",
+		});
+
+		expect(await switching).toBe(false);
+		expect(useModelRestoreStore.getState().prompt).toBeNull();
+		expect(useSessionStore.getState().sessionId).toBe("replacement");
+	});
+
+	it("rejects a stale missing-model reply after same-runtime clear_context preserves the session id", async () => {
+		seedTabs();
+		const runtime = createTabRuntime("t0");
+		setFocusedSessionRuntime("t0");
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		const delayed = Promise.withResolvers<RpcResponse>();
+		const started = Promise.withResolvers<void>();
+		Object.assign(omp.rpc, {
+			commandForTab: async (_tabId: string, command: RpcCommand) => {
+				if (command.type === "switch_session") {
+					started.resolve();
+					return delayed.promise;
+				}
+				return ok({});
+			},
+		});
+		const switching = switchSessionNow(session("/sessions/superseded.jsonl"));
+		await started.promise;
+		await runtime.command({ type: "clear_context" });
+		const newer = { role: "user" as const, content: "new working context", timestamp: 2 };
+		useMessagesStore.setState({ messages: [newer], totalMessages: 1 });
+		delayed.resolve({
+			type: "response",
+			command: "switch_session",
+			success: false,
+			error: "Could not restore model removed/old",
+		});
+
+		expect(await switching).toBe(false);
+		expect(useModelRestoreStore.getState().prompt).toBeNull();
+		expect(useSessionStore.getState().sessionId).toBe("working");
+		expect(useMessagesStore.getState().messages).toEqual([newer]);
 	});
 });

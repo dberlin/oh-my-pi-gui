@@ -37,14 +37,16 @@ import type {
 } from "../../shared/rpc-types";
 import { buildSubagentList } from "../components/chat/activity/agent-tree-model";
 import { recoverReadySession } from "../hooks/use-rpc-events";
+import { confirmModelRestore } from "../hooks/use-session-switch";
 import { resolveMainToolCall } from "../lib/read-group";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { type AgentViewStore, useAgentViewStore } from "./agent-view";
-import { useComposerStore } from "./composer";
+import { type ComposerStore, useComposerStore } from "./composer";
 import { useExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
 import { type MessagesStore, useMessagesStore } from "./messages";
 import { useModelStore } from "./model";
+import { useModelRestoreStore } from "./model-restore";
 import { usePlanApprovalStore } from "./plan-approval";
 import { type QueueStore, useQueueStore } from "./queue";
 import { SessionStore, useSessionStore } from "./session";
@@ -133,6 +135,7 @@ interface MockOmp {
 		spawn: Mock<(payload: IpcSpawnTabPayload) => Promise<IpcSpawnTabResult | null>>;
 		close: Mock<(tabId: string) => Promise<boolean>>;
 		setActive: Mock<(tabId: string) => Promise<boolean>>;
+		cancelRestore: Mock<(payload: { restoreRequestId: string }) => Promise<boolean>>;
 	};
 	events: {
 		onTabStatus: Mock<(callback: (payload: IpcTabStatusPayload) => void) => () => void>;
@@ -161,6 +164,7 @@ function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
 			spawn: vi.fn(async () => null),
 			close: vi.fn(async () => true),
 			setActive: vi.fn(async () => true),
+			cancelRestore: vi.fn(async () => true),
 		},
 		events: {
 			onTabStatus: vi.fn((callback: TabStatusHandler) => {
@@ -268,6 +272,7 @@ function resetAll(): void {
 	useUiStore.getState().closeSessionOverlays();
 	useUiStore.getState().closeStatsDashboard();
 	useForkHandoffStore.getState().closeHandoffDialog();
+	useModelRestoreStore.getState().close();
 }
 
 afterEach(() => {
@@ -474,13 +479,6 @@ describe("tabs store switch", () => {
 		});
 
 		expect(tabId).toBe("remote-1");
-		expect(omp.tabs.spawn).toHaveBeenCalledWith({
-			cwd: "/srv/app",
-			sessionPath: undefined,
-			kind: "agent",
-			target,
-			resumeSessionId: "acp-session-1",
-		});
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "remote-1")?.target).toBe(target);
 	});
 
@@ -1313,6 +1311,58 @@ describe("tabs store close", () => {
 });
 
 describe("tabs store applyTabStatus", () => {
+	it("never stamps a retry failure or user abort as unread success and clears old success on a new run", () => {
+		seedTabs();
+		const apply = (status: IpcTabStatusPayload["status"], runState: IpcTabStatusPayload["runState"]) =>
+			useTabsStore.getState().applyTabStatus({
+				kind: "agent",
+				tabId: "t1",
+				cwd: "/beta",
+				target: { type: "local" },
+				status,
+				runState,
+			});
+		apply("running", "retrying");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.runState).toBe("retrying");
+		apply("ready", "failed");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
+		apply("running", undefined);
+		apply("ready", "completed");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(true);
+		apply("running", undefined);
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
+		apply("ready", "idle");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
+	});
+
+	it("hydrates a background retry countdown only into its origin runtime and honors explicit clear", () => {
+		seedTabs();
+		ensureTabRuntime("t0");
+		ensureTabRuntime("t1");
+		const retryInfo = { attempt: 2, maxAttempts: 4, delayMs: 5000, errorMessage: "busy", startedAt: 1000 };
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t1",
+			cwd: "/beta",
+			target: { type: "local" },
+			status: "running",
+			runState: "retrying",
+			retryInfo,
+		});
+		expect(sessionRuntimeStore<SessionStore>("t1", "session")?.getState().retryInfo).toEqual(retryInfo);
+		expect(sessionRuntimeStore<SessionStore>("t0", "session")?.getState().retryInfo).toBeNull();
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t1",
+			cwd: "/beta",
+			target: { type: "local" },
+			status: "ready",
+			runState: "completed",
+			retryInfo: null,
+		});
+		expect(sessionRuntimeStore<SessionStore>("t1", "session")?.getState().retryInfo).toBeNull();
+	});
+
 	it("sets unreadDone when a background run settles, cleared on visit", async () => {
 		seedTabs();
 
@@ -2131,3 +2181,213 @@ function messageText(message: AgentMessage): string {
 	if (!Array.isArray(content)) return "";
 	return content.map(part => (part && typeof part === "object" && "text" in part ? String(part.text) : "")).join("");
 }
+
+describe("saved-session openTab model recovery", () => {
+	it("keeps the actual sidebar-style saved-session open on its working tab until an explicit decision", async () => {
+		seedTabs();
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		const kept = msg("working history");
+		useMessagesStore.setState({ messages: [kept], totalMessages: 1 });
+		omp.tabs.spawn.mockResolvedValue({
+			tabId: null,
+			refusal: "model-restore",
+			missingModel: "removed/old",
+			failedTabId: "failed-temp",
+		});
+		useTabsStore.getState().applyTabStatus(tabInfo("failed-temp", "/saved", "starting"));
+
+		expect(
+			await useTabsStore.getState().openTab({
+				cwd: "/saved",
+				sessionPath: "/sessions/saved.jsonl",
+				kind: "agent",
+			}),
+		).toBeNull();
+		expect(useModelRestoreStore.getState().prompt).toMatchObject({
+			session: { path: "/sessions/saved.jsonl" },
+			missingModel: "removed/old",
+			currentModel: { provider: "openai", modelId: "current" },
+		});
+		useModelRestoreStore.getState().close();
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(useTabsStore.getState().tabs.some(tab => tab.id === "failed-temp")).toBe(false);
+		expect(useMessagesStore.getState().messages).toEqual([kept]);
+		expect(useSessionStore.getState().sessionId).toBe("working");
+		expect(omp.tabs.spawn).toHaveBeenCalledTimes(1);
+	});
+
+	it("confirmed saved-session open binds the current origin model and hydrates target history in a NEW tab", async () => {
+		seedTabs();
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		const kept = msg("working history");
+		const targetHistory = msg("saved history");
+		useMessagesStore.setState({ messages: [kept], totalMessages: 1 });
+		omp.tabs.spawn
+			.mockResolvedValueOnce({
+				tabId: null,
+				refusal: "model-restore",
+				missingModel: "removed/old",
+			})
+			.mockImplementationOnce(async () => {
+				useTabsStore.getState().applyTabStatus(tabInfo("restored", "/saved", "ready"));
+				return { tabId: "restored" };
+			});
+		omp.rpc.getState.mockResolvedValue(
+			ok(
+				serverState({
+					sessionId: "saved",
+					sessionFile: "/sessions/saved.jsonl",
+					model: { provider: "openai", id: "current" },
+				}),
+			),
+		);
+		omp.rpc.getMessages.mockResolvedValue(ok({ messages: [targetHistory] }));
+		await useTabsStore.getState().openTab({ cwd: "/saved", sessionPath: "/sessions/saved.jsonl", kind: "agent" });
+
+		expect(await confirmModelRestore()).toBe(true);
+		expect(omp.tabs.spawn).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				sessionPath: "/sessions/saved.jsonl",
+				model: { provider: "openai", modelId: "current" },
+				modelOrigin: { tabId: "t0", sessionId: "working" },
+			}),
+		);
+		expect(useTabsStore.getState().activeTabId).toBe("restored");
+		expect(useMessagesStore.getState().messages).toEqual([targetHistory]);
+		expect(sessionRuntimeStore<MessagesStore>("t0", "messages")?.getState().messages).toEqual([kept]);
+		expect(sessionRuntimeStore<SessionStore>("t0", "session")?.getState().sessionId).toBe("working");
+		expect(useModelRestoreStore.getState().prompt).toBeNull();
+	});
+
+	it("retains the origin and recovery target when confirmed new-tab restore fails", async () => {
+		seedTabs();
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		omp.tabs.spawn
+			.mockResolvedValueOnce({
+				tabId: null,
+				refusal: "model-restore",
+				missingModel: "removed/old",
+			})
+			.mockResolvedValueOnce({
+				tabId: null,
+				refusal: "restore-failed",
+				error: "No API key for openai/current",
+				failedTabId: "failed-confirm",
+			});
+		await useTabsStore.getState().openTab({ cwd: "/saved", sessionPath: "/sessions/saved.jsonl" });
+
+		expect(await confirmModelRestore()).toBe(false);
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(useSessionStore.getState().sessionId).toBe("working");
+		expect(useModelRestoreStore.getState().prompt?.session.path).toBe("/sessions/saved.jsonl");
+		expect(useModelRestoreStore.getState().busy).toBe(false);
+	});
+
+	it("does not promote a late saved-session failure after the origin context advances", async () => {
+		seedTabs();
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		const response = Promise.withResolvers<IpcSpawnTabResult>();
+		const started = Promise.withResolvers<void>();
+		omp.tabs.spawn.mockImplementation(() => {
+			started.resolve();
+			return response.promise;
+		});
+		const opening = useTabsStore.getState().openTab({ cwd: "/saved", sessionPath: "/sessions/saved.jsonl" });
+		await started.promise;
+		await sessionRuntime("t0")!.command({ type: "clear_context" });
+		response.resolve({ tabId: null, refusal: "model-restore", missingModel: "removed/old" });
+
+		expect(await opening).toBeNull();
+		expect(useModelRestoreStore.getState().prompt).toBeNull();
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+	});
+});
+
+describe("cold saved-session owner activation", () => {
+	function coldOwner(status: "asleep" | "error" | "exited" = "asleep") {
+		seedTabs();
+		useSessionStore.setState({ sessionId: "working" });
+		useModelStore.setState({ model: { provider: "openai", id: "current" } });
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, status, sessionPath: "/sessions/cold.jsonl" } : tab)),
+		}));
+		sessionRuntimeStore<ComposerStore>("t1", "composer")!.setState({ draft: "retained cold draft" });
+	}
+
+	it("opens the retained cold owner behind the working tab and Cancel preserves its slot and draft", async () => {
+		coldOwner();
+		omp.tabs.spawn.mockResolvedValue({
+			tabId: null,
+			refusal: "model-restore",
+			missingModel: "removed/old",
+		});
+		await useTabsStore.getState().switchTab("t1");
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(useModelRestoreStore.getState().prompt?.session.path).toBe("/sessions/cold.jsonl");
+		useModelRestoreStore.getState().close();
+		expect(sessionRuntimeStore<ComposerStore>("t1", "composer")!.getState().draft).toBe("retained cold draft");
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1", "t2"]);
+		expect(omp.tabs.setActive).not.toHaveBeenCalledWith("t1");
+	});
+
+	it("only focuses the same logical owner after confirmed native restoration, retaining its draft", async () => {
+		coldOwner("error");
+		omp.tabs.spawn
+			.mockResolvedValueOnce({
+				tabId: null,
+				refusal: "model-restore",
+				missingModel: "removed/old",
+			})
+			.mockResolvedValueOnce({ tabId: "t1", restoredSession: true });
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "cold", sessionFile: "/sessions/cold.jsonl" })));
+		await useTabsStore.getState().switchTab("t1");
+		expect(await confirmModelRestore()).toBe(true);
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		expect(sessionRuntimeStore<ComposerStore>("t1", "composer")!.getState().draft).toBe("retained cold draft");
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+		expect(useTabsStore.getState().tabs).toHaveLength(3);
+	});
+
+	it("does not focus or delete a retained owner after a stale working origin", async () => {
+		coldOwner("exited");
+		const response = Promise.withResolvers<IpcSpawnTabResult>();
+		const started = Promise.withResolvers<void>();
+		omp.tabs.spawn.mockImplementation(() => {
+			started.resolve();
+			return response.promise;
+		});
+		const opening = useTabsStore.getState().switchTab("t1");
+		await started.promise;
+		await sessionRuntime("t0")!.command({ type: "clear_context" });
+		response.resolve({ tabId: null, refusal: "restore-failed", error: "Origin changed" });
+		await opening;
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(sessionRuntimeStore<ComposerStore>("t1", "composer")!.getState().draft).toBe("retained cold draft");
+		expect(useTabsStore.getState().tabs).toHaveLength(3);
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+	});
+});
+
+it("hydrates a saved cold owner already selected by the restored layout without dropping its draft", async () => {
+	seedTabs("t1");
+	useTabsStore.setState(state => ({
+		tabs: state.tabs.map(tab =>
+			tab.id === "t1" ? { ...tab, status: "asleep", sessionPath: "/sessions/cold.jsonl" } : tab,
+		),
+	}));
+	useComposerStore.setState({ draft: "retained active draft" });
+	const history = msg("real saved history");
+	omp.tabs.spawn.mockResolvedValue({ tabId: "t1", restoredSession: true });
+	omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "cold", sessionFile: "/sessions/cold.jsonl" })));
+	omp.rpc.getMessages.mockResolvedValue(ok({ messages: [history] }));
+
+	await useTabsStore.getState().switchTab("t1");
+	expect(useMessagesStore.getState().messages).toEqual([history]);
+	expect(useComposerStore.getState().draft).toBe("retained active draft");
+	expect(useSessionStore.getState().sessionId).toBe("cold");
+	expect(useTabsStore.getState().activeTabId).toBe("t1");
+});

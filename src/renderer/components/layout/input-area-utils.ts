@@ -17,12 +17,11 @@ export const MENTION_SCHEMES = ["skill://", "memory://", "artifact://", "issue:/
 
 /**
  * Slash-command query at buffer end. TUI parity (`autocomplete.ts` uses
- * `[^\s/]*`): the name token accepts any non-space, non-slash chars — digits
- * (`p4-case-rename`) and `:` (namespaced names like `skill:p4-case-rename`)
- * included. Anything narrower silently disables the menu.
+ * `[^\s/]*`): accept digits and namespaced names without crossing whitespace
+ * or a second slash.
  */
 export const SLASH_NAME_RE = /(^|\s)\/([^\s/]*)$/;
-/** `/cmd <args>` with the slash at buffer start; same token charset. */
+/** `/cmd <args>` at buffer start, with the same command token charset. */
 export const SLASH_ARG_RE = /^\/([^\s/]+)\s(.+)$/;
 
 /** Subsequence fuzzy score; null = no match. Earlier + denser wins. */

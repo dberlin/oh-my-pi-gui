@@ -243,7 +243,7 @@ describe("planComposerSubmit", () => {
 			commands: [],
 		});
 		expect(submit.kind).toBe("compact");
-		if (submit.kind !== "compact") return;
+		if (submit.kind !== "compact") throw new Error("Native compaction must settle separately from prompt delivery");
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 		await submit.request();
 		expect(omp.rpc.compact).toHaveBeenCalledOnce();
@@ -260,7 +260,7 @@ describe("planComposerSubmit", () => {
 			mode: "prompt",
 			commands: [],
 		});
-		if (submit.kind !== "send") throw new Error("Compaction must preserve its instructions");
+		if (submit.kind !== "compact") throw new Error("Compaction must preserve its instructions");
 		await submit.request();
 		expect(omp.rpc.compact).toHaveBeenCalledWith(instructions);
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
@@ -322,7 +322,7 @@ describe("planComposerSubmit", () => {
 			commands: [],
 		});
 		expect(submit.kind).toBe("compact");
-		if (submit.kind !== "compact") return;
+		if (submit.kind !== "compact") throw new Error("Native compaction must settle separately from prompt delivery");
 		await submit.request();
 		expect(omp.rpc.compact).toHaveBeenCalledOnce();
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();

@@ -11,12 +11,12 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 }
 
 /** "just now" / "8m" / "3h" / "2d" / "Aug 2" */
-export function formatTimeAgo(iso: string | undefined | null, options?: { compact?: boolean }): string {
+export function formatTimeAgo(iso: string | undefined | null): string {
 	if (!iso) return "";
 	const then = Date.parse(iso);
 	if (Number.isNaN(then)) return "";
 	const seconds = Math.max(0, (Date.now() - then) / 1000);
-	if (seconds < 45) return translate(options?.compact ? "time.nowShort" : "time.justNow");
+	if (seconds < 45) return translate("time.justNow");
 	if (seconds < 3600) return translate("time.minutesShort", { count: Math.floor(seconds / 60) });
 	if (seconds < 86_400) return translate("time.hoursShort", { count: Math.floor(seconds / 3600) });
 	if (seconds < 604_800) return translate("time.daysShort", { count: Math.floor(seconds / 86_400) });

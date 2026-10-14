@@ -26,10 +26,11 @@ const ACTIVITY_SECTION_HEADER_HEIGHT = 25;
 const ACTIVITY_TREE_SEPARATOR_HEIGHT = 8;
 const RESERVED_SECTION_HEADERS = 5;
 
-function useObservedHeight<T extends HTMLElement>(): [RefObject<T | null>, number] {
+function useObservedHeight<T extends HTMLElement>(active: boolean): [RefObject<T | null>, number] {
 	const ref = useRef<T>(null);
 	const [height, setHeight] = useState(0);
 	useEffect(() => {
+		if (!active) return;
 		const element = ref.current;
 		if (!element) return;
 		setHeight(Math.max(0, element.getBoundingClientRect().height));
@@ -39,7 +40,7 @@ function useObservedHeight<T extends HTMLElement>(): [RefObject<T | null>, numbe
 		});
 		observer.observe(element);
 		return () => observer.disconnect();
-	}, []);
+	}, [active]);
 	return [ref, height];
 }
 
@@ -199,8 +200,8 @@ export function ActivitySidebar({
 	const setSplitRatio = useActivitySidebarStore(state => state.setSplitRatio);
 	const resetSplitRatio = useActivitySidebarStore(state => state.resetSplitRatio);
 	const setManualCollapsed = useActivitySidebarStore(state => state.setManualCollapsed);
-	const [railRef, railHeight] = useObservedHeight<HTMLElement>();
-	const [treeAreaRef, treeAreaHeight] = useObservedHeight<HTMLDivElement>();
+	const [railRef, railHeight] = useObservedHeight<HTMLElement>(!compact);
+	const [treeAreaRef, treeAreaHeight] = useObservedHeight<HTMLDivElement>(!compact);
 	const [previewRatio, setPreviewRatio] = useState<number | null>(null);
 	const previewRatioRef = useRef<number | null>(null);
 	const dragCleanupRef = useRef<(() => void) | null>(null);

@@ -9,16 +9,17 @@ export interface TabSignalPresentation {
 
 export function tabSignalPresentation(tab: SessionTab, activeRuntime = false): TabSignalPresentation {
 	const running = tab.status === "running" || tab.compacting === true || activeRuntime;
-	if (running && tab.attention === "retrying") {
+	const connected = tab.status === "ready" || tab.status === "running";
+	if (connected && tab.runState === "retrying") {
 		return { active: true, color: "var(--omp-warning)", labelKey: "tabs.retrying", running: true };
+	}
+	if (connected && tab.runState === "failed") {
+		return { active: false, color: "var(--omp-error)", labelKey: "tabs.failed", running };
 	}
 	if (running) {
 		return { active: true, color: "var(--omp-accent)", labelKey: "titlebar.status.working", running: true };
 	}
-	if (tab.unreadDone && tab.attention === "failed") {
-		return { active: false, color: "var(--omp-error)", labelKey: "tabs.failed", running: false };
-	}
-	if (tab.unreadDone) {
+	if (connected && (tab.unreadDone || tab.runState === "completed")) {
 		return { active: false, color: "var(--omp-success)", labelKey: "tabs.done", running: false };
 	}
 	if (tab.status === "ready") {

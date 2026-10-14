@@ -112,12 +112,10 @@ describe("TitleBar", () => {
 		await mount();
 		await act(async () => Promise.resolve());
 
-		// One readout of the figures that carry information; the exact cost and
-		// the cache rate are in its tooltip.
-		const metrics = container.querySelectorAll(".omp-session-metrics")[0] as unknown as HTMLElement | undefined;
-		expect(metrics?.textContent).toBe("1.5k tokens·$0.123·5.0s");
-		expect(metrics?.getAttribute("title")).toContain("$0.1234");
-		expect(metrics?.getAttribute("title")).toContain("50%");
+		expect(container.textContent).toContain("1.5k");
+		expect(container.textContent).toContain("$0.1234");
+		expect(container.textContent).toContain("50%");
+		expect(container.textContent).toContain("5.0s");
 		expect(container.querySelectorAll(".omp-signal-light")).toHaveLength(1);
 		expect(container.querySelectorAll(".omp-signal-light--active")).toHaveLength(0);
 		expect(getSessionStats).toHaveBeenCalledTimes(1);
@@ -197,44 +195,10 @@ describe("TitleBar", () => {
 		}
 	});
 
-	it("shows no usage figures for a session that has not spent anything yet", async () => {
-		useSessionStore.setState({ status: "ready", sessionId: "", cwd: "/tmp/project" });
-		await mount();
-
-		expect(container.querySelectorAll(".omp-session-metrics")).toHaveLength(0);
-		expect(container.textContent).not.toContain("$0.0000");
-	});
-
-	it("titles an untitled session by its first prompt, like the tab strip", async () => {
-		sessions.list.mockImplementation(async () => [
-			{
-				path: "/tmp/sessions/session-1.jsonl",
-				id: "session-1",
-				title: null,
-				cwd: "/tmp/project",
-				created: "2026-10-01T00:00:00Z",
-				modified: "2026-10-01T00:00:00Z",
-				messageCount: 2,
-				size: 10,
-				status: "complete",
-				firstMessage: "Review the README",
-			} as never,
-		]);
-		useSessionStore.setState({ status: "ready", sessionId: "session-1", cwd: "/tmp/project" });
-		await mount();
-		await act(async () => {});
-
-		expect(container.textContent).toContain("Review the README");
-		expect(container.textContent).not.toContain("New session");
-	});
-
 	it("opens the command center and session actions from visible toolbar buttons", async () => {
 		useSessionStore.setState({ status: "ready", sessionId: "session-1", cwd: "/tmp/project" });
 		await mount();
 
-		// The sidebar owns the labelled Command Center entry while it is shown.
-		expect(container.querySelectorAll("button").find(button => button.title === "Commands")).toBeUndefined();
-		await act(async () => useUiStore.setState({ sidebarVisible: false }));
 		const buttons = container.querySelectorAll("button");
 		const commands = buttons.find(button => button.title === "Commands");
 		expect(commands).toBeDefined();
@@ -251,6 +215,5 @@ describe("TitleBar", () => {
 		expect(importItem).toBeDefined();
 		await act(async () => importItem?.click());
 		expect(useUiStore.getState().importDialogOpen).toBe(true);
-		useUiStore.setState({ sidebarVisible: true });
 	});
 });

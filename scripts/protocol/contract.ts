@@ -50,6 +50,7 @@ export type AvailableCommands = Assert<
 	Compatible<{ commands: Gui.AvailableCommand[] }, SuccessData<"get_available_commands">>
 >;
 export type LoginProviders = Assert<Compatible<{ providers: Gui.LoginProvider[] }, SuccessData<"get_login_providers">>>;
+export type LogoutAccounts = Assert<Compatible<Gui.LogoutAccounts, SuccessData<"get_logout_accounts">>>;
 export type Subagents = Assert<Compatible<{ subagents: Gui.SubagentSnapshot[] }, SuccessData<"get_subagents">>>;
 export type ThinkingLevels = Assert<
 	Compatible<{ levels: Gui.ThinkingLevel[] }, SuccessData<"get_available_thinking_levels">>
@@ -83,3 +84,9 @@ export type SubagentStream = Assert<Compatible<Gui.SubagentFrame, Wire<Core.RpcS
 export type CommandUpdates = Assert<
 	Compatible<Gui.AvailableCommandsUpdateFrame, Wire<Core.RpcAvailableCommandsUpdateFrame>>
 >;
+export type BtwStart = Assert<Compatible<{ record: Gui.BtwHistoryRecord }, SuccessData<"btw">>>;
+export type BtwHistory = Assert<
+	Compatible<{ records: readonly Gui.BtwHistoryRecord[] }, SuccessData<"get_btw_history">>
+>;
+export type BtwDelta = Assert<Compatible<Gui.RpcBtwFrame, Wire<Core.RpcBtwDeltaFrame>>>;
+export type BtwRecord = Assert<Compatible<Gui.RpcBtwFrame, Wire<Core.RpcBtwRecordFrame>>>;

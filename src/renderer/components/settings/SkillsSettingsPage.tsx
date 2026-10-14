@@ -18,7 +18,6 @@ import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
-import { useSkillReviewStore } from "../../stores/skill-review";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Button, Input, Spinner, TextArea } from "../common";
@@ -62,8 +61,8 @@ function Toggle({
 		<button
 			aria-checked={checked}
 			aria-label={label}
-			className={`omp-switch-track relative h-5 w-9 shrink-0 rounded-full ${
-				checked ? "bg-(--omp-switch-on)" : "bg-(--omp-switch-off)" // surface-ok: toggle switch track fill
+			className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors duration-150 ${
+				checked ? "bg-(--omp-accent)" : "border border-(--omp-border-muted) bg-(--omp-bg-tertiary)" // surface-ok: toggle switch track fill
 			}`}
 			disabled={disabled}
 			onClick={event => {
@@ -75,8 +74,8 @@ function Toggle({
 		>
 			<span
 				aria-hidden="true"
-				className={`omp-switch-thumb absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow-sm ${
-					checked ? "translate-x-4" : "translate-x-0"
+				className={`absolute top-0.5 size-3.5 rounded-full bg-white shadow-sm transition-[left] duration-150 ${
+					checked ? "left-4" : "left-0.5"
 				}`}
 			/>
 		</button>
@@ -242,9 +241,6 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 			if (!response.success) throw new Error(response.error);
 			if (mutationRoute !== routeRef.current) return;
 			setEditor(null);
-			// A skill the person wrote is reviewed by definition; it never shows as new in Memory.
-			const written = await tabRpc.getSkillDetail(editor.name.trim().toLocaleLowerCase()).catch(() => null);
-			if (written?.success) await useSkillReviewStore.getState().markReviewed(written.data as RpcSkillDetail);
 			await loadSkills(editor.name.trim().toLocaleLowerCase());
 			toast({ variant: "success", message: t(`settings.skills.${editor.mode}Success`) });
 		} catch (cause) {
@@ -265,7 +261,6 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 			if (mutationRoute !== routeRef.current) return;
 			setDeleteArmed(false);
 			setDetail(null);
-			await useSkillReviewStore.getState().forget(selected.name);
 			await loadSkills(null);
 			toast({ variant: "success", message: t("settings.skills.deleteSuccess") });
 		} catch (cause) {
@@ -569,7 +564,7 @@ export function SkillsSettingsPage({ query }: { query: string }) {
 							</div>
 
 							<div className="flex min-h-48 flex-1 flex-col">
-								<h4 className="mb-2 text-omp-xs font-semibold text-(--omp-dim)">
+								<h4 className="mb-2 text-omp-xs font-semibold uppercase tracking-[0.12em] text-(--omp-dim)">
 									{t("settings.skills.preview")}
 								</h4>
 								{detailLoading ? (

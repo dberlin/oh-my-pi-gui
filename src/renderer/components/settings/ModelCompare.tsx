@@ -156,7 +156,7 @@ function SortHeader({
 		<th className={cx("px-3 py-2 font-semibold whitespace-nowrap", className)}>
 			<button
 				className={cx(
-					"inline-flex items-center gap-1 text-omp-xs transition-colors",
+					"inline-flex items-center gap-1 text-omp-xs tracking-wider uppercase transition-colors",
 					active ? "text-(--omp-text)" : "text-(--omp-muted) hover:text-(--omp-text)",
 				)}
 				onClick={() => onSort(sortKey)}
@@ -493,7 +493,7 @@ export function ModelCompare({ open, onClose }: ModelCompareProps) {
 								sortKey="cost"
 							/>
 							<SortHeader label={t("modelCompare.col.roles")} onSort={handleSort} sort={sort} sortKey="roles" />
-							<th className="px-3 py-2 text-right text-omp-xs font-semibold whitespace-nowrap text-(--omp-muted)">
+							<th className="px-3 py-2 text-right text-omp-xs font-semibold tracking-wider whitespace-nowrap text-(--omp-muted) uppercase">
 								{t("modelCompare.col.actions")}
 							</th>
 						</tr>

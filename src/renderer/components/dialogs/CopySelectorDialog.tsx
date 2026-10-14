@@ -135,7 +135,9 @@ export function CopySelectorDialog() {
 				</div>
 				<div className="flex min-h-0 flex-col">
 					<div className="min-h-0 flex-1 overflow-auto p-4">
-						<div className="mb-2 text-omp-xs font-medium text-(--omp-dim)">{t("copySelector.preview")}</div>
+						<div className="mb-2 text-omp-xs font-medium uppercase tracking-wider text-(--omp-dim)">
+							{t("copySelector.preview")}
+						</div>
 						<pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-(--omp-text)">
 							{selected?.preview ?? ""}
 						</pre>

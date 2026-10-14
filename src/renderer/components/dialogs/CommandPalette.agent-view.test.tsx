@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useActivitySidebarStore } from "../../stores/activity-sidebar";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { useMessagesStore } from "../../stores/messages";
@@ -49,7 +49,6 @@ const ok = (data?: unknown) => ({ type: "response" as const, command: "test", su
 let container: HTMLElement;
 let root: Root;
 let prompt: Mock;
-let retry: Mock;
 let compact: Mock;
 let setPlanMode: Mock;
 
@@ -113,6 +112,7 @@ function resetUi(): void {
 	useUiStore.setState({
 		agentHubOpen: false,
 		commandPaletteOpen: false,
+		conversationSearchOpen: false,
 		modelPickerOpen: false,
 	});
 }
@@ -153,7 +153,6 @@ beforeEach(() => {
 	resetUi();
 
 	prompt = vi.fn(async () => ok());
-	retry = vi.fn(async () => ok({ retried: true }));
 	compact = vi.fn(async () => ok());
 	setPlanMode = vi.fn(async (enabled: boolean) => ok({ enabled }));
 	(testWindow as unknown as Record<string, unknown>).omp = {
@@ -172,7 +171,6 @@ beforeEach(() => {
 				}),
 			),
 			prompt,
-			retry,
 			setPlanMode,
 		},
 	};
@@ -199,7 +197,7 @@ describe("CommandPalette selected-subagent mode", () => {
 		expect(prompt).toHaveBeenCalledWith("/unsafe-main");
 
 		expect(await runIfPresent("Retry Last Turn")).toBe(true);
-		expect(retry).toHaveBeenCalledTimes(1);
+		expect(prompt).toHaveBeenCalledWith("/retry");
 
 		expect(await runIfPresent("Plan Mode")).toBe(true);
 		expect(setPlanMode).toHaveBeenCalledWith(true);
@@ -239,10 +237,20 @@ describe("CommandPalette selected-subagent mode", () => {
 		expect(await runIfPresent("PR Center")).toBe(false);
 
 		expect(prompt).not.toHaveBeenCalled();
-		expect(retry).not.toHaveBeenCalled();
 		expect(compact).not.toHaveBeenCalled();
 		expect(setPlanMode).not.toHaveBeenCalled();
 		expect(useUiStore.getState().modelPickerOpen).toBe(false);
+	});
+
+	it("opens local conversation search through the projected palette without mutating Main", async () => {
+		useAgentViewStore.getState().restoreTarget({ kind: "subagent", id: "sub-1" });
+		await mountPalette();
+		expect(await runIfPresent(translate("cmd.search"))).toBe(true);
+		expect(useUiStore.getState().conversationSearchOpen).toBe(true);
+		expect(useUiStore.getState().commandPaletteOpen).toBe(false);
+		expect(prompt).not.toHaveBeenCalled();
+		expect(compact).not.toHaveBeenCalled();
+		expect(setPlanMode).not.toHaveBeenCalled();
 	});
 
 	it("reveals and focuses an empty Todo section through the real palette command path for the active tab", async () => {

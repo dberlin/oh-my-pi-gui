@@ -261,6 +261,33 @@ describe("ActivitySidebar", () => {
 		expect(Number.parseInt(detail.style.maxHeight, 10)).toBe(151);
 	});
 
+	it("remeasures conversation and tree bodies when the compact launcher expands", async () => {
+		const onNavigate = vi.fn();
+		const navigation = {
+			activeIndex: 0,
+			anchors: [{ key: "first", rowIndex: 4, preview: "First question", timestamp: 100 }],
+			onNavigate,
+		};
+		await mount(<ActivitySidebar activeTabId="tab-a" compact conversationNavigation={navigation} />);
+		await click(button("Conversations 1"));
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<ActivitySidebar activeTabId="tab-a" compact={false} conversationNavigation={navigation} />
+				</I18nProvider>,
+			);
+		});
+		await resize("[data-activity-rail]", 420);
+		await resize("[data-activity-tree-area]", 320);
+		const list = container.querySelector<HTMLElement>(".omp-conversation-list")!;
+		expect(Number.parseInt(list.parentElement!.style.maxHeight, 10)).toBe(151);
+		for (const body of container.querySelectorAll<HTMLElement>("[data-activity-tree-scroll]")) {
+			expect(Number.parseInt(body.style.height, 10)).toBeGreaterThan(0);
+		}
+		await click(button(/Jump to conversation 1 of 1: First question/));
+		expect(onNavigate).toHaveBeenCalledWith(4);
+	});
+
 	it("renders compact counts and reveals a requested tree with focus", async () => {
 		useTodoStore.getState().setPhases([{ name: "Build", tasks: [{ content: "one", status: "pending" }] }]);
 		useSubagentsStore

@@ -131,11 +131,7 @@ interface SettingsMockOmp {
 		catalog: Mock<() => Promise<RemoteCatalogResult>>;
 		cancel: Mock<(requestId: string) => Promise<boolean>>;
 		preflight: Mock<
-			(
-				target: SshSessionTarget,
-				tabId: string | undefined,
-				requestId: string,
-			) => Promise<RemotePreflightResult>
+			(target: SshSessionTarget, tabId: string | undefined, requestId: string) => Promise<RemotePreflightResult>
 		>;
 		listDirectories: Mock<
 			(
@@ -287,7 +283,6 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 });
 
-
 describe("groupSchemaEntries", () => {
 	const entries: SettingEntry[] = [
 		entry({ path: "a.loose", tab: "appearance" }),
@@ -360,6 +355,17 @@ describe("GUI settings visibility", () => {
 			"statusLine.leftSegments",
 			"statusLine.rightSegments",
 			"statusLine.segmentOptions",
+		].map(path => entry({ path, tab: "terminal-display" }));
+		expect(unsupported.filter(item => isSettingVisibleInGui(item, {}))).toEqual([]);
+		const groups = buildSettingsNavGroups({
+			tabs: [{ id: "terminal-display", label: "Terminal display" }],
+			entries: unsupported,
+		});
+		expect(groups.flatMap(group => group.items).some(item => item.id === "terminal-display")).toBe(false);
+	});
+
+	it("hides all eight inert controls without hiding agent behavior", () => {
+		const inert = [
 			"composer.predictions",
 			"terminal.programStatus",
 			"input.bareExitOnEmptySession",
@@ -368,13 +374,11 @@ describe("GUI settings visibility", () => {
 			"display.subagentLivePreview",
 			"tui.renderSvg",
 			"tui.autoGraph",
-		].map(path => entry({ path, tab: "terminal-display" }));
-		expect(unsupported.filter(item => isSettingVisibleInGui(item, {}))).toEqual([]);
-		const groups = buildSettingsNavGroups({
-			tabs: [{ id: "terminal-display", label: "Terminal display" }],
-			entries: unsupported,
-		});
-		expect(groups.flatMap(group => group.items).some(item => item.id === "terminal-display")).toBe(false);
+		];
+		expect(inert.filter(path => isSettingVisibleInGui(entry({ path }), {}))).toEqual([]);
+		for (const path of ["compaction.enabled", "retry.enabled", "tools.artifactMaxBytes", "providers.cacheWarming"]) {
+			expect(isSettingVisibleInGui(entry({ path }), {})).toBe(true);
+		}
 	});
 
 	it("keeps an unknown schema tab behind the sidecar connection gate", () => {
@@ -672,10 +676,10 @@ describe("SettingsWindow", () => {
 		// No explicit target: reopening must not bounce the user to the first tab.
 		useUiStore.getState().openSettings();
 		expect(useUiStore.getState()).toMatchObject({ settingsOpen: true, settingsTab: "mcp" });
-		// A cold open starts at the GUI preferences page.
+		// A cold open still starts at the default page.
 		useUiStore.getState().closeSettings();
 		useUiStore.getState().openSettings();
-		expect(useUiStore.getState()).toMatchObject({ settingsOpen: true, settingsTab: "gui" });
+		expect(useUiStore.getState()).toMatchObject({ settingsOpen: true, settingsTab: "capabilities" });
 	});
 
 	it("activates global search only for non-empty queries on global pages", () => {

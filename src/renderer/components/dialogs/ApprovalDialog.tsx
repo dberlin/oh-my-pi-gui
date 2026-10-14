@@ -1,11 +1,8 @@
 /**
- * Tool-approval dialog. The sidecar routes tool approval through a plain
- * `select` extension-UI request with ["Approve", "Deny"] options — plus
- * "Approve <subject> for this session" between them when the call can be
- * approved for the rest of the session — and a title of the form
- * "Allow tool: <name>\n<details>". This component gives that prompt a
- * dedicated surface: tool name, capability tier badge, and a monospace args
- * preview. Deny (or closing the dialog) answers with the "Deny" option.
+ * Tool-approval dialog. The sidecar offers "Approve" and "Deny", plus an
+ * optional "Approve <subject> for this session" grant. Only display session
+ * approval when the request explicitly offers it; return the exact option
+ * string so the agent, not the GUI, owns the permission scope. Closing denies.
  */
 
 import { ShieldAlert, ShieldCheck } from "lucide-react";
@@ -26,13 +23,6 @@ export function isApprovalRequest(request: ExtensionUIRequest): request is Appro
 	const { options } = request;
 	if (options[0] !== "Approve" || options.at(-1) !== "Deny") return false;
 	return options.length === 2 || (options.length === 3 && SESSION_OPTION.test(options[1]!));
-}
-
-/** The "approve for this session" option and the subject it names, when the prompt offers one. */
-function sessionOption(request: ApprovalSelect): { value: string; subject: string } | undefined {
-	const value = request.options.length === 3 ? request.options[1] : undefined;
-	const subject = value === undefined ? undefined : SESSION_OPTION.exec(value)?.[1];
-	return value !== undefined && subject !== undefined ? { value, subject } : undefined;
 }
 
 const READ_TOOLS = new Set([
@@ -87,7 +77,8 @@ export function ApprovalDialog({
 	}, [request.title, t]);
 
 	const tier = tierFor(toolName);
-	const session = sessionOption(request);
+	const sessionGrant = request.options.length === 3 ? request.options[1] : undefined;
+	const sessionSubject = sessionGrant === undefined ? undefined : SESSION_OPTION.exec(sessionGrant)?.[1];
 	const deny = () => onRespond({ value: "Deny" });
 
 	return (
@@ -117,15 +108,15 @@ export function ApprovalDialog({
 						<Button onClick={deny} size="md" variant="danger">
 							{t("approval.deny")}
 						</Button>
-						{session ? (
+						{sessionGrant && sessionSubject ? (
 							<Button
 								className="max-w-64"
-								onClick={() => onRespond({ value: session.value })}
+								onClick={() => onRespond({ value: sessionGrant })}
 								size="md"
-								title={session.value}
+								title={sessionGrant}
 								variant="secondary"
 							>
-								<span className="truncate">{t("approval.approveSession", { subject: session.subject })}</span>
+								<span className="truncate">{t("approval.approveSession", { subject: sessionSubject })}</span>
 							</Button>
 						) : null}
 						<Button

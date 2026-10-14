@@ -66,7 +66,8 @@ export function useComposerSubmit({
 		// trigger) instead of the rendered `text` state, which lags a setText.
 		// `forceMode` overrides the steer/followUp toggle for one send (⌃Enter).
 		(overrideText?: string, forceMode?: SendMode) => {
-			const message = (overrideText ?? text).trim();
+			const submittedDraft = overrideText ?? text;
+			const message = submittedDraft.trim();
 			if ((!message && images.length === 0) || sending) return;
 			if (!routeReady || !runtimeTabId) return;
 			if (status !== "ready") {
@@ -361,28 +362,43 @@ export function useComposerSubmit({
 				setImages([]);
 				setMenu(null);
 				setSending(true);
+				let accepted = false;
 				void submit
 					.request()
 					.then(async response => {
 						if (response.success) {
+							accepted = true;
 							useInputHistoryStore.getState().record(message, originCwd);
-							if (originStillActive())
-								await settleComposerResponse(response, () => hydrateTabSession(originTabId));
+							if (!originStillActive()) return;
+							dropReferencedPastes(message);
+							await settleComposerResponse(response, expandedMessage, () => hydrateTabSession(originTabId));
 							return;
 						}
 						if (response.code === "rpc_delivery_unknown") {
 							markUncertain();
-							restoreDraft(message, previousImages);
+							restoreDraft(submittedDraft, previousImages);
 							showSendError(t("input.compactNotRun"), response.error);
 							return;
 						}
-						// The agent understood and declined (too small, already compacted):
-						// report it; the command itself was not lost.
+						if (response.command !== "compact" || response.code === "rpc_not_dispatched") {
+							// Bridge/runtime refusal before native admission: nothing ran,
+							// so preserve the full input without marking delivery uncertain.
+							restoreDraft(submittedDraft, previousImages);
+							showSendError(t("input.compactNotRun"), response.error);
+							return;
+						}
+						// Acknowledged refusal (too small, already compacted, vetoed):
+						// the command arrived, so do not put it back into the draft.
+						if (originStillActive()) dropReferencedPastes(message);
 						toast({ variant: "warning", title: t("input.compactNotRun"), message: response.error });
 					})
 					.catch(error => {
+						if (accepted) {
+							toast({ variant: "error", message: String(error) });
+							return;
+						}
 						markUncertain();
-						restoreDraft(message, previousImages);
+						restoreDraft(submittedDraft, previousImages);
 						showSendError(t("input.compactNotRun"), String(error));
 					})
 					.finally(() => {

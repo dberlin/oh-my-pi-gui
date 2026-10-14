@@ -4,21 +4,13 @@ import Store from "electron-store";
 export type MainLanguage = "en" | "zh";
 
 type MainTextKey =
-	| "browser.back"
-	| "browser.copyImage"
-	| "browser.copyImageAddress"
-	| "browser.copyLink"
-	| "browser.forward"
-	| "browser.inspect"
-	| "browser.openLinkExternally"
-	| "browser.openLinkInNewPage"
-	| "browser.reload"
 	| "dialog.openProject"
 	| "menu.about"
 	| "menu.addToDictionary"
 	| "menu.closeTab"
 	| "menu.closeWindow"
 	| "menu.commandCenter"
+	| "menu.searchConversations"
 	| "menu.capabilities"
 	| "menu.importSession"
 	| "menu.branchPicker"
@@ -31,9 +23,6 @@ type MainTextKey =
 	| "menu.debugConsole"
 	| "menu.documentation"
 	| "menu.edit"
-	| "menu.find"
-	| "menu.findNext"
-	| "menu.findPrevious"
 	| "menu.exportHtml"
 	| "menu.closeTab"
 	| "menu.file"
@@ -42,7 +31,6 @@ type MainTextKey =
 	| "menu.hotkeys"
 	| "menu.jobs"
 	| "menu.agentHub"
-	| "menu.memory"
 	| "menu.extensions"
 	| "menu.inventory"
 	| "menu.modes"
@@ -74,29 +62,16 @@ type MainTextKey =
 	| "restart.later"
 	| "restart.now"
 	| "restart.title"
-	| "updates.downloadFailed"
-	| "updates.hashMismatch"
-	| "updates.installerMissing"
-	| "updates.noResult"
-	| "updates.openInstallerFailed"
-	| "updates.unsupportedArchitecture";
+	| "updates.disabled";
 
 const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
-	"browser.back": { en: "Back", zh: "后退" },
-	"browser.copyImage": { en: "Copy Image", zh: "复制图片" },
-	"browser.copyImageAddress": { en: "Copy Image Address", zh: "复制图片地址" },
-	"browser.copyLink": { en: "Copy Link Address", zh: "复制链接地址" },
-	"browser.forward": { en: "Forward", zh: "前进" },
-	"browser.inspect": { en: "Inspect Element", zh: "检查元素" },
-	"browser.openLinkExternally": { en: "Open Link in Default Browser", zh: "在默认浏览器中打开链接" },
-	"browser.openLinkInNewPage": { en: "Open Link in New Page", zh: "在新页面中打开链接" },
-	"browser.reload": { en: "Reload", zh: "重新加载" },
 	"dialog.openProject": { en: "Open project", zh: "打开项目" },
 	"menu.about": { en: "About omp", zh: "关于 omp" },
 	"menu.addToDictionary": { en: "Add to dictionary", zh: "添加到词典" },
 	"menu.closeTab": { en: "Close Tab", zh: "关闭标签页" },
 	"menu.closeWindow": { en: "Close Window", zh: "关闭窗口" },
 	"menu.commandCenter": { en: "Command Center", zh: "命令中心" },
+	"menu.searchConversations": { en: "Search Local Conversations…", zh: "搜索本地对话…" },
 	"menu.capabilities": { en: "Capabilities", zh: "能力" },
 	"menu.importSession": { en: "Import Session", zh: "导入会话" },
 	"menu.branchPicker": { en: "Branch from Message", zh: "从消息分支" },
@@ -109,9 +84,6 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"menu.debugConsole": { en: "Debug Console", zh: "调试控制台" },
 	"menu.documentation": { en: "Documentation", zh: "文档" },
 	"menu.edit": { en: "Edit", zh: "编辑" },
-	"menu.find": { en: "Find in Page…", zh: "在页面中查找…" },
-	"menu.findNext": { en: "Find Next", zh: "查找下一个" },
-	"menu.findPrevious": { en: "Find Previous", zh: "查找上一个" },
 	"menu.exportHtml": { en: "Export HTML", zh: "导出 HTML" },
 	"menu.file": { en: "File", zh: "文件" },
 	"menu.handoff": { en: "Handoff", zh: "交接（Handoff）" },
@@ -119,7 +91,6 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"menu.hotkeys": { en: "Keyboard Shortcuts", zh: "键盘快捷键" },
 	"menu.jobs": { en: "Jobs", zh: "任务" },
 	"menu.agentHub": { en: "Agent Hub", zh: "代理中心" },
-	"menu.memory": { en: "Memory", zh: "记忆" },
 	"menu.extensions": { en: "Extensions", zh: "扩展" },
 	"menu.inventory": { en: "Plugins & Resources", zh: "插件与资源" },
 	"menu.modes": { en: "Modes", zh: "模式" },
@@ -157,29 +128,9 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"restart.later": { en: "Later", zh: "稍后再说" },
 	"restart.now": { en: "Restart now", zh: "立即重启" },
 	"restart.title": { en: "Restart to finish updating", zh: "重启以完成更新" },
-	"updates.downloadFailed": {
-		en: "The installer download failed.",
-		zh: "安装程序下载失败。",
-	},
-	"updates.hashMismatch": {
-		en: "The downloaded installer failed SHA-512 verification and was removed.",
-		zh: "下载的安装程序未通过 SHA-512 校验，已被删除。",
-	},
-	"updates.installerMissing": {
-		en: "This release does not include the required installer for this Mac.",
-		zh: "此版本不包含当前 Mac 所需的安装程序。",
-	},
-	"updates.noResult": {
-		en: "Update check completed without a result.",
-		zh: "更新检查已完成，但未返回结果。",
-	},
-	"updates.openInstallerFailed": {
-		en: "The installer was downloaded, but macOS could not open it.",
-		zh: "安装程序已下载，但 macOS 无法打开。",
-	},
-	"updates.unsupportedArchitecture": {
-		en: "This Mac architecture does not have a supported installer.",
-		zh: "当前 Mac 架构没有受支持的安装程序。",
+	"updates.disabled": {
+		en: "GUI updates are disabled for this fork; upstream GUI releases are incompatible.",
+		zh: "此分支已禁用 GUI 更新；上游 GUI 发行版不兼容。",
 	},
 };
 

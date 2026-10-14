@@ -56,9 +56,26 @@ export function activeTabCommand(command: RpcCommand, timeoutMs?: number): Promi
 		case "set_subagent_subscription":
 			return rpc.setSubagentSubscription(command.level);
 		case "switch_session":
-			return command.provider && command.modelId
-				? rpc.switchSession(command.sessionPath, { provider: command.provider, modelId: command.modelId })
-				: rpc.switchSession(command.sessionPath);
+			if (
+				command.provider !== undefined ||
+				command.modelId !== undefined ||
+				command.expectedSessionId !== undefined
+			) {
+				if (!command.provider || !command.modelId) {
+					return Promise.resolve({
+						type: "response",
+						command: command.type,
+						success: false,
+						error: "Current-model recovery requires both provider and modelId",
+					});
+				}
+				return rpc.switchSession(
+					command.sessionPath,
+					{ provider: command.provider, modelId: command.modelId },
+					command.expectedSessionId,
+				);
+			}
+			return rpc.switchSession(command.sessionPath);
 		default:
 			return Promise.resolve({
 				type: "response",

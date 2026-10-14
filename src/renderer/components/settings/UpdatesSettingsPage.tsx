@@ -109,7 +109,9 @@ export function UpdatesSettingsPage() {
 									? t("updates.systemError")
 									: t("updates.systemChecking")}
 					</div>
-					<div className="mt-0.5 text-omp-xs text-(--omp-dim)">{t("updates.deliveryNote")}</div>
+					<div className="mt-0.5 text-omp-xs text-(--omp-dim)">
+						{t(status.state === "disabled" ? "updates.gui.disabledNote" : "updates.deliveryNote")}
+					</div>
 				</div>
 				<Button
 					icon={checking ? <Spinner size="sm" /> : <RefreshCw size={13} />}
@@ -134,13 +136,13 @@ export function UpdatesSettingsPage() {
 						)}
 					</div>
 					<div className="updates-current">
-						<div className="text-omp-xxs text-(--omp-dim)">{t("updates.current")}</div>
+						<div className="text-omp-xxs uppercase tracking-wider text-(--omp-dim)">{t("updates.current")}</div>
 						<div className="mt-1 font-mono text-omp-sm text-(--omp-text)">{guiVersion ?? "—"}</div>
 					</div>
 					<div className="updates-latest">
-						<div className="text-omp-xxs text-(--omp-dim)">{t("updates.latest")}</div>
+						<div className="text-omp-xxs uppercase tracking-wider text-(--omp-dim)">{t("updates.latest")}</div>
 						<div className="mt-1 font-mono text-omp-sm text-(--omp-text)">
-							{guiVersion ? appLatest(status) : "—"}
+							{guiVersion && status.state !== "disabled" ? appLatest(status) : "—"}
 						</div>
 					</div>
 					<div className="updates-action justify-self-end">
@@ -175,6 +177,9 @@ export function UpdatesSettingsPage() {
 						{status.state === "error" && (
 							<span className="text-omp-sm text-(--omp-error)">{t("updates.checkFailed")}</span>
 						)}
+						{status.state === "disabled" && (
+							<span className="text-omp-sm text-(--omp-muted)">{t("updates.gui.disabled")}</span>
+						)}
 						{status.state === "not-available" && (
 							<span className="text-omp-sm text-(--omp-success)">{t("updates.upToDate")}</span>
 						)}
@@ -190,11 +195,11 @@ export function UpdatesSettingsPage() {
 						<p className="mt-0.5 text-omp-xs text-(--omp-dim)">{t("updates.core.description")}</p>
 					</div>
 					<div className="updates-current">
-						<div className="text-omp-xxs text-(--omp-dim)">{t("updates.current")}</div>
+						<div className="text-omp-xxs uppercase tracking-wider text-(--omp-dim)">{t("updates.current")}</div>
 						<div className="mt-1 font-mono text-omp-sm text-(--omp-text)">{core?.currentVersion ?? "—"}</div>
 					</div>
 					<div className="updates-latest">
-						<div className="text-omp-xxs text-(--omp-dim)">{t("updates.latest")}</div>
+						<div className="text-omp-xxs uppercase tracking-wider text-(--omp-dim)">{t("updates.latest")}</div>
 						<div className="mt-1 font-mono text-omp-sm text-(--omp-text)">{core?.latestVersion ?? "—"}</div>
 					</div>
 					<div

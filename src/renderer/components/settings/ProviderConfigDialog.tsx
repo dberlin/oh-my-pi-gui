@@ -814,7 +814,7 @@ export function ProviderConfigDialog({ open, onClose, editProvider = null }: Pro
 
 								{builtin.length > 0 && (
 									<>
-										<span className="mt-1 text-omp-sm font-semibold text-(--omp-muted)">
+										<span className="mt-1 text-omp-sm font-semibold uppercase tracking-wider text-(--omp-muted)">
 											{t("providerCfg.list.builtinSection")}
 										</span>
 										<div className="flex flex-col gap-2">

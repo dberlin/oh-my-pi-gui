@@ -14,6 +14,12 @@ test("real vanilla bundled sidecar persists settings and sessions, serves stats,
 	const agent = path.join(profile, "agent");
 	const home = path.join(profile, "home");
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent), fs.mkdir(home)]);
+	// Vanilla now requires an authenticated model even for local-only RPC.
+	// The dummy key and unreachable loopback endpoint keep this probe offline.
+	await fs.writeFile(
+		path.join(agent, "models.yml"),
+		"providers:\n  anthropic:\n    baseUrl: http://127.0.0.1:9\n    apiKey: packaged-smoke-dummy-key\n",
+	);
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({
@@ -251,9 +257,7 @@ test("real vanilla bundled sidecar persists settings and sessions, serves stats,
 		});
 		await expect(page.getByText("The originating session was replaced or closed.", { exact: false })).toHaveCount(0);
 		await closeWelcomeIfPresent("Welcome to omp", "Close");
-		// App-wide tools live in the sidebar's "More" menu.
-		await page.getByRole("button", { name: "Show more navigation", exact: true }).click();
-		await page.getByRole("menuitem", { name: /^Session stats/ }).click();
+		await page.getByRole("button", { name: "Session stats", exact: true }).click();
 		const stats = page.getByRole("dialog");
 		await expect(stats).toBeVisible();
 		await stats.getByRole("button", { name: "Sync", exact: true }).click();

@@ -921,6 +921,22 @@ describe("remote IPC dispatch", () => {
 		expect(authorizeRemoteResume).toHaveBeenCalledWith(target, target.cwd, "renderer-chosen-session");
 	});
 
+	it("preserves a local conversation locator when opening its saved session in another window", () => {
+		expect(resolveNewWindowRequest(catalogWith(), {
+			target: { type: "local" }, cwd: "/project", sessionPath: "/sessions/a.jsonl", entryId: "entry-7",
+		}, "/caller")).toEqual({
+			ok: true, target: { type: "local" }, cwd: "/project", sessionPath: "/sessions/a.jsonl", entryId: "entry-7",
+		});
+	});
+
+	it("rejects conversation locators without a local saved-session path", () => {
+		const catalog = catalogWith();
+		expect(resolveNewWindowRequest(catalog, { entryId: "entry-7" }, "/caller").ok).toBe(false);
+		expect(resolveNewWindowRequest(catalog, { sessionPath: "/sessions/a.jsonl", entryId: "" }, "/caller").ok).toBe(false);
+		const target = sshTarget(catalog);
+		expect(resolveNewWindowRequest(catalog, { target, cwd: target.cwd, entryId: "entry-7" }, "/caller").ok).toBe(false);
+	});
+
 	it("validates and carries canonical targets and remote resume ids for new windows", () => {
 		const catalog = catalogWith();
 		const target = sshTarget(catalog);

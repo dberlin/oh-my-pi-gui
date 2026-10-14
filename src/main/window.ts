@@ -7,7 +7,8 @@ import * as fs from "node:original-fs";
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, Menu, type MessageBoxOptions, screen, shell } from "electron";
 import Store from "electron-store";
-import type { RunProgressState, SessionKind, SessionTarget } from "../shared/ipc-types";
+import { IPC_EVENTS } from "../shared/ipc-types";
+import type { ConversationFocusRequest, RunProgressState, SessionKind, SessionTarget } from "../shared/ipc-types";
 import { quitRisk, requestQuit } from "./app-quit";
 import { editableContextMenuTemplate } from "./editable-context-menu";
 import { getMainLanguage, mainT } from "./i18n";
@@ -39,12 +40,12 @@ const DEFAULT_HEIGHT = 900;
 const MIN_WIDTH = 800;
 const MIN_HEIGHT = 600;
 
-/** Work areas with the primary display first — it is the recentering target. */
-/** The window's page address for logs; a window can close while its renderer's events still arrive. */
+/** Late renderer events can arrive after their native window is destroyed. */
 function windowUrl(win: BrowserWindow): string {
 	return win.isDestroyed() || win.webContents.isDestroyed() ? "" : win.webContents.getURL();
 }
 
+/** Work areas with the primary display first — it is the recentering target. */
 function displayWorkAreas(): Rect[] {
 	return [screen.getPrimaryDisplay().workArea, ...screen.getAllDisplays().map(display => display.workArea)];
 }
@@ -61,6 +62,8 @@ export interface WindowRecord {
 	 * main process switches before/after the renderer's boot hydration.
 	 */
 	pendingSessionPath?: string;
+	/** Last requested local message locator, retained until this renderer pulls it. */
+	pendingConversationFocus?: ConversationFocusRequest;
 	target?: SessionTarget;
 	resumeSessionId?: string;
 }
@@ -255,8 +258,7 @@ export class WindowManager {
 				},
 				context(),
 			);
-			// The window closed along with its renderer: nothing to recover.
-			if (win.isDestroyed()) return;
+			if (win.isDestroyed() || win.webContents.isDestroyed()) return;
 			if (this.#restartForChangedResources(record, { kind: "process-gone", reloadable: shouldReload })) return;
 			if (shouldReload) {
 				queueMicrotask(() => {
@@ -394,6 +396,23 @@ export class WindowManager {
 		const path = record?.pendingSessionPath;
 		if (record) record.pendingSessionPath = undefined;
 		return path;
+	}
+
+	/** Persist before notifying: a not-yet-loaded renderer retrieves this on boot. */
+	queueConversationFocus(id: number, request: ConversationFocusRequest): boolean {
+		const record = this.#records.get(id);
+		if (!record || record.win.isDestroyed() || record.win.webContents.isDestroyed()) return false;
+		record.pendingConversationFocus = request;
+		record.win.webContents.send(IPC_EVENTS.CONVERSATION_FOCUS);
+		return true;
+	}
+
+	/** Only the destination window may consume its one-shot locator. */
+	consumePendingConversationFocus(win: BrowserWindow): ConversationFocusRequest | null {
+		const record = this.#records.get(win.webContents.id);
+		const request = record?.pendingConversationFocus ?? null;
+		if (record) record.pendingConversationFocus = undefined;
+		return request;
 	}
 
 	getMainWindow(): BrowserWindow | null {

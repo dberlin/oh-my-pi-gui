@@ -24,6 +24,8 @@ import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
+import { setFocusedSessionRuntime } from "../../stores/session-runtime-context";
+import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useTabsStore } from "../../stores/tabs";
@@ -83,6 +85,7 @@ interface MockOmp {
 		close: Mock<(tabId: string) => Promise<boolean>>;
 		setActive: Mock<(tabId: string) => Promise<boolean>>;
 		setView: Mock<(tabId: string, visibleTabIds: string[], split?: unknown) => Promise<boolean>>;
+		cancelRestore: Mock<(payload: { restoreRequestId: string }) => Promise<boolean>>;
 	};
 	events: {
 		onTabStatus: Mock<(callback: (payload: IpcTabStatusPayload) => void) => () => void>;
@@ -110,6 +113,7 @@ function installMockOmp(): MockOmp {
 			close: vi.fn(async () => true),
 			setActive: vi.fn(async () => true),
 			setView: vi.fn(async () => true),
+			cancelRestore: vi.fn(async () => true),
 		},
 		events: {
 			onTabStatus: vi.fn(() => () => {}),
@@ -218,6 +222,17 @@ async function rightClick(element: TestElement): Promise<void> {
 	if (!props?.onContextMenu) throw new Error("element onContextMenu not found");
 	await act(async () => props.onContextMenu?.({ clientX: 80, clientY: 40, preventDefault: () => {} }));
 	await flush();
+}
+
+/** Drive an element's React onMouseEnter (linkedom has no layout/event system). */
+async function mouseEnter(element: TestElement): Promise<void> {
+	const record = element as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey
+		? (record[propsKey] as { onMouseEnter?: (event: { currentTarget: TestElement }) => void } | undefined)
+		: undefined;
+	if (!props?.onMouseEnter) throw new Error("element onMouseEnter not found");
+	await act(async () => props.onMouseEnter?.({ currentTarget: element }));
 }
 
 function menuItem(label: string): TestElement | null {
@@ -335,6 +350,82 @@ describe("TabBar", () => {
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-real"]);
 	});
 
+	it("keeps the startup placeholder until a light-status saved restore commits its selected tab", async () => {
+		const savedPath = "/sessions/s-saved.jsonl";
+		omp.sessions.list.mockResolvedValue([
+			listedSession("s-empty"),
+			listedSession("s-saved", { firstMessage: "Saved work", messageCount: 1 }),
+		]);
+		useTabsStore.setState({
+			activeTabId: "t-empty",
+			tabs: [{
+				id: "t-empty", kind: "chat", cwd: "/neutral", target: { type: "local" },
+				status: "ready", placeholder: true, sessionId: "s-empty", unreadDone: false,
+			}],
+		});
+		ensureTabRuntime("t-empty");
+		setFocusedSessionRuntime("t-empty");
+		useSessionStore.setState({ sessionId: "s-empty", cwd: "/neutral", status: "ready", messageCount: 0 });
+		const spawn = Promise.withResolvers<{ tabId: string }>();
+		omp.tabs.spawn.mockReturnValueOnce(spawn.promise);
+		const commandForTab = omp.rpc.commandForTab.getMockImplementation()!;
+		omp.rpc.commandForTab.mockImplementation(async (tabId, command) => {
+			if (tabId === "t-saved" && command.type === "get_state") {
+				return ok({
+					sessionId: "s-saved", sessionName: null, sessionFile: savedPath, cwd: "/work/infron",
+					isStreaming: false, isCompacting: false, contextUsage: null, messageCount: 1,
+					queuedMessageCount: 0, planModeEnabled: false, todoPhases: [],
+				});
+			}
+			if (tabId === "t-saved" && (command.type === "get_messages_page" || command.type === "get_messages")) {
+				return ok({ messages: [{ role: "user", content: "Saved work", entryId: "saved-entry", timestamp: 100 }] });
+			}
+			return commandForTab(tabId, command);
+		});
+		await mount(<TabBar />);
+		const opening = useTabsStore.getState().openTab({
+			cwd: "/work/infron", sessionPath: savedPath, kind: "agent", target: { type: "local" },
+		});
+		await act(async () => {
+			useTabsStore.getState().applyTabStatus({
+				tabId: "t-saved", cwd: "/work/infron", kind: "agent", target: { type: "local" },
+				status: "starting", restoringSession: true, placeholder: false,
+			});
+		});
+		await flush();
+		const duringRestore = {
+			activeTabId: useTabsStore.getState().activeTabId,
+			closed: omp.tabs.close.mock.calls.map(([tabId]) => tabId),
+		};
+		// Main can publish the restored ready status before the spawn reply is
+		// delivered. Neither light status is the renderer's committed selection.
+		await act(async () => {
+			useTabsStore.getState().applyTabStatus({
+				tabId: "t-saved", cwd: "/work/infron", kind: "agent", target: { type: "local" },
+				status: "ready", restoringSession: false, placeholder: false,
+				sessionPath: savedPath, sessionId: "s-saved",
+			});
+		});
+		await flush();
+		const beforeSpawnReply = {
+			activeTabId: useTabsStore.getState().activeTabId,
+			closed: omp.tabs.close.mock.calls.map(([tabId]) => tabId),
+		};
+		let opened: string | null = null;
+		await act(async () => {
+			spawn.resolve({ tabId: "t-saved" });
+			opened = await opening;
+		});
+		await flush();
+		expect(duringRestore).toEqual({ activeTabId: "t-empty", closed: [] });
+		expect(beforeSpawnReply).toEqual({ activeTabId: "t-empty", closed: [] });
+		expect(opened).toBe("t-saved");
+		expect(useTabsStore.getState().activeTabId).toBe("t-saved");
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-saved"]);
+		expect(omp.tabs.close.mock.calls.map(([tabId]) => tabId)).toEqual(["t-empty"]);
+		expect(omp.tabs.cancelRestore).not.toHaveBeenCalled();
+	});
+
 	it("keeps an empty startup tab when it contains an unsent draft", async () => {
 		omp.sessions.list.mockResolvedValue([
 			listedSession("s-empty"),
@@ -411,7 +502,7 @@ describe("TabBar", () => {
 		expect(tabWorkspaces()).toEqual(["alpha", "beta"]);
 	});
 
-	it("bounds chip width and exposes a truncated title through the tooltip", async () => {
+	it("keeps chips fixed-width and only arms hover scrolling for an overflowing title", async () => {
 		useTabsStore.setState({
 			tabs: [
 				{
@@ -439,16 +530,26 @@ describe("TabBar", () => {
 		await mount(<TabBar />);
 
 		const [longChip, shortChip] = chips();
-		// Chips size to their title between a floor and a ceiling, so a long title
-		// cannot push its neighbors off the strip.
-		expect(
-			[longChip, shortChip].every(chip => {
-				const classes = chip?.getAttribute("class")?.split(/\s+/) ?? [];
-				return classes.includes("min-w-28") && classes.includes("max-w-52");
-			}),
-		).toBe(true);
-		expect(longChip?.getAttribute("title")).toContain("A deliberately long session title");
-		expect(longChip?.querySelector("[data-tab-title]")?.getAttribute("class")).toContain("truncate");
+		expect([longChip, shortChip].every(chip => chip?.getAttribute("class")?.split(/\s+/).includes("w-44"))).toBe(
+			true,
+		);
+		const longTitle = longChip?.querySelector("[data-tab-title-wrap]");
+		const longScroller = longTitle?.querySelector("[data-tab-title-scroll]");
+		const shortTitle = shortChip?.querySelector("[data-tab-title-wrap]");
+		const shortScroller = shortTitle?.querySelector("[data-tab-title-scroll]");
+		if (!longTitle || !longScroller || !shortTitle || !shortScroller)
+			throw new Error("tab title scrollers not rendered");
+		Object.defineProperty(longTitle, "clientWidth", { configurable: true, value: 100 });
+		Object.defineProperty(longScroller, "scrollWidth", { configurable: true, value: 240 });
+		Object.defineProperty(shortTitle, "clientWidth", { configurable: true, value: 100 });
+		Object.defineProperty(shortScroller, "scrollWidth", { configurable: true, value: 80 });
+
+		await mouseEnter(longTitle);
+		await mouseEnter(shortTitle);
+
+		expect(longTitle.getAttribute("data-overflowing")).toBe("true");
+		expect((longTitle as unknown as HTMLElement).style.getPropertyValue("--omp-tab-title-overflow")).toBe("140px");
+		expect(shortTitle.getAttribute("data-overflowing")).toBe("false");
 	});
 
 	it("hides the close button at the single-tab floor and shows it with two tabs", async () => {
@@ -472,7 +573,7 @@ describe("TabBar", () => {
 		expect(container.querySelectorAll('[role="tab"] button').length).toBeGreaterThan(0);
 	});
 
-	it("renders status dots for running and completed tabs", async () => {
+	it("renders slow vertical signal lights for running and completed tabs", async () => {
 		useTabsStore.setState({
 			tabs: [
 				{ kind: "agent", id: "t0", cwd: "/alpha", target: { type: "local" }, status: "running", unreadDone: false },
@@ -486,6 +587,7 @@ describe("TabBar", () => {
 		const rendered = chips();
 		expect(rendered.every(chip => chip.querySelector(".omp-tab-signal") !== null)).toBe(true);
 		expect(rendered.every(chip => chip.getAttribute("class")?.includes("overflow-hidden"))).toBe(true);
+		expect(rendered.every(chip => !chip.getAttribute("class")?.includes("rounded"))).toBe(true);
 		expect(rendered[0]?.querySelector(".omp-signal-light--active")).not.toBeNull();
 		expect(rendered[1]?.querySelector(".omp-signal-light--active")).toBeNull();
 		expect(rendered[0]?.querySelector('[aria-label="Working"]')).not.toBeNull();

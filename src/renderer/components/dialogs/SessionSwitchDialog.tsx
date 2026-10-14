@@ -6,9 +6,11 @@
  * and the destructive abort-and-switch one click away.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { switchSessionNow } from "../../hooks/use-session-switch";
 import { useT } from "../../lib/i18n";
+import { useModelRestoreStore } from "../../stores/model-restore";
+import { useTranscriptFocusStore } from "../../stores/transcript-focus";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
@@ -19,20 +21,48 @@ export function SessionSwitchDialog() {
 	const session = useUiStore(s => s.sessionSwitchPrompt);
 	const close = useUiStore(s => s.closeSessionSwitch);
 	const [busy, setBusy] = useState<"new-tab" | "new-window" | "switch" | null>(null);
+	const focusNonce = useMemo(() => {
+		const target = useTranscriptFocusStore.getState().target;
+		return target?.sessionPath === session?.path ? target?.nonce ?? null : null;
+	}, [session]);
+	const continuingSession = useRef<typeof session>(null);
+	const retireFocus = useCallback(() => {
+		if (focusNonce !== null) useTranscriptFocusStore.getState().settle(focusNonce);
+	}, [focusNonce]);
+	const awaitingModelConsent = () => useModelRestoreStore.getState().prompt?.session.path === session?.path;
+	useEffect(
+		() => () => {
+			if (
+				continuingSession.current !== session &&
+				useModelRestoreStore.getState().prompt?.session.path !== session?.path
+			) retireFocus();
+		},
+		[session, retireFocus],
+	);
 
 	const dismiss = () => {
+		retireFocus();
+		setBusy(null);
+		close();
+	};
+	const complete = () => {
+		continuingSession.current = session;
 		setBusy(null);
 		close();
 	};
 
 	const openInNewTab = async () => {
 		if (!session) return;
+		continuingSession.current = session;
 		setBusy("new-tab");
 		try {
 			// New tab owns a pooled sidecar bound to THIS window; the pending
 			// session path is applied once that sidecar first reports ready.
-			const tabId = await useTabsStore.getState().openTab({ cwd: session.cwd, sessionPath: session.path });
-			if (tabId) dismiss();
+			const tabId = await useTabsStore.getState().openTab({
+				cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent", target: { type: "local" },
+			});
+			if (tabId) complete();
+			else if (!awaitingModelConsent()) retireFocus();
 		} finally {
 			setBusy(null);
 		}
@@ -40,14 +70,22 @@ export function SessionSwitchDialog() {
 
 	const openInNewWindow = async () => {
 		if (!session) return;
+		continuingSession.current = session;
 		setBusy("new-window");
 		try {
-			const ok = await window.omp.sessions.openInNewWindow({ sessionPath: session.path, cwd: session.cwd });
+			const target = useTranscriptFocusStore.getState().target;
+			const ok = await window.omp.sessions.openInNewWindow({
+				sessionPath: session.path,
+				cwd: session.cwd,
+				...(target?.nonce === focusNonce ? { entryId: target.entryId } : {}),
+			});
 			if (!ok) {
-				toast({ variant: "error", message: t("sidebar.newWindowFailed") });
+				retireFocus();
+				toast({ variant: "warning", message: t("sidebar.parallelCap") });
 				return;
 			}
-			dismiss();
+			retireFocus();
+			complete();
 		} finally {
 			setBusy(null);
 		}
@@ -55,9 +93,11 @@ export function SessionSwitchDialog() {
 
 	const switchAnyway = async () => {
 		if (!session) return;
+		continuingSession.current = session;
 		setBusy("switch");
 		try {
-			if (await switchSessionNow(session)) dismiss();
+			if (await switchSessionNow(session)) complete();
+			else if (!awaitingModelConsent()) retireFocus();
 		} finally {
 			setBusy(null);
 		}

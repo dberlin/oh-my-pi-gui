@@ -5,6 +5,7 @@
  */
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+	ConversationFocusRequest,
 	ConversationSearchResponse,
 	CustomProviderInput,
 	CustomProviderView,
@@ -12,17 +13,13 @@ import type {
 	IpcActiveTabEnvelope,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
-	IpcBrowserActionPayload,
-	IpcBrowserKeyPayload,
-	IpcBrowserState,
-	IpcBrowserViewportPayload,
 	IpcConversationSearchPayload,
+	IpcExtensionUiContext,
 	IpcFsListResult,
 	IpcFsReadImageResult,
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
-	IpcMemoryChange,
 	IpcOpenPathResult,
 	IpcRemoteCancelRequestPayload,
 	IpcRemoteCatalogPayload,
@@ -43,7 +40,6 @@ import type {
 	IpcSubagentTranscriptReadResult,
 	IpcTabInfo,
 	IpcTabStatusPayload,
-	IpcTerminalFramePayload,
 	LogBatch,
 	MenuAction,
 	MenuActionPayload,
@@ -80,8 +76,7 @@ import type {
 	PromptResultFrame,
 	RpcBtwFrame,
 	RpcCommand,
-	RpcDictationFrame,
-	RpcLiveFrame,
+	RpcLiveUpdateFrame,
 	RpcResponse,
 	SessionInfoUpdateFrame,
 	SubagentFrame,
@@ -159,9 +154,23 @@ const api: OmpApi = {
 			subscribeActiveTab<IpcSidecarStatusPayload>(IPC_EVENTS.SIDECAR_STATUS, callback),
 		onTabStatus: (callback: (payload: IpcTabStatusPayload) => void) =>
 			subscribe<IpcTabStatusPayload>(IPC_EVENTS.TAB_STATUS, callback),
-		onExtensionUi: (callback: (request: ExtensionUIRequest, tabId: string) => void) =>
-			subscribe<{ request: ExtensionUIRequest; tabId: string }>(IPC_EVENTS.EXTENSION_UI, data =>
-				callback(data.request, data.tabId),
+		onExtensionUi: (
+			callback: (request: ExtensionUIRequest, tabId: string, context?: IpcExtensionUiContext) => void,
+		) =>
+			subscribe<{ request: ExtensionUIRequest; tabId: string } & IpcExtensionUiContext>(
+				IPC_EVENTS.EXTENSION_UI,
+				data =>
+					callback(
+						data.request,
+						data.tabId,
+						data.restoringSession === true
+							? {
+									restoringSession: true,
+									modelOrigin: data.modelOrigin,
+									restoreRequestId: data.restoreRequestId,
+								}
+							: undefined,
+					),
 			),
 		onHostToolCall: (callback: (request: HostToolCallRequest) => void) =>
 			subscribe<{ request: HostToolCallRequest }>(IPC_EVENTS.HOST_TOOL_CALL, data => callback(data.request)),
@@ -169,10 +178,8 @@ const api: OmpApi = {
 			subscribe<{ request: HostUriRequest }>(IPC_EVENTS.HOST_URI_REQUEST, data => callback(data.request)),
 		onSubagentFrame: (callback: (frame: SubagentFrame) => void) =>
 			subscribeActiveTab<SubagentFrame>(IPC_EVENTS.SUBAGENT_FRAME, callback),
-		onLiveFrame: (callback: (frame: RpcLiveFrame) => void) =>
-			subscribeActiveTab<RpcLiveFrame>(IPC_EVENTS.LIVE_FRAME, callback),
-		onBtwFrame: (callback: (frame: RpcBtwFrame) => void) =>
-			subscribeActiveTab<RpcBtwFrame>(IPC_EVENTS.BTW_FRAME, callback),
+		onLiveUpdate: (callback: (frame: RpcLiveUpdateFrame) => void) =>
+			subscribeActiveTab<RpcLiveUpdateFrame>(IPC_EVENTS.LIVE_UPDATE, callback),
 		onModelCatalogUpdate: (callback: (frame: ModelCatalogUpdateFrame) => void) =>
 			subscribeActiveTab<ModelCatalogUpdateFrame>(IPC_EVENTS.MODEL_CATALOG_UPDATE, callback),
 		onCommandsUpdate: (callback: (commands: AvailableCommand[]) => void) =>
@@ -180,8 +187,6 @@ const api: OmpApi = {
 		onConfigUpdate: (callback: (payload: ConfigUpdateFrame) => void) =>
 			subscribeActiveTab<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, callback),
 		onSessionsChanged: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.SESSIONS_CHANGED, () => callback()),
-		onMemoryChanged: (callback: (change: IpcMemoryChange) => void) =>
-			subscribe<IpcMemoryChange>(IPC_EVENTS.MEMORY_CHANGED, callback),
 		onLogLines: (callback: (lines: string[]) => void) =>
 			subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, batch => callback(batch.lines)),
 		onLogBatch: (callback: (batch: LogBatch) => void) => subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, callback),
@@ -199,8 +204,6 @@ const api: OmpApi = {
 			subscribeTab<IpcSidecarStatusPayload>(IPC_EVENTS.SIDECAR_STATUS, callback),
 		onTabSubagentFrame: (callback: (frame: SubagentFrame, tabId: string) => void) =>
 			subscribeTab<SubagentFrame>(IPC_EVENTS.SUBAGENT_FRAME, callback),
-		onTabDictationFrame: (callback: (frame: RpcDictationFrame, tabId: string) => void) =>
-			subscribeTab<RpcDictationFrame>(IPC_EVENTS.DICTATION_FRAME, callback),
 		onTabModelCatalogUpdate: (callback: (frame: ModelCatalogUpdateFrame, tabId: string) => void) =>
 			subscribeTab<ModelCatalogUpdateFrame>(IPC_EVENTS.MODEL_CATALOG_UPDATE, callback),
 		onTabCommandsUpdate: (callback: (commands: AvailableCommand[], tabId: string) => void) =>
@@ -211,6 +214,8 @@ const api: OmpApi = {
 			subscribeTab<PromptResultFrame>(IPC_EVENTS.PROMPT_RESULT, callback),
 		onTabCommandOutput: (callback: (frame: CommandOutputFrame, tabId: string) => void) =>
 			subscribeTab<CommandOutputFrame>(IPC_EVENTS.COMMAND_OUTPUT, callback),
+		onTabBtwFrame: (callback: (frame: RpcBtwFrame, tabId: string) => void) =>
+			subscribeTab<RpcBtwFrame>(IPC_EVENTS.BTW_FRAME, callback),
 		onTabSessionInfoUpdate: (callback: (frame: SessionInfoUpdateFrame, tabId: string) => void) =>
 			subscribeTab<SessionInfoUpdateFrame>(IPC_EVENTS.SESSION_INFO_UPDATE, callback),
 		onTabExtensionError: (callback: (frame: ExtensionErrorFrame, tabId: string) => void) =>
@@ -221,28 +226,10 @@ const api: OmpApi = {
 			),
 		onDeepLink: (callback: (link: DeepLinkPayload) => void) =>
 			subscribe<DeepLinkPayload>(IPC_EVENTS.DEEP_LINK, callback),
+		onConversationFocus: (callback: () => void) =>
+			subscribe<void>(IPC_EVENTS.CONVERSATION_FOCUS, callback),
 		onUpdaterStatus: (callback: (status: UpdateStatus) => void) =>
 			subscribe<UpdateStatus>(IPC_EVENTS.UPDATER_STATUS, callback),
-		onTerminalFrame: (callback: (payload: IpcTerminalFramePayload) => void) =>
-			subscribe<IpcTerminalFramePayload>(IPC_EVENTS.TERMINAL_FRAME, callback),
-		onBrowserState: (callback: (state: IpcBrowserState) => void) =>
-			subscribe<IpcBrowserState>(IPC_EVENTS.BROWSER_STATE, callback),
-		onBrowserKey: (callback: (payload: IpcBrowserKeyPayload) => void) =>
-			subscribe<IpcBrowserKeyPayload>(IPC_EVENTS.BROWSER_KEY, callback),
-	},
-
-	browser: {
-		getState: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.BROWSER_GET_STATE, { tabId }),
-		open: (tabId: string, url: string) => ipcRenderer.invoke(IPC_COMMANDS.BROWSER_OPEN, { tabId, url }),
-		action: (payload: IpcBrowserActionPayload) => ipcRenderer.invoke(IPC_COMMANDS.BROWSER_ACTION, payload),
-		// Fire-and-forget: the panel reports its rect on every layout change.
-		setViewport: (payload: IpcBrowserViewportPayload) => {
-			ipcRenderer.send(IPC_COMMANDS.BROWSER_SET_VIEWPORT, payload);
-		},
-		capture: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.BROWSER_CAPTURE, { tabId }),
-		setShortcuts: (chords: string[]) => {
-			ipcRenderer.send(IPC_COMMANDS.BROWSER_SET_SHORTCUTS, { chords });
-		},
 	},
 
 	updater: {
@@ -277,7 +264,7 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_RENAME, { sessionPath, name }) as Promise<void>,
 		search: (query: string, scope: "local" | "global") =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_SEARCH, { query, scope }) as Promise<string[]>,
-		searchConversations: (query: string, cwd?: string | null) =>
+		searchConversations: (query: string, cwd: string | null) =>
 			ipcRenderer.invoke(IPC_COMMANDS.CONVERSATIONS_SEARCH, {
 				query,
 				cwd,
@@ -285,6 +272,8 @@ const api: OmpApi = {
 		openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 		consumePendingOpen: () => ipcRenderer.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
+		consumePendingConversationFocus: () =>
+			ipcRenderer.invoke(IPC_COMMANDS.CONVERSATION_FOCUS_CONSUME) as Promise<ConversationFocusRequest | null>,
 		readSubagentTranscript: (sessionFile: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSION_READ_SUBAGENT_TRANSCRIPT, {
 				sessionFile,
@@ -348,6 +337,8 @@ const api: OmpApi = {
 		list: () => ipcRenderer.invoke(IPC_COMMANDS.GET_TABS) as Promise<IpcTabInfo[]>,
 		spawn: (payload: IpcSpawnTabPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SPAWN_TAB, payload) as Promise<IpcSpawnTabResult | null>,
+		cancelRestore: (payload: { restoreRequestId: string }) =>
+			ipcRenderer.invoke(IPC_COMMANDS.CANCEL_RESTORE, payload) as Promise<boolean>,
 		close: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.CLOSE_TAB, { tabId }) as Promise<boolean>,
 		setActive: async (tabId: string) => {
 			const switched = (await ipcRenderer.invoke(IPC_COMMANDS.SET_ACTIVE_TAB, { tabId })) as boolean;
@@ -388,8 +379,8 @@ const api: OmpApi = {
 		showOpenDialog: (filters?: { name: string; extensions: string[] }[], options?: { directory?: boolean }) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_DIALOG, filters, options),
 		clipboardRead: () => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_CLIPBOARD_READ),
-		notify: (title: string, body?: string) => {
-			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_NOTIFY, { title, body });
+		notify: (title: string, body?: string, tabId?: string) => {
+			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_NOTIFY, { title, body, tabId });
 		},
 	},
 

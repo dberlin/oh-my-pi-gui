@@ -3,28 +3,28 @@
  * with search filtering, level filter, and pin-aware auto-scroll.
  */
 
-import { ArrowDown, Copy, Download, RotateCw, ScrollText, TriangleAlert } from "lucide-react";
+import { ArrowDown, RotateCw, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LogBatch } from "../../../shared/ipc-types";
-import { copyText, cx } from "../../lib/format";
+import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { toast } from "../../stores/toast";
 import { Button } from "../common";
-import { type LogLevel, type ParsedLogLine, parseLogLine } from "./log-line";
-import { PanelEmpty, PanelSearch, PanelToolbar, ToolbarIconButton } from "./workspace-ui";
 
 const MAX_LINES = 1000;
 
-interface LogLine extends ParsedLogLine {
+type LogLevel = "info" | "warn" | "error" | "other";
+
+interface LogLine {
 	seq: number;
 	text: string;
+	level: LogLevel;
 }
 
 const LEVEL_CLASS: Record<LogLevel, string> = {
-	info: "text-(--omp-text-secondary)",
+	info: "text-(--omp-muted)",
 	warn: "text-(--omp-warning)",
 	error: "text-(--omp-error)",
-	other: "text-(--omp-muted)",
+	other: "text-(--omp-dim)",
 };
 
 const LEVEL_LABEL_KEY = {
@@ -34,13 +34,20 @@ const LEVEL_LABEL_KEY = {
 	error: "logPanel.level.error",
 } as const;
 
+function detectLevel(text: string): LogLevel {
+	const lower = text.toLowerCase();
+	if (/\b(error|err!|fatal)\b/.test(lower)) return "error";
+	if (/\b(warn|warning)\b/.test(lower)) return "warn";
+	if (/\binfo\b/.test(lower)) return "info";
+	return "other";
+}
+
 export function LogPanel() {
 	const t = useT();
 	const [lines, setLines] = useState<LogLine[]>([]);
 	const [query, setQuery] = useState("");
 	const [levelFilter, setLevelFilter] = useState<"all" | LogLevel>("all");
 	const [pinned, setPinned] = useState(true);
-	const [openLines, setOpenLines] = useState<ReadonlySet<number>>(new Set());
 	const scrollRef = useRef<HTMLDivElement>(null);
 
 	const [error, setError] = useState<string | null>(null);
@@ -50,7 +57,7 @@ export function LogPanel() {
 			const all = new Map(previous.map(line => [line.seq, line]));
 			batch.lines.forEach((text, index) => {
 				const seq = batch.nextSequence - batch.lines.length + index;
-				all.set(seq, { seq, text, ...parseLogLine(text) });
+				all.set(seq, { seq, text, level: detectLevel(text) });
 			});
 			return [...all.values()].sort((a, b) => a.seq - b.seq).slice(-MAX_LINES);
 		});
@@ -108,150 +115,111 @@ export function LogPanel() {
 		setPinned(true);
 	};
 
-	const counts = useMemo(() => {
-		const out: Record<"all" | LogLevel, number> = { all: lines.length, info: 0, warn: 0, error: 0, other: 0 };
-		for (const line of lines) out[line.level]++;
-		return out;
-	}, [lines]);
-
 	return (
 		<div className="flex h-full flex-col">
-			<span className="sr-only">{t("logPanel.title")}</span>
-			<PanelToolbar>
-				<PanelSearch
-					label={t("logPanel.searchLabel")}
-					placeholder={t("logPanel.placeholder")}
-					value={query}
-					onChange={setQuery}
-				/>
-				<ToolbarIconButton
-					label={t("logPanel.copy")}
-					disabled={filtered.length === 0}
-					onClick={() =>
-						void copyText(filtered.map(line => line.text).join("\n")).then(ok => {
-							if (!ok) toast({ variant: "error", message: t("copySelector.failed") });
-						})
-					}
-				>
-					<Copy size={14} />
-				</ToolbarIconButton>
-				<ToolbarIconButton label={t("logPanel.export")} disabled={filtered.length === 0} onClick={exportLogs}>
-					<Download size={14} />
-				</ToolbarIconButton>
-			</PanelToolbar>
-			<div className="flex h-8 shrink-0 items-center gap-2 px-3 pb-1">
-				<div className="omp-segmented" role="group" aria-label={t("logPanel.levelLabel")}>
+			{error && (
+				<p role="alert" className="px-3 text-omp-sm text-(--omp-error)">
+					{error}
+				</p>
+			)}
+			<div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1.5">
+				<span className="text-omp-xs font-medium tracking-widest text-(--omp-dim) uppercase">
+					{t("logPanel.title")}
+				</span>
+				<span className="text-omp-xs tabular-nums text-(--omp-dim)">{filtered.length}</span>
+				<div className="ml-auto flex items-center gap-0.5">
 					{(["all", "info", "warn", "error"] as const).map(level => (
 						<button
-							className="flex h-6 items-center gap-1 px-2 text-omp-xs font-medium"
+							className={`rounded px-1.5 py-0.5 text-omp-xs transition-colors ${
+								levelFilter === level
+									? "bg-(--omp-selected-bg) text-(--omp-text)"
+									: "text-(--omp-dim) hover:text-(--omp-text)"
+							}`}
 							aria-pressed={levelFilter === level}
 							key={level}
 							onClick={() => setLevelFilter(level)}
 							type="button"
 						>
 							{t(LEVEL_LABEL_KEY[level])}
-							{level !== "all" && counts[level] > 0 && (
-								<span
-									className={cx(
-										"tabular-nums",
-										level === "error"
-											? "text-(--omp-error)"
-											: level === "warn"
-												? "text-(--omp-warning)"
-												: "text-(--omp-dim)",
-									)}
-								>
-									{counts[level]}
-								</span>
-							)}
 						</button>
 					))}
 				</div>
-				<span className="ml-auto truncate text-omp-xs tabular-nums text-(--omp-dim)" title={t("logPanel.scope")}>
-					{t("logPanel.lines", { count: filtered.length })}
-				</span>
 			</div>
-			<div className="relative min-h-0 flex-1 border-t border-(--omp-border-muted) bg-(--omp-code-bg)">
+			<div className="flex flex-wrap gap-2 px-3 pb-2 text-omp-xs">
+				<button
+					type="button"
+					disabled={filtered.length === 0}
+					onClick={() =>
+						void copyText(filtered.map(line => line.text).join("\n")).then(ok => {
+							if (!ok) setError(t("copySelector.failed"));
+						})
+					}
+				>
+					{t("logPanel.copy")}
+				</button>
+				<button type="button" disabled={filtered.length === 0} onClick={exportLogs}>
+					{t("logPanel.export")}
+				</button>
+				<span className="text-(--omp-dim)">{t("logPanel.scope")}</span>
+			</div>
+			<div className="relative px-3 pb-1.5">
+				<Search
+					className="pointer-events-none absolute top-1/2 left-5.5 -translate-y-1/2 text-(--omp-dim)"
+					size={11}
+				/>
+				<input
+					aria-label={t("logPanel.searchLabel")}
+					className="w-full rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) py-1 pr-7 pl-6.5 text-omp-sm text-(--omp-text) placeholder:text-(--omp-dim) focus:border-(--omp-border-accent) focus:outline-none"
+					onChange={event => setQuery(event.target.value)}
+					placeholder={t("logPanel.placeholder")}
+					value={query}
+				/>
+				{query && (
+					<button
+						aria-label={t("logPanel.clearSearch")}
+						className="absolute top-1/2 right-5 -translate-y-1/2 text-(--omp-dim) hover:text-(--omp-text)"
+						onClick={() => setQuery("")}
+						type="button"
+					>
+						<X size={11} />
+					</button>
+				)}
+			</div>
+			<div className="relative min-h-0 flex-1">
 				<div
-					className="h-full overflow-y-auto py-1.5 font-mono text-xs leading-[1.55]"
+					className="h-full overflow-y-auto px-3 py-1 font-mono text-omp-xs leading-[1.5]"
 					onScroll={onScroll}
 					ref={scrollRef}
 				>
 					{error ? (
-						<PanelEmpty
-							icon={TriangleAlert}
-							tone="error"
-							title={<span role="alert">{error}</span>}
-							action={
-								<Button icon={<RotateCw size={12} />} onClick={reload} size="sm" variant="secondary">
-									{t("common.retry")}
-								</Button>
-							}
-						/>
+						<div className="flex flex-col items-center gap-2 py-8 text-center font-sans">
+							<p role="alert" className="text-omp-sm text-(--omp-error)">
+								{error}
+							</p>
+							<Button icon={<RotateCw size={12} />} onClick={reload} size="sm" variant="secondary">
+								{t("common.retry")}
+							</Button>
+						</div>
 					) : filtered.length === 0 ? (
-						<PanelEmpty
-							icon={ScrollText}
-							title={lines.length === 0 ? t("logPanel.waiting") : t("logPanel.noMatch")}
-						/>
+						<div className="py-8 text-center font-sans text-omp-sm text-(--omp-dim)">
+							{lines.length === 0 ? t("logPanel.waiting") : t("logPanel.noMatch")}
+						</div>
 					) : (
-						filtered.map(line => {
-							const open = openLines.has(line.seq);
-							return (
-								<div
-									className={cx("omp-log-line px-3 py-0.5", line.fields && "cursor-pointer")}
-									data-level={line.level}
-									data-open={open || undefined}
-									key={line.seq}
-									onClick={() => {
-										if (!line.fields || window.getSelection()?.toString()) return;
-										setOpenLines(previous => {
-											const next = new Set(previous);
-											if (next.has(line.seq)) next.delete(line.seq);
-											else next.add(line.seq);
-											return next;
-										});
-									}}
-								>
-									<div className="flex min-w-0 items-baseline gap-2">
-										{line.time && <span className="shrink-0 tabular-nums text-(--omp-dim)">{line.time}</span>}
-										{line.levelName && (
-											<span className={cx("w-[5ch] shrink-0 truncate", LEVEL_CLASS[line.level])}>
-												{line.levelName}
-											</span>
-										)}
-										<span
-											className={cx(
-												"min-w-0 flex-1 break-words whitespace-pre-wrap",
-												line.levelName ? "text-(--omp-text)" : LEVEL_CLASS[line.level],
-											)}
-										>
-											{line.message}
-										</span>
-									</div>
-									{line.fields && (
-										<div
-											className={cx(
-												"omp-log-fields break-all text-(--omp-dim)",
-												line.time && "pl-[calc(8ch+0.5rem)]",
-												!open && "line-clamp-1",
-											)}
-										>
-											{line.fields}
-										</div>
-									)}
-								</div>
-							);
-						})
+						filtered.map(line => (
+							<div className={`break-all whitespace-pre-wrap ${LEVEL_CLASS[line.level]}`} key={line.seq}>
+								{line.text}
+							</div>
+						))
 					)}
 				</div>
 				{!pinned && (
 					<button
 						aria-label={t("logPanel.jumpLabel")}
-						className="omp-pressable omp-pop-in absolute right-3 bottom-3 flex items-center gap-1 rounded-full border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2.5 py-1 text-omp-xs text-(--omp-muted) shadow-(--omp-shadow-sm) hover:text-(--omp-text)"
+						className="absolute right-3 bottom-3 flex items-center gap-1 rounded-full border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2 py-1 text-omp-xs text-(--omp-muted) shadow-(--omp-shadow-sm) transition-colors hover:text-(--omp-text)"
 						onClick={jumpToBottom}
 						type="button"
 					>
-						<ArrowDown size={11} />
+						<ArrowDown size={10} />
 						{t("logPanel.latest")}
 					</button>
 				)}

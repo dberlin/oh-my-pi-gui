@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	MAX_PERSISTED_TABS,
 	MAX_PERSISTED_TITLE,
 	sanitizePersistedTabLayout,
 	sanitizePersistedTabLayouts,
@@ -181,21 +182,19 @@ describe("persisted tab layout", () => {
 		).toEqual(value);
 	});
 
-	it("rejects malformed or empty snapshots and keeps every tab of a large one", () => {
+	it("rejects malformed or empty snapshots and enforces the sidecar cap", () => {
 		expect(sanitizePersistedTabLayout(null, pathChecks([], []))).toBeNull();
 		expect(sanitizePersistedTabLayout({ version: 2, tabs: [] }, pathChecks([], []))).toBeNull();
 		expect(sanitizePersistedTabLayout({ version: 1, activeIndex: 0, tabs: [] }, pathChecks([], []))).toBeNull();
 
-		// No tab cap: restored tabs start deferred, so a 12-tab window comes back
-		// whole with focus on its last tab.
-		const tabs = Array.from({ length: 12 }, (_, index) => ({
+		const tabs = Array.from({ length: MAX_PERSISTED_TABS + 2 }, (_, index) => ({
 			cwd: `/workspace-${index}`,
 			kind: "agent",
 		}));
 		const directories = tabs.map(tab => tab.cwd);
-		const restored = sanitizePersistedTabLayout({ version: 1, activeIndex: 11, tabs }, pathChecks(directories, []));
-		expect(restored?.tabs).toHaveLength(12);
-		expect(restored?.activeIndex).toBe(11);
+		expect(
+			sanitizePersistedTabLayout({ version: 1, activeIndex: 11, tabs }, pathChecks(directories, []))?.tabs,
+		).toHaveLength(MAX_PERSISTED_TABS);
 	});
 });
 
@@ -235,14 +234,26 @@ describe("persisted session (all windows)", () => {
 		expect(restored).toEqual([second]);
 	});
 
-	it("restores every window whole, with no tab budget shared across windows", () => {
+	it("shares the sidecar budget across windows and stops once it is spent", () => {
 		const paths = pathChecks(dirs("a", "b"), []);
-		const split = { axis: "rows", firstIndex: 2, secondIndex: 3, ratio: 0.5 };
-		const restored = sanitizePersistedTabLayouts([layout(10, "a"), { ...layout(4, "b", 3), split }], paths);
 
-		expect(restored.map(entry => entry.tabs.length)).toEqual([10, 4]);
-		expect(restored[1]?.activeIndex).toBe(3);
-		expect(restored[1]?.split).toEqual(split);
+		// Window 1 alone consumes the pool's capacity: window 2 restores nothing.
+		const full = sanitizePersistedTabLayouts([layout(MAX_PERSISTED_TABS, "a"), layout(2, "b")], paths);
+		expect(full.map(entry => entry.tabs.length)).toEqual([MAX_PERSISTED_TABS]);
+
+		// A partial overflow trims the last window's tabs, clamps its focus, and
+		// drops a split whose panes no longer both exist.
+		const overflowing = sanitizePersistedTabLayouts(
+			[
+				layout(MAX_PERSISTED_TABS - 2, "a"),
+				{ ...layout(4, "b", 3), split: { axis: "rows", firstIndex: 2, secondIndex: 3, ratio: 0.5 } },
+			],
+			paths,
+		);
+		expect(overflowing.map(entry => entry.tabs.length)).toEqual([MAX_PERSISTED_TABS - 2, 2]);
+		expect(overflowing[1]?.tabs.map(tab => tab.cwd)).toEqual(["/b-0", "/b-1"]);
+		expect(overflowing[1]?.activeIndex).toBe(1);
+		expect(overflowing[1]?.split).toBeUndefined();
 	});
 
 	it("returns nothing for a session with no restorable window", () => {

@@ -40,7 +40,15 @@ function installMockOmp(): MockOmp {
 }
 
 function tab(id: string, overrides: Partial<SessionTab> = {}): SessionTab {
-	return { kind: "agent", id, cwd: `/work/${id}`, target: { type: "local" }, status: "ready", unreadDone: false, ...overrides };
+	return {
+		kind: "agent",
+		id,
+		cwd: `/work/${id}`,
+		target: { type: "local" },
+		status: "ready",
+		unreadDone: false,
+		...overrides,
+	};
 }
 
 let omp: MockOmp;
@@ -104,6 +112,24 @@ describe("closeActiveTab", () => {
 		expect(useUiStore.getState().armedCloseTab).toBeNull();
 		expect(useTabsStore.getState().tabs.map(entry => entry.id)).toEqual(["b"]);
 	});
+
+	it.each([
+		{ runState: "failed", compacting: true, streaming: false },
+		{ runState: "completed", compacting: false, streaming: true },
+		{ runState: "idle", compacting: false, streaming: true },
+	] as const)(
+		"retains close confirmation for $runState when fresh live work exists",
+		({ runState, compacting, streaming }) => {
+			useTabsStore.setState({
+				tabs: [tab("a", { runState, compacting }), tab("b")],
+				activeTabId: "a",
+			});
+			useSessionStore.setState({ isStreaming: streaming, isCompacting: false });
+			expect(closeActiveTab()).toBe("armed");
+			expect(useUiStore.getState().armedCloseTab).toEqual({ tabId: "a" });
+			expect(useTabsStore.getState().tabs.map(entry => entry.id)).toEqual(["a", "b"]);
+		},
+	);
 
 	it("routes a worktree tab's close to the cleanup prompt instead of dropping the checkout", async () => {
 		useTabsStore.setState({

@@ -1,7 +1,7 @@
 /**
- * ⇧⌘F conversation search: finds what you or omp said in any session — never
- * tool output — and opens the session at that message. Results are grouped by
- * session, newest activity first; matches are highlighted in a one-line snippet.
+ * ⇧⌘F conversation search: finds what you or omp said in saved LOCAL sessions,
+ * never SSH history or tool output, and opens the session at that message.
+ * Results are grouped by session, newest activity first.
  */
 import { History, MessageSquare, Search, Sparkles, User } from "lucide-react";
 import {
@@ -26,7 +26,9 @@ import { basename, cx, formatClock, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useSessionStore } from "../../stores/session";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
+import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { Spinner } from "../common";
 import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
@@ -68,14 +70,20 @@ export function ConversationSearchDialog() {
 function SearchPanel() {
 	const t = useT();
 	const close = useUiStore(state => state.closeConversationSearch);
-	const cwd = useSessionStore(state => state.cwd) || null;
+	const tabId = useRuntimeTabId();
+	const remote = useTabsStore(
+		state => state.tabs.find(tab => tab.id === (tabId ?? state.activeTabId))?.target.type === "ssh",
+	);
+	const sessionCwd = useSessionStore(state => state.cwd);
+	// An SSH project's cwd is not a local project scope, even if the paths match.
+	const cwd = remote ? null : sessionCwd || null;
 	const aliases = useSidebarPrefs(state => state.groupAliases);
 
 	const [query, setQuery] = useState("");
 	const [scope, setScope] = useState<Scope>(loadScope);
 	const [response, setResponse] = useState<ConversationSearchResponse | null>(null);
 	/** The query and scope the shown response answers. */
-	const [answered, setAnswered] = useState<{ query: string; scope: Scope } | null>(null);
+	const [answered, setAnswered] = useState<{ query: string; scope: Scope; cwd: string | null } | null>(null);
 	const [failed, setFailed] = useState(false);
 	const [slow, setSlow] = useState(false);
 	const [activeIndex, setActiveIndex] = useState(0);
@@ -87,6 +95,12 @@ function SearchPanel() {
 
 	const effectiveScope: Scope = cwd ? scope : "all";
 	const trimmed = query.trim();
+	const scopeCwd = effectiveScope === "project" ? cwd : null;
+	const canActivateHits =
+		!failed &&
+		answered?.query === trimmed &&
+		answered.scope === effectiveScope &&
+		answered.cwd === scopeCwd;
 
 	// Dialog layer, focus in on open and back out on close, Tab kept inside.
 	useEffect(() => {
@@ -141,7 +155,7 @@ function SearchPanel() {
 					if (mine !== seq.current) return;
 					clearTimeout(spinner);
 					setResponse(next);
-					setAnswered({ query: trimmed, scope: effectiveScope });
+					setAnswered({ query: trimmed, scope: effectiveScope, cwd: scopeCwd });
 					setFailed(false);
 					setSlow(false);
 					if (next.indexing) poll = window.setTimeout(run, INDEXING_POLL_MS);
@@ -155,11 +169,12 @@ function SearchPanel() {
 		};
 		const debounce = window.setTimeout(run, trimmed ? DEBOUNCE_MS : 0);
 		return () => {
+			if (seq.current === mine) seq.current++;
 			clearTimeout(debounce);
 			clearTimeout(spinner);
 			clearTimeout(poll);
 		};
-	}, [trimmed, effectiveScope, cwd]);
+	}, [trimmed, effectiveScope, cwd, scopeCwd]);
 
 	// Results only ever answer the query on screen; an empty query lists recents.
 	const results = trimmed ? (response?.results ?? []) : [];
@@ -187,12 +202,13 @@ function SearchPanel() {
 
 	const openHit = useCallback(
 		(item: FlatHit, newTab: boolean) => {
+			if (!canActivateHits) return;
 			// Saved before closing: the dialog unmounts with it.
 			rememberSearch(recent, trimmed);
 			close();
-			openConversationHit(item, { newTab, currentCwd: cwd });
+			void openConversationHit(item, { newTab, currentCwd: cwd });
 		},
-		[close, cwd, recent, trimmed],
+		[canActivateHits, close, cwd, recent, trimmed],
 	);
 
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -243,6 +259,7 @@ function SearchPanel() {
 					active ? "bg-(--omp-selected-bg)" : "hover:bg-(--omp-bg-tertiary)",
 				)}
 				data-search-index={index}
+				disabled={!canActivateHits}
 				key={`${item.result.path}:${item.hit.entryId}`}
 				onClick={(event: ReactMouseEvent) => openHit(item, event.metaKey || event.ctrlKey)}
 				onMouseMove={() => setActiveIndex(index)}

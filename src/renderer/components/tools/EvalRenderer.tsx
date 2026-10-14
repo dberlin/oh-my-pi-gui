@@ -31,7 +31,7 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult }
 				<div>
 					<div
 						className={
-							"mb-0.5 text-omp-xxs font-semibold " +
+							"mb-0.5 text-omp-xxs font-semibold uppercase tracking-wider " +
 							(isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")
 						}
 					>

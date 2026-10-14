@@ -4,7 +4,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
  * login providers, current model highlighted. Selection calls set_model.
  */
 
-import { Check, Cpu, Plus, Search, TriangleAlert } from "lucide-react";
+import { Check, Cpu, Search, TriangleAlert } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	useCallback,
@@ -290,7 +290,9 @@ export function ModelPicker() {
 								<section aria-label={provider} className="mb-1" key={provider} role="group">
 									<div className="flex items-center gap-2 px-2.5 pt-2 pb-1">
 										<Cpu className="shrink-0 text-(--omp-dim)" size={10} />
-										<span className="text-omp-xxs font-semibold text-(--omp-dim)">{provider}</span>
+										<span className="text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
+											{provider}
+										</span>
 										{auth && (
 											<Badge variant={auth.authenticated ? "success" : auth.available ? "warning" : "muted"}>
 												{auth.authenticated
@@ -410,20 +412,6 @@ export function ModelPicker() {
 							);
 						})
 					)}
-				</div>
-				{/* Adding a model means adding (or signing in to) its provider. */}
-				<div className="flex shrink-0 items-center border-t border-(--omp-border-muted) px-3 py-2">
-					<button
-						type="button"
-						className="omp-pressable flex items-center gap-1.5 rounded-md px-1.5 py-1 text-omp-sm text-(--omp-muted) hover:bg-(--omp-selected-bg) hover:text-(--omp-text)"
-						onClick={() => {
-							close();
-							openProviders();
-						}}
-					>
-						<Plus aria-hidden size={13} />
-						{t("modelPicker.addModels")}
-					</button>
 				</div>
 			</div>
 		</Modal>

@@ -79,6 +79,8 @@ interface UiStore {
 	armedCloseTab: { tabId: string } | null;
 	/** PR Center fullscreen panel (plan/21). */
 	prCenterOpen: boolean;
+	/** Local saved-conversation search (⇧⌘F / ⇧⌃F). */
+	conversationSearchOpen: boolean;
 	sessionPickerOpen: boolean;
 	branchPickerOpen: boolean;
 	sessionTreeOpen: boolean;
@@ -198,6 +200,8 @@ interface UiStore {
 	cancelCloseTab: () => void;
 	openPrCenter: () => void;
 	closePrCenter: () => void;
+	openConversationSearch: () => void;
+	closeConversationSearch: () => void;
 	openSessionPicker: () => void;
 	closeSessionPicker: () => void;
 	openBranchPicker: () => void;
@@ -413,6 +417,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	prCenterOpen: false,
 	openPrCenter: () => set({ prCenterOpen: true }),
 	closePrCenter: () => set({ prCenterOpen: false }),
+	conversationSearchOpen: false,
+	openConversationSearch: () => set({ conversationSearchOpen: true }),
+	closeConversationSearch: () => set({ conversationSearchOpen: false }),
 	sessionPickerOpen: false,
 	openSessionPicker: () => set({ sessionPickerOpen: true }),
 	closeSessionPicker: () => set({ sessionPickerOpen: false }),
@@ -457,6 +464,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			worktreeClosePrompt: null,
 			armedCloseTab: null,
 			prCenterOpen: false,
+			conversationSearchOpen: false,
 			filePreviewPath: null,
 			sessionPickerOpen: false,
 			branchPickerOpen: false,

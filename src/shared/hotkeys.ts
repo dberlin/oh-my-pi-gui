@@ -32,8 +32,6 @@ export const NATIVE_CHORDS = [
 	// ⌘W closes a TAB and lives in the renderer keymap, so the window-level
 	// close has to sit one modifier away or the two chords would fight.
 	{ id: "window.close", labelKey: "hotkeys.row.windowClose", chord: "⇧⌘W", accelerator: "CmdOrCtrl+Shift+W" },
-	// Find in the browser panel's page. A page that takes ⌘F itself keeps it.
-	{ id: "browser.find", labelKey: "hotkeys.row.findInPage", chord: "⌘F", accelerator: "CmdOrCtrl+F" },
 ] as const satisfies readonly NativeChord[];
 
 export type NativeChordId = (typeof NATIVE_CHORDS)[number]["id"];

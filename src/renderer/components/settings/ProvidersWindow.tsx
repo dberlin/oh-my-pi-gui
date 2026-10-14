@@ -8,7 +8,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { Edit, ExternalLink, Globe, LogIn, LogOut, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CustomProviderView } from "../../../shared/ipc-types";
-import type { LogoutAccount, ProviderDiscoveryState, ProviderInfo, ProvidersResult } from "../../../shared/rpc-types";
+import type { ProviderDiscoveryState, ProviderInfo, ProvidersResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
@@ -47,19 +47,14 @@ export function resolveProviderEditAction(
 	return config && !config.builtin ? { kind: "config", provider: config } : null;
 }
 
-/** Only user-required discovery failures should become settings errors. */
-/**
- * Discovery failures worth surfacing: only providers the user has signed in to
- * or configured. A fresh install probes every bundled catalog, and a refresh
- * failure for a provider nobody uses is noise, not a problem to fix.
- */
+/** Hide unused catalog probes, but retain failures for authenticated or configured providers. */
 export function providerDiscoveryErrors(
 	states: readonly ProviderDiscoveryState[],
 	fallbackMessage: string,
 	inUse: ReadonlySet<string>,
 ): string[] {
 	return states
-		.filter(state => state.status === "unavailable" && !state.optional && inUse.has(state.provider))
+		.filter(state => state.status === "unavailable" && inUse.has(state.provider))
 		.map(state => `${state.provider}: ${state.error ?? fallbackMessage}`);
 }
 export function ProviderRow({
@@ -262,21 +257,10 @@ export function ProvidersWindow({ pollMs = 2_500 }: { pollMs?: number }) {
 		const name = providers.find(p => p.id === providerId)?.name ?? providerId;
 		setBusyProvider(providerId);
 		try {
-			// Upstream logout is credential-scoped: sign out every stored
-			// credential for the provider to preserve the row's "log out"
-			// semantics.
-			const accountsRes = await tabRpc.getLogoutAccounts(providerId);
-			if (!accountsRes.success) {
-				toast({ variant: "error", title: t("providers.logoutFailed"), message: accountsRes.error });
+			const res = await tabRpc.logout(providerId);
+			if (!res.success) {
+				toast({ variant: "error", title: t("providers.logoutFailed"), message: res.error });
 				return;
-			}
-			const accounts = (accountsRes.data as { accounts?: LogoutAccount[] } | undefined)?.accounts ?? [];
-			for (const account of accounts) {
-				const res = await tabRpc.logout(providerId, account.credentialId);
-				if (!res.success) {
-					toast({ variant: "error", title: t("providers.logoutFailed"), message: res.error });
-					return;
-				}
 			}
 			// Non-forced is answered from a cache row that is still fresh, which is
 			// how a signed-out provider used to keep showing as authenticated.
@@ -323,7 +307,7 @@ export function ProvidersWindow({ pollMs = 2_500 }: { pollMs?: number }) {
 	const unauthenticated = providers.filter(p => !p.authenticated);
 	const providersInUse = new Set([
 		...authenticated.map(provider => provider.id),
-		...customConfigs.filter(config => !config.builtin).map(config => config.id),
+		...customConfigs.map(config => config.id),
 	]);
 	const discoveryErrors = providerDiscoveryErrors(
 		discoveryStates,
@@ -339,7 +323,7 @@ export function ProvidersWindow({ pollMs = 2_500 }: { pollMs?: number }) {
 			<Modal open={open} onClose={close} title={t("providers.title")} size="lg">
 				<div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto">
 					<div className="flex items-center justify-between">
-						<span className="text-omp-sm font-semibold text-[var(--omp-muted)]">
+						<span className="text-omp-sm font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
 							{t("providers.authenticated")}
 						</span>
 						<div className="flex items-center gap-1.5">
@@ -393,7 +377,7 @@ export function ProvidersWindow({ pollMs = 2_500 }: { pollMs?: number }) {
 						</div>
 					)}
 					{discoveryErrors.length > 0 && (
-						<div className="rounded-md border border-[var(--omp-warning)]/35 bg-[var(--omp-warning)]/10 px-3 py-2 text-omp-md text-[var(--omp-text-secondary)]">
+						<div className="rounded-md bg-[var(--omp-tool-error-bg)] px-3 py-2 text-omp-md text-[var(--omp-error)]">
 							{t("providers.discoveryFailed", { details: discoveryErrors.join("; ") })}
 						</div>
 					)}
@@ -437,7 +421,7 @@ export function ProvidersWindow({ pollMs = 2_500 }: { pollMs?: number }) {
 
 					{unauthenticated.length > 0 && (
 						<>
-							<span className="text-omp-sm font-semibold text-[var(--omp-muted)]">
+							<span className="text-omp-sm font-semibold uppercase tracking-wider text-[var(--omp-muted)]">
 								{t("providers.available")}
 							</span>
 							<div className="flex flex-col gap-2">

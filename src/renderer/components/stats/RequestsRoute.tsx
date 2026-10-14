@@ -69,7 +69,9 @@ function DetailDrawer({ row, onClose }: { row: RequestRow; onClose: () => void }
 						[t("stats.requests.detail.cacheWrite"), compact(row.usage?.cacheWrite ?? 0)],
 					].map(([label, value]) => (
 						<div className="rounded-md border border-(--omp-border-muted) px-2.5 py-1.5" key={label}>
-							<div className="text-omp-xxs font-semibold text-(--omp-dim)">{label}</div>
+							<div className="text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
+								{label}
+							</div>
 							<div className="mt-0.5 truncate font-mono text-(--omp-text)">{value}</div>
 						</div>
 					))}

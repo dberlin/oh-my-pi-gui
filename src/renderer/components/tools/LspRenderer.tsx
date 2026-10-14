@@ -282,7 +282,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult, v
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<Braces size={12} className="shrink-0 text-[var(--omp-syntax-type)]" />
-				<span className="rounded bg-[var(--omp-syntax-type)]/15 px-1 py-px text-omp-xxs font-semibold text-[var(--omp-syntax-type)]">
+				<span className="rounded bg-[var(--omp-syntax-type)]/15 px-1 py-px text-omp-xxs font-semibold uppercase tracking-wider text-[var(--omp-syntax-type)]">
 					{operation}
 				</span>
 				{requestFile && (

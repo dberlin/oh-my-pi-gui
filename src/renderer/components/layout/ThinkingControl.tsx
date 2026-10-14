@@ -137,7 +137,7 @@ export function ThinkingControl() {
 				aria-haspopup="menu"
 				onClick={() => setOpen(value => !value)}
 				title={t("input.thinking", { level: t(`input.thinking.name.${current}`) })}
-				className="omp-pressable flex h-8 items-center gap-1.5 rounded-full px-2.5 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]"
+				className="omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]"
 				style={{ color: `var(--omp-thinking-${thinkingLevel ?? "off"})` }}
 			>
 				<Brain size={14} />

@@ -6,11 +6,19 @@
  * Exercises buildCommandMenu directly with a mocked window.omp.rpc.
  */
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { RpcCommand } from "../../shared/rpc-types";
 import { useSessionStore } from "../stores/session";
+import { deleteSessionRuntime, setFocusedSessionRuntime } from "../stores/session-runtime-context";
+import { createTabRuntime } from "../stores/tab-runtime";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useUiStore } from "../stores/ui";
-import { buildCommandMenu, type CommandAffordance, type CommandRegistryContext } from "./command-registry";
+import {
+	buildCommandMenu,
+	type CommandAffordance,
+	type CommandRegistryContext,
+	retryFailedTurn,
+} from "./command-registry";
 import { translate } from "./i18n";
 
 const ok = (data?: unknown) => ({ type: "response" as const, command: "x", success: true as const, data });
@@ -48,7 +56,6 @@ const baseCtx: CommandRegistryContext = {
 	openThemePicker: () => {},
 	openModes: () => {},
 	openAgentHub: () => {},
-	openMemory: () => {},
 	openPrCenter: () => {},
 	openHotkeys: () => {},
 	openImportDialog: () => {},
@@ -114,11 +121,15 @@ beforeEach(() => {
 	useToastStore.setState({ toasts: [] });
 	useSessionStore.setState({ isStreaming: false, isCompacting: false, prewalkArmed: false });
 	useUiStore.setState({ forceToolOpen: false });
+	useUiStore.setState({ conversationSearchOpen: false });
 });
 
 afterEach(() => {
+	setFocusedSessionRuntime(null);
+	deleteSessionRuntime("native-retry");
 	delete (globalThis as Record<string, unknown>).window;
 	useTodoStore.getState().reset();
+	useUiStore.setState({ conversationSearchOpen: false });
 });
 
 const wired = (name: string): CommandAffordance => {
@@ -132,6 +143,17 @@ const wired = (name: string): CommandAffordance => {
 	if (!item) throw new Error(`missing submenu item: ${name}`);
 	return item.affordance;
 };
+
+describe("conversation search palette action", () => {
+	it("opens the local search dialog and exposes find/conversations aliases", () => {
+		const item = buildCommandMenu(ctx).find(item => item.name === "search");
+		expect(item?.aliases).toEqual(["find", "conversations"]);
+		if (item?.affordance.kind !== "window") throw new Error("expected search window affordance");
+		item.affordance.open();
+		expect(useUiStore.getState().conversationSearchOpen).toBe(true);
+		expect(dispatchMock).not.toHaveBeenCalled();
+	});
+});
 
 describe("one-shot action wiring", () => {
 	it("prewalk toggle arms via set_prewalk and mirrors the server state into the store", async () => {
@@ -268,5 +290,35 @@ describe("one-shot action wiring", () => {
 		await affordance.run();
 		expect(sidecarRestart).not.toHaveBeenCalled();
 		expect(lastToast()?.variant).toBe("warning");
+	});
+});
+
+describe("native failed-turn retry command", () => {
+	it("uses vanilla's prompt admission path rather than an unsupported retry wire command", async () => {
+		const commands: RpcCommand[] = [];
+		window.omp.rpc.commandForTab = async (_tabId, command) => {
+			commands.push(command);
+			return { type: "response", command: "prompt", success: true, data: { agentInvoked: true } };
+		};
+		createTabRuntime("native-retry");
+		setFocusedSessionRuntime("native-retry");
+		await retryFailedTurn();
+		expect(commands.map(command => [command.type, "message" in command ? command.message : null])).toEqual([
+			["prompt", "/retry"],
+		]);
+		expect(useToastStore.getState().toasts).toEqual([]);
+	});
+
+	it("reports native retry's acknowledged no-op without reporting a delivery failure", async () => {
+		window.omp.rpc.commandForTab = async () => ({
+			type: "response",
+			command: "prompt",
+			success: true,
+			data: { agentInvoked: false },
+		});
+		createTabRuntime("native-retry");
+		setFocusedSessionRuntime("native-retry");
+		await retryFailedTurn();
+		expect(useToastStore.getState().toasts.map(entry => entry.variant)).toEqual(["warning"]);
 	});
 });

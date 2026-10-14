@@ -40,49 +40,38 @@ export function isSettingVisible(entry: SettingEntry, values: Record<string, unk
 }
 
 /** Terminal display settings and equivalents owned by GUI preferences. */
-const TERMINAL_DISPLAY_SETTINGS = new Set([
-	...GUI_DISPLAY_LEGACY_PATHS,
-	"tui.resizeScrollback",
-	"statusLine.preset",
-	"display.showTurnTime",
-	"theme.dark",
-	"theme.light",
-	"tui.tight",
-	"colorBlindMode",
-	"spelling.typoDetection",
-	"spelling.autocomplete",
-	"spelling.autocorrect",
-	// Vim mode's indicator is rendered only by the TUI status line. Keeping the
-	// schema row out of the GUI prevents a control that can never affect this
-	// renderer from being advertised under a conditional gate.
-	"tui.vimModeDisplay",
-	"tui.mouse",
-	"tui.maxInlineImageColumns",
-	"tui.maxInlineImageRows",
-	"tui.maxInlineImages",
-	"statusLine.leftSegments",
-	"statusLine.rightSegments",
-	"statusLine.segmentOptions",
-	// Predictions render as TUI composer ghost text and only interactive mode
-	// runs them; in the GUI the toggle would do nothing.
-	"composer.predictions",
-	// OSC 7501 status goes to the hosting terminal, which the GUI is not.
-	"terminal.programStatus",
-	// Consumed only by the TUI input controller; GUI submission goes through RPC.
-	"input.bareExitOnEmptySession",
-	"input.bareSlashCommands",
-	// Rendered only by TUI transcript widgets; the GUI renders its own
-	// thinking blocks and subagent rows.
-	"expandThinkingBlocks",
-	"display.subagentLivePreview",
-	// These invite the agent to emit terminal-graphics output (sixels/inline
-	// images and auto-drawn charts) that the GUI does not render.
-	"tui.renderSvg",
-	"tui.autoGraph",
-]);
+const TERMINAL_DISPLAY_SETTINGS: Record<string, true> = {
+	...Object.fromEntries(GUI_DISPLAY_LEGACY_PATHS.map(path => [path, true as const])),
+	"tui.resizeScrollback": true,
+	"statusLine.preset": true,
+	"display.showTurnTime": true,
+	"theme.dark": true,
+	"theme.light": true,
+	"tui.tight": true,
+	colorBlindMode: true,
+	"spelling.typoDetection": true,
+	"spelling.autocomplete": true,
+	"spelling.autocorrect": true,
+	"tui.vimModeDisplay": true,
+	"tui.mouse": true,
+	"tui.maxInlineImageColumns": true,
+	"tui.maxInlineImageRows": true,
+	"tui.maxInlineImages": true,
+	"statusLine.leftSegments": true,
+	"statusLine.rightSegments": true,
+	"statusLine.segmentOptions": true,
+	"composer.predictions": true,
+	"terminal.programStatus": true,
+	"input.bareExitOnEmptySession": true,
+	"input.bareSlashCommands": true,
+	expandThinkingBlocks: true,
+	"display.subagentLivePreview": true,
+	"tui.renderSvg": true,
+	"tui.autoGraph": true,
+};
 
 export function isSettingSupportedInGui(entry: { path?: string; tuiOnly?: boolean }): boolean {
-	return entry.tuiOnly !== true && !TERMINAL_DISPLAY_SETTINGS.has(entry.path ?? "");
+	return entry.tuiOnly !== true && TERMINAL_DISPLAY_SETTINGS[entry.path ?? ""] !== true;
 }
 
 export function isSettingVisibleInGui(entry: SettingEntry, values: Record<string, unknown>): boolean {

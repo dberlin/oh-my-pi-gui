@@ -24,18 +24,7 @@ import { useUiStore } from "../../stores/ui";
  *    in-app file preview instead, which reads over the same remote-aware
  *    `fs:read` bridge the Files panel uses.
  */
-export function PathLink({
-	path,
-	children,
-	className,
-	label,
-}: {
-	path: string;
-	children?: ReactNode;
-	className?: string;
-	/** Accessible name + tooltip for icon-only links; defaults to the path. */
-	label?: string;
-}) {
+export function PathLink({ path, children, className }: { path: string; children?: ReactNode; className?: string }) {
 	const t = useT();
 	const runtimeTabId = useRuntimeTabId();
 	const tabId = useTabsStore(state => {
@@ -72,8 +61,7 @@ export function PathLink({
 	return (
 		<button
 			type="button"
-			title={label ?? path}
-			aria-label={label}
+			title={path}
 			onClick={event => {
 				event.stopPropagation();
 				void open();

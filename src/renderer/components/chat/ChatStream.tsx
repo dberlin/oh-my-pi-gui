@@ -1,13 +1,14 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import type { ToolCallContent } from "../../../shared/rpc-types";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueuedMessages } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
-import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
+import { TRANSCRIPT_FOCUS_TTL_MS, useTranscriptFocusStore } from "../../stores/transcript-focus";
 import { toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { SubagentTranscript } from "../panels/SubagentTranscript";
@@ -22,6 +23,26 @@ export function ChatCanvas({
 	onConversationNavigationChange?: (navigation: ConversationNavigationModel | null) => void;
 }) {
 	const mainSelected = useAgentViewStore(state => state.target.kind === "main");
+	const tabId = useRuntimeTabId();
+	const agentView = useRuntimeStore("agentView", useAgentViewStore);
+	const sessionFile = useSessionStore(state => state.sessionFile);
+	const focusTarget = useTranscriptFocusStore(state => state.target);
+	const tab = useTabsStore(state => state.tabs.find(tab => tab.id === (tabId ?? state.activeTabId)));
+	// A cold owner may resume only after saved-model consent. Its selected
+	// subagent stays intact on refusal; reveal Main once the local owner is live.
+	// Actual message unfolding/locating remains in TranscriptViewport.
+	useEffect(() => {
+		if (
+			mainSelected ||
+			!focusTarget ||
+			focusTarget.sessionPath !== sessionFile ||
+			Date.now() - focusTarget.requestedAt > TRANSCRIPT_FOCUS_TTL_MS ||
+			tab?.target.type !== "local" ||
+			tab.restoringSession ||
+			(tab.status !== "ready" && tab.status !== "running")
+		) return;
+		agentView.getState().selectMain();
+	}, [agentView, focusTarget, mainSelected, sessionFile, tab]);
 	return mainSelected ? (
 		<ChatStream onConversationNavigationChange={onConversationNavigationChange} />
 	) : (

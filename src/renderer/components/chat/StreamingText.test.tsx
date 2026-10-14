@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
+import { loadHljs } from "../../lib/highlight";
 import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { StreamingText } from "./StreamingText";
@@ -77,46 +78,132 @@ describe("StreamingText presentation", () => {
 
 		await flushFrame();
 		expect(container.querySelector(".omp-streaming-tail")?.textContent).toBe("ABC");
+		expect(container.querySelector(".omp-streaming-tail p")?.textContent).toBe("ABC");
 	});
 
-	/**
-	 * The unfinished block used to render as raw text and reflow into formatting
-	 * once its paragraph closed: `**`, backticks and table pipes flashed on screen
-	 * and every block jumped. It now renders formatted while it grows.
-	 */
-	it("renders the unfinished block formatted instead of as raw Markdown", async () => {
-		await mount("- **Structure**: a demo with `README.md` and **unfinished `co");
-
-		const tail = container.querySelector(".omp-streaming-tail");
-		expect(tail?.querySelector("li")).not.toBeNull();
-		expect(tail?.querySelectorAll("strong").map(node => node.textContent)).toEqual(["Structure", "unfinished co"]);
-		expect(tail?.querySelectorAll("code").map(node => node.textContent)).toEqual(["README.md", "co"]);
-		expect(tail?.textContent).not.toContain("**");
-		expect(tail?.textContent).not.toContain("`");
-	});
-
-	it("holds a table back until its delimiter row is complete", async () => {
-		await mount("| File | Status |\n| --- | --");
-		expect(container.querySelector(".omp-streaming-tail")?.textContent).not.toContain("|");
-
+	it("keeps rapid updates pending until the next bounded formatting commit", async () => {
+		await mount("**A");
 		await act(async () => {
-			useMessagesStore.setState({ streamingText: "| File | Status |\n| --- | --- |\n| README.md | modi" });
+			useMessagesStore.setState({ streamingText: "**AB" });
 		});
 		await flushFrame();
-		const tail = container.querySelector(".omp-streaming-tail");
-		expect(tail?.querySelectorAll("th").map(node => node.textContent)).toEqual(["File", "Status"]);
-		expect(tail?.querySelectorAll("td").map(node => node.textContent)).toEqual(["README.md", "modi"]);
+		await act(async () => {
+			useMessagesStore.setState({ streamingText: "**ABC" });
+		});
+		await flushFrame(10);
+		expect(container.querySelector("strong")?.textContent).toBe("AB");
+		await flushFrame(30);
+		expect(container.querySelector("strong")?.textContent).toBe("ABC");
 	});
 
-	it("keeps the caret on the last rendered line", async () => {
-		await mount("Intro paragraph.\n\n- first\n- second ite");
+	it("formats unfinished bold text inside a growing list item", async () => {
+		await mount("- First **important");
+		expect(container.querySelector(".omp-streaming-tail li strong")?.textContent).toBe("important");
+		expect(container.querySelector(".omp-streaming-tail li")?.textContent).toBe("First important");
 
-		const marked = container.querySelectorAll("[data-omp-caret]");
-		expect(marked).toHaveLength(1);
-		expect(marked[0]?.textContent).toBe("second ite");
+		await act(async () => {
+			useMessagesStore.setState({ streamingText: "- First **important**\n- Second **still growing" });
+		});
+		await flushFrame();
+		expect(container.querySelectorAll(".omp-streaming-tail li")).toHaveLength(2);
+		expect(container.querySelectorAll(".omp-streaming-tail strong").map(node => node.textContent)).toEqual([
+			"important",
+			"still growing",
+		]);
 	});
 
-	it("parses a completed paragraph once and keeps the unfinished suffix lightweight", async () => {
+	it.each([
+		["**bold and *both", "strong em", "both"],
+		["__bold", "strong", "bold"],
+		["Use ``a ` tick", "code", "a ` tick"],
+	])("formats incomplete inline markup %s", async (source, selector, expected) => {
+		await mount(source);
+		expect(container.querySelector(`.omp-streaming-tail ${selector}`)?.textContent).toBe(expected);
+	});
+
+	it.each([
+		["Use `<div", "<div"],
+		["Use `items[index", "items[index"],
+		["Use `<div`", "<div"],
+	])("preserves tag/link syntax inside completed and unfinished inline code %s", async (source, expected) => {
+		await mount(source);
+		expect(container.querySelector(".omp-streaming-tail code")?.textContent).toBe(expected);
+		expect(container.querySelector(".omp-streaming-tail a")).toBeNull();
+	});
+
+	it.each([
+		["Hello **bold** ending", "p"],
+		["- Use `code` ending", "li"],
+	])("places the caret after the trailing plain text in %s", async (source, endpoint) => {
+		await mount(source);
+		expect(container.querySelector(".omp-streaming-tail [data-omp-caret]")).toBe(
+			container.querySelector(`.omp-streaming-tail ${endpoint}`),
+		);
+	});
+
+	it("does not treat escaped delimiters or inline code content as emphasis", async () => {
+		await mount("Literal \\*\\*stars and `**code**` plus 2 * 3");
+		expect(container.querySelector(".omp-streaming-tail code")?.textContent).toBe("**code**");
+		expect(container.querySelector(".omp-streaming-tail strong, .omp-streaming-tail em")).toBeNull();
+		expect(container.querySelector(".omp-streaming-tail")?.textContent).toContain("Literal **stars");
+	});
+
+	it("does not briefly turn a partial next list marker into a heading", async () => {
+		await mount("- First\n-");
+		expect(container.querySelectorAll(".omp-streaming-tail li")).toHaveLength(1);
+		expect(container.querySelector("h1, h2, hr")).toBeNull();
+		await act(async () => {
+			useMessagesStore.setState({ streamingText: "- First\n- **Second" });
+		});
+		await flushFrame();
+		expect(container.querySelectorAll(".omp-streaming-tail li")).toHaveLength(2);
+		expect(container.querySelector(".omp-streaming-tail strong")?.textContent).toBe("Second");
+	});
+
+	it("keeps completed blocks mounted when the formatted tail grows", async () => {
+		await mount("Finished **paragraph**.\n\nLive **tail");
+		const block = container.querySelector(".omp-streaming-block");
+		block?.setAttribute("data-probe", "stable");
+		await act(async () => {
+			useMessagesStore.setState({ streamingText: "Finished **paragraph**.\n\nLive **tail grows" });
+		});
+		await flushFrame();
+		expect(container.querySelector("[data-probe='stable']")).toBe(block);
+		expect(container.querySelector(".omp-streaming-tail strong")?.textContent).toBe("tail grows");
+	});
+
+	it("sanitizes raw HTML and unsafe URLs in the formatted unfinished tail", async () => {
+		await mount(
+			'- **Safe** <span onclick="alert(1)" style="position:fixed" class="fixed">text</span>' +
+				'<script>alert(2)</script><iframe src="https://evil.invalid"></iframe> [unsafe](javascript:alert%283%29)',
+		);
+		expect(container.querySelector(".omp-streaming-tail strong")?.textContent).toBe("Safe");
+		expect(container.querySelector("script, iframe, [onclick], [style], .fixed")).toBeNull();
+		expect(container.querySelector("a")?.getAttribute("href") ?? "").not.toMatch(/^javascript:/i);
+		expect(container.textContent).not.toContain("alert(2)");
+	});
+
+	it("renders only projected input and replaces it without leaking another stream", async () => {
+		await mount("Main **secret**", <StreamingText text="- Subagent **isolated" />);
+		expect(container.querySelector("li strong")?.textContent).toBe("isolated");
+		await act(async () => {
+			useMessagesStore.setState({ streamingText: "Main **different secret**" });
+		});
+		await flushFrame();
+		expect(container.textContent).not.toContain("Main");
+
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<StreamingText text="Replacement **answer" />
+				</I18nProvider>,
+			);
+		});
+		expect(container.querySelector("strong")?.textContent).toBe("answer");
+		expect(container.textContent).not.toContain("Subagent");
+	});
+
+	it("promotes a completed paragraph without changing its formatted content", async () => {
 		const paragraph = "First **complete** paragraph.";
 		await mount(paragraph);
 
@@ -130,25 +217,37 @@ describe("StreamingText presentation", () => {
 		expect(container.querySelector(".omp-streaming-tail")?.textContent).toBe("Tail still growing");
 	});
 
-	it("grows an unfinished fence inside the final code chrome and highlights it once closed", async () => {
-		const unfinished = "```ts\nconst answer = 42;\n";
+	it("renders a partial fence as escaped code and highlights only after promotion", async () => {
+		await loadHljs();
+		const unfinished = "```ts\nconst answer = '<script>unsafe</script>';\n";
 		const completed = `${unfinished}\`\`\`\n`;
 		await mount(unfinished);
-		const live = container.querySelector(".omp-streaming-tail code.language-typescript");
-		expect(live?.textContent).toContain("const answer = 42;");
-		// Tokenizing every frame is what the plain live render avoids.
-		expect(live?.querySelector("[class^='hljs-']")).toBeNull();
-		expect(container.querySelector(".omp-streaming-tail")?.textContent).not.toContain("```");
+		const code = container.querySelector(".omp-streaming-tail code.language-typescript");
+		expect(code?.textContent).toBe("const answer = '<script>unsafe</script>';");
+		expect(code?.querySelector("span")).toBeNull();
+		expect(container.querySelector("script")).toBeNull();
+
+		await act(async () => {
+			useMessagesStore.setState({ streamingText: "```ts\nconst answer = 43;\n" });
+		});
+		await flushFrame();
+		expect(container.querySelector("code.language-typescript")?.textContent).toBe("const answer = 43;");
 
 		await act(async () => {
 			useMessagesStore.setState({ streamingText: completed });
 		});
 		await flushFrame();
-
 		expect(container.querySelector(".omp-streaming-block code.language-typescript")?.textContent).toContain(
-			"const answer = 42;",
+			"const answer = '<script>unsafe</script>';",
 		);
+		expect(container.querySelector(".omp-streaming-block code span")).not.toBeNull();
 		expect(container.querySelector(".omp-streaming-tail")?.textContent).toBe("");
+	});
+
+	it("shows an unfinished Mermaid fence as literal source, not a partial diagram", async () => {
+		await mount("```mermaid\ngraph TD\nA -->");
+		expect(container.querySelector(".omp-streaming-tail code.language-mermaid")?.textContent).toBe("graph TD\nA -->");
+		expect(container.querySelector(".omp-streaming-tail img")).toBeNull();
 	});
 	it("keeps an unfinished bracket equation together and typesets it when it closes", async () => {
 		const unfinished = String.raw`\[
@@ -172,5 +271,4 @@ TPS_{\text{decode}}
 		expect(container.querySelector("h1, h2, .katex-error")).toBeNull();
 		expect(container.querySelector(".omp-streaming-tail")?.textContent).toBe("Explanation");
 	});
-
 });

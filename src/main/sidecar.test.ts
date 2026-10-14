@@ -1,5 +1,7 @@
 import { type ChildProcess, spawn as spawnChild } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { withTimeout } from "../../../utils/src/async";
+import type { BrowserWindow } from "electron";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -9,10 +11,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import Store from "electron-store";
 import { describe, expect, it, vi } from "vitest";
 import { useComposerStore } from "../renderer/stores/composer";
-import type { SshSessionTarget } from "../shared/ipc-types";
+import { IPC_EVENTS, type SshSessionTarget } from "../shared/ipc-types";
 import type {
 	AgentSessionEvent,
 	CommandOutputFrame,
+	ExtensionUIRequest,
 	PromptResultFrame,
 	SessionSettledFrame,
 	SidecarStatus,
@@ -21,6 +24,9 @@ import type {
 import type { RemoteHostCatalog } from "./remote-host-catalog";
 import { type RemoteProcessRunner, RemoteSshService } from "./remote-ssh";
 import { createRemoteStdoutGuard, missingSidecarMessage, type SidecarFailureReport, SidecarManager } from "./sidecar";
+import { SidecarPool } from "./sidecar-pool";
+import { prepareModelRestoreOrigin } from "./model-recovery";
+import { type SpawnTabDeps, spawnTabForWindow } from "./tab-spawn";
 
 async function waitForReady(sidecar: SidecarManager): Promise<void> {
 	const ready = Promise.withResolvers<void>();
@@ -691,53 +697,54 @@ if (process.argv.includes("config")) {
 
 	it("creates a fresh local session over RPC before reporting ready", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-fresh-"));
-		const argvPath = path.join(tempDir, "argv.json");
-		const commandsPath = path.join(tempDir, "commands.json");
+		const statePath = path.join(tempDir, "state.json");
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
+		await fs.writeFile(statePath, JSON.stringify({ sessionId: "older-session", creations: 0 }));
 		await fs.writeFile(
 			binaryPath,
 			`#!/usr/bin/env bun
 import * as fs from "node:fs/promises";
 import { createInterface } from "node:readline";
-await fs.writeFile(${JSON.stringify(argvPath)}, JSON.stringify(process.argv.slice(2)));
-await fs.writeFile(${JSON.stringify(commandsPath)}, "[]");
-process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
-const lines = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
-lines.on("line", async line => {
-	const command = JSON.parse(line);
-	const commands = JSON.parse(await fs.readFile(${JSON.stringify(commandsPath)}, "utf8"));
-	commands.push(command.type);
-	await fs.writeFile(${JSON.stringify(commandsPath)}, JSON.stringify(commands));
-	process.stdout.write(JSON.stringify({
-		type: "response",
-		id: command.id,
-		command: command.type,
-		success: true,
-		data: { cancelled: false },
-	}) + "\\n");
+let state = JSON.parse(await fs.readFile(${JSON.stringify(statePath)}, "utf8"));
+let waiting;
+const respond = command => process.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: command.type === "get_state" ? state : { cancelled: false } }) + "\\n");
+createInterface({ input: process.stdin }).on("line", async line => {
+ const command = JSON.parse(line);
+ if (command.type === "new_session") {
+  waiting = command;
+  process.stdout.write(JSON.stringify({ type: "extension_ui_request", method: "input", id: "fresh-consent", title: "Create fresh session" }) + "\\n");
+ } else if (command.type === "extension_ui_response" && command.id === "fresh-consent") {
+  state = { sessionId: "fresh-session", creations: state.creations + 1 };
+  await fs.writeFile(${JSON.stringify(statePath)}, JSON.stringify(state));
+  respond(waiting);
+ } else respond(command);
 });
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
 `,
 		);
 		await fs.chmod(binaryPath, 0o755);
-
 		const sidecar = new SidecarManager({ binaryPath, cwd: tempDir, fresh: true });
+		const question = Promise.withResolvers<ExtensionUIRequest>();
+		sidecar.on("extensionUi", (request: ExtensionUIRequest) => question.resolve(request));
 		try {
 			const ready = waitForReady(sidecar);
 			sidecar.start();
+			const request = await question.promise;
+			expect(sidecar.status).toBe("starting");
+			sidecar.sendSideChannel({ type: "extension_ui_response", id: request.id, value: "create" });
 			await ready;
-
-			const launch: unknown = JSON.parse(await fs.readFile(argvPath, "utf8"));
-			const commands: unknown = JSON.parse(await fs.readFile(commandsPath, "utf8"));
-			expect(launch).toEqual(["--mode", "rpc-ui"]);
-			expect(commands).toEqual(["new_session"]);
+			expect((await sidecar.rpcClient!.command({ type: "get_state" })).data).toMatchObject({
+				sessionId: "fresh-session",
+				creations: 1,
+			});
 
 			const restarted = waitForReady(sidecar);
 			sidecar.restart();
 			await restarted;
-			const restartLaunch: unknown = JSON.parse(await fs.readFile(argvPath, "utf8"));
-			const restartCommands: unknown = JSON.parse(await fs.readFile(commandsPath, "utf8"));
-			expect(restartLaunch).toEqual(["--mode", "rpc-ui"]);
-			expect(restartCommands).toEqual([]);
+			expect((await sidecar.rpcClient!.command({ type: "get_state" })).data).toMatchObject({
+				sessionId: "fresh-session",
+				creations: 1,
+			});
 		} finally {
 			await sidecar.dispose();
 			await fs.rm(tempDir, { recursive: true, force: true });
@@ -746,30 +753,33 @@ lines.on("line", async line => {
 
 	it("keeps freshness pending when local session creation is cancelled", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-fresh-cancelled-"));
-		const commandsPath = path.join(tempDir, "commands.txt");
+		const statePath = path.join(tempDir, "state.json");
 		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
+		await fs.writeFile(statePath, JSON.stringify({ sessionId: "older-session", attempts: 0, creations: 0 }));
 		await fs.writeFile(
 			binaryPath,
 			`#!/usr/bin/env bun
 import * as fs from "node:fs/promises";
 import { createInterface } from "node:readline";
-process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
-const lines = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
-lines.on("line", async line => {
-	const command = JSON.parse(line);
-	await fs.appendFile(${JSON.stringify(commandsPath)}, command.type + "\\n");
-	process.stdout.write(JSON.stringify({
-		type: "response",
-		id: command.id,
-		command: command.type,
-		success: true,
-		data: { cancelled: true },
-	}) + "\\n");
+let state = JSON.parse(await fs.readFile(${JSON.stringify(statePath)}, "utf8"));
+createInterface({ input: process.stdin }).on("line", async line => {
+ const command = JSON.parse(line);
+ let cancelled = false;
+ if (command.type === "new_session") {
+  state.attempts++;
+  cancelled = state.attempts < 3;
+  if (!cancelled) {
+   state.sessionId = "fresh-session";
+   state.creations++;
+  }
+  await fs.writeFile(${JSON.stringify(statePath)}, JSON.stringify(state));
+ }
+ process.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: command.type === "get_state" ? state : { cancelled } }) + "\\n");
 });
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
 `,
 		);
 		await fs.chmod(binaryPath, 0o755);
-
 		const sidecar = new SidecarManager({ binaryPath, cwd: tempDir, fresh: true });
 		const waitForPreparation = async (): Promise<StatusEvent> => {
 			const settled = Promise.withResolvers<StatusEvent>();
@@ -785,11 +795,31 @@ lines.on("line", async line => {
 			const firstPreparation = waitForPreparation();
 			sidecar.start();
 			expect((await firstPreparation).status).toBe("error");
-
+			expect((await sidecar.rpcClient!.command({ type: "get_state" })).data).toMatchObject({
+				sessionId: "older-session",
+				creations: 0,
+			});
 			const secondPreparation = waitForPreparation();
 			sidecar.restart();
 			expect((await secondPreparation).status).toBe("error");
-			expect((await fs.readFile(commandsPath, "utf8")).trim().split("\n")).toEqual(["new_session", "new_session"]);
+			expect((await sidecar.rpcClient!.command({ type: "get_state" })).data).toMatchObject({
+				sessionId: "older-session",
+				creations: 0,
+			});
+			const accepted = waitForPreparation();
+			sidecar.restart();
+			expect((await accepted).status).toBe("ready");
+			expect((await sidecar.rpcClient!.command({ type: "get_state" })).data).toMatchObject({
+				sessionId: "fresh-session",
+				creations: 1,
+			});
+			const restarted = waitForPreparation();
+			sidecar.restart();
+			expect((await restarted).status).toBe("ready");
+			expect((await sidecar.rpcClient!.command({ type: "get_state" })).data).toMatchObject({
+				sessionId: "fresh-session",
+				creations: 1,
+			});
 		} finally {
 			await sidecar.dispose();
 			await fs.rm(tempDir, { recursive: true, force: true });
@@ -824,6 +854,40 @@ lines.on("line", async line => {
 			await fs.rm(tempDir, { recursive: true, force: true });
 		}
 	});
+
+	it.each(["prompt_result", "session_settled"] as const)(
+		"flushes pending lifecycle events before routing %s",
+		async terminal => {
+			const stdout = new PassThrough();
+			const stderr = new PassThrough();
+			const { sidecar, spawned } = createStreamingRemoteSidecar(stdout, stderr, async () => {});
+			const received: string[] = [];
+			sidecar.on("events", (events: AgentSessionEvent[]) => received.push(...events.map(event => event.type)));
+			sidecar.on("promptResult", () => received.push("prompt_result"));
+			sidecar.on("sessionSettled", () => received.push("session_settled"));
+			try {
+				sidecar.start();
+				await spawned;
+				stdout.write(
+					[
+						{ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] },
+						{ type: "agent_start" },
+						{ type: "agent_end", isTerminal: true },
+						terminal === "prompt_result"
+							? { type: terminal, agentInvoked: true, status: "completed", sessionSettled: true }
+							: { type: terminal },
+					]
+						.map(frame => JSON.stringify(frame))
+						.join("\n") + "\n",
+				);
+				expect(received).toEqual(["agent_start", "agent_end", terminal]);
+			} finally {
+				await sidecar.dispose();
+				stdout.destroy();
+				stderr.destroy();
+			}
+		},
+	);
 
 	it("appends the workspace launch profile flags at spawn, denylist-proof", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-profile-"));
@@ -1784,4 +1848,364 @@ send({
 			await sidecar.dispose();
 		}
 	});
+});
+
+it("resumes real SSH history with the explicitly approved current model after conflicting user flags", async () => {
+	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-model-restore-"));
+	const { remoteSsh, logPath } = await createFakeSsh(tempDir);
+	const sidecar = new SidecarManager({
+		binaryPath: "",
+		cwd: REMOTE_TARGET.cwd,
+		target: REMOTE_TARGET,
+		resumeSessionId: "remote-session-7",
+		model: { provider: "openai", modelId: "approved-current" },
+		extraFlags: ["--model", "other/unapproved"],
+		remoteSsh,
+		remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
+	});
+	try {
+		const ready = waitForStatus(sidecar, "ready");
+		sidecar.start();
+		await ready;
+		const rows = await readRemoteLog(logPath);
+		const launch = rows.find(row => row.type === "launch");
+		const modelSelectors = launch?.args?.flatMap((argument, index, args) =>
+			argument === "--model" ? [args[index + 1]] : [],
+		);
+		expect(modelSelectors?.at(-1)).toBe("openai/approved-current");
+		expect(launch?.args).toContain("--resume");
+		expect(launch?.args).toContain("remote-session-7");
+		expect(rows.some(row => row.type === "command" && row.command?.type === "new_session")).toBe(false);
+		const restarted = waitForStatus(sidecar, "ready");
+		sidecar.restart();
+		await restarted;
+		const restartLaunch = (await readRemoteLog(logPath)).filter(row => row.type === "launch").at(-1);
+		expect(restartLaunch?.args).not.toContain("openai/approved-current");
+		expect(restartLaunch?.args).toContain("remote-session-7");
+	} finally {
+		await sidecar.dispose();
+		await remoteSsh.dispose();
+		await fs.rm(tempDir, { recursive: true, force: true });
+	}
+});
+
+it("reopens the same actual manager after a failed saved restore stopped its ready transport", async () => {
+	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-retained-manager-retry-"));
+	const { remoteSsh, logPath } = await createFakeSsh(tempDir);
+	const events = new EventEmitter();
+	const win = {
+		webContents: { id: 91, send: () => {} },
+		isDestroyed: () => false,
+		once: events.once.bind(events),
+		removeListener: events.removeListener.bind(events),
+	} as unknown as BrowserWindow;
+	const pool = new SidecarPool(
+		options =>
+			new SidecarManager({
+				...options,
+				binaryPath: "",
+				remoteSsh,
+				remoteHostCatalog: catalogForTarget(REMOTE_TARGET),
+			}),
+		1,
+	);
+	const manager = pool.acquire({
+		cwd: REMOTE_TARGET.cwd,
+		target: REMOTE_TARGET,
+		resumeSessionId: "remote-session-7",
+		tabId: "retained-native",
+		win,
+		deferStart: true,
+	})!;
+	try {
+		const firstReady = waitForStatus(manager, "ready");
+		expect(
+			await pool.beginSessionRestore(win, "retained-native", {
+				cwd: REMOTE_TARGET.cwd,
+				target: REMOTE_TARGET,
+				resumeSessionId: "remote-session-7",
+			}),
+		).toBe(manager);
+		await firstReady;
+		expect(manager.rpcClient).not.toBeNull();
+		expect(await pool.failSessionRestore("retained-native")).toBe(true);
+		expect(manager.rpcClient).toBeNull();
+		expect(manager.status).toBe("error");
+
+		const secondReady = waitForStatus(manager, "ready");
+		expect(
+			await pool.beginSessionRestore(win, "retained-native", {
+				cwd: REMOTE_TARGET.cwd,
+				target: REMOTE_TARGET,
+				resumeSessionId: "remote-session-7",
+			}),
+		).toBe(manager);
+		await secondReady;
+		expect((await manager.rpcClient!.command({ type: "get_state" })).success).toBe(true);
+		expect(pool.size).toBe(1);
+		expect((await readRemoteLog(logPath)).filter(row => row.type === "launch")).toHaveLength(2);
+		expect(pool.finishSessionRestore("retained-native")).toBe(true);
+	} finally {
+		await pool.disposeAll();
+		await remoteSsh.dispose();
+		await fs.rm(tempDir, { recursive: true, force: true });
+	}
+});
+
+it("cancelled retained local restore cannot launch after its held environment resolves, but a later real retry can", async () => {
+	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-cold-env-cancel-"));
+	const pidPath = path.join(tempDir, "pids.txt");
+	const binaryPath = path.join(tempDir, "fake-sidecar.ts");
+	await fs.writeFile(
+		binaryPath,
+		`#!/usr/bin/env bun
+import * as fs from "node:fs/promises";
+import { createInterface } from "node:readline";
+await fs.appendFile(${JSON.stringify(pidPath)}, String(process.pid) + "\\n");
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
+createInterface({ input: process.stdin }).on("line", line => {
+ const command = JSON.parse(line);
+ process.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");
+});
+`,
+	);
+	await fs.chmod(binaryPath, 0o755);
+	const environment = Promise.withResolvers<Record<string, string>>();
+	let resolutions = 0;
+	const events = new EventEmitter();
+	const win = {
+		webContents: { id: 92, send: () => {} },
+		isDestroyed: () => false,
+		once: events.once.bind(events),
+		removeListener: events.removeListener.bind(events),
+	} as unknown as BrowserWindow;
+	const pool = new SidecarPool(
+		options =>
+			new SidecarManager({
+				...options,
+				binaryPath,
+				proxyEnv: () => (++resolutions === 1 ? environment.promise : Promise.resolve({})),
+			}),
+		1,
+	);
+	const sessionPath = path.join(tempDir, "saved.jsonl");
+	const manager = pool.acquire({
+		cwd: tempDir,
+		sessionPath,
+		tabId: "local-retained",
+		win,
+		deferStart: true,
+	})!;
+	try {
+		expect(await pool.beginSessionRestore(win, "local-retained", { sessionPath })).toBe(manager);
+		expect(manager.status).toBe("starting");
+		expect(manager.rpcClient).toBeNull();
+		expect(await pool.failSessionRestore("local-retained")).toBe(true);
+		environment.resolve({});
+		// Give the released local continuation and a would-be actual child
+		// the same observation window as the existing superseded-start test.
+		await delay(1_000);
+		expect(existsSync(pidPath)).toBe(false);
+		expect(manager.status).toBe("error");
+		expect(manager.rpcClient).toBeNull();
+		expect(pool.sessionOwner(sessionPath)?.tabId).toBe("local-retained");
+
+		const ready = waitForStatus(manager, "ready");
+		expect(await pool.beginSessionRestore(win, "local-retained", { sessionPath })).toBe(manager);
+		await ready;
+		expect((await manager.rpcClient!.command({ type: "get_state" })).success).toBe(true);
+		expect((await fs.readFile(pidPath, "utf8")).trim().split("\n")).toHaveLength(1);
+		expect(pool.size).toBe(1);
+		expect(pool.finishSessionRestore("local-retained")).toBe(true);
+	} finally {
+		environment.resolve({});
+		await pool.disposeAll();
+		await fs.rm(tempDir, { recursive: true, force: true });
+	}
+});
+
+describe("hidden restore native reader capability", () => {
+	async function restoreFixture(bootstrap: boolean, retained = false, protocol = 2) {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-reader-capability-"));
+		const workingDir = path.join(dir, "working");
+		const savedDir = path.join(dir, "saved");
+		await fs.mkdir(workingDir);
+		await fs.mkdir(savedDir);
+		const ackPath = path.join(dir, "native-input-ack.json");
+		const binaryPath = path.join(dir, "native-reader.ts");
+		const bootstrapPath = path.join(dir, "blocked-bootstrap.ts");
+		const sessionPath = path.join(savedDir, "history.jsonl");
+		await fs.writeFile(
+			binaryPath,
+			`#!/usr/bin/env bun
+import * as fs from "node:fs/promises";
+import { createInterface } from "node:readline";
+const working = process.cwd() === ${JSON.stringify(await fs.realpath(workingDir))};
+let state = { sessionId: working ? "working-session" : "scratch", sessionFile: working ? undefined : "scratch.jsonl", model: { provider: "test", id: "current" }, cwd: process.cwd() };
+let waiting;
+const respond = command => process.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: command.type === "get_state" ? state : {} }) + "\\n");
+createInterface({ input: process.stdin }).on("line", async line => {
+ const command = JSON.parse(line);
+ if (command.type === "new_session" && !working) {
+  waiting = command;
+  process.stdout.write(JSON.stringify({ type: "extension_ui_request", id: "reader-confirmed-input", method: "input", title: "Supported restore input" }) + "\\n");
+ } else if (command.type === "extension_ui_response" && command.id === "reader-confirmed-input") {
+  await fs.writeFile(${JSON.stringify(ackPath)}, JSON.stringify({ answer: command.value }));
+  respond(waiting);
+ } else {
+  if (command.type === "switch_session") state = { ...state, sessionId: "saved-session", sessionFile: command.sessionPath };
+  respond(command);
+ }
+});
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: ${JSON.stringify(protocol === 1 ? [1] : [1, 2])}, maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");
+`,
+		);
+		await fs.writeFile(
+			bootstrapPath,
+			`#!/usr/bin/env bun
+// Actual vanilla ordering: advertises ready, then awaits session_start UI,
+// before installing the protocol reader. No GUI answer can yet be consumed.
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1, 2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "extension_ui_request", id: "unanswerable-bootstrap-input", method: "input", title: "Doomed bootstrap input" }) + "\\n");
+process.stdin.resume();
+`,
+		);
+		await fs.chmod(binaryPath, 0o755);
+		await fs.chmod(bootstrapPath, 0o755);
+		const asked = Promise.withResolvers<{ tabId: string; request: { id: string } }>();
+		const uiFrames: unknown[] = [];
+		const events = new EventEmitter();
+		const win = {
+			webContents: {
+				id: 93,
+				send: (channel: string, frame: unknown) => {
+					if (channel === IPC_EVENTS.EXTENSION_UI) {
+						uiFrames.push(frame);
+						asked.resolve(frame as { tabId: string; request: { id: string } });
+					}
+				},
+			},
+			isDestroyed: () => false,
+			once: events.once.bind(events),
+			removeListener: events.removeListener.bind(events),
+		} as unknown as BrowserWindow;
+		const pool = new SidecarPool(
+			options =>
+				new SidecarManager({
+					...options,
+					binaryPath: bootstrap && options.cwd === savedDir ? bootstrapPath : binaryPath,
+				}),
+			retained ? 2 : 3,
+		);
+		const working = pool.acquire({ cwd: workingDir, tabId: "reader-working", win })!;
+		await waitForStatus(working, "ready");
+		if (retained)
+			pool.acquire({
+				cwd: savedDir,
+				tabId: "reader-cold",
+				sessionPath,
+				win,
+				deferStart: true,
+			});
+		const deps: SpawnTabDeps = {
+			sidecarPool: pool,
+			sessionIndex: { kindFor: async () => "agent" },
+			fallbackCwd: () => workingDir,
+			defaultWorkspace: () => workingDir,
+			prepareModelOrigin: payload =>
+				prepareModelRestoreOrigin(
+					payload,
+					command => working.rpcClient!.command(command),
+					() => working.status === "ready",
+				),
+			watchModelOrigin: () => () => {},
+			authorizeRemoteTarget: (target, _cwd, sink) => sink(target),
+			authorizeRemoteResume: () => false,
+		};
+		return {
+			dir,
+			pool,
+			win,
+			working,
+			sessionPath,
+			savedDir,
+			ackPath,
+			asked,
+			uiFrames,
+			open: () =>
+				spawnTabForWindow(deps, win, {
+					cwd: savedDir,
+					sessionPath,
+					modelOrigin: { tabId: "reader-working", sessionId: "working-session" },
+					...(retained ? { existingTabId: "reader-cold" } : {}),
+				}),
+			cleanup: async () => {
+				await pool.disposeAll();
+				await fs.rm(dir, { recursive: true, force: true });
+			},
+		};
+	}
+
+	it.each([false, true])(
+		"fails an unanswerable advertised-ready bootstrap request without showing a doomed dialog (retained=%s)",
+		async retained => {
+			const fixture = await restoreFixture(true, retained);
+			try {
+				// Real child transport deadline: a fake clock cannot drive its OS pipe;
+				// this bounds fail-fast capability refusal, not a guessed race sleep.
+				const result = await withTimeout(fixture.open(), 1_000, "Unanswerable bootstrap UI did not fail promptly");
+				expect(result).toMatchObject({
+					tabId: null,
+					refusal: "restore-failed",
+					error: expect.stringMatching(/bootstrap|startup/i),
+				});
+				expect(fixture.uiFrames).toHaveLength(0);
+				expect(fixture.pool.sidecarForWindow(fixture.win)).toBe(fixture.working);
+				expect(fixture.working.status).toBe("ready");
+				const state = await fixture.working.rpcClient!.command({ type: "get_state" });
+				expect(state.data).toMatchObject({
+					sessionId: "working-session",
+					model: { provider: "test", id: "current" },
+				});
+				expect(fixture.pool.size).toBe(retained ? 2 : 1);
+				expect(fixture.pool.sessionOwner(fixture.sessionPath)?.tabId ?? null).toBe(retained ? "reader-cold" : null);
+			} finally {
+				await fixture.cleanup();
+			}
+		},
+	);
+
+	it.each([1, 2])(
+		"routes starting-stage new_session input after actual reader proof and consumes the native answer (protocol=%s)",
+		async protocol => {
+			const fixture = await restoreFixture(false, false, protocol);
+			try {
+				const opening = fixture.open();
+				// Deadlines bound actual child I/O; awaiting request/ACK signals drives
+				// the interaction, with no wall-clock sleep or timer-based UI action.
+				const frame = await withTimeout(fixture.asked.promise, 1_000, "Supported restore input was not delivered");
+				const target = fixture.pool.sidecarForTab(fixture.win, frame.tabId)!;
+				expect(target.status).toBe("starting");
+				expect(fixture.pool.sidecarForWindow(fixture.win)).toBe(fixture.working);
+				expect(
+					fixture.pool.routeSideChannel(
+						fixture.win,
+						frame.request.id,
+						{
+							type: "extension_ui_response",
+							id: frame.request.id,
+							value: "continue",
+						},
+						true,
+					),
+				).toBe("routed");
+				const result = await withTimeout(opening, 2_000, "Supported native UI answer did not complete restore");
+				expect(result?.tabId).toBe(frame.tabId);
+				expect(JSON.parse(await fs.readFile(fixture.ackPath, "utf8"))).toEqual({ answer: "continue" });
+				expect(fixture.pool.sessionOwner(fixture.sessionPath)?.tabId).toBe(frame.tabId);
+			} finally {
+				await fixture.cleanup();
+			}
+		},
+	);
 });

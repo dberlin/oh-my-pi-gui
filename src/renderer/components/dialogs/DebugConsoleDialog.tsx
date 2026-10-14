@@ -350,7 +350,7 @@ function ThreadsTable({
 	}
 	return (
 		<div className="overflow-hidden rounded-lg border border-(--omp-border-muted)">
-			<div className="grid grid-cols-[48px_1fr_auto] gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-omp-xs font-medium text-(--omp-dim)">
+			<div className="grid grid-cols-[48px_1fr_auto] gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-omp-xs font-medium tracking-wide text-(--omp-dim) uppercase">
 				<span>{t("debug.col.id")}</span>
 				<span>{t("debug.col.name")}</span>
 				<span>{t("debug.col.state")}</span>

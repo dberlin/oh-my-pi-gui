@@ -37,11 +37,8 @@ import { sessionHasContent } from "../../lib/session-title";
 import { type LiveTabRuntime, performTabClose, tabNeedsCloseConfirm } from "../../lib/tab-close";
 import { tabSignalPresentation } from "../../lib/tab-signal";
 import type { ComposerStore } from "../../stores/composer";
-import { useComposerStore } from "../../stores/composer";
 import type { MessagesStore } from "../../stores/messages";
-import { useMessagesStore } from "../../stores/messages";
 import type { QueueStore } from "../../stores/queue";
-import { useQueueStore } from "../../stores/queue";
 import type { SessionStore } from "../../stores/session";
 import { useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore } from "../../stores/session-runtime-context";
@@ -245,13 +242,8 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 	const openTab = useTabsStore(s => s.openTab);
 	const splitTab = useTabsStore(s => s.splitTab);
 	const unsplit = useTabsStore(s => s.unsplit);
-	const liveDraft = useComposerStore(s => s.draft);
-	const liveImageCount = useComposerStore(s => s.images.length);
-	const liveMessageCount = useSessionStore(s => s.messageCount);
 	const liveStreaming = useSessionStore(s => s.isStreaming);
 	const liveCompacting = useSessionStore(s => s.isCompacting);
-	const liveRenderedMessages = useMessagesStore(s => s.messages.length);
-	const liveQueuedMessages = useQueueStore(s => s.steering.length + s.followUp.length);
 	const pruningPlaceholderRef = useRef<string | null>(null);
 	const sessionsById = useMemo(() => new Map(sessions.map(session => [session.id, session])), [sessions]);
 	const sessionsByPath = useMemo(() => new Map(sessions.map(session => [session.path, session])), [sessions]);
@@ -270,11 +262,16 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 		return () => window.clearTimeout(timer);
 	}, [armedCloseTab, cancelCloseTab, confirmCloseMs]);
 
-	// The untargeted startup chat is an idle landing surface, not a permanent
-	// tab. Replace it once an explicit tab exists, but only while it is truly
-	// empty; a typed draft, queued input, message, or live run makes it real.
-	// The first-chat fallback cleans up layouts saved before the placeholder bit
-	// existed, after SessionIndex confirms that transcript has no content.
+	useEffect(() => {
+		if (!activeTabId) return;
+		document.getElementById(`omp-tab-${activeTabId}`)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+	}, [activeTabId, tabs.length]);
+
+	// The startup chat is an idle landing surface. Prune it only after another
+	// tab is selected and its restore/pending handoff has committed. Light
+	// statuses expose hidden restore targets before openTab receives its reply;
+	// closing the active origin then would cancel and roll back that restore.
+	// Keep the first-chat fallback for layouts predating the placeholder bit.
 	useEffect(() => {
 		if (tabs.length <= 1 || pruningPlaceholderRef.current) return;
 		const candidate = tabs.find((tab, index) => {
@@ -290,19 +287,16 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 			if (tab.placeholder !== true && !legacyEmptyStartupChat) return false;
 			if (indexedSession && sessionHasContent(indexedSession)) return false;
 			if (tab.worktree || tab.pendingSessionPath || tab.status === "running" || tab.compacting) return false;
-			if (!tabs.some(other => other.id !== tab.id && other.placeholder !== true)) return false;
-
-			if (tab.id === activeTabId) {
-				return (
-					!liveStreaming &&
-					!liveCompacting &&
-					liveMessageCount === 0 &&
-					liveRenderedMessages === 0 &&
-					liveQueuedMessages === 0 &&
-					liveDraft.trim().length === 0 &&
-					liveImageCount === 0
-				);
-			}
+			if (
+				!tabs.some(
+					other =>
+						other.id !== tab.id &&
+						other.id === activeTabId &&
+						other.placeholder !== true &&
+						!other.restoringSession &&
+						!other.pendingSessionPath,
+				)
+			) return false;
 
 			const session = sessionRuntimeStore<SessionStore>(tab.id, "session")?.getState();
 			const messages = sessionRuntimeStore<MessagesStore>(tab.id, "messages")?.getState();
@@ -328,13 +322,6 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 	}, [
 		activeTabId,
 		closeTab,
-		liveCompacting,
-		liveDraft,
-		liveImageCount,
-		liveMessageCount,
-		liveQueuedMessages,
-		liveRenderedMessages,
-		liveStreaming,
 		sessionsById,
 		sessionsByPath,
 		tabs,
@@ -371,55 +358,57 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 
 	return (
 		<>
-			<div
-				role="tablist"
-				aria-label={t("tabs.strip")}
-				className="drag-region flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--omp-border-muted)] bg-[var(--omp-titlebar-bg)] px-2"
-			>
-				{tabs.map(tab => {
-					const visible = visibleTabIds({ activeTabId, split }).includes(tab.id);
-					const indexedSession =
-						(tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
-						(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined);
-					const label = tabDisplayTitle(tab, tabs, indexedSession, t("sidebar.untitled"));
-					const workspaceLabel =
-						tab.kind === "chat"
-							? t("sidebar.chats")
-							: sanitizeDisplayText(
-									groupAliases[tab.cwd] ?? basename(tab.cwd) ?? tab.cwd,
-									TAB_WORKSPACE_LABEL_LIMIT,
-								);
-					return (
-						<TabChip
-							key={tab.id}
-							tab={tab}
-							active={tab.id === activeTabId}
-							visible={visible}
-							label={label}
-							workspaceLabel={workspaceLabel}
-							confirmingClose={armedCloseTab?.tabId === tab.id}
-							closeNeedsConfirm={tabNeedsCloseConfirm(tab, liveRuntime)}
-							onArmClose={() => armCloseTab(tab.id)}
-							onConfirmClose={() => confirmClose(tab.id)}
-							onCancelClose={cancelCloseTab}
-							onContextMenu={event => setTabMenu({ anchor: anchorFromEvent(event), tabId: tab.id })}
-							onKeyboardNavigate={key => {
-								const index = tabOrder.indexOf(tab.id);
-								const targetIndex =
-									key === "Home"
-										? 0
-										: key === "End"
-											? tabOrder.length - 1
-											: (index + (key === "ArrowLeft" ? -1 : 1) + tabOrder.length) % tabOrder.length;
-								const target = tabOrder[targetIndex];
-								if (target) {
-									void useTabsStore.getState().switchTab(target);
-									requestAnimationFrame(() => document.getElementById(`omp-tab-${target}`)?.focus());
-								}
-							}}
-						/>
-					);
-				})}
+			<div className="drag-region flex h-12 min-w-0 shrink-0 items-center gap-1 overflow-hidden border-b border-[var(--omp-border-muted)] bg-[var(--omp-titlebar-bg)] px-2">
+				<div
+					role="tablist"
+					aria-label={t("tabs.strip")}
+					className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+				>
+					{tabs.map(tab => {
+						const visible = visibleTabIds({ activeTabId, split }).includes(tab.id);
+						const indexedSession =
+							(tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
+							(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined);
+						const label = tabDisplayTitle(tab, tabs, indexedSession, t("sidebar.untitled"));
+						const workspaceLabel =
+							tab.kind === "chat"
+								? t("sidebar.chats")
+								: sanitizeDisplayText(
+										groupAliases[tab.cwd] ?? basename(tab.cwd) ?? tab.cwd,
+										TAB_WORKSPACE_LABEL_LIMIT,
+									);
+						return (
+							<TabChip
+								key={tab.id}
+								tab={tab}
+								active={tab.id === activeTabId}
+								visible={visible}
+								label={label}
+								workspaceLabel={workspaceLabel}
+								confirmingClose={armedCloseTab?.tabId === tab.id}
+								closeNeedsConfirm={tabNeedsCloseConfirm(tab, liveRuntime)}
+								onArmClose={() => armCloseTab(tab.id)}
+								onConfirmClose={() => confirmClose(tab.id)}
+								onCancelClose={cancelCloseTab}
+								onContextMenu={event => setTabMenu({ anchor: anchorFromEvent(event), tabId: tab.id })}
+								onKeyboardNavigate={key => {
+									const index = tabOrder.indexOf(tab.id);
+									const targetIndex =
+										key === "Home"
+											? 0
+											: key === "End"
+												? tabOrder.length - 1
+												: (index + (key === "ArrowLeft" ? -1 : 1) + tabOrder.length) % tabOrder.length;
+									const target = tabOrder[targetIndex];
+									if (target) {
+										void useTabsStore.getState().switchTab(target);
+										requestAnimationFrame(() => document.getElementById(`omp-tab-${target}`)?.focus());
+									}
+								}}
+							/>
+						);
+					})}
+				</div>
 				{actionTabId && (
 					<button
 						type="button"

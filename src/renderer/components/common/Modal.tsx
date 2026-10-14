@@ -104,10 +104,6 @@ export function Modal({
 			// Include fullscreen/custom dialogs that do not use Modal in the layer
 			// decision; a modal hidden beneath Settings must remain untouched.
 			if (!isTopmostDialog(panel)) return;
-			// An inline editor inside the dialog uses Escape to cancel its edit; the
-			// next Escape, with focus back on the dialog, closes it.
-			if (event.key === "Escape" && (event.target as Partial<Element> | null)?.closest?.("[data-owns-escape]"))
-				return;
 			if (event.key === "Escape") {
 				event.preventDefault();
 				event.stopImmediatePropagation();
@@ -148,7 +144,7 @@ export function Modal({
 
 	return createPortal(
 		<div
-			className={`omp-dialog-overlay ${closing ? "omp-fade-out" : "omp-fade-in"} fixed inset-0 z-50 flex justify-center bg-(--omp-overlay-bg) p-4 ${placement === "top" ? "items-start pt-[12dvh]" : "items-center"}`}
+			className={`omp-dialog-overlay ${closing ? "omp-fade-out" : "omp-fade-in"} fixed inset-0 z-50 flex justify-center bg-(--omp-overlay-bg) p-4 backdrop-blur-[6px] ${placement === "top" ? "items-start pt-[12dvh]" : "items-center"}`}
 			inert={closing}
 			onMouseDown={event => {
 				if (closing) return;

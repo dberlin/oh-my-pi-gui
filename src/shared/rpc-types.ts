@@ -4,6 +4,20 @@
  * These are the wire types — no runtime dependency on @oh-my-pi/*.
  */
 
+import type {
+	BtwDeltaEvent,
+	BtwHistoryRecord as CanonicalBtwHistoryRecord,
+	BtwHistoryTurn as CanonicalBtwHistoryTurn,
+	BtwRecordEvent,
+} from "../../../coding-agent/src/modes/rpc/wire/rpc-wire.generated";
+
+export type BtwHistoryTurn = CanonicalBtwHistoryTurn;
+/** The persisted vanilla producer exposes immutable follow-up snapshots. */
+export type BtwHistoryRecord = Omit<CanonicalBtwHistoryRecord, "followUps"> & {
+	followUps?: readonly BtwHistoryTurn[];
+};
+export type RpcBtwFrame = BtwDeltaEvent | (Omit<BtwRecordEvent, "record"> & { record: BtwHistoryRecord });
+
 // ============================================================================
 // RPC Commands (GUI → omp stdin)
 // ============================================================================
@@ -62,7 +76,15 @@ export type RpcCommand =
 	| { id?: string; type: "queue_clear"; lane?: "steering" | "followUp" }
 	| { id?: string; type: "get_session_stats" }
 	| { id?: string; type: "export_html"; outputPath?: string }
-	| { id?: string; type: "switch_session"; sessionPath: string }
+	| {
+			id?: string;
+			type: "switch_session";
+			sessionPath: string;
+			provider?: string;
+			modelId?: string;
+			/** GUI confirmation guard; main strips this before vanilla dispatch. */
+			expectedSessionId?: string;
+	  }
 	| { id?: string; type: "branch"; entryId: string }
 	| { id?: string; type: "fork" }
 	| { id?: string; type: "get_branch_messages" }
@@ -70,11 +92,14 @@ export type RpcCommand =
 	| { id?: string; type: "set_session_name"; name: string; sessionPath?: string }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
+	/** Native persisted journal snapshot and its authoritative active leaf. */
+	| { id?: string; type: "get_entries" }
 	| { id?: string; type: "get_messages" }
 	| { id?: string; type: "get_messages_page"; cursor?: string; limit?: number }
 	| { id?: string; type: "get_login_providers" }
 	| { id?: string; type: "login"; providerId: string }
-	| { id?: string; type: "logout"; providerId: string }
+	| { id?: string; type: "get_logout_accounts"; providerId: string }
+	| { id?: string; type: "logout"; providerId: string; credentialId: number }
 	| { id?: string; type: "get_settings_schema" }
 	| { id?: string; type: "get_settings"; paths?: string[] }
 	| { id?: string; type: "set_setting"; path: string; value: unknown }
@@ -138,7 +163,9 @@ export type RpcCommand =
 	| { id?: string; type: "get_goal" }
 	| { id?: string; type: "guided_goal"; initial?: string }
 	| { id?: string; type: "set_agents_paused"; enabled: boolean }
-	| { id?: string; type: "btw"; question: string }
+	| { id?: string; type: "btw"; question: string; recordId?: string }
+	| { id?: string; type: "btw_cancel"; recordId?: string }
+	| { id?: string; type: "get_btw_history" }
 	| { id?: string; type: "btw_branch" }
 	| { id?: string; type: "tan"; work: string }
 	| { id?: string; type: "omfg"; complaint: string }
@@ -199,7 +226,6 @@ export type RpcCommand =
 	// `mimeType` is informational ("audio/wav").
 	| { id?: string; type: "transcribe_audio"; audioBase64: string; mimeType: string }
 	| { id?: string; type: "synthesize_speech"; text: string }
-	| { id?: string; type: "retry" }
 	| { id?: string; type: "clear_context" }
 	| { id?: string; type: "abort_subagent"; agentId: string }
 	| { id?: string; type: "revive_subagent"; agentId: string }
@@ -290,6 +316,11 @@ export interface RpcResponseError {
 	 * overriddenBy?, fallbackEnv? }`; only the former has confirmed readback.
 	 */
 	data?: unknown;
+}
+
+/** Stored credential ids returned by vanilla's provider-scoped account listing. */
+export interface LogoutAccounts {
+	accounts: Array<{ credentialId: number }>;
 }
 
 // ============================================================================

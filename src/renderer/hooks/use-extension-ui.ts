@@ -17,8 +17,8 @@ export function useExtensionUi(): ExtensionUiResult {
 	const removeRequest = useExtensionUiStore(s => s.removeRequest);
 
 	useEffect(() => {
-		const unsubscribe = window.omp.events.onExtensionUi((request, tabId) => {
-			pushTabExtensionUiRequest(tabId, request);
+		const unsubscribe = window.omp.events.onExtensionUi((request, tabId, context) => {
+			pushTabExtensionUiRequest(tabId, request, context);
 		});
 		return unsubscribe;
 	}, []);

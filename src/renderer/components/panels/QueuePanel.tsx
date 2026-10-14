@@ -337,7 +337,7 @@ function LaneSection({
 	return (
 		<section className="mb-3">
 			<div className="flex items-center gap-1.5 px-2 py-1.5">
-				<span className="min-w-0 flex-1 truncate text-omp-sm font-semibold text-(--omp-accent)">
+				<span className="min-w-0 flex-1 truncate text-omp-sm font-semibold tracking-wide text-(--omp-accent) uppercase">
 					{t(lane === "steering" ? "queuePanel.lane.steering" : "queuePanel.lane.followUp")}
 				</span>
 				<Badge variant="muted">{items.length}</Badge>

@@ -5,7 +5,7 @@ import {
 	sessionRuntimeStore,
 	withSessionRuntime,
 } from "../stores/session-runtime-context";
-import { createTabRpc } from "./tab-rpc";
+import { createTabRpc, type TabRpc } from "./tab-rpc";
 
 /**
  * Declarative command registry: maps every known slash command to a typed
@@ -131,7 +131,7 @@ export interface CommandRegistryContext {
 	openProviderConfig: () => void;
 	/** Reveal and focus an activity-sidebar section for the active workspace. */
 	focusActivitySection: (id: ActivitySectionId) => void;
-	/** Retry the last failed turn server-side (retry RPC). */
+	/** Retry the last failed turn through vanilla's native /retry text handler. */
 	retryTurn: () => Promise<unknown>;
 	/** Re-send the most recent user message (abortAndPrompt while streaming). */
 	retryLastTurn: () => Promise<unknown>;
@@ -440,6 +440,15 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "session",
 		shortcut: "⌘N",
 		affordance: { kind: "action", run: () => newSessionGuarded() },
+	});
+	add({
+		name: "search",
+		label: t("cmd.search"),
+		description: t("cmd.search.desc"),
+		category: "session",
+		shortcut: "⇧⌘F",
+		aliases: ["find", "conversations"],
+		affordance: { kind: "window", open: () => useUiStore.getState().openConversationSearch() },
 	});
 	add({
 		name: "new-tab",
@@ -1668,13 +1677,13 @@ async function forgeTtsrRule(complaint?: string): Promise<void> {
 	}
 }
 
-export async function retryFailedTurn(): Promise<void> {
+export async function retryFailedTurn(rpc?: Pick<TabRpc, "prompt">): Promise<void> {
 	const runtime = focusedSessionRuntime();
-	const rpc = runtime ? createTabRpc(runtime.command) : window.omp.rpc;
-	const response = await rpc.retry();
+	const originRpc = rpc ?? (runtime ? createTabRpc(runtime.command) : window.omp.rpc);
+	const response = await originRpc.prompt("/retry");
 	if (!response.success) throw new Error(response.error);
-	const data = response.data as { retried?: boolean } | undefined;
-	if (!data?.retried) {
+	const data: unknown = response.data;
+	if (data && typeof data === "object" && "agentInvoked" in data && data.agentInvoked === false) {
 		toast({
 			variant: "warning",
 			title: translate("palette.retryNothing"),

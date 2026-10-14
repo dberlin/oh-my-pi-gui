@@ -152,21 +152,13 @@ describe("panels under running state", () => {
 		});
 		await mount(<DiffPanel />);
 		await act(async () => {
-			const scope = document.querySelector('button[aria-label="Choose which changes to show"]');
-			if (!scope) throw new Error("change scope picker missing");
-			scope.dispatchEvent(new Event("click", { bubbles: true }));
-		});
-		await act(async () => {
-			const edits = Array.from(document.querySelectorAll('[role="menu"] button')).find(button =>
-				(button.textContent ?? "").startsWith("Session edits"),
+			const edits = Array.from(document.querySelectorAll("button")).find(
+				button => button.textContent === "Edit results",
 			);
-			if (!edits) throw new Error("Session edits scope missing");
+			if (!edits) throw new Error("Edit results tab missing");
 			edits.dispatchEvent(new Event("click", { bubbles: true }));
 		});
-		// The newest file opens with its diff: name, folder, and the +/- it applied.
-		const card = document.querySelector('[aria-expanded="true"]');
-		expect(card?.getAttribute("title") ?? card?.textContent).toContain("a.ts");
-		expect(document.body.textContent).toContain("+1");
+		expect(document.body.textContent).toContain("src/a.ts");
 	});
 
 	it("AgentTree activates the selected transcript without embedding it or exposing graph navigation", async () => {

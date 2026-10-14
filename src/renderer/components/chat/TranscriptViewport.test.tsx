@@ -7,10 +7,18 @@ import { I18nProvider } from "../../lib/i18n";
 import { useAgentViewStore } from "../../stores/agent-view";
 import { thinkingDisclosureKey, useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
-import { useSessionStore } from "../../stores/session";
-import { type SessionRuntime, SessionRuntimeProvider } from "../../stores/session-runtime-context";
+import { type SessionStore, useSessionStore } from "../../stores/session";
+import {
+	type SessionRuntime,
+	SessionRuntimeProvider,
+	sessionRuntimeStore,
+	setFocusedSessionRuntime,
+} from "../../stores/session-runtime-context";
 import { useSettingsStore } from "../../stores/settings";
 import { useTabsStore } from "../../stores/tabs";
+import { ensureTabRuntime } from "../../stores/tab-runtime";
+import { useToastStore } from "../../stores/toast";
+import { TRANSCRIPT_FOCUS_TTL_MS, useTranscriptFocusStore } from "../../stores/transcript-focus";
 import { useTodoStore } from "../../stores/todo";
 import {
 	createToolProjection,
@@ -20,8 +28,10 @@ import {
 	useToolsStore,
 } from "../../stores/tools";
 import { scopedDisclosureKey, TOOL_DISCLOSURE_PREFIX, useUiStore } from "../../stores/ui";
-import { ChatStream } from "./ChatStream";
+import { ChatCanvas, ChatStream } from "./ChatStream";
 import { type MainTranscriptAugments, type TranscriptProjectionView, TranscriptViewport } from "./TranscriptViewport";
+import type { ConversationNavigationModel } from "./ConversationNavigator";
+import { buildHistoryRows, locateEntryRow } from "./chat-stream-utils";
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -186,6 +196,37 @@ afterEach(async () => {
 		disclosureOpen: {},
 	});
 	useTabsStore.getState().reset();
+	useTranscriptFocusStore.setState({ target: null });
+	useToastStore.setState({ toasts: [] });
+	vi.useRealTimers();
+});
+
+describe("conversation navigation ownership", () => {
+	it("publishes jump targets without rendering a second navigation column in the transcript", async () => {
+		useMessagesStore.setState({
+			messages: [
+				{ role: "user", content: "First question", timestamp: 100 },
+				assistant([{ type: "text", text: "First answer" }], 150),
+				{ role: "user", content: "Second question", timestamp: 200 },
+			],
+		});
+		let navigation: ConversationNavigationModel | null = null;
+		await mount(
+			<ChatStream
+				onConversationNavigationChange={value => {
+					navigation = value;
+				}}
+			/>,
+		);
+
+		expect(navigation).toMatchObject({
+			anchors: [
+				{ preview: "First question", rowIndex: 0 },
+				{ preview: "Second question", rowIndex: 2 },
+			],
+		});
+		expect(container?.querySelector(".omp-conversation-list")).toBeNull();
+	});
 });
 
 describe("TranscriptViewport projected branch", () => {
@@ -811,7 +852,6 @@ describe("TranscriptViewport reasoning disclosure", () => {
 			completedGroupToggle.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 		});
 
-
 		expect(disclosureState()).toBe("true");
 	});
 
@@ -963,7 +1003,10 @@ describe("TranscriptViewport find", () => {
 						<div data-pane="a">
 							<TranscriptViewport
 								mode="main"
-								projection={findProjection([{ role: "user", content: "left only", timestamp: 1 }], "shared-session")}
+								projection={findProjection(
+									[{ role: "user", content: "left only", timestamp: 1 }],
+									"shared-session",
+								)}
 								main={FIND_MAIN_AUGMENTS}
 							/>
 							<textarea data-composer="a" />
@@ -1325,5 +1368,236 @@ describe("TranscriptViewport find", () => {
 			if (originalActiveElement) Object.defineProperty(document, "activeElement", originalActiveElement);
 			else Reflect.deleteProperty(document as unknown as Record<string, unknown>, "activeElement");
 		}
+	});
+});
+
+describe("TranscriptViewport repeated retry failures", () => {
+	const failure = (timestamp: number, content: AgentMessage["content"] = []): AgentMessage => ({
+		role: "assistant",
+		content,
+		stopReason: "error",
+		errorMessage: "Provider unavailable",
+		timestamp,
+	});
+
+	it("collapses consecutive empty failed attempts into one readable failure card", async () => {
+		useMessagesStore.setState({ messages: [failure(1), failure(2), failure(3)] });
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ChatStream />);
+		const cards = document.querySelectorAll(".omp-message-error");
+		expect(cards.length).toBe(1);
+		expect(cards[0]?.textContent).toContain("Provider unavailable");
+	});
+
+	it("does not discard partial answers or collapse failures from separate user turns", async () => {
+		useMessagesStore.setState({
+			messages: [
+				failure(1),
+				failure(2, [{ type: "text", text: "Useful partial answer" }]),
+				{ role: "user", content: "Another request", timestamp: 3 },
+				failure(4),
+			],
+		});
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ChatStream />);
+		expect(document.querySelectorAll(".omp-message-error").length).toBe(3);
+		expect(container?.textContent).toContain("Useful partial answer");
+		expect(container?.textContent).toContain("Another request");
+	});
+});
+
+describe("conversation search transcript locate", () => {
+	const PATH = "/sessions/search.jsonl";
+	const MAIN: MainTranscriptAugments = {
+		isStreaming: false, awaitingModelSince: null, retryInfo: null, compactionInfo: null,
+		status: "ready", collapseCompacted: false, switchPending: false, todoHistory: [],
+		queued: { steering: [], followUp: [] }, isChat: false, tabId: undefined,
+		hasLiveToolsForStream: false, lastAppended: [], transcriptPinNonce: 0,
+		transcriptView: null, saveTranscriptView: () => {},
+	};
+	function projection(messages: AgentMessage[], transcriptId = "search"): TranscriptProjectionView {
+		return {
+			transcriptId, messages, streamingMessage: null, streamingText: "", streamingThinking: "",
+			activeTools: new Map(), resolveToolCall: call => ({ key: call.id, entry: undefined }),
+			transcriptDetail: "compact",
+		};
+	}
+	const prompt: AgentMessage = { role: "user", entryId: "hit", content: "saved search target", timestamp: 100 };
+
+	it("prefers an answer row over the same entry's compact reasoning row", () => {
+		const rows = buildHistoryRows([{
+			role: "assistant", entryId: "answer", timestamp: 100,
+			content: [{ type: "thinking", thinking: "hidden reasoning" }, { type: "text", text: "searchable answer" }],
+		}], "compact");
+		expect(locateEntryRow(rows, "answer")).toEqual({ index: 1, kind: "message" });
+	});
+
+	it("unfolds precompaction history, locates its row, and releases the tail pin", async () => {
+		useSessionStore.setState({ sessionFile: PATH });
+		useTranscriptFocusStore.getState().focus(PATH, "hit");
+		await mount(<TranscriptViewport mode="main" projection={projection([
+			prompt,
+			{ role: "compactionSummary", content: "summary", timestamp: 200 },
+			{ role: "user", content: "new question", timestamp: 300 },
+		])} main={{ ...MAIN, collapseCompacted: true }} />);
+		expect(container?.querySelector(".omp-history-expander")).toBeNull();
+		expect(container?.querySelector(".omp-row-found")?.getAttribute("data-index")).toBe("0");
+		expect(container?.querySelector(".omp-row-found")?.textContent).toContain("saved search target");
+		expect(container?.querySelector("[aria-label='Jump to latest']")?.className).toContain("opacity-100");
+		expect(useTranscriptFocusStore.getState().target).toBeNull();
+	});
+
+	it("opens a folded process group before highlighting its message", async () => {
+		useSessionStore.setState({ sessionFile: PATH });
+		useTranscriptFocusStore.getState().focus(PATH, "reasoning");
+		await mount(<TranscriptViewport mode="main" projection={projection([{
+			role: "assistant", entryId: "reasoning", timestamp: 100,
+			content: [{ type: "thinking", thinking: "reasoning inside process" }],
+		}])} main={MAIN} />);
+		expect(container?.querySelector(".omp-process-group")).not.toBeNull();
+		expect(container?.querySelector(".omp-row-found")?.getAttribute("data-transcript-kind")).toBe("process");
+		expect(useTranscriptFocusStore.getState().target).toBeNull();
+	});
+
+	it("settles an absent branch target once, including an empty hydrated transcript", async () => {
+		useSessionStore.setState({ sessionFile: PATH });
+		useTranscriptFocusStore.getState().focus(PATH, "missing");
+		await mount(<TranscriptViewport mode="main" projection={projection([])} main={MAIN} />);
+		await act(async () => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 0);
+			await promise;
+		});
+		expect(useTranscriptFocusStore.getState().target).toBeNull();
+		expect(useToastStore.getState().toasts).toHaveLength(1);
+		expect(useToastStore.getState().toasts[0]?.variant).toBe("info");
+		await act(async () => {
+			root?.render(<I18nProvider><TranscriptViewport mode="main"
+				projection={projection([{ ...prompt, entryId: "missing" }])} main={MAIN} /></I18nProvider>);
+		});
+		expect(container?.querySelector(".omp-row-found")).toBeNull();
+		expect(useToastStore.getState().toasts).toHaveLength(1);
+	});
+
+	it("does not consume the locator between a session-metadata commit and its history commit", async () => {
+		const frames = new Map<number, FrameRequestCallback>();
+		let nextFrame = 0;
+		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+			const id = ++nextFrame;
+			frames.set(id, callback);
+			return id;
+		});
+		vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+		useSessionStore.setState({ sessionFile: PATH });
+		useTranscriptFocusStore.getState().focus(PATH, "hit");
+		await mount(<TranscriptViewport mode="main" projection={projection([])} main={MAIN} />);
+		expect(useTranscriptFocusStore.getState().target?.entryId).toBe("hit");
+		// Capture only the metadata commit's callbacks. A real browser runs one
+		// frame batch at a time; draining a live collection would also execute
+		// virtualizer reconciliation frames added by scrollToIndex indefinitely.
+		const metadataFrames = [...frames.values()];
+		await act(async () => {
+			root?.render(<I18nProvider><TranscriptViewport mode="main"
+				projection={projection([prompt])} main={MAIN} /></I18nProvider>);
+		});
+		// Even a callback already dequeued before cancellation cannot consume
+		// the newer history commit's completed locator or publish a stale notice.
+		for (const frame of metadataFrames) frame(0);
+		expect(useTranscriptFocusStore.getState().target).toBeNull();
+		expect(useToastStore.getState().toasts).toHaveLength(0);
+		expect(container?.querySelector(".omp-row-found")).not.toBeNull();
+	});
+
+	it("waits for hydration and drops expired locators without a later surprise", async () => {
+		useSessionStore.setState({ sessionFile: PATH });
+		useTranscriptFocusStore.getState().focus(PATH, "hit");
+		await mount(<TranscriptViewport mode="main" projection={projection([prompt])}
+			main={{ ...MAIN, status: "starting" }} />);
+		expect(useTranscriptFocusStore.getState().target?.entryId).toBe("hit");
+		const requestedAt = useTranscriptFocusStore.getState().target!.requestedAt;
+		vi.spyOn(Date, "now").mockReturnValue(requestedAt + TRANSCRIPT_FOCUS_TTL_MS + 1);
+		await act(async () => {
+			root?.render(<I18nProvider><TranscriptViewport mode="main"
+				projection={projection([prompt])} main={MAIN} /></I18nProvider>);
+		});
+		expect(useTranscriptFocusStore.getState().target).toBeNull();
+		expect(container?.querySelector(".omp-row-found")).toBeNull();
+	});
+
+	it("clears the locate cue after its hold without repinning", async () => {
+		useSessionStore.setState({ sessionFile: PATH });
+		await mount(<TranscriptViewport mode="main" projection={projection([prompt])} main={MAIN} />);
+		vi.useFakeTimers();
+		await act(async () => { useTranscriptFocusStore.getState().focus(PATH, "hit"); });
+		expect(container?.querySelector(".omp-row-found")).not.toBeNull();
+		await act(async () => { await vi.advanceTimersByTimeAsync(1900); });
+		expect(container?.querySelector(".omp-row-found")).toBeNull();
+		expect(container?.querySelector("[aria-label='Jump to latest']")?.className).toContain("opacity-100");
+	});
+
+	it("locates only the owning local runtime when an SSH pane has the same file spelling", async () => {
+		useTabsStore.setState({
+			activeTabId: "ssh",
+			tabs: [
+				{ id: "local", cwd: "/same", kind: "agent", target: { type: "local" }, status: "ready", unreadDone: false },
+				{
+					id: "ssh", cwd: "/same", kind: "agent", status: "ready", unreadDone: false,
+					target: {
+						type: "ssh", hostAlias: "dev", cwd: "/same", originCwd: "/local",
+						host: { host: "example.com", sourceId: "dev", sourceLevel: "user" },
+					},
+				},
+			],
+		});
+		const local = ensureTabRuntime("local");
+		const ssh = ensureTabRuntime("ssh");
+		for (const runtime of [local, ssh]) {
+			sessionRuntimeStore<SessionStore>(runtime.tabId, "session")!.setState({ sessionFile: PATH });
+		}
+		setFocusedSessionRuntime("ssh");
+		useTranscriptFocusStore.getState().focus(PATH, "hit");
+		await mount(<>
+			<SessionRuntimeProvider runtime={ssh}><div data-pane="ssh">
+				<TranscriptViewport mode="main" projection={projection([prompt], "ssh")}
+					main={{ ...MAIN, tabId: "ssh" }} />
+			</div></SessionRuntimeProvider>
+			<SessionRuntimeProvider runtime={local}><div data-pane="local">
+				<TranscriptViewport mode="main" projection={projection([prompt], "local")}
+					main={{ ...MAIN, tabId: "local" }} />
+			</div></SessionRuntimeProvider>
+		</>);
+		expect(container?.querySelector('[data-pane="ssh"]')?.querySelector(".omp-row-found")).toBeNull();
+		expect(container?.querySelector('[data-pane="local"]')?.querySelector(".omp-row-found")).not.toBeNull();
+		expect(useTranscriptFocusStore.getState().target).toBeNull();
+	});
+});
+
+describe("search after cold-owner model consent", () => {
+	it("preserves a refused owner's selected projection, then reveals Main when it becomes live", async () => {
+		const path = "/sessions/cold-owner.jsonl";
+		useTabsStore.setState({
+			activeTabId: "cold-owner",
+			tabs: [{
+				id: "cold-owner", cwd: "/local", kind: "agent", target: { type: "local" },
+				status: "error", unreadDone: false, sessionPath: path,
+			}],
+		});
+		const runtime = ensureTabRuntime("cold-owner");
+		setFocusedSessionRuntime("cold-owner");
+		useSessionStore.setState({ sessionFile: path, sessionId: "cold-session", status: "ready" });
+		useMessagesStore.setState({
+			messages: [{ role: "user", entryId: "hit", content: "cold owner target", timestamp: 100 }],
+		});
+		useAgentViewStore.setState({ target: { kind: "subagent", id: "retained" } });
+		useTranscriptFocusStore.getState().focus(path, "hit");
+		await mount(<SessionRuntimeProvider runtime={runtime}><ChatCanvas /></SessionRuntimeProvider>);
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "subagent", id: "retained" });
+		expect(useTranscriptFocusStore.getState().target?.entryId).toBe("hit");
+		await act(async () => {
+			useTabsStore.setState(state => ({ tabs: state.tabs.map(tab => ({ ...tab, status: "ready" })) }));
+		});
+		expect(useAgentViewStore.getState().target).toEqual({ kind: "main" });
+		expect(container?.querySelector(".omp-row-found")?.textContent).toContain("cold owner target");
+		expect(useTranscriptFocusStore.getState().target).toBeNull();
 	});
 });

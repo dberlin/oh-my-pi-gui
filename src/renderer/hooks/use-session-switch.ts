@@ -2,6 +2,7 @@ import { createTabRpc } from "../lib/tab-rpc";
 import type { SessionStore } from "../stores/session";
 import {
 	focusedSessionRuntime,
+	onFocusedSessionRuntimeChange,
 	sessionRuntime,
 	sessionRuntimeStore,
 	withSessionRuntime,
@@ -20,7 +21,6 @@ import { useSubagentGraphStore } from "../stores/subagent-graph";
  */
 
 import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
-import { parseModelRestoreFailure, type SessionModelOverride } from "../../shared/model-restore";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { useAgentViewStore } from "../stores/agent-view";
@@ -28,7 +28,8 @@ import { useComposerStore } from "../stores/composer";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useForkHandoffStore } from "../stores/fork-handoff";
 import { useMessagesStore } from "../stores/messages";
-import { useModelStore } from "../stores/model";
+import { useModelRestoreStore, type ModelRestorePrompt, type SessionModelOverride } from "../stores/model-restore";
+import { type ModelStore, useModelStore } from "../stores/model";
 import { usePlanApprovalStore } from "../stores/plan-approval";
 import { useQueueStore } from "../stores/queue";
 import { useSessionStore } from "../stores/session";
@@ -140,30 +141,54 @@ export async function routeToSessionOwner(owner: IpcSessionOwner, sessionPath: s
 	return window.omp.sessions.openInNewWindow({ sessionPath });
 }
 
+/** Confirm only the exact current model offered for the still-working origin. */
+export async function confirmModelRestore(): Promise<boolean> {
+	const { prompt, busy } = useModelRestoreStore.getState();
+	if (!prompt || busy) return false;
+	if (!prompt.isCurrent()) {
+		useModelRestoreStore.getState().close();
+		toast({ variant: "warning", message: translate("modelRestore.stale") });
+		return false;
+	}
+	if (!prompt.currentModel) return false;
+	useModelRestoreStore.setState({ busy: true });
+	try {
+		const switched = await prompt.restore();
+		if (useModelRestoreStore.getState().prompt === prompt && switched) useModelRestoreStore.getState().close();
+		return switched;
+	} finally {
+		if (useModelRestoreStore.getState().prompt === prompt) useModelRestoreStore.setState({ busy: false });
+	}
+}
+
 /**
  * Run the switch immediately. The server aborts any in-flight turn
  * (`switchSession` → `abort({goalReason:"internal"})`) — this is NOT a
  * parallel session, it replaces the current one. Returns true when the
  * switch went through (false on RPC failure or extension-hook veto).
  *
- * `model` binds the session to that model instead of its saved one. Without
- * it, a session whose saved model is unavailable fails closed upstream; that
- * failure opens the ModelRestoreDialog instead of a dead-end error toast.
- *
  * F-OWN belt guard: when the file is already attached to a tab, route to the
  * owner instead of double-attaching. Main independently refuses raced
  * attaches with `session_owned_elsewhere` (handled below), so a failed
  * pre-check is safe to ignore.
  */
-export async function switchSessionNow(session: SessionInfo, model?: SessionModelOverride): Promise<boolean> {
+export async function switchSessionNow(
+	session: SessionInfo,
+	model?: SessionModelOverride,
+	expectedSessionId?: string,
+): Promise<boolean> {
 	const runtime = focusedSessionRuntime();
 	const originStore = runtime ? sessionRuntimeStore<SessionStore>(runtime.tabId, "session")! : useSessionStore;
 	const originSessionId = originStore.getState().sessionId;
 	const originTabId = runtime?.tabId ?? useTabsStore.getState().activeTabId;
 	const stillCurrent = () =>
-		!runtime || (sessionRuntime(runtime.tabId) === runtime && originStore.getState().sessionId === originSessionId);
+		originStore.getState().sessionId === originSessionId &&
+		(runtime
+			? sessionRuntime(runtime.tabId) === runtime
+			: useTabsStore.getState().activeTabId === originTabId && focusedSessionRuntime() === null);
 	try {
 		const owner = await window.omp.tabs.getSessionOwner(session.path);
+		if (!stillCurrent()) return false;
 		if (owner) return await routeToSessionOwner(owner, session.path);
 	} catch {
 		// Pre-check best-effort — the main-process refusal is the backstop.
@@ -177,7 +202,7 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 	const tabsState = useTabsStore.getState();
 	const activeTab = tabsState.tabs.find(tab => tab.id === originTabId);
 	if (activeTab && activeTab.kind !== fileKind) {
-		const tabId = await tabsState.openTab({ sessionPath: session.path, kind: fileKind });
+		const tabId = await tabsState.openTab({ cwd: session.cwd, sessionPath: session.path, kind: fileKind });
 		if (tabId !== null) {
 			// Explain the surprise: the user clicked expecting an in-place switch,
 			// but kinds never convert — the file opened in its own tab instead.
@@ -193,12 +218,78 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 	};
 	try {
 		const rpc = runtime ? createTabRpc(runtime.command) : window.omp.rpc;
-		const response = await (model ? rpc.switchSession(session.path, model) : rpc.switchSession(session.path));
+		const responsePromise = model
+			? rpc.switchSession(session.path, model, expectedSessionId)
+			: rpc.switchSession(session.path);
+		// runtime.command advances synchronously for this switch, before awaiting
+		// the transport. Capture OUR dispatch, not a newer context's generation.
+		const dispatchGeneration = runtime?.commandGeneration;
+		const response = await responsePromise;
 		if (!response.success) {
+			const ownsPending = originStore.getState().switchPending === pending;
 			clearPending();
-			const missingModel = model ? null : parseModelRestoreFailure(response.error);
+			if (!stillCurrent() || !ownsPending || (runtime && runtime.commandGeneration !== dispatchGeneration))
+				return false;
+			// RPC errors use Error.message; do not parse echoed CLI source or unrelated failures.
+			const missingModel = !model && /^Could not restore model ([^\s]+)$/.exec(response.error ?? "")?.[1];
 			if (missingModel) {
-				useUiStore.getState().requestModelRestore({ session, missingModel });
+				const modelStore = runtime ? sessionRuntimeStore<ModelStore>(runtime.tabId, "model")! : useModelStore;
+				const current = modelStore.getState().model;
+				const binding = current ? { provider: current.provider, modelId: current.id } : null;
+				let generation = dispatchGeneration;
+				const prompt: ModelRestorePrompt = {
+					session,
+					missingModel,
+					currentModel: binding,
+					currentLabel: current ? `${current.provider}/${current.id}` : null,
+					isCurrent: () => {
+						const liveModel = modelStore.getState().model;
+						return (
+							stillCurrent() &&
+							(runtime
+								? focusedSessionRuntime() === runtime && runtime.commandGeneration === generation
+								: true) &&
+							!originStore.getState().switchPending &&
+							!originStore.getState().isStreaming &&
+							!originStore.getState().isCompacting &&
+							(liveModel?.provider ?? null) === (current?.provider ?? null) &&
+							(liveModel?.id ?? null) === (current?.id ?? null)
+						);
+					},
+					subscribeOrigin: changed => {
+						const unsubscribers = [
+							originStore.subscribe(changed),
+							modelStore.subscribe(changed),
+							useTabsStore.subscribe(changed),
+							onFocusedSessionRuntimeChange(changed),
+						];
+						return () => {
+							for (const unsubscribe of unsubscribers) unsubscribe();
+						};
+					},
+					restore: async () => {
+						if (!binding || !prompt.isCurrent()) return false;
+						const attemptGeneration = runtime?.commandGeneration;
+						const switched = await (runtime
+							? withSessionRuntime(runtime.tabId, () => switchSessionNow(session, binding, originSessionId))
+							: switchSessionNow(session, binding, originSessionId));
+						// Our rejected switch advances the runtime command generation, but
+						// does not retire this target/history. A different mutation still does.
+						if (
+							!switched &&
+							runtime &&
+							stillCurrent() &&
+							attemptGeneration !== undefined &&
+							runtime.commandGeneration === attemptGeneration + 1
+						) {
+							generation = runtime.commandGeneration;
+						}
+						return switched;
+					},
+				};
+				useUiStore.getState().closeSessionSwitch();
+				useUiStore.getState().closeSessionPicker();
+				useModelRestoreStore.getState().request(prompt);
 				return false;
 			}
 			// Cross-kind switch guard: refuse agent ↔ chat switches.
